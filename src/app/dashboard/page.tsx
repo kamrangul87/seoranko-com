@@ -199,7 +199,7 @@ export default function DashboardPage() {
   function toggleKeyword(kw: string) {
     setSelectedKws((prev) => {
       const next = new Set(prev);
-      next.has(kw) ? next.delete(kw) : next.add(kw);
+      if (next.has(kw)) { next.delete(kw); } else { next.add(kw); }
       return next;
     });
   }
@@ -450,7 +450,7 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {keywords.map((kw, i) => (
+                      {keywords.map((kw) => (
                         <tr
                           key={kw.keyword}
                           className={`border-b border-[#1f1f1f] last:border-0 hover:bg-[#161616] transition-colors cursor-pointer ${
