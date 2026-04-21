@@ -36,11 +36,6 @@ export default function LandingPage() {
 
       {/* ── Hero ── */}
       <section className="max-w-7xl mx-auto px-6 pt-28 pb-24 text-center">
-        <div className="inline-flex items-center gap-2 bg-[#111111] border border-[#1f1f1f] rounded-full px-4 py-1.5 mb-8">
-          <span className="w-2 h-2 bg-[#f59e0b] rounded-full animate-pulse" />
-          <span className="text-xs text-[#6b7280] font-medium tracking-wide uppercase">Powered by Claude AI · DataForSEO</span>
-        </div>
-
         <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight leading-[1.06] mb-6 max-w-4xl mx-auto">
           AI-Powered SEO Content<br />
           <span className="text-[#f59e0b]">That Actually Ranks</span>
@@ -100,7 +95,7 @@ export default function LandingPage() {
                 </svg>
               ),
               title: "Keyword Research",
-              desc: "Pull live search volume, KD, CPC and intent from DataForSEO. Filter UK, US or global markets instantly.",
+              desc: "Pull live search volume, KD, CPC and intent data. Filter UK, US or global markets instantly.",
               bullets: ["Real-time search volume", "Keyword difficulty (0–100)", "CPC & intent signals", "6-month trend data"],
             },
             {
@@ -111,7 +106,7 @@ export default function LandingPage() {
               ),
               badge: "Popular",
               title: "AI Article Generator",
-              desc: "Claude writes long-form content that reads like an expert wrote it — varied structure, real examples, no filler phrases.",
+              desc: "Our AI writes long-form content that reads like an expert wrote it — varied structure, real examples, no filler phrases.",
               bullets: ["3-pass research + writing", "SEO title & meta included", "Readability & EEAT scores", "Keyword density control"],
             },
             {
@@ -164,7 +159,7 @@ export default function LandingPage() {
             {[
               { step: "01", title: "Research Keywords", desc: "Enter a seed topic. Get 11 keyword variations with volume, KD, CPC and intent — filtered by your target market." },
               { step: "02", title: "Cluster by Intent", desc: "One click groups keywords into informational, commercial and transactional clusters with opportunity scores." },
-              { step: "03", title: "Generate Article", desc: "Pick a cluster, set word count and tone. Claude runs a research pass then writes a full EEAT article with scores." },
+              { step: "03", title: "Generate Article", desc: "Pick a cluster, set word count and tone. The AI runs a research pass then writes a full EEAT article with scores." },
             ].map(({ step, title, desc }) => (
               <div key={step} className="text-center relative">
                 <div className="w-12 h-12 bg-[#0a0a0a] border border-[#f59e0b]/40 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -185,31 +180,46 @@ export default function LandingPage() {
           <p className="text-[#6b7280] max-w-md mx-auto text-sm">All plans include keyword research, AI clustering, and EEAT scoring.</p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-5 max-w-5xl mx-auto">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 max-w-6xl mx-auto">
           {[
+            {
+              name: "Free",
+              price: "£0",
+              priceSuffix: "/mo forever",
+              tagline: "Try it, no card needed",
+              features: ["1 keyword search/day", "200 word articles", "1 AI cluster/day", "EEAT scoring", "No credit card required"],
+              highlighted: false,
+              cta: "Start Free",
+            },
             {
               name: "Starter",
               price: "£19",
+              priceSuffix: "/mo",
               tagline: "Solo creators & bloggers",
               features: ["50 keyword searches/mo", "10 AI articles/mo", "UK & US markets", "EEAT scoring", "Email support"],
               highlighted: false,
+              cta: "Get Started",
             },
             {
               name: "Pro",
               price: "£49",
+              priceSuffix: "/mo",
               tagline: "Content teams & agencies",
               features: ["Unlimited keyword searches", "50 AI articles/mo", "Global market data", "AI keyword clustering", "Priority support", "API access"],
               highlighted: true,
               badge: "Most Popular",
+              cta: "Get Started",
             },
             {
               name: "Agency",
               price: "£99",
+              priceSuffix: "/mo",
               tagline: "Large teams & enterprises",
               features: ["Unlimited everything", "Unlimited AI articles", "White-label reports", "Custom EEAT templates", "Dedicated account manager", "SLA guarantee"],
               highlighted: false,
+              cta: "Get Started",
             },
-          ].map(({ name, price, tagline, features, highlighted, badge }) => (
+          ].map(({ name, price, priceSuffix, tagline, features, highlighted, badge, cta }) => (
             <div
               key={name}
               className={`bg-[#111111] rounded-[10px] p-8 relative ${
@@ -227,7 +237,7 @@ export default function LandingPage() {
               <p className="text-[#6b7280] text-xs mb-6">{tagline}</p>
               <div className="mb-8">
                 <span className="text-4xl font-extrabold">{price}</span>
-                <span className="text-[#6b7280] text-sm">/mo</span>
+                <span className="text-[#6b7280] text-sm">{priceSuffix}</span>
               </div>
               <ul className="space-y-3 mb-8">
                 {features.map((f) => (
@@ -247,7 +257,7 @@ export default function LandingPage() {
                     : "border border-[#2a2a2a] hover:border-[#f59e0b] text-[#fafafa]"
                 }`}
               >
-                Get Started
+                {cta}
               </Link>
             </div>
           ))}

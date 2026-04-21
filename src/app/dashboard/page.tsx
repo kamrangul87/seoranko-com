@@ -863,9 +863,9 @@ export default function DashboardPage() {
             <h1 className="text-2xl font-bold mb-8">Settings</h1>
             <div className="space-y-4">
               {[
-                { label: "DataForSEO Email", key: "DATAFORSEO_EMAIL", placeholder: "your@email.com" },
-                { label: "DataForSEO Password", key: "DATAFORSEO_PASSWORD", placeholder: "••••••••", type: "password" },
-                { label: "Anthropic API Key", key: "ANTHROPIC_API_KEY", placeholder: "sk-ant-••••••••", type: "password" },
+                { label: "Keyword API Email", key: "DATAFORSEO_EMAIL", placeholder: "your@email.com" },
+                { label: "Keyword API Password", key: "DATAFORSEO_PASSWORD", placeholder: "••••••••", type: "password" },
+                { label: "AI API Key", key: "ANTHROPIC_API_KEY", placeholder: "sk-••••••••", type: "password" },
               ].map(({ label, key, placeholder, type = "text" }) => (
                 <div key={key} className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-5">
                   <label className="text-sm font-medium block mb-1">{label}</label>
