@@ -42,6 +42,23 @@ function generateKeywordVariations(seed: string): string[] {
   ];
 }
 
+// DataForSEO item shape returned by the search_volume/live endpoint
+interface DfsItem {
+  keyword: string;
+  search_volume: number | null;
+  competition_index: number | null;  // 0-100 integer
+  keyword_difficulty: number | null; // 0-100 integer (present on some endpoints)
+  cpc: number | null;
+  monthly_searches?: { search_volume: number | null }[];
+}
+
+function parseKd(item: DfsItem): number {
+  // competition_index is already 0-100 — do NOT multiply.
+  // keyword_difficulty is also 0-100 (available on labs endpoints).
+  const raw = item.keyword_difficulty ?? item.competition_index ?? 0;
+  return Math.min(100, Math.max(0, Math.round(raw ?? 0)));
+}
+
 export async function fetchKeywords(keyword: string, country: string): Promise<KeywordResult[]> {
   const keywords = generateKeywordVariations(keyword);
   const locationCode = getLocationCode(country);
@@ -74,24 +91,16 @@ export async function fetchKeywords(keyword: string, country: string): Promise<K
     throw new Error(tasks?.status_message || "DataForSEO returned no data");
   }
 
-  const items: KeywordResult[] = (tasks.result || []).map(
-    (item: {
-      keyword: string;
-      search_volume: number;
-      competition_index: number;
-      cpc: number;
-      monthly_searches?: { search_volume: number }[];
-    }) => ({
-      keyword: item.keyword,
-      volume: item.search_volume ?? 0,
-      kd: Math.round((item.competition_index ?? 0) * 100),
-      cpc: parseFloat((item.cpc ?? 0).toFixed(2)),
-      intent: inferIntent(item.keyword),
-      trend: (item.monthly_searches ?? []).slice(-6).map(
-        (m: { search_volume: number }) => m.search_volume ?? 0
-      ),
-    })
-  );
+  const items: KeywordResult[] = (tasks.result || []).map((item: DfsItem) => ({
+    keyword: item.keyword,
+    volume: item.search_volume ?? 0,
+    kd: parseKd(item),
+    cpc: parseFloat(((item.cpc ?? 0)).toFixed(2)),
+    intent: inferIntent(item.keyword),
+    trend: (item.monthly_searches ?? []).slice(-6).map(
+      (m) => m.search_volume ?? 0
+    ),
+  }));
 
   return items.sort((a, b) => b.volume - a.volume);
 }

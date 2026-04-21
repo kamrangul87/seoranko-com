@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callClaude, parseJsonResponse } from "@/lib/anthropic";
+import { isMasterSession } from "@/lib/master-auth";
 import type { ArticleRequest, ResearchBrief, ArticleOutput } from "@/types";
 
 // ── Call 1: Research brief ────────────────────────────────────────────────────
@@ -83,11 +84,23 @@ ${article}`;
 
 export async function POST(req: NextRequest) {
   try {
+    const master = isMasterSession();
     const body: ArticleRequest = await req.json();
-    const { keyword, cluster, wordCount = 1500, tone = "professional", audience = "general readers", country = "UK" } = body;
+    const { keyword, cluster, tone = "professional", audience = "general readers", country = "UK" } = body;
+    let { wordCount = 1500 } = body;
 
     if (!keyword) {
       return NextResponse.json({ error: "keyword is required" }, { status: 400 });
+    }
+
+    // Rate-limit enforcement goes here — master session bypasses all limits.
+    // if (!master && monthlyArticleUsageExceeded()) {
+    //   return NextResponse.json({ error: "Monthly article limit reached" }, { status: 429 });
+    // }
+
+    // Free plan caps word count at 200 — master account has no cap.
+    if (!master) {
+      wordCount = Math.min(wordCount, 200);
     }
 
     const intent = cluster?.intent ?? "informational";
@@ -97,7 +110,7 @@ export async function POST(req: NextRequest) {
     const articleText = await writeArticle(keyword, research, wordCount, tone, audience, country);
     const articleOutput = await reviewArticle(articleText, keyword);
 
-    return NextResponse.json({ research, article: articleOutput });
+    return NextResponse.json({ research, article: articleOutput, master });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unexpected error";
     console.error("[article] error:", message);

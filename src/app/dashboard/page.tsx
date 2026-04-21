@@ -60,9 +60,9 @@ const NAV_ITEMS: NavItem[] = [
 
 function KdBadge({ kd }: { kd: number }) {
   const color =
-    kd < 35 ? "text-[#22c55e] bg-[#22c55e]/10" :
-    kd < 55 ? "text-[#f59e0b] bg-[#f59e0b]/10" :
-              "text-[#ef4444] bg-[#ef4444]/10";
+    kd <= 35 ? "text-[#22c55e] bg-[#22c55e]/10" :
+    kd <= 55 ? "text-[#f59e0b] bg-[#f59e0b]/10" :
+               "text-[#ef4444] bg-[#ef4444]/10";
   return (
     <span className={`inline-block px-2 py-0.5 rounded-[6px] text-xs font-semibold ${color}`}>
       {kd}
@@ -860,24 +860,80 @@ export default function DashboardPage() {
         {/* ── SETTINGS view ── */}
         {activeNav === "settings" && (
           <div className="max-w-2xl mx-auto px-8 py-8">
-            <h1 className="text-2xl font-bold mb-8">Settings</h1>
-            <div className="space-y-4">
-              {[
-                { label: "Keyword API Email", key: "DATAFORSEO_EMAIL", placeholder: "your@email.com" },
-                { label: "Keyword API Password", key: "DATAFORSEO_PASSWORD", placeholder: "••••••••", type: "password" },
-                { label: "AI API Key", key: "ANTHROPIC_API_KEY", placeholder: "sk-••••••••", type: "password" },
-              ].map(({ label, key, placeholder, type = "text" }) => (
-                <div key={key} className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-5">
-                  <label className="text-sm font-medium block mb-1">{label}</label>
-                  <p className="text-[#6b7280] text-xs mb-3">Set via <code className="bg-[#0a0a0a] px-1.5 py-0.5 rounded text-[#f59e0b]">{key}</code> environment variable</p>
+            <h1 className="text-2xl font-bold mb-2">Account</h1>
+            <p className="text-[#6b7280] text-sm mb-8">Manage your profile and subscription.</p>
+
+            {/* Profile */}
+            <div className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-6 mb-5">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-[#6b7280] mb-5">Profile</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">Display Name</label>
                   <input
-                    type={type}
-                    placeholder={placeholder}
-                    disabled
-                    className="w-full bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-3 py-2 text-sm text-[#6b7280] cursor-not-allowed"
+                    type="text"
+                    defaultValue="My Account"
+                    className="w-full bg-[#0a0a0a] border border-[#1f1f1f] focus:border-[#f59e0b] outline-none rounded-[8px] px-3 py-2.5 text-sm text-[#fafafa] transition-colors"
                   />
                 </div>
-              ))}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">Email</label>
+                  <input
+                    type="email"
+                    defaultValue="user@example.com"
+                    readOnly
+                    className="w-full bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-3 py-2.5 text-sm text-[#6b7280] cursor-not-allowed"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Plan */}
+            <div className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-6 mb-5">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-[#6b7280] mb-5">Subscription</h2>
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <p className="text-sm font-medium mb-0.5">Current Plan</p>
+                  <span className="inline-flex items-center gap-1.5 bg-[#f59e0b]/10 text-[#f59e0b] text-xs font-bold px-2.5 py-1 rounded-full uppercase tracking-wide">
+                    Free
+                  </span>
+                </div>
+                <button className="bg-[#f59e0b] hover:bg-[#d97706] text-[#0a0a0a] font-semibold text-sm px-5 py-2.5 rounded-[10px] transition-colors">
+                  Upgrade Plan
+                </button>
+              </div>
+              <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] p-4 text-xs text-[#6b7280]">
+                Upgrade to <span className="text-[#fafafa] font-medium">Starter £19/mo</span> for 50 keyword searches and 10 articles per month.
+              </div>
+            </div>
+
+            {/* Usage */}
+            <div className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-6">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-[#6b7280] mb-5">Usage This Month</h2>
+              <div className="space-y-5">
+                {[
+                  { label: "Keyword Searches", used: 1, limit: 1, unit: "searches/day" },
+                  { label: "AI Articles", used: 0, limit: 1, unit: "article" },
+                  { label: "AI Clusters", used: 0, limit: 1, unit: "cluster/day" },
+                ].map(({ label, used, limit, unit }) => {
+                  const pct = Math.min(100, Math.round((used / limit) * 100));
+                  const barColor = pct >= 100 ? "#ef4444" : pct >= 75 ? "#f59e0b" : "#22c55e";
+                  return (
+                    <div key={label}>
+                      <div className="flex justify-between items-center mb-1.5">
+                        <span className="text-sm font-medium">{label}</span>
+                        <span className="text-xs text-[#6b7280]">{used} / {limit} {unit}</span>
+                      </div>
+                      <div className="h-1.5 bg-[#0a0a0a] rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{ width: `${pct}%`, backgroundColor: barColor }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-[#6b7280] text-xs mt-5">Usage resets daily at midnight UTC.</p>
             </div>
           </div>
         )}
