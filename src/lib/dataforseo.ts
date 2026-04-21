@@ -11,9 +11,9 @@ export function getAuthHeader(): string {
 
 export function getLocationCode(country: string): number {
   switch (country) {
-    case "UK": return 2826;
-    case "US": return 2840;
-    default:   return 2840; // Global defaults to US for volume data
+    case "UK":  return 2826;
+    case "US":  return 2840;
+    default:    return 2840;
   }
 }
 
@@ -39,68 +39,108 @@ function generateKeywordVariations(seed: string): string[] {
     `${base} strategy`,
     `${base} 2025`,
     `what is ${base}`,
+    `${base} vs`,
+    `${base} tutorial`,
+    `${base} checklist`,
+    `${base} mistakes`,
+    `${base} benefits`,
+    `${base} cost`,
+    `${base} review`,
+    `${base} software`,
+    `${base} services`,
   ];
 }
 
-// DataForSEO item shape returned by the search_volume/live endpoint
-interface DfsItem {
+// ── Response shapes ───────────────────────────────────────────────────────────
+
+interface VolumeItem {
   keyword: string;
   search_volume: number | null;
-  competition_index: number | null;  // 0-100 integer
-  keyword_difficulty: number | null; // 0-100 integer (present on some endpoints)
   cpc: number | null;
-  monthly_searches?: { search_volume: number | null }[];
+  monthly_searches?: { search_volume: number | null; year: number; month: number }[];
 }
 
-function parseKd(item: DfsItem): number {
-  // competition_index is already 0-100 — do NOT multiply.
-  // keyword_difficulty is also 0-100 (available on labs endpoints).
-  const raw = item.keyword_difficulty ?? item.competition_index ?? 0;
-  return Math.min(100, Math.max(0, Math.round(raw ?? 0)));
+interface DifficultyItem {
+  keyword: string;
+  keyword_difficulty: number | null;
 }
+
+// ── API calls ─────────────────────────────────────────────────────────────────
+
+async function fetchSearchVolume(
+  keywords: string[],
+  locationCode: number
+): Promise<VolumeItem[]> {
+  const res = await fetch(`${BASE_URL}/keywords_data/google_ads/search_volume/live`, {
+    method: "POST",
+    headers: { Authorization: getAuthHeader(), "Content-Type": "application/json" },
+    body: JSON.stringify([{ keywords, location_code: locationCode, language_code: "en" }]),
+  });
+
+  if (!res.ok) throw new Error(`Volume API error: ${res.status} ${res.statusText}`);
+
+  const data = await res.json();
+  const task = data?.tasks?.[0];
+  if (!task || task.status_code !== 20000) {
+    throw new Error(task?.status_message || "DataForSEO volume: no data");
+  }
+  return (task.result ?? []) as VolumeItem[];
+}
+
+async function fetchKeywordDifficulty(
+  keywords: string[],
+  locationCode: number
+): Promise<Map<string, number>> {
+  const res = await fetch(`${BASE_URL}/dataforseo_labs/google/bulk_keyword_difficulty/live`, {
+    method: "POST",
+    headers: { Authorization: getAuthHeader(), "Content-Type": "application/json" },
+    body: JSON.stringify([{ keywords, location_code: locationCode, language_code: "en" }]),
+  });
+
+  if (!res.ok) throw new Error(`KD API error: ${res.status} ${res.statusText}`);
+
+  const data = await res.json();
+  const task = data?.tasks?.[0];
+  if (!task || task.status_code !== 20000) {
+    // KD endpoint may not be available on all plans — return empty map gracefully
+    console.warn("[dataforseo] KD endpoint:", task?.status_message ?? "no data");
+    return new Map();
+  }
+
+  const map = new Map<string, number>();
+  for (const item of (task.result ?? []) as DifficultyItem[]) {
+    if (item.keyword && item.keyword_difficulty != null) {
+      map.set(item.keyword, Math.min(100, Math.max(0, Math.round(item.keyword_difficulty))));
+    }
+  }
+  return map;
+}
+
+// ── Public entry point ────────────────────────────────────────────────────────
 
 export async function fetchKeywords(keyword: string, country: string): Promise<KeywordResult[]> {
   const keywords = generateKeywordVariations(keyword);
   const locationCode = getLocationCode(country);
+  const auth = getAuthHeader(); // validate credentials once before parallel calls
+  void auth;
 
-  const response = await fetch(
-    `${BASE_URL}/keywords_data/google_ads/search_volume/live`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: getAuthHeader(),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify([
-        {
-          keywords,
-          location_code: locationCode,
-          language_code: "en",
-        },
-      ]),
-    }
-  );
+  // Run both API calls in parallel
+  const [volumeItems, kdMap] = await Promise.all([
+    fetchSearchVolume(keywords, locationCode),
+    fetchKeywordDifficulty(keywords, locationCode),
+  ]);
 
-  if (!response.ok) {
-    throw new Error(`DataForSEO API error: ${response.status} ${response.statusText}`);
-  }
-
-  const data = await response.json();
-  const tasks = data?.tasks?.[0];
-  if (!tasks || tasks.status_code !== 20000) {
-    throw new Error(tasks?.status_message || "DataForSEO returned no data");
-  }
-
-  const items: KeywordResult[] = (tasks.result || []).map((item: DfsItem) => ({
+  const results: KeywordResult[] = volumeItems.map((item) => ({
     keyword: item.keyword,
     volume: item.search_volume ?? 0,
-    kd: parseKd(item),
-    cpc: parseFloat(((item.cpc ?? 0)).toFixed(2)),
+    kd: kdMap.get(item.keyword) ?? 0,
+    cpc: parseFloat((item.cpc ?? 0).toFixed(2)),
     intent: inferIntent(item.keyword),
-    trend: (item.monthly_searches ?? []).slice(-6).map(
-      (m) => m.search_volume ?? 0
-    ),
+    trend: (item.monthly_searches ?? [])
+      .sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month)
+      .slice(-6)
+      .map((m) => m.search_volume ?? 0),
   }));
 
-  return items.sort((a, b) => b.volume - a.volume);
+  return results.sort((a, b) => b.volume - a.volume);
 }
