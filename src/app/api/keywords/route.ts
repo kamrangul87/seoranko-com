@@ -1,141 +1,97 @@
-import { NextRequest, NextResponse } from "next/server";
-import { isMasterSession } from "@/lib/master-auth";
-import type { KeywordResult, SearchIntent } from "@/types";
+import { NextRequest, NextResponse } from 'next/server'
 
-const BASE = "https://api.dataforseo.com/v3/dataforseo_labs/google";
-
-function getAuth(): string {
-  return Buffer.from(
-    `${process.env.DATAFORSEO_EMAIL}:${process.env.DATAFORSEO_PASSWORD}`
-  ).toString("base64");
-}
-
-function locationCode(country: string): number {
-  return country === "US" ? 2840 : 2826;
-}
-
-function normaliseIntent(raw: string | null | undefined): SearchIntent {
-  const v = (raw ?? "").toLowerCase();
-  if (v === "commercial" || v === "transactional" || v === "navigational")
-    return v as SearchIntent;
-  return "informational";
-}
-
-// ── Suggestions item (seed call) ──────────────────────────────────────────────
-
-interface SuggestionsItem {
-  keyword: string;
-  keyword_info?: {
-    search_volume?: number | null;
-    cpc?: number | null;
-    monthly_searches?: { search_volume?: number | null }[];
-  };
-  keyword_properties?: { keyword_difficulty?: number | null };
-  search_intent_info?: { main_intent?: string | null };
-}
-
-// ── Ideas item (related keywords call) ───────────────────────────────────────
-
-interface IdeasItem {
-  keyword: string;
-  keyword_data?: {
-    keyword_info?: {
-      search_volume?: number | null;
-      cpc?: number | null;
-      monthly_searches?: { search_volume?: number | null; year: number; month: number }[];
-    };
-    keyword_difficulty?: number | null;
-    search_intent?: { main_intent?: string | null };
-  };
-}
-
-function normIdea(item: IdeasItem): KeywordResult {
-  const info = item.keyword_data?.keyword_info ?? {};
-  return {
-    keyword: item.keyword,
-    volume: info.search_volume ?? 0,
-    kd: Math.min(100, Math.max(0, Math.round(item.keyword_data?.keyword_difficulty ?? 0))),
-    cpc: parseFloat(((info.cpc ?? 0) as number).toFixed(2)),
-    intent: normaliseIntent(item.keyword_data?.search_intent?.main_intent),
-    trend: (info.monthly_searches ?? [])
-      .sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month)
-      .slice(-6)
-      .map((m) => m.search_volume ?? 0),
-  };
-}
-
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    const master = isMasterSession();
-    const body = await req.json();
-    const { keyword, country = "UK" } = body as { keyword: string; country?: string };
+    const { keyword, country } = await request.json()
+    const locationCode = country === 'US' ? 2840 : 2826
+    const auth = Buffer.from(
+      `${process.env.DATAFORSEO_EMAIL}:${process.env.DATAFORSEO_PASSWORD}`
+    ).toString('base64')
 
-    if (!keyword || typeof keyword !== "string" || !keyword.trim()) {
-      return NextResponse.json({ error: "keyword is required" }, { status: 400 });
+    const headers = {
+      'Authorization': `Basic ${auth}`,
+      'Content-Type': 'application/json'
     }
 
-    const auth = getAuth();
-    const loc = locationCode(country);
-    const seed = keyword.trim().toLowerCase();
-
-    const headers = { Authorization: `Basic ${auth}`, "Content-Type": "application/json" };
-
-    // Run seed lookup and ideas in parallel
-    const [seedRes, ideasRes] = await Promise.all([
-      fetch(`${BASE}/keyword_suggestions/live`, {
-        method: "POST",
+    // Call 1: Get seed keyword data + suggestions
+    const suggestionsRes = await fetch(
+      'https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_suggestions/live',
+      {
+        method: 'POST',
         headers,
         body: JSON.stringify([{
-          keyword: seed,
-          location_code: loc,
-          language_code: "en",
-          limit: 1,
-          include_seed_keyword: true,
-        }]),
-      }),
-      fetch(`${BASE}/keyword_ideas/live`, {
-        method: "POST",
+          keyword: keyword,
+          location_code: locationCode,
+          language_code: 'en',
+          limit: 50,
+          include_seed_keyword: true
+        }])
+      }
+    )
+    const suggestionsData = await suggestionsRes.json()
+    const suggestions = suggestionsData?.tasks?.[0]?.result?.[0]?.items || []
+
+    // Call 2: Get keyword ideas
+    const ideasRes = await fetch(
+      'https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_ideas/live',
+      {
+        method: 'POST',
         headers,
         body: JSON.stringify([{
-          keyword: seed,
-          location_code: loc,
-          language_code: "en",
-          limit: 99,
-        }]),
-      }),
-    ]);
+          keyword: keyword,
+          location_code: locationCode,
+          language_code: 'en',
+          limit: 50
+        }])
+      }
+    )
+    const ideasData = await ideasRes.json()
+    const ideas = ideasData?.tasks?.[0]?.result?.[0]?.items || []
 
-    const [seedData, ideasData] = await Promise.all([seedRes.json(), ideasRes.json()]);
+    // Parse suggestions
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parsedSuggestions = suggestions.map((item: any) => ({
+      keyword: item.keyword,
+      volume: item.keyword_info?.search_volume || 0,
+      kd: item.keyword_properties?.keyword_difficulty || 0,
+      cpc: item.keyword_info?.cpc || 0,
+      intent: item.search_intent_info?.main_intent || 'informational',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      trend: item.keyword_info?.monthly_searches?.map((m: any) => m.search_volume) || []
+    }))
 
-    console.log("[keywords] seed status:", seedData?.tasks?.[0]?.status_code);
-    console.log("[keywords] ideas status:", ideasData?.tasks?.[0]?.status_code);
+    // Parse ideas
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parsedIdeas = ideas.map((item: any) => ({
+      keyword: item.keyword,
+      volume: item.keyword_info?.search_volume || 0,
+      kd: item.keyword_properties?.keyword_difficulty || 0,
+      cpc: item.keyword_info?.cpc || 0,
+      intent: item.search_intent_info?.main_intent || 'informational',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      trend: item.keyword_info?.monthly_searches?.map((m: any) => m.search_volume) || []
+    }))
 
-    // Build seed item from suggestions response
-    const rawSeed: SuggestionsItem | undefined = seedData?.tasks?.[0]?.result?.[0]?.items?.[0];
-    const seedItem: KeywordResult = {
-      keyword: seed,
-      volume: rawSeed?.keyword_info?.search_volume ?? 0,
-      kd: Math.min(100, Math.max(0, Math.round(rawSeed?.keyword_properties?.keyword_difficulty ?? 0))),
-      cpc: parseFloat(((rawSeed?.keyword_info?.cpc ?? 0) as number).toFixed(2)),
-      intent: normaliseIntent(rawSeed?.search_intent_info?.main_intent),
-      trend: rawSeed?.keyword_info?.monthly_searches?.map((m) => m.search_volume ?? 0) ?? [],
-    };
+    // Merge and deduplicate
+    const allKeywords = [...parsedSuggestions, ...parsedIdeas]
+    const seen = new Set()
+    const unique = allKeywords.filter(item => {
+      if (seen.has(item.keyword)) return false
+      seen.add(item.keyword)
+      return true
+    })
 
-    // Parse ideas and remove duplicates of seed
-    const ideasItems: IdeasItem[] = ideasData?.tasks?.[0]?.result?.[0]?.items ?? [];
-    const ideas = ideasItems
-      .map(normIdea)
-      .filter((item) => item.keyword.toLowerCase().trim() !== seed);
+    // Sort: seed keyword first, then by volume
+    const sorted = unique.sort((a, b) => {
+      if (a.keyword.toLowerCase() === keyword.toLowerCase()) return -1
+      if (b.keyword.toLowerCase() === keyword.toLowerCase()) return 1
+      return b.volume - a.volume
+    })
 
-    // Sort ideas by volume desc, then prepend seed as row 0
-    ideas.sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
-    const keywords = [seedItem, ...ideas];
+    return NextResponse.json({ keywords: sorted })
 
-    console.log(`[keywords] returning ${keywords.length} keywords (1 seed + ${ideas.length} ideas)`);
-    return NextResponse.json({ keywords, master });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unexpected error";
-    console.error("[keywords] error:", message);
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch (error) {
+    console.error('Keywords API error:', error)
+    return NextResponse.json({ error: 'Failed to fetch keywords' }, { status: 500 })
   }
 }
