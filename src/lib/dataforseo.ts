@@ -63,6 +63,7 @@ export async function fetchKeywords(keyword: string, country: string): Promise<K
       location_code: locationCode,
       language_code: "en",
       limit: 20,
+      include_seed_keyword: true,
     }]),
   });
 
