@@ -157,13 +157,17 @@ export default function DashboardPage() {
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [clusterLoading, setClusterLoading] = useState(false);
   const [selectedCluster, setSelectedCluster] = useState<Cluster | null>(null);
+  const [editingCluster, setEditingCluster] = useState<string | null>(null);
+  const [clusterEdits, setClusterEdits] = useState<Record<string, string[]>>({});
+  const [newKwInputs, setNewKwInputs] = useState<Record<string, string>>({});
 
   // Article settings
-  const [wordCount, setWordCount] = useState(1500);
+  const [wordCount, setWordCount] = useState(1000);
   const [tone, setTone] = useState<Tone>("professional");
   const [audience, setAudience] = useState("marketing professionals");
   const [articleLoading, setArticleLoading] = useState(false);
   const [articleStage, setArticleStage] = useState("");
+  const [articleProgress, setArticleProgress] = useState(0);
   const [research, setResearch] = useState<ResearchBrief | null>(null);
   const [article, setArticle] = useState<ArticleOutput | null>(null);
 
@@ -225,21 +229,55 @@ export default function DashboardPage() {
     }
   }
 
+  // ── Cluster editing helpers ───────────────────────────────────────────────
+  function getClusterKeywords(cluster: Cluster): string[] {
+    return clusterEdits[cluster.name] ?? cluster.keywords;
+  }
+
+  function addKeywordToCluster(clusterName: string) {
+    const input = (newKwInputs[clusterName] ?? "").trim();
+    if (!input) return;
+    const current = clusterEdits[clusterName] ?? (clusters.find((c) => c.name === clusterName)?.keywords ?? []);
+    if (!current.includes(input)) {
+      setClusterEdits((prev) => ({ ...prev, [clusterName]: [...current, input] }));
+    }
+    setNewKwInputs((prev) => ({ ...prev, [clusterName]: "" }));
+  }
+
+  function removeKeywordFromCluster(clusterName: string, kw: string) {
+    const current = clusterEdits[clusterName] ?? (clusters.find((c) => c.name === clusterName)?.keywords ?? []);
+    setClusterEdits((prev) => ({ ...prev, [clusterName]: current.filter((k) => k !== kw) }));
+  }
+
   // ── Article generation ────────────────────────────────────────────────────
   async function handleGenerateArticle() {
-    const kw = selectedCluster?.keywords?.[0] ?? seedKeyword;
+    const editedKws = selectedCluster ? getClusterKeywords(selectedCluster) : null;
+    const kw = editedKws?.[0] ?? seedKeyword;
     if (!kw) return;
     setArticleLoading(true);
     setArticle(null);
     setResearch(null);
     setArticleStage("Connecting…");
+    setArticleProgress(5);
+
+    // Fake progress timer — increments toward stage caps until SSE updates take over
+    const progressRef = { value: 5 };
+    const progressTimer = setInterval(() => {
+      progressRef.value = Math.min(progressRef.value + 0.6, 88);
+      setArticleProgress(Math.round(progressRef.value));
+    }, 600);
+
+    const clusterToSend = selectedCluster
+      ? { ...selectedCluster, keywords: editedKws ?? selectedCluster.keywords }
+      : null;
+
     try {
       const res = await fetch("/api/article", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           keyword: kw,
-          cluster: selectedCluster,
+          cluster: clusterToSend,
           wordCount,
           tone,
           audience,
@@ -265,9 +303,17 @@ export default function DashboardPage() {
         for (const part of parts) {
           if (!part.startsWith("data: ")) continue;
           const data = JSON.parse(part.slice(6));
-          if (data.stage) setArticleStage(data.stage);
+          if (data.stage) {
+            setArticleStage(data.stage);
+            // Map known stages to progress targets
+            if (data.stage.startsWith("Writing your")) { progressRef.value = Math.max(progressRef.value, 20); setArticleProgress(20); }
+            if (data.stage.startsWith("Writing…"))     { progressRef.value = Math.max(progressRef.value, 40); }
+            if (data.stage.startsWith("Finalising"))   { progressRef.value = 90; setArticleProgress(90); }
+          }
           if (data.error) throw new Error(data.error);
           if (data.done) {
+            clearInterval(progressTimer);
+            setArticleProgress(100);
             setResearch(data.research);
             setArticle(data.article);
             setActiveNav("articles");
@@ -275,10 +321,12 @@ export default function DashboardPage() {
         }
       }
     } catch (e) {
+      clearInterval(progressTimer);
       alert(e instanceof Error ? e.message : "Article generation failed");
     } finally {
       setArticleLoading(false);
       setArticleStage("");
+      setTimeout(() => setArticleProgress(0), 800);
     }
   }
 
@@ -511,38 +559,81 @@ export default function DashboardPage() {
                   <p className="text-[#6b7280] text-sm">Select a cluster to generate an article</p>
                 </div>
                 <div className="grid md:grid-cols-3 gap-4">
-                  {clusters.map((cluster) => (
-                    <div
-                      key={cluster.name}
-                      onClick={() => setSelectedCluster(cluster)}
-                      className={`bg-[#111111] border rounded-[10px] p-5 cursor-pointer transition-all hover:border-[#f59e0b]/40 ${
-                        selectedCluster?.name === cluster.name
-                          ? "border-[#f59e0b] shadow-lg shadow-amber-500/10"
-                          : "border-[#1f1f1f]"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <p className="font-semibold text-sm">{cluster.name}</p>
-                          <IntentBadge intent={cluster.intent} />
+                  {clusters.map((cluster) => {
+                    const isSelected = selectedCluster?.name === cluster.name;
+                    const isEditing = editingCluster === cluster.name;
+                    const kws = getClusterKeywords(cluster);
+                    return (
+                      <div
+                        key={cluster.name}
+                        className={`bg-[#111111] border rounded-[10px] p-5 transition-all ${
+                          isSelected ? "border-[#f59e0b] shadow-lg shadow-amber-500/10" : "border-[#1f1f1f] hover:border-[#f59e0b]/40"
+                        }`}
+                      >
+                        {/* Header row */}
+                        <div className="flex items-start justify-between mb-3">
+                          <div
+                            className="flex-1 cursor-pointer"
+                            onClick={() => { setSelectedCluster(cluster); setEditingCluster(null); }}
+                          >
+                            <p className="font-semibold text-sm mb-1">{cluster.name}</p>
+                            <IntentBadge intent={cluster.intent} />
+                          </div>
+                          <div className="flex items-center gap-2 ml-2">
+                            <div className="text-right">
+                              <p className="text-[#f59e0b] font-bold text-lg leading-none">{cluster.opportunity}</p>
+                              <p className="text-[#6b7280] text-[10px]">score</p>
+                            </div>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setEditingCluster(isEditing ? null : cluster.name); }}
+                              className="text-[#6b7280] hover:text-[#fafafa] p-1 rounded transition-colors"
+                              title="Edit keywords"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              </svg>
+                            </button>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-[#f59e0b] font-bold text-lg">{cluster.opportunity}</p>
-                          <p className="text-[#6b7280] text-[10px]">opportunity</p>
+
+                        {/* Keyword tags */}
+                        <div className="flex flex-wrap gap-1.5 mb-3">
+                          {kws.map((kw) => (
+                            <span
+                              key={kw}
+                              className="inline-flex items-center gap-1 bg-[#0a0a0a] border border-[#1f1f1f] rounded-[6px] px-2 py-0.5 text-[11px] text-[#6b7280]"
+                            >
+                              {kw}
+                              {isEditing && (
+                                <button
+                                  onClick={() => removeKeywordFromCluster(cluster.name, kw)}
+                                  className="text-[#6b7280] hover:text-[#ef4444] leading-none ml-0.5"
+                                >×</button>
+                              )}
+                            </span>
+                          ))}
                         </div>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {cluster.keywords.slice(0, 4).map((kw) => (
-                          <span key={kw} className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-[6px] px-2 py-0.5 text-[11px] text-[#6b7280]">
-                            {kw}
-                          </span>
-                        ))}
-                        {cluster.keywords.length > 4 && (
-                          <span className="text-[11px] text-[#6b7280]">+{cluster.keywords.length - 4} more</span>
+
+                        {/* Edit input */}
+                        {isEditing && (
+                          <div className="flex gap-1.5 mt-2">
+                            <input
+                              type="text"
+                              value={newKwInputs[cluster.name] ?? ""}
+                              onChange={(e) => setNewKwInputs((prev) => ({ ...prev, [cluster.name]: e.target.value }))}
+                              onKeyDown={(e) => { if (e.key === "Enter") addKeywordToCluster(cluster.name); }}
+                              placeholder="Add keyword…"
+                              className="flex-1 bg-[#0a0a0a] border border-[#1f1f1f] rounded-[6px] px-2.5 py-1.5 text-xs text-[#fafafa] placeholder-[#6b7280] focus:outline-none focus:border-[#f59e0b]/50"
+                            />
+                            <button
+                              onClick={() => addKeywordToCluster(cluster.name)}
+                              className="bg-[#f59e0b] hover:bg-[#d97706] text-[#0a0a0a] font-bold text-xs px-2.5 py-1.5 rounded-[6px] transition-colors"
+                            >+</button>
+                          </div>
                         )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -621,6 +712,26 @@ export default function DashboardPage() {
                       <span className="text-[#6b7280]"> · Primary keyword: </span>
                       <span className="text-[#f59e0b] font-medium">{selectedCluster.keywords[0]}</span>
                     </p>
+                  </div>
+                )}
+
+                {articleLoading && (
+                  <div className="mb-5">
+                    <div className="flex justify-between items-center mb-1.5">
+                      <span className="text-xs text-[#6b7280]">{articleStage || "Generating…"}</span>
+                      <span className="text-xs text-[#f59e0b] font-semibold">{articleProgress}%</span>
+                    </div>
+                    <div className="h-1.5 bg-[#0a0a0a] rounded-full overflow-hidden border border-[#1f1f1f]">
+                      <div
+                        className="h-full bg-[#f59e0b] rounded-full transition-all duration-500"
+                        style={{ width: `${articleProgress}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[10px] text-[#6b7280] mt-1">
+                      <span>Researching</span>
+                      <span>Writing</span>
+                      <span>Reviewing</span>
+                    </div>
                   </div>
                 )}
 
