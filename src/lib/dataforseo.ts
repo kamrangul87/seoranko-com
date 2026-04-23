@@ -17,6 +17,8 @@ export function getLocationCode(country: string): number {
   }
 }
 
+// keyword_ideas returns intent strings like "informational", "commercial", etc.
+// Fall back to text-based inference if the field is absent.
 function inferIntent(keyword: string): SearchIntent {
   const kw = keyword.toLowerCase();
   if (/^(how|what|why|when|who|where|is|are|does|do|can|should)\b/.test(kw)) return "informational";
@@ -25,122 +27,72 @@ function inferIntent(keyword: string): SearchIntent {
   return "informational";
 }
 
-function generateKeywordVariations(seed: string): string[] {
-  const base = seed.trim().toLowerCase();
-  return [
-    base,
-    `best ${base}`,
-    `how to ${base}`,
-    `${base} guide`,
-    `${base} tips`,
-    `${base} for beginners`,
-    `${base} examples`,
-    `${base} tools`,
-    `${base} strategy`,
-    `${base} 2025`,
-    `what is ${base}`,
-    `${base} vs`,
-    `${base} tutorial`,
-    `${base} checklist`,
-    `${base} mistakes`,
-    `${base} benefits`,
-    `${base} cost`,
-    `${base} review`,
-    `${base} software`,
-    `${base} services`,
-  ];
+function normaliseIntent(raw: string | null | undefined): SearchIntent {
+  const v = (raw ?? "").toLowerCase();
+  if (v === "commercial" || v === "transactional" || v === "navigational") return v as SearchIntent;
+  return "informational";
 }
 
-// ── Response shapes ───────────────────────────────────────────────────────────
+// ── Response shape for keyword_ideas/live ────────────────────────────────────
 
-interface VolumeItem {
+interface KeywordIdeaItem {
   keyword: string;
-  search_volume: number | null;
-  cpc: number | null;
-  monthly_searches?: { search_volume: number | null; year: number; month: number }[];
-}
-
-interface DifficultyItem {
-  keyword: string;
-  keyword_difficulty: number | null;
-}
-
-// ── API calls ─────────────────────────────────────────────────────────────────
-
-async function fetchSearchVolume(
-  keywords: string[],
-  locationCode: number
-): Promise<VolumeItem[]> {
-  const res = await fetch(`${BASE_URL}/keywords_data/google_ads/search_volume/live`, {
-    method: "POST",
-    headers: { Authorization: getAuthHeader(), "Content-Type": "application/json" },
-    body: JSON.stringify([{ keywords, location_code: locationCode, language_code: "en" }]),
-  });
-
-  if (!res.ok) throw new Error(`Volume API error: ${res.status} ${res.statusText}`);
-
-  const data = await res.json();
-  const task = data?.tasks?.[0];
-  if (!task || task.status_code !== 20000) {
-    throw new Error(task?.status_message || "DataForSEO volume: no data");
-  }
-  return (task.result ?? []) as VolumeItem[];
-}
-
-async function fetchKeywordDifficulty(
-  keywords: string[],
-  locationCode: number
-): Promise<Map<string, number>> {
-  const res = await fetch(`${BASE_URL}/dataforseo_labs/google/bulk_keyword_difficulty/live`, {
-    method: "POST",
-    headers: { Authorization: getAuthHeader(), "Content-Type": "application/json" },
-    body: JSON.stringify([{ keywords, location_code: locationCode, language_code: "en" }]),
-  });
-
-  if (!res.ok) throw new Error(`KD API error: ${res.status} ${res.statusText}`);
-
-  const data = await res.json();
-  const task = data?.tasks?.[0];
-  if (!task || task.status_code !== 20000) {
-    // KD endpoint may not be available on all plans — return empty map gracefully
-    console.warn("[dataforseo] KD endpoint:", task?.status_message ?? "no data");
-    return new Map();
-  }
-
-  const map = new Map<string, number>();
-  for (const item of (task.result ?? []) as DifficultyItem[]) {
-    if (item.keyword && item.keyword_difficulty != null) {
-      map.set(item.keyword, Math.min(100, Math.max(0, Math.round(item.keyword_difficulty))));
-    }
-  }
-  return map;
+  keyword_data: {
+    keyword_info: {
+      search_volume: number | null;
+      cpc: number | null;
+      monthly_searches?: { search_volume: number | null; year: number; month: number }[];
+    };
+    keyword_difficulty: number | null;
+    search_intent?: {
+      main_intent: string | null;
+    };
+  };
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
 export async function fetchKeywords(keyword: string, country: string): Promise<KeywordResult[]> {
-  const keywords = generateKeywordVariations(keyword);
   const locationCode = getLocationCode(country);
-  const auth = getAuthHeader(); // validate credentials once before parallel calls
-  void auth;
 
-  // Run both API calls in parallel
-  const [volumeItems, kdMap] = await Promise.all([
-    fetchSearchVolume(keywords, locationCode),
-    fetchKeywordDifficulty(keywords, locationCode),
-  ]);
+  const res = await fetch(`${BASE_URL}/dataforseo_labs/google/keyword_ideas/live`, {
+    method: "POST",
+    headers: { Authorization: getAuthHeader(), "Content-Type": "application/json" },
+    body: JSON.stringify([{
+      keyword: keyword.trim().toLowerCase(),
+      location_code: locationCode,
+      language_code: "en",
+      limit: 20,
+    }]),
+  });
 
-  const results: KeywordResult[] = volumeItems.map((item) => ({
-    keyword: item.keyword,
-    volume: item.search_volume ?? 0,
-    kd: kdMap.get(item.keyword) ?? 0,
-    cpc: parseFloat((item.cpc ?? 0).toFixed(2)),
-    intent: inferIntent(item.keyword),
-    trend: (item.monthly_searches ?? [])
-      .sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month)
-      .slice(-6)
-      .map((m) => m.search_volume ?? 0),
-  }));
+  if (!res.ok) throw new Error(`DataForSEO API error: ${res.status} ${res.statusText}`);
+
+  const data = await res.json();
+  const task = data?.tasks?.[0];
+  if (!task || task.status_code !== 20000) {
+    throw new Error(task?.status_message || "DataForSEO returned no data");
+  }
+
+  const items: KeywordIdeaItem[] = task.result?.[0]?.items ?? [];
+
+  const results: KeywordResult[] = items.map((item) => {
+    const info = item.keyword_data?.keyword_info ?? {};
+    const rawKd = item.keyword_data?.keyword_difficulty;
+    const rawIntent = item.keyword_data?.search_intent?.main_intent;
+
+    return {
+      keyword: item.keyword,
+      volume: info.search_volume ?? 0,
+      kd: rawKd != null ? Math.min(100, Math.max(0, Math.round(rawKd))) : 0,
+      cpc: parseFloat(((info.cpc ?? 0) as number).toFixed(2)),
+      intent: rawIntent ? normaliseIntent(rawIntent) : inferIntent(item.keyword),
+      trend: (info.monthly_searches ?? [])
+        .sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month)
+        .slice(-6)
+        .map((m) => m.search_volume ?? 0),
+    };
+  });
 
   return results.sort((a, b) => b.volume - a.volume);
 }
