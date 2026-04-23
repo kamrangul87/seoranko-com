@@ -96,9 +96,10 @@ function Sparkline({ data }: { data: number[] }) {
 // ─── Score Ring ─────────────────────────────────────────────────────────────
 
 function ScoreRing({ score, label, color }: { score: number; label: string; color: string }) {
+  const displayScore = score < 15 ? score * 10 : score;
   const r = 28;
   const circ = 2 * Math.PI * r;
-  const offset = circ - (score / 100) * circ;
+  const offset = circ - (displayScore / 100) * circ;
   return (
     <div className="flex flex-col items-center gap-1">
       <div className="relative w-16 h-16">
@@ -114,13 +115,113 @@ function ScoreRing({ score, label, color }: { score: number; label: string; colo
             strokeLinecap="round"
           />
         </svg>
-        <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-[#fafafa]">
-          {score}
+        <span className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-xs font-bold text-[#fafafa] leading-none">{displayScore}</span>
+          <span className="text-[8px] text-[#6b7280] leading-none">/100</span>
         </span>
       </div>
       <span className="text-[10px] text-[#6b7280] text-center leading-tight">{label}</span>
     </div>
   );
+}
+
+// ─── Article Renderer ────────────────────────────────────────────────────────
+
+function ArticleRenderer({ text }: { text: string }) {
+  const lines = text.split("\n");
+
+  const tocStart = lines.findIndex((l) => l.trim().match(/^##\s+Table of Contents/i));
+  const tocItems: { label: string; anchor: string }[] = [];
+  let tocEnd = tocStart + 1;
+
+  if (tocStart !== -1) {
+    while (tocEnd < lines.length) {
+      const m = lines[tocEnd].match(/^-\s+\[([^\]]+)\]\(#([^)]+)\)/);
+      if (m) { tocItems.push({ label: m[1], anchor: m[2] }); tocEnd++; }
+      else if (lines[tocEnd].trim() === "") { tocEnd++; }
+      else break;
+    }
+  }
+
+  function renderInline(str: string): React.ReactNode[] {
+    const parts = str.split(/(\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g);
+    return parts.map((part, i) => {
+      if (part.startsWith("**") && part.endsWith("**")) {
+        return <strong key={i} className="text-[#fafafa] font-semibold">{part.slice(2, -2)}</strong>;
+      }
+      const lm = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      if (lm) {
+        return <a key={i} href={lm[2]} target="_blank" rel="noopener noreferrer" className="text-[#f59e0b] hover:underline">{lm[1]}</a>;
+      }
+      return <span key={i}>{part}</span>;
+    });
+  }
+
+  const contentLines: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (tocStart !== -1 && i >= tocStart && i < tocEnd) continue;
+    contentLines.push(lines[i]);
+  }
+
+  const elements: React.ReactNode[] = [];
+
+  if (tocItems.length > 0) {
+    elements.push(
+      <div key="toc" className="bg-[#0a0a0a] border border-[#f59e0b]/20 rounded-[10px] p-5 mb-6">
+        <p className="text-xs font-semibold uppercase tracking-wide text-[#f59e0b] mb-3">Table of Contents</p>
+        <ol className="space-y-1.5">
+          {tocItems.map((item, idx) => (
+            <li key={idx}>
+              <a
+                href={`#${item.anchor}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  document.getElementById(item.anchor)?.scrollIntoView({ behavior: "smooth" });
+                }}
+                className="text-sm text-[#6b7280] hover:text-[#f59e0b] transition-colors flex items-center gap-2"
+              >
+                <span className="text-[#f59e0b] text-xs font-semibold w-4 flex-shrink-0">{idx + 1}.</span>
+                {item.label}
+              </a>
+            </li>
+          ))}
+        </ol>
+      </div>
+    );
+  }
+
+  contentLines.forEach((line, i) => {
+    if (line.startsWith("## ")) {
+      const heading = line.slice(3).trim();
+      const id = heading.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      elements.push(
+        <h2 key={`h2-${i}`} id={id} className="text-[#fafafa] font-bold text-lg mb-3 mt-8 scroll-mt-6">
+          {heading}
+        </h2>
+      );
+    } else if (line.startsWith("### ")) {
+      elements.push(
+        <h3 key={`h3-${i}`} className="text-[#fafafa] font-semibold mb-2 mt-5">
+          {line.slice(4).trim()}
+        </h3>
+      );
+    } else if (line.match(/^[-*]\s+/)) {
+      elements.push(
+        <div key={`li-${i}`} className="flex gap-2 mb-1.5 ml-1">
+          <span className="text-[#f59e0b] text-xs mt-1 flex-shrink-0">•</span>
+          <span className="text-sm text-[#6b7280] leading-relaxed">{renderInline(line.replace(/^[-*]\s+/, ""))}</span>
+        </div>
+      );
+    } else if (line.trim() !== "") {
+      elements.push(
+        <p key={`p-${i}`} className="text-sm text-[#6b7280] mb-4 leading-7">
+          {renderInline(line.trim())}
+        </p>
+      );
+    }
+  });
+
+  return <div>{elements}</div>;
 }
 
 // ─── Intent Badge ────────────────────────────────────────────────────────────
@@ -869,16 +970,7 @@ export default function DashboardPage() {
 
                   {/* Full article */}
                   <div className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-6">
-                    <div
-                      className="prose prose-sm prose-invert max-w-none text-[#6b7280] leading-7
-                        [&_h1]:text-[#fafafa] [&_h1]:font-bold [&_h1]:text-xl [&_h1]:mb-4 [&_h1]:mt-6
-                        [&_h2]:text-[#fafafa] [&_h2]:font-bold [&_h2]:text-lg [&_h2]:mb-3 [&_h2]:mt-6
-                        [&_h3]:text-[#fafafa] [&_h3]:font-semibold [&_h3]:mb-2 [&_h3]:mt-4
-                        [&_p]:mb-4 [&_p]:text-sm
-                        [&_ul]:mb-4 [&_ul]:ml-4 [&_li]:text-sm [&_li]:mb-1
-                        [&_strong]:text-[#fafafa]"
-                      dangerouslySetInnerHTML={{ __html: article.article.replace(/\n/g, "<br/>") }}
-                    />
+                    <ArticleRenderer text={article.article} />
                   </div>
                 </div>
 
