@@ -1,92 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callClaude, parseJsonResponse } from "@/lib/anthropic";
 import { isMasterSession } from "@/lib/master-auth";
-import type { ArticleRequest, ResearchBrief, ArticleOutput } from "@/types";
+import type { ArticleRequest, ArticleOutput } from "@/types";
 
-// ── Call 1: Research brief ────────────────────────────────────────────────────
+const SYSTEM_PROMPT = `You are a senior SEO content writer and editor with 12 years experience. You do three things in one response:
+1. Research the keyword intent and semantic coverage
+2. Write a complete humanised EEAT-compliant article
+3. Self-review and score your own article
 
-async function generateResearch(keyword: string, intent: string): Promise<ResearchBrief> {
-  const system = `You are an SEO research analyst. Respond ONLY with valid JSON, no markdown, no explanation.`;
-  const user = `For the keyword "${keyword}" with intent "${intent}", identify:
-- exact search intent
-- top 5 questions this searcher has
-- 8 semantic keywords to include
-- what competing articles miss
+NLP RULES: Vary sentence length. Use contractions. First-person signals. One contrarian point. Specific examples only.
+NEVER USE: In conclusion, Delve into, Furthermore, Moreover, Game-changer, Revolutionize, It is worth noting.
+EEAT: Specific data points, real brand references, acknowledge limitations, confident expertise.
+HELPFUL CONTENT: Fully answer the question, practical advice, natural FAQ at end with 5 questions.
+SEO: Primary keyword in H1 and first paragraph naturally, 1-1.5% keyword density maximum.
 
-Return ONLY this JSON: {"intent":"...","questions":["..."],"semanticKeywords":["..."],"contentGaps":["..."]}`;
-
-  const raw = await callClaude(system, user, 1024);
-  return parseJsonResponse<ResearchBrief>(raw);
-}
-
-// ── Call 2: Article writing ───────────────────────────────────────────────────
-
-async function writeArticle(
-  keyword: string,
-  research: ResearchBrief,
-  wordCount: number,
-  tone: string,
-  audience: string,
-  country: string
-): Promise<string> {
-  const system = `You are a senior SEO content writer with 12 years experience. Write for humans first.
-
-NLP RULES: Vary sentence length dramatically. Use contractions naturally. Include first-person signals where appropriate. Include one contrarian point addressed head-on. Use specific real examples only — no hypotheticals.
-
-NEVER USE THESE PHRASES: "In conclusion", "It is worth noting", "Delve into", "Furthermore", "Moreover", "Game-changer", "Revolutionize", "In today's world", "It's important to note", "Leverage".
-
-EEAT SIGNALS: Include specific data points with named sources. Reference recognisable brands when relevant. Acknowledge limitations honestly. Write with confident expertise — not hedged waffle.
-
-GOOGLE HELPFUL CONTENT: Fully answer the question. Every paragraph must earn its place. Practical advice throughout. Natural FAQ section at the end.
-
-SEO: Primary keyword in H1 and first paragraph. Secondary keywords in H2s naturally. Target 1–1.5% keyword density max.
-
-Format with markdown headings (##, ###), bullet lists where helpful, bold for key terms.`;
-
-  const user = `Write a ${wordCount}-word ${tone} SEO article for ${audience} in the ${country} market.
-
-Primary keyword: "${keyword}"
-Search intent: ${research.intent}
-Questions to answer: ${research.questions.join("; ")}
-Semantic keywords to weave in naturally: ${research.semanticKeywords.join(", ")}
-Content gaps to fill: ${research.contentGaps.join("; ")}
-
-Write the complete article now. Start directly with the H1.`;
-
-  return callClaude(system, user, 4096);
-}
-
-// ── Call 3: Editorial review ──────────────────────────────────────────────────
-
-async function reviewArticle(article: string, keyword: string): Promise<ArticleOutput> {
-  const system = `You are a senior SEO editor. Review the provided article and return ONLY valid JSON, no markdown, no explanation.`;
-  const user = `Review this article for the keyword "${keyword}" and return ONLY this JSON:
-{"seoTitle":"...","metaDescription":"...","article":"...","wordCount":0,"eeaScore":0,"readabilityScore":0,"keywordDensity":0.0,"improvements":["..."]}
-
-Rules:
-- seoTitle: compelling, includes keyword, 50-60 chars
-- metaDescription: includes keyword, 150-160 chars, has a call to action
-- article: the full article with any copy improvements applied (keep markdown)
-- wordCount: actual word count integer
-- eeaScore: 0-100 EEAT quality score
-- readabilityScore: 0-100 Flesch-Kincaid style score
-- keywordDensity: keyword density as decimal e.g. 1.2
-- improvements: array of 3-5 short, specific improvement suggestions
-
-Article to review:
-${article}`;
-
-  const raw = await callClaude(system, user, 4096);
-  return parseJsonResponse<ArticleOutput>(raw);
-}
-
-// ── Route handler ─────────────────────────────────────────────────────────────
+Return ONLY this JSON (no markdown fences, no explanation):
+{
+  "seoTitle": "string under 60 chars",
+  "metaDescription": "string under 155 chars",
+  "article": "full markdown article",
+  "wordCount": 0,
+  "eeaScore": 0,
+  "readabilityScore": 0,
+  "keywordDensity": "1.2%",
+  "improvements": ["string"]
+}`;
 
 export async function POST(req: NextRequest) {
   try {
     const master = isMasterSession();
     const body: ArticleRequest = await req.json();
-    const { keyword, cluster, tone = "professional", audience = "general readers", country = "UK" } = body;
+    const {
+      keyword,
+      cluster,
+      tone = "professional",
+      audience = "general readers",
+      country = "UK",
+    } = body;
     let { wordCount = 1500 } = body;
 
     if (!keyword) {
@@ -103,12 +53,25 @@ export async function POST(req: NextRequest) {
       wordCount = Math.min(wordCount, 200);
     }
 
-    const intent = cluster?.intent ?? "informational";
+    const secondaryKeywords = cluster?.keywords?.filter((k) => k !== keyword).slice(0, 6).join(", ") ?? "";
 
-    // Three sequential Claude calls
-    const research = await generateResearch(keyword, intent);
-    const articleText = await writeArticle(keyword, research, wordCount, tone, audience, country);
-    const articleOutput = await reviewArticle(articleText, keyword);
+    const userMessage = `Write a ${wordCount} word article targeting: ${keyword}
+Secondary keywords: ${secondaryKeywords || "none"}
+Tone: ${tone}
+Audience: ${audience}
+Market: ${country}
+Return only valid JSON.`;
+
+    const raw = await callClaude(SYSTEM_PROMPT, userMessage, 8000);
+    const articleOutput = parseJsonResponse<ArticleOutput>(raw);
+
+    // Stub research so existing dashboard types stay compatible
+    const research = {
+      intent: cluster?.intent ?? "informational",
+      questions: [],
+      semanticKeywords: secondaryKeywords ? secondaryKeywords.split(", ") : [],
+      contentGaps: [],
+    };
 
     return NextResponse.json({ research, article: articleOutput, master });
   } catch (err) {
