@@ -61,7 +61,7 @@ export interface ArticleOutput {
   wordCount: number;
   eeaScore: number;
   readabilityScore: number;
-  keywordDensity: number;
+  keywordDensity: string | number;
   improvements: string[];
 }
 

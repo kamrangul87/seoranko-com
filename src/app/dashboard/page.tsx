@@ -232,7 +232,7 @@ export default function DashboardPage() {
     setArticleLoading(true);
     setArticle(null);
     setResearch(null);
-    setArticleStage("Researching keyword intent…");
+    setArticleStage("Connecting…");
     try {
       const res = await fetch("/api/article", {
         method: "POST",
@@ -246,12 +246,34 @@ export default function DashboardPage() {
           country,
         }),
       });
-      setArticleStage("Writing article…");
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Generation failed");
-      setResearch(data.research);
-      setArticle(data.article);
-      setActiveNav("articles");
+
+      if (!res.ok || !res.body) {
+        const err = await res.json().catch(() => ({ error: "Generation failed" }));
+        throw new Error(err.error || "Generation failed");
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() ?? "";
+        for (const part of parts) {
+          if (!part.startsWith("data: ")) continue;
+          const data = JSON.parse(part.slice(6));
+          if (data.stage) setArticleStage(data.stage);
+          if (data.error) throw new Error(data.error);
+          if (data.done) {
+            setResearch(data.research);
+            setArticle(data.article);
+            setActiveNav("articles");
+          }
+        }
+      }
     } catch (e) {
       alert(e instanceof Error ? e.message : "Article generation failed");
     } finally {
@@ -764,8 +786,8 @@ export default function DashboardPage() {
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-[#6b7280] text-xs">Keyword Density</span>
-                        <span className={`text-sm font-semibold ${article.keywordDensity <= 1.5 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>
-                          {article.keywordDensity}%
+                        <span className={`text-sm font-semibold ${parseFloat(String(article.keywordDensity)) <= 1.5 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>
+                          {article.keywordDensity}{typeof article.keywordDensity === "number" ? "%" : ""}
                         </span>
                       </div>
                     </div>

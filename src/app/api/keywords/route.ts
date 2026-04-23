@@ -67,8 +67,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: msg }, { status: 502 });
     }
 
-    const seed = keyword.trim().toLowerCase();
-
     const items: Array<{
       keyword: string;
       keyword_info?: { search_volume?: number | null; cpc?: number | null; monthly_searches?: { search_volume?: number | null }[] };
@@ -76,9 +74,9 @@ export async function POST(req: NextRequest) {
       search_intent_info?: { main_intent?: string | null };
     }> = data.tasks[0].result[0].items;
 
-    const sorted = items.sort((a, b) => {
-      if (a.keyword === seed) return -1;
-      if (b.keyword === seed) return 1;
+    const sorted = [...items].sort((a, b) => {
+      if (a.keyword.toLowerCase() === keyword.toLowerCase()) return -1;
+      if (b.keyword.toLowerCase() === keyword.toLowerCase()) return 1;
       return (b.keyword_info?.search_volume || 0) - (a.keyword_info?.search_volume || 0);
     });
 

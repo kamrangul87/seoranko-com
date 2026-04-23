@@ -28,6 +28,33 @@ export async function callClaude(
   return block.text;
 }
 
+export async function streamClaude(
+  systemPrompt: string,
+  userMessage: string,
+  onChunk: (delta: string, accumulated: string) => void,
+  maxTokens = 8000
+): Promise<string> {
+  const client = getAnthropicClient();
+  const stream = client.messages.stream({
+    model: "claude-sonnet-4-5",
+    max_tokens: maxTokens,
+    system: systemPrompt,
+    messages: [{ role: "user", content: userMessage }],
+  });
+
+  let accumulated = "";
+  for await (const event of stream) {
+    if (
+      event.type === "content_block_delta" &&
+      event.delta.type === "text_delta"
+    ) {
+      accumulated += event.delta.text;
+      onChunk(event.delta.text, accumulated);
+    }
+  }
+  return accumulated;
+}
+
 export function parseJsonResponse<T>(text: string): T {
   const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/) || text.match(/(\[[\s\S]*\]|\{[\s\S]*\})/);
   const raw = jsonMatch ? jsonMatch[1] : text.trim();
