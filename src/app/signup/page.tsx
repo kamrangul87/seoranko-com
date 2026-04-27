@@ -28,6 +28,8 @@ export default function SignupPage() {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    console.log('Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL);
+    console.log('Supabase Key exists:', !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
@@ -54,10 +56,13 @@ export default function SignupPage() {
       });
 
       if (signUpError) {
+        console.log('Supabase signup error:', signUpError);
         setError(signUpError.message);
         setLoading(false);
         return;
       }
+
+      console.log('Supabase signup success:', data);
 
       if (data.user) {
         // upsert so re-signup attempts don't fail on duplicate key
