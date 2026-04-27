@@ -1,7 +1,14 @@
 import { NextRequest } from "next/server";
 import { streamClaude, parseJsonResponse } from "@/lib/anthropic";
-import { isMasterSession } from "@/lib/master-auth";
+import { createClient } from "@/lib/supabase/server";
 import type { ArticleRequest, ArticleOutput } from "@/types";
+
+const ARTICLE_LIMITS: Record<string, { articles: number; period: 'day' | 'month' | 'unlimited' }> = {
+  free:    { articles: 1,   period: 'day' },
+  starter: { articles: 30,  period: 'month' },
+  pro:     { articles: 100, period: 'month' },
+  agency:  { articles: Infinity, period: 'unlimited' },
+};
 
 const SYSTEM_PROMPT = `You are a senior SEO editor at a leading UK digital publication with 15 years experience. You produce expert, authoritative articles that rank on Google and build genuine reader trust.
 
@@ -76,7 +83,50 @@ function sseEvent(data: object): Uint8Array {
 }
 
 export async function POST(req: NextRequest) {
-  const master = isMasterSession();
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return new Response(
+      JSON.stringify({ error: "Unauthorized" }),
+      { status: 401, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  const master = user.email === process.env.MASTER_EMAIL;
+
+  if (!master) {
+    const { data: profile } = await supabase
+      .from("user_profiles")
+      .select("plan, articles_used_today, articles_used_month")
+      .eq("id", user.id)
+      .single();
+
+    const plan = profile?.plan ?? "free";
+    const limit = ARTICLE_LIMITS[plan] ?? ARTICLE_LIMITS.free;
+
+    if (limit.period !== "unlimited") {
+      const used = limit.period === "day"
+        ? (profile?.articles_used_today ?? 0)
+        : (profile?.articles_used_month ?? 0);
+
+      if (used >= limit.articles) {
+        return new Response(
+          JSON.stringify({ error: "Daily limit reached. Upgrade your plan." }),
+          { status: 429, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      await supabase
+        .from("user_profiles")
+        .update({
+          articles_used_today: (profile?.articles_used_today ?? 0) + 1,
+          articles_used_month: (profile?.articles_used_month ?? 0) + 1,
+        })
+        .eq("id", user.id);
+    }
+  }
+
   const body: ArticleRequest = await req.json();
   const {
     keyword,

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
 import type {
   KeywordResult,
   Cluster,
@@ -11,6 +12,24 @@ import type {
   Country,
   Tone,
 } from "@/types";
+
+interface UserProfile {
+  id: string;
+  email: string;
+  name: string;
+  plan: "free" | "starter" | "pro" | "agency";
+  keywords_used_today: number;
+  articles_used_today: number;
+  keywords_used_month: number;
+  articles_used_month: number;
+}
+
+const PLAN_USAGE = {
+  free:    { label: "Free",    keywords: 5,    articles: 1,   kPeriod: "day",   aPeriod: "day"   },
+  starter: { label: "Starter", keywords: 500,  articles: 30,  kPeriod: "month", aPeriod: "month" },
+  pro:     { label: "Pro",     keywords: 2000, articles: 100, kPeriod: "month", aPeriod: "month" },
+  agency:  { label: "Agency",  keywords: Infinity, articles: Infinity, kPeriod: "month", aPeriod: "month" },
+};
 
 // ─── Sidebar ────────────────────────────────────────────────────────────────
 
@@ -245,6 +264,29 @@ function IntentBadge({ intent }: { intent: string }) {
 
 export default function DashboardPage() {
   const [activeNav, setActiveNav] = useState("keywords");
+
+  // Auth state
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return;
+      supabase
+        .from("user_profiles")
+        .select("*")
+        .eq("id", user.id)
+        .single()
+        .then(({ data }) => {
+          if (data) setUserProfile(data as UserProfile);
+        });
+    });
+  }, []);
+
+  async function handleSignOut() {
+    await fetch("/api/auth/signout", { method: "POST" });
+    window.location.href = "/login";
+  }
 
   // Keyword state
   const [seedKeyword, setSeedKeyword] = useState("");
@@ -489,26 +531,73 @@ export default function DashboardPage() {
 
         {/* Usage */}
         <div className="px-4 py-4 border-t border-[#1f1f1f]">
-          <p className="text-[10px] text-[#6b7280] mb-1.5 uppercase tracking-wide font-medium">Usage this month</p>
-          <div className="space-y-2">
-            {[
-              { label: "Keywords", used: 12, max: 50 },
-              { label: "Articles", used: 3, max: 10 },
-            ].map(({ label, used, max }) => (
-              <div key={label}>
-                <div className="flex justify-between text-[10px] text-[#6b7280] mb-1">
-                  <span>{label}</span>
-                  <span>{used}/{max}</span>
-                </div>
-                <div className="h-1 bg-[#1f1f1f] rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-[#f59e0b] rounded-full"
-                    style={{ width: `${(used / max) * 100}%` }}
-                  />
-                </div>
+          {userProfile ? (() => {
+            const meta = PLAN_USAGE[userProfile.plan] ?? PLAN_USAGE.free;
+            const kwUsed = meta.kPeriod === "day" ? userProfile.keywords_used_today : userProfile.keywords_used_month;
+            const artUsed = meta.aPeriod === "day" ? userProfile.articles_used_today : userProfile.articles_used_month;
+            const kwMax = meta.keywords;
+            const artMax = meta.articles;
+            const unlimited = kwMax === Infinity;
+            return (
+              <div className="space-y-2">
+                <p className="text-[10px] text-[#6b7280] mb-1.5 uppercase tracking-wide font-medium">
+                  Usage {meta.kPeriod === "day" ? "today" : "this month"}
+                </p>
+                {[
+                  { label: "Keywords", used: kwUsed, max: kwMax },
+                  { label: "Articles",  used: artUsed, max: artMax },
+                ].map(({ label, used, max }) => (
+                  <div key={label}>
+                    <div className="flex justify-between text-[10px] text-[#6b7280] mb-1">
+                      <span>{label}</span>
+                      <span>{unlimited ? "∞" : `${used}/${max}`}</span>
+                    </div>
+                    {!unlimited && (
+                      <div className="h-1 bg-[#1f1f1f] rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-[#f59e0b] rounded-full"
+                          style={{ width: `${Math.min(100, (used / max) * 100)}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            );
+          })() : (
+            <div className="space-y-2">
+              <div className="h-1 bg-[#1f1f1f] rounded-full animate-pulse" />
+              <div className="h-1 bg-[#1f1f1f] rounded-full animate-pulse" />
+            </div>
+          )}
+        </div>
+
+        {/* User / Sign out */}
+        <div className="px-4 py-3 border-t border-[#1f1f1f]">
+          {userProfile && (
+            <div className="flex items-center gap-2.5 mb-2.5">
+              <div className="w-7 h-7 rounded-full bg-[#f59e0b]/20 flex items-center justify-center flex-shrink-0">
+                <span className="text-[#f59e0b] text-xs font-bold uppercase">
+                  {userProfile.name?.[0] ?? userProfile.email[0]}
+                </span>
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-[#fafafa] truncate">{userProfile.name || userProfile.email}</p>
+                <span className="inline-block text-[9px] font-bold uppercase tracking-wide text-[#f59e0b] bg-[#f59e0b]/10 px-1.5 py-0.5 rounded-full">
+                  {(PLAN_USAGE[userProfile.plan] ?? PLAN_USAGE.free).label}
+                </span>
+              </div>
+            </div>
+          )}
+          <button
+            onClick={handleSignOut}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-[8px] text-xs font-medium text-[#6b7280] hover:text-[#fafafa] hover:bg-[#111111] transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+            Sign Out
+          </button>
         </div>
       </aside>
 
@@ -1096,15 +1185,16 @@ export default function DashboardPage() {
                   <label className="block text-sm font-medium mb-1.5">Display Name</label>
                   <input
                     type="text"
-                    defaultValue="My Account"
-                    className="w-full bg-[#0a0a0a] border border-[#1f1f1f] focus:border-[#f59e0b] outline-none rounded-[8px] px-3 py-2.5 text-sm text-[#fafafa] transition-colors"
+                    defaultValue={userProfile?.name ?? ""}
+                    readOnly
+                    className="w-full bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-3 py-2.5 text-sm text-[#fafafa] cursor-not-allowed"
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1.5">Email</label>
                   <input
                     type="email"
-                    defaultValue="user@example.com"
+                    defaultValue={userProfile?.email ?? ""}
                     readOnly
                     className="w-full bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-3 py-2.5 text-sm text-[#6b7280] cursor-not-allowed"
                   />
@@ -1119,47 +1209,63 @@ export default function DashboardPage() {
                 <div>
                   <p className="text-sm font-medium mb-0.5">Current Plan</p>
                   <span className="inline-flex items-center gap-1.5 bg-[#f59e0b]/10 text-[#f59e0b] text-xs font-bold px-2.5 py-1 rounded-full uppercase tracking-wide">
-                    Free
+                    {(PLAN_USAGE[userProfile?.plan ?? "free"] ?? PLAN_USAGE.free).label}
                   </span>
                 </div>
-                <button className="bg-[#f59e0b] hover:bg-[#d97706] text-[#0a0a0a] font-semibold text-sm px-5 py-2.5 rounded-[10px] transition-colors">
-                  Upgrade Plan
-                </button>
+                {(userProfile?.plan === "free" || userProfile?.plan === "starter") && (
+                  <button className="bg-[#f59e0b] hover:bg-[#d97706] text-[#0a0a0a] font-semibold text-sm px-5 py-2.5 rounded-[10px] transition-colors">
+                    Upgrade Plan
+                  </button>
+                )}
               </div>
-              <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] p-4 text-xs text-[#6b7280]">
-                Upgrade to <span className="text-[#fafafa] font-medium">Starter £19/mo</span> for 50 keyword searches and 10 articles per month.
-              </div>
+              {userProfile?.plan === "free" && (
+                <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] p-4 text-xs text-[#6b7280]">
+                  Upgrade to <span className="text-[#fafafa] font-medium">Starter £19/mo</span> for 500 keyword searches and 30 articles per month.
+                </div>
+              )}
             </div>
 
             {/* Usage */}
-            <div className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-6">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-[#6b7280] mb-5">Usage This Month</h2>
-              <div className="space-y-5">
-                {[
-                  { label: "Keyword Searches", used: 1, limit: 1, unit: "searches/day" },
-                  { label: "AI Articles", used: 0, limit: 1, unit: "article" },
-                  { label: "AI Clusters", used: 0, limit: 1, unit: "cluster/day" },
-                ].map(({ label, used, limit, unit }) => {
-                  const pct = Math.min(100, Math.round((used / limit) * 100));
-                  const barColor = pct >= 100 ? "#ef4444" : pct >= 75 ? "#f59e0b" : "#22c55e";
-                  return (
-                    <div key={label}>
-                      <div className="flex justify-between items-center mb-1.5">
-                        <span className="text-sm font-medium">{label}</span>
-                        <span className="text-xs text-[#6b7280]">{used} / {limit} {unit}</span>
-                      </div>
-                      <div className="h-1.5 bg-[#0a0a0a] rounded-full overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{ width: `${pct}%`, backgroundColor: barColor }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <p className="text-[#6b7280] text-xs mt-5">Usage resets daily at midnight UTC.</p>
-            </div>
+            {userProfile && (() => {
+              const meta = PLAN_USAGE[userProfile.plan] ?? PLAN_USAGE.free;
+              const period = meta.kPeriod === "day" ? "today" : "this month";
+              const unlimited = meta.keywords === Infinity;
+              const rows = [
+                { label: "Keyword Searches", used: meta.kPeriod === "day" ? userProfile.keywords_used_today : userProfile.keywords_used_month, limit: meta.keywords, unit: `/${period}` },
+                { label: "AI Articles",      used: meta.aPeriod === "day" ? userProfile.articles_used_today  : userProfile.articles_used_month,  limit: meta.articles, unit: `/${period}` },
+              ];
+              return (
+                <div className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-6">
+                  <h2 className="text-sm font-semibold uppercase tracking-wider text-[#6b7280] mb-5">
+                    Usage {period === "today" ? "Today" : "This Month"}
+                  </h2>
+                  <div className="space-y-5">
+                    {rows.map(({ label, used, limit }) => {
+                      const pct = unlimited ? 0 : Math.min(100, Math.round((used / limit) * 100));
+                      const barColor = pct >= 100 ? "#ef4444" : pct >= 75 ? "#f59e0b" : "#22c55e";
+                      return (
+                        <div key={label}>
+                          <div className="flex justify-between items-center mb-1.5">
+                            <span className="text-sm font-medium">{label}</span>
+                            <span className="text-xs text-[#6b7280]">
+                              {unlimited ? `${used} / ∞` : `${used} / ${limit}`}
+                            </span>
+                          </div>
+                          {!unlimited && (
+                            <div className="h-1.5 bg-[#0a0a0a] rounded-full overflow-hidden">
+                              <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: barColor }} />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[#6b7280] text-xs mt-5">
+                    {meta.kPeriod === "day" ? "Usage resets daily at midnight UTC." : "Usage resets on the 1st of each month."}
+                  </p>
+                </div>
+              );
+            })()}
           </div>
         )}
 
