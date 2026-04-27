@@ -25,10 +25,10 @@ interface UserProfile {
 }
 
 const PLAN_USAGE = {
-  free:    { label: "Free",    keywords: 5,    articles: 1,   kPeriod: "day",   aPeriod: "day"   },
-  starter: { label: "Starter", keywords: 500,  articles: 30,  kPeriod: "month", aPeriod: "month" },
-  pro:     { label: "Pro",     keywords: 2000, articles: 100, kPeriod: "month", aPeriod: "month" },
-  agency:  { label: "Agency",  keywords: Infinity, articles: Infinity, kPeriod: "month", aPeriod: "month" },
+  free:    { label: "Free",    keywords: 5,        articles: 1,        kPeriod: "day",      aPeriod: "lifetime" },
+  starter: { label: "Starter", keywords: 500,       articles: 30,       kPeriod: "month",    aPeriod: "month"    },
+  pro:     { label: "Pro",     keywords: 2000,      articles: 100,      kPeriod: "month",    aPeriod: "month"    },
+  agency:  { label: "Agency",  keywords: Infinity,  articles: Infinity, kPeriod: "month",    aPeriod: "month"    },
 };
 
 // ─── Sidebar ────────────────────────────────────────────────────────────────
@@ -268,20 +268,20 @@ export default function DashboardPage() {
   // Auth state
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
-  useEffect(() => {
+  async function refreshUserProfile() {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) return;
-      supabase
-        .from("user_profiles")
-        .select("*")
-        .eq("id", user.id)
-        .single()
-        .then(({ data }) => {
-          if (data) setUserProfile(data as UserProfile);
-        });
-    });
-  }, []);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data } = await supabase
+      .from("user_profiles")
+      .select("*")
+      .eq("id", user.id)
+      .single();
+    if (data) setUserProfile(data as UserProfile);
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { refreshUserProfile(); }, []);
 
   async function handleSignOut() {
     await fetch("/api/auth/signout", { method: "POST" });
@@ -460,6 +460,7 @@ export default function DashboardPage() {
             setResearch(data.research);
             setArticle(data.article);
             setActiveNav("articles");
+            refreshUserProfile();
           }
         }
       }
@@ -534,34 +535,36 @@ export default function DashboardPage() {
           {userProfile ? (() => {
             const meta = PLAN_USAGE[userProfile.plan] ?? PLAN_USAGE.free;
             const kwUsed = meta.kPeriod === "day" ? userProfile.keywords_used_today : userProfile.keywords_used_month;
-            const artUsed = meta.aPeriod === "day" ? userProfile.articles_used_today : userProfile.articles_used_month;
+            const artUsed = userProfile.articles_used_month;
             const kwMax = meta.keywords;
             const artMax = meta.articles;
-            const unlimited = kwMax === Infinity;
+            const rows = [
+              { label: "Keywords", used: kwUsed, max: kwMax, period: meta.kPeriod },
+              { label: "Articles",  used: artUsed, max: artMax, period: meta.aPeriod },
+            ];
             return (
               <div className="space-y-2">
-                <p className="text-[10px] text-[#6b7280] mb-1.5 uppercase tracking-wide font-medium">
-                  Usage {meta.kPeriod === "day" ? "today" : "this month"}
-                </p>
-                {[
-                  { label: "Keywords", used: kwUsed, max: kwMax },
-                  { label: "Articles",  used: artUsed, max: artMax },
-                ].map(({ label, used, max }) => (
-                  <div key={label}>
-                    <div className="flex justify-between text-[10px] text-[#6b7280] mb-1">
-                      <span>{label}</span>
-                      <span>{unlimited ? "∞" : `${used}/${max}`}</span>
-                    </div>
-                    {!unlimited && (
-                      <div className="h-1 bg-[#1f1f1f] rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-[#f59e0b] rounded-full"
-                          style={{ width: `${Math.min(100, (used / max) * 100)}%` }}
-                        />
+                <p className="text-[10px] text-[#6b7280] mb-1.5 uppercase tracking-wide font-medium">Usage</p>
+                {rows.map(({ label, used, max, period }) => {
+                  const isUnlimited = max === Infinity;
+                  const periodLabel = period === "lifetime" ? "lifetime" : period === "day" ? "today" : "mo";
+                  return (
+                    <div key={label}>
+                      <div className="flex justify-between text-[10px] text-[#6b7280] mb-1">
+                        <span>{label}</span>
+                        <span>{isUnlimited ? "∞" : `${used}/${max} ${periodLabel}`}</span>
                       </div>
-                    )}
-                  </div>
-                ))}
+                      {!isUnlimited && (
+                        <div className="h-1 bg-[#1f1f1f] rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-[#f59e0b] rounded-full"
+                            style={{ width: `${Math.min(100, (used / max) * 100)}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             );
           })() : (
@@ -1228,16 +1231,15 @@ export default function DashboardPage() {
             {/* Usage */}
             {userProfile && (() => {
               const meta = PLAN_USAGE[userProfile.plan] ?? PLAN_USAGE.free;
-              const period = meta.kPeriod === "day" ? "today" : "this month";
               const unlimited = meta.keywords === Infinity;
               const rows = [
-                { label: "Keyword Searches", used: meta.kPeriod === "day" ? userProfile.keywords_used_today : userProfile.keywords_used_month, limit: meta.keywords, unit: `/${period}` },
-                { label: "AI Articles",      used: meta.aPeriod === "day" ? userProfile.articles_used_today  : userProfile.articles_used_month,  limit: meta.articles, unit: `/${period}` },
+                { label: "Keyword Searches", used: meta.kPeriod === "day" ? userProfile.keywords_used_today : userProfile.keywords_used_month, limit: meta.keywords, unit: meta.kPeriod === "day" ? "/day" : "/mo" },
+                { label: "AI Articles",      used: userProfile.articles_used_month, limit: meta.articles, unit: meta.aPeriod === "lifetime" ? " lifetime" : "/mo" },
               ];
               return (
                 <div className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-6">
                   <h2 className="text-sm font-semibold uppercase tracking-wider text-[#6b7280] mb-5">
-                    Usage {period === "today" ? "Today" : "This Month"}
+                    Usage
                   </h2>
                   <div className="space-y-5">
                     {rows.map(({ label, used, limit }) => {
@@ -1261,7 +1263,8 @@ export default function DashboardPage() {
                     })}
                   </div>
                   <p className="text-[#6b7280] text-xs mt-5">
-                    {meta.kPeriod === "day" ? "Usage resets daily at midnight UTC." : "Usage resets on the 1st of each month."}
+                    Keywords reset {meta.kPeriod === "day" ? "daily at midnight UTC" : "on the 1st of each month"}.
+                    {meta.aPeriod === "lifetime" ? " Free plan includes 1 article lifetime." : ""}
                   </p>
                 </div>
               );

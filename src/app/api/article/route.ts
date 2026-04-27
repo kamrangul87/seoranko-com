@@ -3,11 +3,21 @@ import { streamClaude, parseJsonResponse } from "@/lib/anthropic";
 import { createClient } from "@/lib/supabase/server";
 import type { ArticleRequest, ArticleOutput } from "@/types";
 
-const ARTICLE_LIMITS: Record<string, { articles: number; period: 'day' | 'month' | 'unlimited' }> = {
-  free:    { articles: 1,   period: 'day' },
-  starter: { articles: 30,  period: 'month' },
-  pro:     { articles: 100, period: 'month' },
-  agency:  { articles: Infinity, period: 'unlimited' },
+// Free plan: 1 article LIFETIME (checked via articles_used_month, never reset)
+// Paid plans: monthly quota
+const ARTICLE_LIMITS = {
+  free:    { articles: 1,        period: "lifetime" as const },
+  starter: { articles: 30,       period: "month"    as const },
+  pro:     { articles: 100,      period: "month"    as const },
+  agency:  { articles: Infinity, period: "unlimited" as const },
+};
+
+// Word count cap per plan
+const WORD_CAPS: Record<string, number> = {
+  free:    500,
+  starter: 5000,
+  pro:     5000,
+  agency:  5000,
 };
 
 const SYSTEM_PROMPT = `You are a senior SEO editor at a leading UK digital publication with 15 years experience. You produce expert, authoritative articles that rank on Google and build genuine reader trust.
@@ -95,35 +105,35 @@ export async function POST(req: NextRequest) {
 
   const master = user.email === process.env.MASTER_EMAIL;
 
+  // Fetch profile once — used for limit check and post-generation DB write
+  let profile: {
+    plan: string;
+    articles_used_today: number;
+    articles_used_month: number;
+  } | null = null;
+
   if (!master) {
-    const { data: profile } = await supabase
+    const { data } = await supabase
       .from("user_profiles")
       .select("plan, articles_used_today, articles_used_month")
       .eq("id", user.id)
       .single();
+    profile = data;
 
-    const plan = profile?.plan ?? "free";
+    const plan = (profile?.plan ?? "free") as keyof typeof ARTICLE_LIMITS;
     const limit = ARTICLE_LIMITS[plan] ?? ARTICLE_LIMITS.free;
 
     if (limit.period !== "unlimited") {
-      const used = limit.period === "day"
-        ? (profile?.articles_used_today ?? 0)
-        : (profile?.articles_used_month ?? 0);
-
+      const used = profile?.articles_used_month ?? 0;
       if (used >= limit.articles) {
+        const msg = plan === "free"
+          ? "You've used your free article. Upgrade to Starter for 30 articles/month."
+          : "Monthly limit reached. Upgrade your plan.";
         return new Response(
-          JSON.stringify({ error: "Daily limit reached. Upgrade your plan." }),
-          { status: 429, headers: { "Content-Type": "application/json" } }
+          JSON.stringify({ error: msg }),
+          { status: 403, headers: { "Content-Type": "application/json" } }
         );
       }
-
-      await supabase
-        .from("user_profiles")
-        .update({
-          articles_used_today: (profile?.articles_used_today ?? 0) + 1,
-          articles_used_month: (profile?.articles_used_month ?? 0) + 1,
-        })
-        .eq("id", user.id);
     }
   }
 
@@ -145,7 +155,9 @@ export async function POST(req: NextRequest) {
   }
 
   if (!master) {
-    wordCount = Math.min(wordCount, 200);
+    const plan = profile?.plan ?? "free";
+    const cap = WORD_CAPS[plan] ?? WORD_CAPS.free;
+    wordCount = Math.min(wordCount, cap);
   }
 
   const secondaryKeywords =
@@ -176,7 +188,6 @@ Return only valid JSON.`;
           userMessage,
           (_delta, accumulated) => {
             charCount = accumulated.length;
-            // Send a progress ping roughly every 400 chars (~80 tokens)
             if (charCount % 400 < 10) {
               controller.enqueue(
                 sseEvent({ stage: `Writing… (${Math.round(charCount / 5)} words)` })
@@ -189,6 +200,29 @@ Return only valid JSON.`;
         controller.enqueue(sseEvent({ stage: "Finalising article…" }));
 
         const articleOutput = parseJsonResponse<ArticleOutput>(raw);
+
+        // Save article and increment usage AFTER successful generation
+        if (!master && user) {
+          await Promise.all([
+            supabase.from("articles").insert({
+              user_id: user.id,
+              title: articleOutput.seoTitle,
+              meta_description: articleOutput.metaDescription,
+              content: articleOutput.article,
+              keyword,
+              word_count: articleOutput.wordCount,
+              eeat_score: articleOutput.eeaScore,
+              readability_score: articleOutput.readabilityScore,
+              keyword_density: String(articleOutput.keywordDensity),
+              status: "draft",
+            }),
+            supabase.from("user_profiles").update({
+              articles_used_today: (profile?.articles_used_today ?? 0) + 1,
+              articles_used_month: (profile?.articles_used_month ?? 0) + 1,
+            }).eq("id", user.id),
+          ]);
+        }
+
         controller.enqueue(
           sseEvent({ done: true, research, article: articleOutput, master })
         );
