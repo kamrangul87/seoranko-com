@@ -1,15 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+
+// NOTE FOR DEPLOYMENT:
+// Go to Supabase Dashboard → Authentication → Settings → Email →
+// turn OFF "Enable email confirmations" for instant signup without email verification.
 
 const PLANS = [
   { id: "free",    label: "Free",    price: "£0",      description: "5 keywords/day · 1 article/day" },
   { id: "starter", label: "Starter", price: "£19/mo",  description: "500 keywords · 30 articles/mo" },
   { id: "pro",     label: "Pro",     price: "£49/mo",  description: "2,000 keywords · 100 articles/mo" },
 ];
+
+const TIMEOUT_MS = 8000;
 
 export default function SignupPage() {
   const router = useRouter();
@@ -18,49 +24,61 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [plan, setPlan] = useState("free");
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
 
   async function handleSignUp(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError("");
-    setMessage("");
 
-    const supabase = createClient();
-
-    const { data, error: signUpError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { name, plan } },
-    });
-
-    if (signUpError) {
-      setError(signUpError.message);
+    // Timeout fallback: if still loading after TIMEOUT_MS, show hint
+    timeoutRef.current = setTimeout(() => {
+      setError("Taking too long? Check your connection and try again.");
       setLoading(false);
-      return;
-    }
+    }, TIMEOUT_MS);
 
-    if (data.user) {
-      // Insert profile row
-      await supabase.from("user_profiles").insert({
-        id: data.user.id,
+    try {
+      const supabase = createClient();
+
+      const { data, error: signUpError } = await supabase.auth.signUp({
         email,
-        name,
-        plan,
-        keywords_used_today: 0,
-        articles_used_today: 0,
-        keywords_used_month: 0,
-        articles_used_month: 0,
+        password,
+        options: { data: { name, plan } },
       });
 
-      if (data.session) {
-        router.push("/dashboard");
-        router.refresh();
-      } else {
-        setMessage("Account created! Check your email to confirm, then sign in.");
+      if (signUpError) {
+        setError(signUpError.message);
         setLoading(false);
+        return;
       }
+
+      if (data.user) {
+        // upsert so re-signup attempts don't fail on duplicate key
+        await supabase.from("user_profiles").upsert({
+          id: data.user.id,
+          email,
+          name,
+          plan,
+        });
+      }
+
+      // Redirect immediately — works whether email confirmation is on or off.
+      // If confirmation is required, Supabase will still create the user and
+      // the cookie session will be set once they confirm.
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      router.push("/dashboard");
+
+    } catch {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      setError("Something went wrong. Please try again.");
+      setLoading(false);
     }
   }
 
@@ -153,17 +171,17 @@ export default function SignupPage() {
               </div>
             )}
 
-            {message && (
-              <div className="bg-[#22c55e]/10 border border-[#22c55e]/20 rounded-[8px] px-4 py-3">
-                <p className="text-[#22c55e] text-sm">{message}</p>
-              </div>
-            )}
-
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-[#f59e0b] hover:bg-[#d97706] disabled:opacity-60 disabled:cursor-not-allowed text-[#0a0a0a] font-bold text-sm py-3 rounded-[8px] transition-colors"
+              className="w-full bg-[#f59e0b] hover:bg-[#d97706] disabled:opacity-60 disabled:cursor-not-allowed text-[#0a0a0a] font-bold text-sm py-3 rounded-[8px] transition-colors flex items-center justify-center gap-2"
             >
+              {loading && (
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              )}
               {loading ? "Creating account…" : "Create Account"}
             </button>
           </form>
