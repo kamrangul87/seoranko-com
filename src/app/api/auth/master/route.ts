@@ -17,8 +17,11 @@ export async function POST(request: Request) {
   const masterPassword = process.env.MASTER_PASSWORD;
 
   if (!masterEmail || !masterPassword) {
+    console.log("[master-login] MASTER_EMAIL set:", !!masterEmail, "| MASTER_PASSWORD set:", !!masterPassword);
     return NextResponse.json({ error: "Not configured" }, { status: 500 });
   }
+
+  console.log("[master-login] attempt — email match:", email === masterEmail, "| password match:", password === masterPassword);
 
   if (email !== masterEmail || password !== masterPassword) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
