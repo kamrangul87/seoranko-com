@@ -710,15 +710,29 @@ function NlpPageInner() {
                 {activeTab === "Brief" && results.brief && (
                   <div className="space-y-5">
                     {/* Write Article CTA */}
-                    <Link
-                      href={`/dashboard?keyword=${encodeURIComponent(results.brief.recommendedH1)}&tone=professional&brief=${encodeURIComponent(JSON.stringify(results.brief.structure))}`}
+                    <button
+                      onClick={() => {
+                        const payload = {
+                          recommendedH1: results.brief.recommendedH1,
+                          structure: results.brief.structure,
+                          wordCount: results.brief.wordCount,
+                          tone: results.brief.tone,
+                          entities: results.entities ?? [],
+                          lsiTerms: results.lsiTerms ?? [],
+                          topicalGaps: results.topicalGaps ?? [],
+                          intent: results.intent?.type ?? "informational",
+                          serpFeatures: results.serpFeatures ?? [],
+                        };
+                        localStorage.setItem("nlp_brief_data", JSON.stringify(payload));
+                        router.push(`/dashboard?from=nlp&keyword=${encodeURIComponent(results.brief.recommendedH1)}`);
+                      }}
                       className="flex items-center justify-between w-full bg-[#f59e0b] hover:bg-[#d97706] text-[#0a0a0a] font-bold text-sm px-5 py-3 rounded-[10px] transition-colors"
                     >
-                      <span>Write This Article</span>
+                      <span>Write This Article →</span>
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
                       </svg>
-                    </Link>
+                    </button>
 
                     <div className="p-4 bg-[#0a0a0a] rounded-[8px] border border-[#1f1f1f] space-y-2">
                       <div className="flex items-center justify-between">

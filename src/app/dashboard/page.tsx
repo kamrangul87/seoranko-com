@@ -11,6 +11,7 @@ import type {
   ImagePrompt,
   Country,
   Tone,
+  NlpBrief,
 } from "@/types";
 
 interface UserProfile {
@@ -284,7 +285,7 @@ function IntentBadge({ intent }: { intent: string }) {
 
 export default function DashboardPage() {
   const [activeNav, setActiveNav] = useState("keywords");
-  const [nlpBrief, setNlpBrief] = useState<{ keyword: string; tone: string } | null>(null);
+  const [nlpBrief, setNlpBrief] = useState<NlpBrief | null>(null);
 
   // Auth state
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -304,17 +305,22 @@ export default function DashboardPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     refreshUserProfile();
-    // Pre-fill from NLP Analyser deep-link
     const params = new URLSearchParams(window.location.search);
     const kwParam = params.get("keyword");
-    const toneParam = params.get("tone");
-    const briefParam = params.get("brief");
+    const fromNlp = params.get("from") === "nlp";
     if (kwParam) {
       setSeedKeyword(kwParam);
       setActiveNav("articles");
-      if (briefParam) {
-        setNlpBrief({ keyword: kwParam, tone: toneParam ?? "professional" });
-      }
+    }
+    if (fromNlp && kwParam) {
+      try {
+        const stored = localStorage.getItem("nlp_brief_data");
+        if (stored) {
+          const brief = JSON.parse(stored) as NlpBrief;
+          setNlpBrief(brief);
+          localStorage.removeItem("nlp_brief_data");
+        }
+      } catch { /* ignore parse errors */ }
     }
   }, []);
 
@@ -460,6 +466,7 @@ export default function DashboardPage() {
           tone,
           audience,
           country,
+          ...(nlpBrief ? { nlpBrief } : {}),
         }),
       });
 
@@ -1012,8 +1019,10 @@ export default function DashboardPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
                   <div>
-                    <p className="text-sm font-semibold text-[#f59e0b]">Brief imported from NLP Analyser</p>
-                    <p className="text-xs text-[#9ca3af]">Keyword pre-filled: <span className="text-[#fafafa]">{nlpBrief.keyword}</span></p>
+                    <p className="text-sm font-semibold text-[#f59e0b]">NLP Brief loaded — your article will be pre-optimised with entity data, topical coverage, and content structure</p>
+                    <p className="text-xs text-[#9ca3af] mt-0.5">
+                      {nlpBrief.entities.length} entities · {nlpBrief.topicalGaps.length} topical gaps · {nlpBrief.lsiTerms.length} LSI terms · {nlpBrief.structure.length} sections
+                    </p>
                   </div>
                 </div>
                 <button onClick={() => setNlpBrief(null)} className="text-[#6b7280] hover:text-[#fafafa] transition-colors">

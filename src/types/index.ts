@@ -45,6 +45,19 @@ export interface ArticleRequest {
   tone: Tone;
   audience: string;
   country: Country;
+  nlpBrief?: NlpBrief;
+}
+
+export interface NlpBrief {
+  recommendedH1: string;
+  structure: { tag: string; text: string }[];
+  wordCount: number;
+  tone: string;
+  entities: string[];
+  lsiTerms: { term: string; frequency: string; status: string }[];
+  topicalGaps: string[];
+  intent: string;
+  serpFeatures: { name: string; available: boolean; tip: string }[];
 }
 
 export interface ResearchBrief {

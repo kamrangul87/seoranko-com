@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { streamClaude, parseJsonResponse } from "@/lib/anthropic";
 import { createClient } from "@/lib/supabase/server";
-import type { ArticleRequest, ArticleOutput } from "@/types";
+import type { ArticleRequest, ArticleOutput, NlpBrief } from "@/types";
 
 // Free plan: 1 article LIFETIME (checked via articles_used_month, never reset)
 // Paid plans: monthly quota
@@ -137,13 +137,14 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const body: ArticleRequest = await req.json();
+  const body: ArticleRequest & { nlpBrief?: NlpBrief } = await req.json();
   const {
     keyword,
     cluster,
     tone = "professional",
     audience = "general readers",
     country = "UK",
+    nlpBrief,
   } = body;
   let { wordCount = 1500 } = body;
 
@@ -163,11 +164,23 @@ export async function POST(req: NextRequest) {
   const secondaryKeywords =
     cluster?.keywords?.filter((k) => k !== keyword).slice(0, 6).join(", ") ?? "";
 
+  const nlpContext = nlpBrief ? `
+
+You have been given a pre-analysed NLP brief. Use this data to write the article:
+- H1: ${nlpBrief.recommendedH1}
+- Required H2/H3 structure: ${JSON.stringify(nlpBrief.structure)}
+- Must include these entities: ${nlpBrief.entities.slice(0, 20).join(", ")}
+- Must cover these subtopics: ${nlpBrief.topicalGaps.slice(0, 15).join(", ")}
+- LSI terms to include naturally: ${nlpBrief.lsiTerms.slice(0, 20).map(t => t.term).join(", ")}
+- Target word count: ${nlpBrief.wordCount}
+- Search intent: ${nlpBrief.intent}
+Follow this structure exactly. Include all required entities and cover all topical gaps.` : "";
+
   const userMessage = `Write a ${wordCount} word article targeting: ${keyword}
 Secondary keywords: ${secondaryKeywords || "none"}
 Tone: ${tone}
 Audience: ${audience}
-Market: ${country}
+Market: ${country}${nlpContext}
 Return only valid JSON.`;
 
   const research = {
