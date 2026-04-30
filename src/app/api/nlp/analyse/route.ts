@@ -190,32 +190,47 @@ Return only valid JSON, no markdown.`,
         });
 
         // ── Overall score ──────────────────────────────────────────────────
-        const totalEntities = Math.max(call1.entities?.length ?? 0, 1);
-        const missing = call2.missingEntities?.length ?? 0;
-        const entityDensity = draft?.trim() ? Math.max(0, ((totalEntities - missing) / totalEntities) * 100) : 0;
+        const hasDraft = !!draft?.trim();
 
-        const totalSubtopics = Math.max(call1.subtopics?.length ?? 0, 1);
-        const covered = call2.coveredTopics?.length ?? 0;
-        const topicalCoverage = draft?.trim() ? Math.min(100, (covered / totalSubtopics) * 100) : 0;
+        if (hasDraft) {
+          // 5-factor score (draft provided)
+          const totalEntities = Math.max(call1.entities?.length ?? 0, 1);
+          const missing = call2.missingEntities?.length ?? 0;
+          const entityDensity = Math.max(0, ((totalEntities - missing) / totalEntities) * 100);
 
-        const eeaVals = Object.values(call2.eeat) as number[];
-        const eeaAvg = eeaVals.reduce((a, b) => a + b, 0) / Math.max(eeaVals.length, 1);
+          const totalSubtopics = Math.max(call1.subtopics?.length ?? 0, 1);
+          const covered = call2.coveredTopics?.length ?? 0;
+          const topicalCoverage = Math.min(100, (covered / totalSubtopics) * 100);
 
-        const fk = call2.readability?.fleschKincaid ?? 12;
-        const readabilityScore = draft?.trim() ? Math.max(0, Math.min(100, 100 - fk * 4)) : 0;
+          const eeaVals = Object.values(call2.eeat) as number[];
+          const eeaAvg = eeaVals.reduce((a, b) => a + b, 0) / Math.max(eeaVals.length, 1);
 
-        const overallScore = Math.min(100, Math.max(0, Math.round(
-          (call1.intent?.confidence ?? 50) * 0.2 +
-          entityDensity * 0.25 +
-          topicalCoverage * 0.25 +
-          eeaAvg * 0.2 +
-          readabilityScore * 0.1
-        )));
+          const fk = call2.readability?.fleschKincaid ?? 12;
+          const readabilityScore = Math.max(0, Math.min(100, 100 - fk * 4));
 
-        controller.enqueue(sse({
-          done: true,
-          results: { ...call1, ...call2, ...call3, overallScore },
-        }));
+          const overallScore = Math.min(100, Math.max(0, Math.round(
+            (call1.intent?.confidence ?? 50) * 0.2 +
+            entityDensity * 0.25 +
+            topicalCoverage * 0.25 +
+            eeaAvg * 0.2 +
+            readabilityScore * 0.1
+          )));
+
+          controller.enqueue(sse({ done: true, results: { ...call1, ...call2, ...call3, overallScore } }));
+        } else {
+          // 3-factor score (no draft — use signal richness only)
+          const entityCountScore = Math.min(100, (call1.entities?.length ?? 0) / 20 * 100);
+          const topicalCoverage = Math.min(100, (call1.subtopics?.length ?? 0) / 15 * 100);
+          const intentScore = call1.intent?.confidence ?? 50;
+
+          const overallScore = Math.min(100, Math.max(0, Math.round(
+            intentScore * 0.4 +
+            entityCountScore * 0.3 +
+            topicalCoverage * 0.3
+          )));
+
+          controller.enqueue(sse({ done: true, results: { ...call1, ...call2, ...call3, overallScore } }));
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Analysis failed";
         console.error("[nlp/analyse] error:", message);

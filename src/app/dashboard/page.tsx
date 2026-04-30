@@ -284,6 +284,7 @@ function IntentBadge({ intent }: { intent: string }) {
 
 export default function DashboardPage() {
   const [activeNav, setActiveNav] = useState("keywords");
+  const [nlpBrief, setNlpBrief] = useState<{ keyword: string; tone: string } | null>(null);
 
   // Auth state
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -301,7 +302,21 @@ export default function DashboardPage() {
   }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { refreshUserProfile(); }, []);
+  useEffect(() => {
+    refreshUserProfile();
+    // Pre-fill from NLP Analyser deep-link
+    const params = new URLSearchParams(window.location.search);
+    const kwParam = params.get("keyword");
+    const toneParam = params.get("tone");
+    const briefParam = params.get("brief");
+    if (kwParam) {
+      setSeedKeyword(kwParam);
+      setActiveNav("articles");
+      if (briefParam) {
+        setNlpBrief({ keyword: kwParam, tone: toneParam ?? "professional" });
+      }
+    }
+  }, []);
 
   async function handleSignOut() {
     await fetch("/api/auth/signout", { method: "POST" });
@@ -736,7 +751,7 @@ export default function DashboardPage() {
                             }
                           />
                         </th>
-                        {["Keyword", "Volume", "KD", "CPC", "Intent", "Trend"].map((col) => (
+                        {["Keyword", "Volume", "KD", "CPC", "Intent", "Trend", ""].map((col) => (
                           <th key={col} className="text-left text-[#6b7280] font-medium text-xs uppercase tracking-wide px-4 py-3">
                             {col}
                           </th>
@@ -767,6 +782,14 @@ export default function DashboardPage() {
                           <td className="px-4 py-3 text-[#6b7280]">£{kw.cpc.toFixed(2)}</td>
                           <td className="px-4 py-3"><IntentBadge intent={kw.intent} /></td>
                           <td className="px-4 py-3"><Sparkline data={kw.trend} /></td>
+                          <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                            <Link
+                              href={`/dashboard/nlp?keyword=${encodeURIComponent(kw.keyword)}&location_code=${country === "UK" ? 2826 : country === "US" ? 2840 : 0}`}
+                              className="text-xs font-semibold text-[#f59e0b] hover:text-[#d97706] transition-colors whitespace-nowrap"
+                            >
+                              NLP →
+                            </Link>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -982,6 +1005,24 @@ export default function DashboardPage() {
         {/* ── ARTICLES view ── */}
         {activeNav === "articles" && (
           <div className="max-w-6xl mx-auto px-8 py-8">
+            {nlpBrief && (
+              <div className="flex items-center justify-between bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-[10px] px-4 py-3 mb-6">
+                <div className="flex items-center gap-3">
+                  <svg className="w-4 h-4 text-[#f59e0b] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                  <div>
+                    <p className="text-sm font-semibold text-[#f59e0b]">Brief imported from NLP Analyser</p>
+                    <p className="text-xs text-[#9ca3af]">Keyword pre-filled: <span className="text-[#fafafa]">{nlpBrief.keyword}</span></p>
+                  </div>
+                </div>
+                <button onClick={() => setNlpBrief(null)} className="text-[#6b7280] hover:text-[#fafafa] transition-colors">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
             <div className="flex items-center justify-between mb-8">
               <div>
                 <h1 className="text-2xl font-bold mb-1">Generated Article</h1>

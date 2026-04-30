@@ -211,11 +211,12 @@ function NlpPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialKeyword = searchParams.get("keyword") ?? "";
+  const initialLocation = parseInt(searchParams.get("location_code") ?? "0") || 0;
 
   const [keyword, setKeyword] = useState(initialKeyword);
   const [draft, setDraft] = useState("");
   const [showDraft, setShowDraft] = useState(false);
-  const [locationCode, setLocationCode] = useState(0);
+  const [locationCode, setLocationCode] = useState(initialLocation);
   const [loading, setLoading] = useState(false);
   const [stage, setStage] = useState("");
   const [error, setError] = useState("");
@@ -228,15 +229,22 @@ function NlpPageInner() {
     return () => { readerRef.current?.cancel(); };
   }, []);
 
+  // Auto-run if keyword came from URL param
+  useEffect(() => {
+    if (initialKeyword.trim()) {
+      runAnalysis(initialKeyword.trim(), initialLocation);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function handleSignOut() {
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/login");
   }
 
-  async function handleAnalyse(e: React.FormEvent) {
-    e.preventDefault();
-    if (!keyword.trim()) return;
+  async function runAnalysis(kw: string, locCode?: number) {
+    if (!kw.trim()) return;
 
     readerRef.current?.cancel();
     setLoading(true);
@@ -244,10 +252,12 @@ function NlpPageInner() {
     setResults(null);
     setStage("Starting analysis…");
 
+    const effectiveLocation = locCode ?? locationCode;
+
     try {
-      const body: Record<string, unknown> = { keyword: keyword.trim() };
+      const body: Record<string, unknown> = { keyword: kw.trim() };
       if (draft.trim()) body.draft = draft.trim();
-      if (locationCode) body.location_code = locationCode;
+      if (effectiveLocation) body.location_code = effectiveLocation;
 
       const res = await fetch("/api/nlp/analyse", {
         method: "POST",
@@ -297,6 +307,11 @@ function NlpPageInner() {
       setError(err instanceof Error ? err.message : "Network error");
       setLoading(false);
     }
+  }
+
+  function handleAnalyse(e: React.FormEvent) {
+    e.preventDefault();
+    runAnalysis(keyword);
   }
 
   function copySchema() {
@@ -694,6 +709,17 @@ function NlpPageInner() {
                 {/* Brief */}
                 {activeTab === "Brief" && results.brief && (
                   <div className="space-y-5">
+                    {/* Write Article CTA */}
+                    <Link
+                      href={`/dashboard?keyword=${encodeURIComponent(results.brief.recommendedH1)}&tone=professional&brief=${encodeURIComponent(JSON.stringify(results.brief.structure))}`}
+                      className="flex items-center justify-between w-full bg-[#f59e0b] hover:bg-[#d97706] text-[#0a0a0a] font-bold text-sm px-5 py-3 rounded-[10px] transition-colors"
+                    >
+                      <span>Write This Article</span>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                      </svg>
+                    </Link>
+
                     <div className="p-4 bg-[#0a0a0a] rounded-[8px] border border-[#1f1f1f] space-y-2">
                       <div className="flex items-center justify-between">
                         <p className="text-xs text-[#6b7280]">Recommended H1</p>
