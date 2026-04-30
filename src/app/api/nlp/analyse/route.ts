@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
+import { createHash } from "crypto";
 import { callClaude, parseJsonResponse } from "@/lib/anthropic";
-import { createClient } from "@/lib/supabase/server";
 
 const DFS_BASE = "https://api.dataforseo.com/v3";
 
@@ -22,10 +24,40 @@ function safeJson<T>(raw: string, fallback: T): T {
   }
 }
 
-export async function POST(req: NextRequest) {
-  const supabase = await createClient();
+async function checkAuth(): Promise<boolean> {
+  const cookieStore = await cookies();
+
+  // Master bypass
+  const masterToken = cookieStore.get("seoranko_master")?.value;
+  if (masterToken) {
+    const masterEmail = process.env.MASTER_EMAIL;
+    const masterPassword = process.env.MASTER_PASSWORD;
+    if (masterEmail && masterPassword) {
+      const expected = createHash("sha256")
+        .update(`${masterEmail}:${masterPassword}:master`)
+        .digest("hex");
+      if (masterToken === expected) return true;
+    }
+  }
+
+  // Supabase session check
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+      },
+    }
+  );
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
+  return !!user;
+}
+
+export async function POST(req: NextRequest) {
+  if (!(await checkAuth())) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401, headers: { "Content-Type": "application/json" },
     });
