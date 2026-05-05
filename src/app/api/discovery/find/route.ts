@@ -102,16 +102,37 @@ async function fetchTrends(niche: string): Promise<{ term: string; value: number
   const key = process.env.SERPAPI_KEY;
   if (!key) return [];
   try {
-    const url = `https://serpapi.com/search.json?engine=google_trends&q=${encodeURIComponent(niche)}&data_type=RELATED_QUERIES&api_key=${key}`;
+    const url = `https://serpapi.com/search.json?engine=google_trends&q=${encodeURIComponent(niche)}&date=today+3-m&api_key=${key}`;
     const res = await fetch(url);
     const data = await res.json();
+
+    const results: { term: string; value: number }[] = [];
+
+    // Timeline data: last 4 data points show recent trend direction
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rising = data?.related_queries?.rising ?? [] as any[];
+    const timeline: any[] = data?.interest_over_time?.timeline_data ?? [];
+    for (const point of timeline.slice(-4)) {
+      const val = point.values?.[0]?.extracted_value ?? 0;
+      if (point.date) results.push({ term: `Trend: ${point.date}`, value: val });
+    }
+
+    // Rising related queries give the strongest content gap signals
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return rising.slice(0, 20).map((item: any) => ({
-      term: item.query ?? "",
-      value: parseInt(item.value ?? "0") || 0,
-    }));
+    const rising: any[] = data?.related_queries?.rising ?? [];
+    for (const item of rising.slice(0, 20)) {
+      results.push({ term: item.query ?? "", value: parseInt(item.value ?? "0") || 0 });
+    }
+
+    // Fall back to top queries if no rising
+    if (results.length <= 4) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const top: any[] = data?.related_queries?.top ?? [];
+      for (const item of top.slice(0, 10)) {
+        results.push({ term: item.query ?? "", value: parseInt(item.value ?? "0") || 0 });
+      }
+    }
+
+    return results;
   } catch {
     return [];
   }
@@ -206,12 +227,25 @@ export async function POST(req: NextRequest) {
           news:    nwResult.status === "fulfilled" ? nwResult.value : [],
         };
 
-        status.youtube = process.env.YOUTUBE_API_KEY ? (ytResult.status === "fulfilled" ? "done" : "error") : "skipped";
-        status.reddit  = rdResult.status === "fulfilled" ? "done" : "error";
-        status.trends  = process.env.SERPAPI_KEY ? (trResult.status === "fulfilled" ? "done" : "error") : "skipped";
-        status.news    = process.env.NEWS_API_KEY ? (nwResult.status === "fulfilled" ? "done" : "error") : "skipped";
+        status.youtube = process.env.YOUTUBE_API_KEY
+          ? (ytResult.status === "fulfilled" ? (signals.youtube.length > 0 ? "done" : "error") : "error")
+          : "skipped";
+        status.reddit  = rdResult.status === "fulfilled" ? (signals.reddit.length > 0 ? "done" : "error") : "error";
+        status.trends  = process.env.SERPAPI_KEY
+          ? (trResult.status === "fulfilled" ? (signals.trends.length > 0 ? "done" : "error") : "error")
+          : "skipped";
+        status.news    = process.env.NEWS_API_KEY
+          ? (nwResult.status === "fulfilled" ? (signals.news.length > 0 ? "done" : "error") : "error")
+          : "skipped";
 
-        controller.enqueue(sse({ stage: "analysing", status }));
+        const counts = {
+          youtube: signals.youtube.length,
+          reddit:  signals.reddit.length,
+          trends:  signals.trends.length,
+          news:    signals.news.length,
+        };
+
+        controller.enqueue(sse({ stage: "analysing", status, counts }));
 
         const allSignals = [
           ...signals.youtube.slice(0, limit),
@@ -263,6 +297,7 @@ Return only valid JSON array, no markdown.`,
             sourcesActive: Object.values(status).filter(s => s === "done").length,
           },
           status,
+          counts,
         }));
       } catch (err) {
         const message = err instanceof Error ? err.message : "Discovery failed";

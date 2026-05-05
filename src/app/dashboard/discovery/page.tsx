@@ -58,6 +58,7 @@ function SourceDot({ status }: { status: SourceStatus }) {
   if (status === "loading") return <span className="w-2 h-2 rounded-full bg-[#f59e0b] animate-pulse inline-block" />;
   if (status === "done")    return <span className="w-2 h-2 rounded-full bg-[#22c55e] inline-block" />;
   if (status === "error")   return <span className="w-2 h-2 rounded-full bg-[#ef4444] inline-block" />;
+  if (status === "skipped") return <span className="w-2 h-2 rounded-full bg-[#374151] inline-block" />;
   return <span className="w-2 h-2 rounded-full bg-[#1f1f1f] inline-block" />;
 }
 
@@ -122,6 +123,7 @@ export default function DiscoveryPage() {
   const [loading, setLoading] = useState(false);
   const [stage, setStage] = useState("");
   const [status, setStatus] = useState<Record<string, SourceStatus>>({});
+  const [counts, setCounts] = useState<Record<string, number>>({});
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState("");
@@ -141,6 +143,7 @@ export default function DiscoveryPage() {
     setSummary(null);
     setStage("Connecting…");
     setStatus({});
+    setCounts({});
     setExpanded(null);
 
     try {
@@ -170,6 +173,7 @@ export default function DiscoveryPage() {
           const data = JSON.parse(part.slice(6)) as {
             stage?: string;
             status?: Record<string, SourceStatus>;
+            counts?: Record<string, number>;
             error?: string;
             done?: boolean;
             opportunities?: Opportunity[];
@@ -177,10 +181,12 @@ export default function DiscoveryPage() {
           };
           if (data.stage) setStage(data.stage);
           if (data.status) setStatus(data.status);
+          if (data.counts) setCounts(data.counts);
           if (data.error) throw new Error(data.error);
           if (data.done) {
             setOpportunities(data.opportunities ?? []);
             setSummary(data.summary ?? null);
+            if (data.counts) setCounts(data.counts);
             setStage("");
           }
         }
@@ -254,14 +260,26 @@ export default function DiscoveryPage() {
             </div>
 
             {/* Source status */}
-            {(loading || Object.keys(status).length > 0) && Object.keys(status).length > 0 && (
-              <div className="mt-4 pt-4 border-t border-[#1f1f1f] flex flex-wrap gap-4">
-                {Object.entries(status).map(([src, st]) => (
-                  <div key={src} className="flex items-center gap-1.5 text-xs text-[#6b7280]">
-                    <SourceDot status={st} />
-                    <span className="capitalize">{src}</span>
-                  </div>
-                ))}
+            {Object.keys(status).length > 0 && (
+              <div className="mt-4 pt-4 border-t border-[#1f1f1f] flex flex-wrap gap-4 items-center">
+                {Object.entries(status).map(([src, st]) => {
+                  const count = counts[src];
+                  const showCount = st === "done" && count !== undefined;
+                  const isEmpty = st === "done" && count === 0;
+                  return (
+                    <div key={src} className="flex items-center gap-1.5 text-xs">
+                      <SourceDot status={isEmpty ? "error" : st} />
+                      <span className={`capitalize ${st === "skipped" ? "text-[#374151]" : "text-[#6b7280]"}`}>
+                        {src}
+                      </span>
+                      {showCount && (
+                        <span className={`font-medium ${count > 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>
+                          {count > 0 ? `${count} signals` : "0"}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
                 {stage && <span className="text-xs text-[#f59e0b] ml-auto animate-pulse">{stage}</span>}
               </div>
             )}
