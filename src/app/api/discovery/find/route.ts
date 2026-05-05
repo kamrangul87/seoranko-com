@@ -51,76 +51,7 @@ async function fetchYouTube(niche: string): Promise<string[]> {
   return signals;
 }
 
-// General Reddit search with updated headers
-async function fetchReddit(niche: string): Promise<string[]> {
-  const signals: string[] = [];
-
-  try {
-    const searchRes = await fetch(
-      `https://www.reddit.com/search.json?q=${encodeURIComponent(niche)}&sort=top&t=month&limit=25`,
-      { headers: REDDIT_HEADERS }
-    );
-    const searchData = await searchRes.json();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const posts = searchData?.data?.children ?? [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const post of posts.slice(0, 25) as any[]) {
-      const p = post.data;
-      if (p.title) signals.push(`POST: ${p.title}`);
-      if (p.selftext && p.selftext.length > 20) signals.push(`BODY: ${p.selftext.slice(0, 200)}`);
-      const title: string = p.title ?? "";
-      if (/^(why|how|anyone else|is it worth|what|does|can|should)/i.test(title)) {
-        signals.push(`PAIN: ${title}`);
-      }
-    }
-  } catch { /* graceful fallback */ }
-
-  // Try niche slug as subreddit (quick win, no extra Claude call needed)
-  try {
-    const subRes = await fetch(
-      `https://www.reddit.com/r/${niche.replace(/\s+/g, "")}/top.json?t=month&limit=25`,
-      { headers: REDDIT_HEADERS }
-    );
-    if (subRes.ok) {
-      const subData = await subRes.json();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const subPosts = subData?.data?.children ?? [] as any[];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      for (const post of subPosts.slice(0, 15) as any[]) {
-        const p = post.data;
-        if (p.title) signals.push(`SUBREDDIT: ${p.title}`);
-      }
-    }
-  } catch { /* skip */ }
-
-  return signals;
-}
-
-// Fetch from specific subreddits (fallback when general search returns nothing)
-async function fetchRedditSubs(subs: string[]): Promise<string[]> {
-  const signals: string[] = [];
-  for (const sub of subs.slice(0, 3)) {
-    try {
-      const res = await fetch(
-        `https://www.reddit.com/r/${sub}/top.json?t=month&limit=25`,
-        { headers: REDDIT_HEADERS }
-      );
-      if (!res.ok) continue;
-      const data = await res.json();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const posts = data?.data?.children ?? [] as any[];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      for (const post of posts.slice(0, 15) as any[]) {
-        const p = post.data;
-        if (p.title) signals.push(`SUBREDDIT (r/${sub}): ${p.title}`);
-        if (p.selftext && p.selftext.length > 20) signals.push(`BODY (r/${sub}): ${p.selftext.slice(0, 150)}`);
-      }
-    } catch { /* skip this sub */ }
-  }
-  return signals;
-}
-
-// Ask Claude for the 2-3 most relevant subreddits for the niche
+// Ask Claude for the 3 most relevant subreddits for the niche
 async function getSubreddits(niche: string): Promise<string[]> {
   try {
     const raw = await callClaude(
@@ -133,6 +64,24 @@ async function getSubreddits(niche: string): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+// Fetch posts from a subreddit or search endpoint and extract signal strings
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractPosts(data: any, label: string): string[] {
+  const signals: string[] = [];
+  const posts = data?.data?.children ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const post of posts.slice(0, 20) as any[]) {
+    const p = post.data;
+    if (!p?.title) continue;
+    signals.push(`${label}: ${p.title}`);
+    if (p.selftext && p.selftext.length > 20) signals.push(`BODY: ${p.selftext.slice(0, 200)}`);
+    if (/^(why|how|anyone else|is it worth|what|does|can|should)/i.test(p.title)) {
+      signals.push(`PAIN: ${p.title}`);
+    }
+  }
+  return signals;
 }
 
 async function fetchTrends(niche: string): Promise<{ term: string; value: number }[]> {
@@ -245,23 +194,38 @@ export async function POST(req: NextRequest) {
 
         controller.enqueue(sse({ stage: "fetching", status }));
 
-        // Phase 1: all sources + Claude subreddit selection run in parallel
-        const [ytResult, rdResult, trResult, nwResult, subResult] = await Promise.allSettled([
+        // Phase 1: Claude subreddit lookup runs in parallel with non-Reddit sources
+        const [subResult, ytResult, trResult, nwResult] = await Promise.allSettled([
+          getSubreddits(niche),
           process.env.YOUTUBE_API_KEY ? fetchYouTube(niche) : Promise.resolve([]),
-          fetchReddit(niche),
           process.env.SERPAPI_KEY ? fetchTrends(niche) : Promise.resolve([]),
           process.env.NEWS_API_KEY ? fetchNews(niche) : Promise.resolve([]),
-          getSubreddits(niche),  // runs in parallel, used only if Reddit returns 0
         ]);
 
-        let redditSignals = rdResult.status === "fulfilled" ? rdResult.value : [];
+        const subs = subResult.status === "fulfilled" ? subResult.value : [];
 
-        // Phase 2: Reddit fallback — only fires if Phase 1 returned 0 Reddit signals
-        if (redditSignals.length === 0 && subResult.status === "fulfilled" && subResult.value.length > 0) {
-          try {
-            const fallback = await fetchRedditSubs(subResult.value);
-            redditSignals = fallback;
-          } catch { /* skip */ }
+        // Phase 2: 3 Reddit fetches in parallel — 2 targeted subreddits + 1 general search
+        const redditFetches = await Promise.allSettled([
+          subs[0]
+            ? fetch(`https://www.reddit.com/r/${subs[0]}/top.json?t=month&limit=20`, { headers: REDDIT_HEADERS }).then(r => r.json())
+            : Promise.resolve(null),
+          subs[1]
+            ? fetch(`https://www.reddit.com/r/${subs[1]}/top.json?t=month&limit=20`, { headers: REDDIT_HEADERS }).then(r => r.json())
+            : Promise.resolve(null),
+          fetch(`https://www.reddit.com/search.json?q=${encodeURIComponent(niche)}&sort=top&t=month&limit=25`, { headers: REDDIT_HEADERS }).then(r => r.json()),
+        ]);
+
+        const redditSignals: string[] = [];
+        const labels = [
+          subs[0] ? `r/${subs[0]}` : null,
+          subs[1] ? `r/${subs[1]}` : null,
+          "POST",
+        ];
+        for (let i = 0; i < redditFetches.length; i++) {
+          const result = redditFetches[i];
+          const label = labels[i];
+          if (result.status !== "fulfilled" || !result.value || !label) continue;
+          redditSignals.push(...extractPosts(result.value, label));
         }
 
         const limit = depth === "deep" ? 30 : 20;
@@ -321,9 +285,7 @@ Return only valid JSON array, no markdown.`,
           opportunities = [];
         }
 
-        // Compute per-opportunity source distribution from actual signal counts.
-        // Claude can't reliably attribute signals to sources per opportunity, so we
-        // distribute proportionally from the real counts across all opportunities.
+        // Distribute signal counts proportionally across opportunities (Claude can't attribute per-opportunity)
         if (opportunities.length > 0 && totalSignals > 0) {
           const n = opportunities.length;
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
