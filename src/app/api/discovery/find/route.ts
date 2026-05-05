@@ -10,12 +10,12 @@ function sse(data: object): Uint8Array {
 
 type SourceStatus = "loading" | "done" | "error" | "skipped";
 
-interface Signal {
-  youtube: string[];
-  reddit: string[];
-  trends: { term: string; value: number }[];
-  news: string[];
-}
+const REDDIT_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (compatible; SEORANKO/1.0; +https://seoranko.com)",
+  "Accept": "application/json",
+};
+
+// ─── Source fetchers ──────────────────────────────────────────────────────────
 
 async function fetchYouTube(niche: string): Promise<string[]> {
   const key = process.env.YOUTUBE_API_KEY;
@@ -51,13 +51,14 @@ async function fetchYouTube(niche: string): Promise<string[]> {
   return signals;
 }
 
+// General Reddit search with updated headers
 async function fetchReddit(niche: string): Promise<string[]> {
   const signals: string[] = [];
 
   try {
     const searchRes = await fetch(
       `https://www.reddit.com/search.json?q=${encodeURIComponent(niche)}&sort=top&t=month&limit=25`,
-      { headers: { "User-Agent": "Seoranko/1.0" } }
+      { headers: REDDIT_HEADERS }
     );
     const searchData = await searchRes.json();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -67,21 +68,18 @@ async function fetchReddit(niche: string): Promise<string[]> {
       const p = post.data;
       if (p.title) signals.push(`POST: ${p.title}`);
       if (p.selftext && p.selftext.length > 20) signals.push(`BODY: ${p.selftext.slice(0, 200)}`);
-      if (p.subreddit) {
-        // Extract pain-signal posts
-        const title: string = p.title ?? "";
-        if (/^(why|how|anyone else|is it worth|what|does|can|should)/i.test(title)) {
-          signals.push(`PAIN: ${title}`);
-        }
+      const title: string = p.title ?? "";
+      if (/^(why|how|anyone else|is it worth|what|does|can|should)/i.test(title)) {
+        signals.push(`PAIN: ${title}`);
       }
     }
   } catch { /* graceful fallback */ }
 
-  // Fetch from a relevant subreddit if identifiable
+  // Try niche slug as subreddit (quick win, no extra Claude call needed)
   try {
     const subRes = await fetch(
       `https://www.reddit.com/r/${niche.replace(/\s+/g, "")}/top.json?t=month&limit=25`,
-      { headers: { "User-Agent": "Seoranko/1.0" } }
+      { headers: REDDIT_HEADERS }
     );
     if (subRes.ok) {
       const subData = await subRes.json();
@@ -96,6 +94,45 @@ async function fetchReddit(niche: string): Promise<string[]> {
   } catch { /* skip */ }
 
   return signals;
+}
+
+// Fetch from specific subreddits (fallback when general search returns nothing)
+async function fetchRedditSubs(subs: string[]): Promise<string[]> {
+  const signals: string[] = [];
+  for (const sub of subs.slice(0, 3)) {
+    try {
+      const res = await fetch(
+        `https://www.reddit.com/r/${sub}/top.json?t=month&limit=25`,
+        { headers: REDDIT_HEADERS }
+      );
+      if (!res.ok) continue;
+      const data = await res.json();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const posts = data?.data?.children ?? [] as any[];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const post of posts.slice(0, 15) as any[]) {
+        const p = post.data;
+        if (p.title) signals.push(`SUBREDDIT (r/${sub}): ${p.title}`);
+        if (p.selftext && p.selftext.length > 20) signals.push(`BODY (r/${sub}): ${p.selftext.slice(0, 150)}`);
+      }
+    } catch { /* skip this sub */ }
+  }
+  return signals;
+}
+
+// Ask Claude for the 2-3 most relevant subreddits for the niche
+async function getSubreddits(niche: string): Promise<string[]> {
+  try {
+    const raw = await callClaude(
+      `Return ONLY a valid JSON array of exactly 3 subreddit names (no r/ prefix) most relevant for researching content gaps about this niche. Return only the JSON array, no markdown, no explanation.`,
+      `Niche: "${niche}"`,
+      150
+    );
+    const subs = parseJsonResponse<string[]>(raw);
+    return Array.isArray(subs) ? subs.slice(0, 3).map(s => String(s).replace(/^r\//, "").trim()) : [];
+  } catch {
+    return [];
+  }
 }
 
 async function fetchTrends(niche: string): Promise<{ term: string; value: number }[]> {
@@ -154,10 +191,11 @@ async function fetchNews(niche: string): Promise<string[]> {
   }
 }
 
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+
 async function checkAuth(): Promise<boolean> {
   const cookieStore = await cookies();
 
-  // Master bypass
   const masterToken = cookieStore.get("seoranko_master")?.value;
   if (masterToken) {
     const masterEmail = process.env.MASTER_EMAIL;
@@ -170,21 +208,16 @@ async function checkAuth(): Promise<boolean> {
     }
   }
 
-  // Supabase session check
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-      },
-    }
+    { cookies: { get(name: string) { return cookieStore.get(name)?.value; } } }
   );
   const { data: { user } } = await supabase.auth.getUser();
   return !!user;
 }
+
+// ─── Handler ──────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   if (!(await checkAuth())) {
@@ -212,50 +245,59 @@ export async function POST(req: NextRequest) {
 
         controller.enqueue(sse({ stage: "fetching", status }));
 
-        const limit = depth === "deep" ? 30 : 20;
-        const [ytResult, rdResult, trResult, nwResult] = await Promise.allSettled([
+        // Phase 1: all sources + Claude subreddit selection run in parallel
+        const [ytResult, rdResult, trResult, nwResult, subResult] = await Promise.allSettled([
           process.env.YOUTUBE_API_KEY ? fetchYouTube(niche) : Promise.resolve([]),
           fetchReddit(niche),
           process.env.SERPAPI_KEY ? fetchTrends(niche) : Promise.resolve([]),
           process.env.NEWS_API_KEY ? fetchNews(niche) : Promise.resolve([]),
+          getSubreddits(niche),  // runs in parallel, used only if Reddit returns 0
         ]);
 
-        const signals: Signal = {
-          youtube: ytResult.status === "fulfilled" ? ytResult.value : [],
-          reddit:  rdResult.status === "fulfilled" ? rdResult.value : [],
-          trends:  trResult.status === "fulfilled" ? trResult.value as { term: string; value: number }[] : [],
-          news:    nwResult.status === "fulfilled" ? nwResult.value : [],
-        };
+        let redditSignals = rdResult.status === "fulfilled" ? rdResult.value : [];
+
+        // Phase 2: Reddit fallback — only fires if Phase 1 returned 0 Reddit signals
+        if (redditSignals.length === 0 && subResult.status === "fulfilled" && subResult.value.length > 0) {
+          try {
+            const fallback = await fetchRedditSubs(subResult.value);
+            redditSignals = fallback;
+          } catch { /* skip */ }
+        }
+
+        const limit = depth === "deep" ? 30 : 20;
+        const youtube = ytResult.status === "fulfilled" ? ytResult.value : [];
+        const trends  = trResult.status === "fulfilled" ? trResult.value as { term: string; value: number }[] : [];
+        const news    = nwResult.status === "fulfilled" ? nwResult.value : [];
 
         status.youtube = process.env.YOUTUBE_API_KEY
-          ? (ytResult.status === "fulfilled" ? (signals.youtube.length > 0 ? "done" : "error") : "error")
-          : "skipped";
-        status.reddit  = rdResult.status === "fulfilled" ? (signals.reddit.length > 0 ? "done" : "error") : "error";
+          ? (youtube.length > 0 ? "done" : "error") : "skipped";
+        status.reddit  = redditSignals.length > 0 ? "done" : "error";
         status.trends  = process.env.SERPAPI_KEY
-          ? (trResult.status === "fulfilled" ? (signals.trends.length > 0 ? "done" : "error") : "error")
-          : "skipped";
+          ? (trends.length > 0 ? "done" : "error") : "skipped";
         status.news    = process.env.NEWS_API_KEY
-          ? (nwResult.status === "fulfilled" ? (signals.news.length > 0 ? "done" : "error") : "error")
-          : "skipped";
+          ? (news.length > 0 ? "done" : "error") : "skipped";
 
         const counts = {
-          youtube: signals.youtube.length,
-          reddit:  signals.reddit.length,
-          trends:  signals.trends.length,
-          news:    signals.news.length,
+          youtube: youtube.length,
+          reddit:  redditSignals.length,
+          trends:  trends.length,
+          news:    news.length,
         };
 
         controller.enqueue(sse({ stage: "analysing", status, counts }));
 
         const allSignals = [
-          ...signals.youtube.slice(0, limit),
-          ...signals.reddit.slice(0, limit),
-          ...signals.trends.slice(0, 20).map(t => `TREND: ${t.term} (${t.value})`),
-          ...signals.news.slice(0, limit),
+          ...youtube.slice(0, limit),
+          ...redditSignals.slice(0, limit),
+          ...trends.slice(0, 20).map(t => `TREND: ${t.term} (${t.value})`),
+          ...news.slice(0, limit),
         ].join("\n");
+
+        const totalSignals = counts.youtube + counts.reddit + counts.trends + counts.news;
 
         const analysisRaw = await callClaude(
           `You are a content opportunity analyser. Here are raw signals from YouTube, Reddit, Google Trends, and News about '${niche}'.
+Signal counts available: YouTube ${counts.youtube}, Reddit ${counts.reddit}, Trends ${counts.trends}, News ${counts.news}.
 Identify the top 10 content opportunities where real people are expressing problems or asking questions that have poor or no existing content answers.
 Return ONLY a JSON array of 10 objects, each with:
 - rank: number
@@ -264,7 +306,6 @@ Return ONLY a JSON array of 10 objects, each with:
 - volume: number (estimated monthly searches)
 - competition: 'Low' | 'Medium' | 'High'
 - intent: 'Informational' | 'Commercial' | 'Transactional'
-- sources: { youtube: number, reddit: number, trends: number, news: number }
 - entities: string[]
 - whyGapExists: string (1 sentence)
 Return only valid JSON array, no markdown.`,
@@ -278,6 +319,23 @@ Return only valid JSON array, no markdown.`,
           opportunities = parseJsonResponse<object[]>(analysisRaw);
         } catch {
           opportunities = [];
+        }
+
+        // Compute per-opportunity source distribution from actual signal counts.
+        // Claude can't reliably attribute signals to sources per opportunity, so we
+        // distribute proportionally from the real counts across all opportunities.
+        if (opportunities.length > 0 && totalSignals > 0) {
+          const n = opportunities.length;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          opportunities = opportunities.map((opp: any) => ({
+            ...opp,
+            sources: {
+              youtube: Math.round(counts.youtube / n),
+              reddit:  Math.round(counts.reddit  / n),
+              trends:  Math.round(counts.trends  / n),
+              news:    Math.round(counts.news    / n),
+            },
+          }));
         }
 
         const avgGap = opportunities.length
