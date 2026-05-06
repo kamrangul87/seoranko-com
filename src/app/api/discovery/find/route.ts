@@ -2,18 +2,16 @@ import { NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createHash } from "crypto";
+import Anthropic from "@anthropic-ai/sdk";
 import { callClaude, parseJsonResponse } from "@/lib/anthropic";
+
+const anthropic = new Anthropic();
 
 function sse(data: object): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);
 }
 
 type SourceStatus = "loading" | "done" | "error" | "skipped";
-
-const REDDIT_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (compatible; SEORANKO/1.0; +https://seoranko.com)",
-  "Accept": "application/json",
-};
 
 // ─── Source fetchers ──────────────────────────────────────────────────────────
 
@@ -33,7 +31,6 @@ async function fetchYouTube(niche: string): Promise<string[]> {
 
   const signals: string[] = videos.map(v => `VIDEO: ${v.title} — ${v.desc}`);
 
-  // Fetch comments for top 3 videos
   const top3 = videos.slice(0, 3).filter(v => v.id);
   for (const vid of top3) {
     try {
@@ -45,42 +42,9 @@ async function fetchYouTube(niche: string): Promise<string[]> {
         c.snippet?.topLevelComment?.snippet?.textDisplay ?? ""
       ).filter(Boolean).slice(0, 10);
       signals.push(...comments.map((c: string) => `COMMENT (${vid.title}): ${c}`));
-    } catch { /* skip failed comment fetch */ }
+    } catch { /* skip */ }
   }
 
-  return signals;
-}
-
-// Ask Claude for the 3 most relevant subreddits for the niche
-async function getSubreddits(niche: string): Promise<string[]> {
-  try {
-    const raw = await callClaude(
-      `Return ONLY a valid JSON array of exactly 3 subreddit names (no r/ prefix) most relevant for researching content gaps about this niche. Return only the JSON array, no markdown, no explanation.`,
-      `Niche: "${niche}"`,
-      150
-    );
-    const subs = parseJsonResponse<string[]>(raw);
-    return Array.isArray(subs) ? subs.slice(0, 3).map(s => String(s).replace(/^r\//, "").trim()) : [];
-  } catch {
-    return [];
-  }
-}
-
-// Fetch posts from a subreddit or search endpoint and extract signal strings
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractPosts(data: any, label: string): string[] {
-  const signals: string[] = [];
-  const posts = data?.data?.children ?? [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const post of posts.slice(0, 20) as any[]) {
-    const p = post.data;
-    if (!p?.title) continue;
-    signals.push(`${label}: ${p.title}`);
-    if (p.selftext && p.selftext.length > 20) signals.push(`BODY: ${p.selftext.slice(0, 200)}`);
-    if (/^(why|how|anyone else|is it worth|what|does|can|should)/i.test(p.title)) {
-      signals.push(`PAIN: ${p.title}`);
-    }
-  }
   return signals;
 }
 
@@ -94,7 +58,6 @@ async function fetchTrends(niche: string): Promise<{ term: string; value: number
 
     const results: { term: string; value: number }[] = [];
 
-    // Timeline data: last 4 data points show recent trend direction
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const timeline: any[] = data?.interest_over_time?.timeline_data ?? [];
     for (const point of timeline.slice(-4)) {
@@ -102,14 +65,12 @@ async function fetchTrends(niche: string): Promise<{ term: string; value: number
       if (point.date) results.push({ term: `Trend: ${point.date}`, value: val });
     }
 
-    // Rising related queries give the strongest content gap signals
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rising: any[] = data?.related_queries?.rising ?? [];
     for (const item of rising.slice(0, 20)) {
       results.push({ term: item.query ?? "", value: parseInt(item.value ?? "0") || 0 });
     }
 
-    // Fall back to top queries if no rising
     if (results.length <= 4) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const top: any[] = data?.related_queries?.top ?? [];
@@ -196,37 +157,74 @@ export async function POST(req: NextRequest) {
 
         // Phase 1: Claude subreddit lookup runs in parallel with non-Reddit sources
         const [subResult, ytResult, trResult, nwResult] = await Promise.allSettled([
-          getSubreddits(niche),
+          (async (): Promise<string[]> => {
+            const subredditMsg = await anthropic.messages.create({
+              model: "claude-sonnet-4-5",
+              max_tokens: 100,
+              messages: [{
+                role: "user",
+                content: `List the 3 most active subreddits for the niche "${niche}". Return ONLY a JSON array like ["fitness","bodyweightfitness","running"]. No explanation.`,
+              }],
+            });
+            const text = subredditMsg.content[0].type === "text" ? subredditMsg.content[0].text.trim() : "[]";
+            return JSON.parse(text.replace(/```json|```/g, "").trim()) as string[];
+          })(),
           process.env.YOUTUBE_API_KEY ? fetchYouTube(niche) : Promise.resolve([]),
           process.env.SERPAPI_KEY ? fetchTrends(niche) : Promise.resolve([]),
           process.env.NEWS_API_KEY ? fetchNews(niche) : Promise.resolve([]),
         ]);
 
-        const subs = subResult.status === "fulfilled" ? subResult.value : [];
+        const subreddits: string[] = subResult.status === "fulfilled" ? subResult.value : [];
 
-        // Phase 2: 3 Reddit fetches in parallel — 2 targeted subreddits + 1 general search
+        // Phase 2: Reddit fetches with full browser fingerprint headers to bypass CDN blocks
+        const browserHeaders = {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "application/json, text/plain, */*",
+          "Accept-Language": "en-US,en;q=0.9",
+          "Cache-Control": "no-cache",
+          "Pragma": "no-cache",
+          "Sec-Fetch-Dest": "empty",
+          "Sec-Fetch-Mode": "cors",
+          "Sec-Fetch-Site": "same-origin",
+          "Referer": "https://www.reddit.com/",
+        };
+
         const redditFetches = await Promise.allSettled([
-          subs[0]
-            ? fetch(`https://www.reddit.com/r/${subs[0]}/top.json?t=month&limit=20`, { headers: REDDIT_HEADERS }).then(r => r.json())
-            : Promise.resolve(null),
-          subs[1]
-            ? fetch(`https://www.reddit.com/r/${subs[1]}/top.json?t=month&limit=20`, { headers: REDDIT_HEADERS }).then(r => r.json())
-            : Promise.resolve(null),
-          fetch(`https://www.reddit.com/search.json?q=${encodeURIComponent(niche)}&sort=top&t=month&limit=25`, { headers: REDDIT_HEADERS }).then(r => r.json()),
+          ...subreddits.map(sub =>
+            fetch(`https://www.reddit.com/r/${sub}/top.json?t=month&limit=15&raw_json=1`, {
+              headers: browserHeaders,
+              cache: "no-store",
+            }).then(r => r.json()).catch(() => null)
+          ),
+          fetch(`https://www.reddit.com/search.json?q=${encodeURIComponent(niche)}&sort=top&t=month&limit=25&raw_json=1`, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              "Accept": "application/json, text/plain, */*",
+              "Accept-Language": "en-US,en;q=0.9",
+              "Cache-Control": "no-cache",
+              "Referer": "https://www.reddit.com/",
+            },
+            cache: "no-store",
+          }).then(r => r.json()).catch(() => null),
         ]);
 
-        const redditSignals: string[] = [];
-        const labels = [
-          subs[0] ? `r/${subs[0]}` : null,
-          subs[1] ? `r/${subs[1]}` : null,
-          "POST",
-        ];
-        for (let i = 0; i < redditFetches.length; i++) {
-          const result = redditFetches[i];
-          const label = labels[i];
-          if (result.status !== "fulfilled" || !result.value || !label) continue;
-          redditSignals.push(...extractPosts(result.value, label));
-        }
+        const redditSignals = redditFetches
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled" && r.value !== null)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .flatMap(r => (r.value?.data?.children ?? []) as any[])
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .map((post: any) => ({
+            title: (post.data?.title ?? "") as string,
+            selftext: ((post.data?.selftext ?? "") as string).slice(0, 400),
+            score: (post.data?.score ?? 0) as number,
+            subreddit: (post.data?.subreddit ?? "") as string,
+            numComments: (post.data?.num_comments ?? 0) as number,
+          }))
+          .filter(p => p.title.length > 5)
+          .slice(0, 40);
+
+        console.log("Reddit signals found:", redditSignals.length);
 
         const limit = depth === "deep" ? 30 : 20;
         const youtube = ytResult.status === "fulfilled" ? ytResult.value : [];
@@ -250,9 +248,14 @@ export async function POST(req: NextRequest) {
 
         controller.enqueue(sse({ stage: "analysing", status, counts }));
 
+        // Convert reddit signal objects to strings for Claude context
+        const redditStrings = redditSignals
+          .slice(0, limit)
+          .map(p => `r/${p.subreddit}: ${p.title}${p.selftext ? ` — ${p.selftext}` : ""}`);
+
         const allSignals = [
           ...youtube.slice(0, limit),
-          ...redditSignals.slice(0, limit),
+          ...redditStrings,
           ...trends.slice(0, 20).map(t => `TREND: ${t.term} (${t.value})`),
           ...news.slice(0, limit),
         ].join("\n");
@@ -285,7 +288,7 @@ Return only valid JSON array, no markdown.`,
           opportunities = [];
         }
 
-        // Distribute signal counts proportionally across opportunities (Claude can't attribute per-opportunity)
+        // Distribute signal counts proportionally across opportunities
         if (opportunities.length > 0 && totalSignals > 0) {
           const n = opportunities.length;
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
