@@ -1,4 +1,7 @@
-export type Country = "UK" | "US" | "Global";
+export type Country =
+  | "Global" | "UK" | "US" | "AU" | "CA" | "DE" | "FR"
+  | "IN" | "AE" | "SA" | "SG" | "ZA" | "PK";
+
 export type SearchIntent = "informational" | "commercial" | "transactional" | "navigational";
 export type Tone = "professional" | "conversational" | "authoritative" | "friendly";
 
@@ -38,15 +41,48 @@ export interface ClusterResponse {
   error?: string;
 }
 
-export interface ArticleRequest {
-  keyword: string;
-  cluster?: Cluster;
-  wordCount: number;
-  tone: Tone;
-  audience: string;
-  country: Country;
-  nlpBrief?: NlpBrief;
+// ─── Pipeline types ───────────────────────────────────────────────────────────
+
+export interface DiscoveryOpportunity {
+  problem: string;
+  entities: string[];
+  gapScore: number;
+  volume: number;
+  competition: string;
+  intent: string;
+  whyGapExists: string;
+  region: string;
 }
+
+export interface NlpAnalysis {
+  keyword: string;
+  recommendedH1: string;
+  intent: { type: string; confidence: number; explanation: string };
+  entities: string[];
+  missingEntities: string[];
+  subtopics: string[];
+  topicalGaps: string[];
+  lsiTerms: { term: string; frequency: string; status: string }[];
+  brief: {
+    recommendedH1: string;
+    structure: { tag: string; text: string }[];
+    wordCount: number;
+    tone: string;
+    targetAudience: string;
+  };
+  overallScore: number;
+  location_code: number;
+  targetMarket: string;
+}
+
+export interface PipelineData {
+  discoveryData?: DiscoveryOpportunity;
+  nlpData?: NlpAnalysis;
+  selectedKeywords?: string[];
+  targetMarket?: string;
+}
+
+// ─── Article types ────────────────────────────────────────────────────────────
 
 export interface NlpBrief {
   recommendedH1: string;
@@ -58,6 +94,17 @@ export interface NlpBrief {
   topicalGaps: string[];
   intent: string;
   serpFeatures: { name: string; available: boolean; tip: string }[];
+}
+
+export interface ArticleRequest {
+  keyword: string;
+  cluster?: Cluster;
+  wordCount: number;
+  tone: Tone;
+  audience: string;
+  country: Country;
+  nlpBrief?: NlpBrief;
+  pipelineData?: PipelineData;
 }
 
 export interface ResearchBrief {

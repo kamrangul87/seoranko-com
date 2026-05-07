@@ -95,7 +95,7 @@ export default function LandingPage() {
                 </svg>
               ),
               title: "Keyword Research",
-              desc: "Pull live search volume, KD, CPC and intent data. Filter UK, US or global markets instantly.",
+              desc: "Pull live search volume, KD, CPC and intent data. Filter by your target market across 13+ countries.",
               bullets: ["Real-time search volume", "Keyword difficulty (0–100)", "CPC & intent signals", "6-month trend data"],
             },
             {
@@ -196,7 +196,7 @@ export default function LandingPage() {
               price: "£19",
               priceSuffix: "/mo",
               tagline: "Solo creators & bloggers",
-              features: ["50 keyword searches/mo", "10 AI articles/mo", "UK & US markets", "EEAT scoring", "Email support"],
+              features: ["50 keyword searches/mo", "10 AI articles/mo", "13+ global markets", "EEAT scoring", "Email support"],
               highlighted: false,
               cta: "Get Started",
             },

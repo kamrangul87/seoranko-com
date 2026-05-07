@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import type { NlpAnalysis } from "@/types";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -85,20 +86,100 @@ interface NlpResults {
   message?: string;
 }
 
+interface DiscoveryOpportunity {
+  problem: string;
+  entities: string[];
+  gapScore: number;
+  volume: number;
+  competition: string;
+  intent: string;
+  whyGapExists: string;
+  region: string;
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const LOCATIONS = [
-  { label: "Global", code: 0 },
+  { label: "Global",        code: 0    },
   { label: "United Kingdom", code: 2826 },
   { label: "United States", code: 2840 },
-  { label: "Australia", code: 2036 },
-  { label: "Canada", code: 2124 },
-  { label: "Germany", code: 2276 },
-  { label: "France", code: 2250 },
+  { label: "Australia",     code: 2036 },
+  { label: "Canada",        code: 2124 },
+  { label: "Germany",       code: 2276 },
+  { label: "France",        code: 2250 },
+  { label: "India",         code: 2356 },
+  { label: "UAE",           code: 2784 },
+  { label: "Saudi Arabia",  code: 2682 },
+  { label: "Singapore",     code: 2702 },
+  { label: "South Africa",  code: 2710 },
+  { label: "Pakistan",      code: 2586 },
 ];
+
+const LOCATION_TO_MARKET: Record<number, string> = {
+  0:    "Global",
+  2826: "UK",
+  2840: "US",
+  2036: "AU",
+  2124: "CA",
+  2276: "DE",
+  2250: "FR",
+  2356: "IN",
+  2784: "AE",
+  2682: "SA",
+  2702: "SG",
+  2710: "ZA",
+  2586: "PK",
+};
+
+const REGION_TO_LOCATION: Record<string, number> = {
+  Global: 0, UK: 2826, US: 2840, AU: 2036, CA: 2124,
+  DE: 2276, FR: 2250, IN: 2356, AE: 2784, SA: 2682,
+  SG: 2702, ZA: 2710, PK: 2586,
+};
 
 const TABS = ["Overview", "Entities", "Topics", "E-E-A-T", "Readability", "Brief"] as const;
 type Tab = (typeof TABS)[number];
+
+// ─── Pipeline Bar ─────────────────────────────────────────────────────────────
+
+function PipelineBar({ step }: { step: "discovery" | "nlp" | "keywords" | "article" }) {
+  const steps = [
+    { id: "discovery", label: "Discovery" },
+    { id: "nlp",       label: "NLP Analysis" },
+    { id: "keywords",  label: "Keywords" },
+    { id: "article",   label: "Article" },
+  ] as const;
+  const currentIndex = steps.findIndex((s) => s.id === step);
+  return (
+    <div className="flex items-center mb-6 bg-[#111111] border border-[#1f1f1f] rounded-[10px] px-5 py-3">
+      {steps.map((s, i) => {
+        const isDone = i < currentIndex;
+        const isCurrent = i === currentIndex;
+        return (
+          <div key={s.id} className="flex items-center flex-1 last:flex-none">
+            <div className={`flex items-center gap-1.5 text-xs font-medium whitespace-nowrap ${isCurrent ? "text-[#f59e0b]" : isDone ? "text-[#22c55e]" : "text-[#374151]"}`}>
+              {isDone ? (
+                <span className="w-4 h-4 rounded-full bg-[#22c55e]/20 flex items-center justify-center">
+                  <svg className="w-2.5 h-2.5 text-[#22c55e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                </span>
+              ) : (
+                <span className={`w-4 h-4 rounded-full flex items-center justify-center ${isCurrent ? "bg-[#f59e0b]/20" : "bg-[#1f1f1f]"}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isCurrent ? "bg-[#f59e0b]" : "bg-[#374151]"}`} />
+                </span>
+              )}
+              {s.label}
+            </div>
+            {i < steps.length - 1 && (
+              <div className={`flex-1 h-px mx-3 ${isDone ? "bg-[#22c55e]/40" : "bg-[#1f1f1f]"}`} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // ─── ScoreRing ────────────────────────────────────────────────────────────────
 
@@ -156,10 +237,10 @@ function ScoreBar({ label, value }: { label: string; value: number }) {
 
 function SidebarNav({ onSignOut }: { onSignOut: () => void }) {
   const items = [
-    { href: "/dashboard", label: "Keywords", icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg> },
-    { href: "/dashboard", label: "Articles", icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
-    { href: "/dashboard/discovery", label: "Discovery", icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg> },
-    { href: "/dashboard/nlp", label: "NLP Analyser", icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> },
+    { href: "/dashboard",           label: "Keywords",    icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg> },
+    { href: "/dashboard",           label: "Articles",    icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
+    { href: "/dashboard/discovery", label: "Discovery",   icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg> },
+    { href: "/dashboard/nlp",       label: "NLP Analyser", icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> },
   ];
 
   return (
@@ -180,9 +261,7 @@ function SidebarNav({ onSignOut }: { onSignOut: () => void }) {
               key={label}
               href={href}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-[8px] text-sm font-medium transition-colors ${
-                active
-                  ? "bg-[#f59e0b]/10 text-[#f59e0b]"
-                  : "text-[#6b7280] hover:text-[#fafafa] hover:bg-[#111111]"
+                active ? "bg-[#f59e0b]/10 text-[#f59e0b]" : "text-[#6b7280] hover:text-[#fafafa] hover:bg-[#111111]"
               }`}
             >
               {icon}{label}
@@ -212,27 +291,41 @@ function NlpPageInner() {
   const searchParams = useSearchParams();
   const initialKeyword = searchParams.get("keyword") ?? "";
   const initialLocation = parseInt(searchParams.get("location_code") ?? "0") || 0;
+  const fromDiscoveryParam = searchParams.get("from") === "discovery";
+  const regionParam = searchParams.get("region") ?? "Global";
 
   const [keyword, setKeyword] = useState(initialKeyword);
   const [draft, setDraft] = useState("");
   const [showDraft, setShowDraft] = useState(false);
-  const [locationCode, setLocationCode] = useState(initialLocation);
+  const [locationCode, setLocationCode] = useState(() => {
+    if (initialLocation) return initialLocation;
+    if (fromDiscoveryParam && regionParam) return REGION_TO_LOCATION[regionParam] ?? 0;
+    return 0;
+  });
   const [loading, setLoading] = useState(false);
   const [stage, setStage] = useState("");
   const [error, setError] = useState("");
   const [results, setResults] = useState<NlpResults | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("Overview");
   const [copied, setCopied] = useState(false);
+  const [fromDiscovery, setFromDiscovery] = useState(false);
+  const [discoveryOpportunity, setDiscoveryOpportunity] = useState<DiscoveryOpportunity | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
 
   useEffect(() => {
     return () => { readerRef.current?.cancel(); };
   }, []);
 
-  // Auto-run if keyword came from URL param
   useEffect(() => {
+    if (fromDiscoveryParam) {
+      setFromDiscovery(true);
+      try {
+        const stored = localStorage.getItem("discovery_opportunity");
+        if (stored) setDiscoveryOpportunity(JSON.parse(stored) as DiscoveryOpportunity);
+      } catch { /* ignore */ }
+    }
     if (initialKeyword.trim()) {
-      runAnalysis(initialKeyword.trim(), initialLocation);
+      runAnalysis(initialKeyword.trim(), locationCode);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -241,6 +334,14 @@ function NlpPageInner() {
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/login");
+  }
+
+  function clearPipeline() {
+    localStorage.removeItem("discovery_opportunity");
+    localStorage.removeItem("nlp_analysis");
+    localStorage.removeItem("article_brief");
+    setFromDiscovery(false);
+    setDiscoveryOpportunity(null);
   }
 
   async function runAnalysis(kw: string, locCode?: number) {
@@ -322,6 +423,27 @@ function NlpPageInner() {
     });
   }
 
+  function handleResearchKeywords() {
+    if (!results) return;
+    const targetMarket = LOCATION_TO_MARKET[locationCode] ?? "Global";
+    const analysis: NlpAnalysis = {
+      keyword:        keyword,
+      recommendedH1:  results.brief?.recommendedH1 ?? keyword,
+      intent:         results.intent ?? { type: "informational", confidence: 50, explanation: "" },
+      entities:       results.entities ?? [],
+      missingEntities: results.missingEntities ?? [],
+      subtopics:      results.subtopics ?? [],
+      topicalGaps:    results.topicalGaps ?? [],
+      lsiTerms:       results.lsiTerms ?? [],
+      brief:          results.brief ?? { recommendedH1: keyword, structure: [], wordCount: 1500, tone: "professional", targetAudience: "general" },
+      overallScore:   results.overallScore,
+      location_code:  locationCode,
+      targetMarket,
+    };
+    localStorage.setItem("nlp_analysis", JSON.stringify(analysis));
+    router.push(`/dashboard?from=nlp&keyword=${encodeURIComponent(keyword)}`);
+  }
+
   return (
     <div className="flex h-screen bg-[#0a0a0a]" style={{ fontFamily: "'Outfit', sans-serif" }}>
       <SidebarNav onSignOut={handleSignOut} />
@@ -336,6 +458,39 @@ function NlpPageInner() {
               SERP analysis, E-E-A-T scoring, content gaps, and brief generation
             </p>
           </div>
+
+          {/* Pipeline bar (only when from discovery) */}
+          {fromDiscovery && <PipelineBar step="nlp" />}
+
+          {/* Discovery banner */}
+          {fromDiscovery && discoveryOpportunity && (
+            <div className="bg-[#22c55e]/5 border border-[#22c55e]/20 rounded-[10px] px-5 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="w-2 h-2 rounded-full bg-[#22c55e]" />
+                    <p className="text-xs font-semibold text-[#22c55e] uppercase tracking-wide">From Discovery Engine</p>
+                  </div>
+                  <p className="text-sm font-medium text-[#fafafa] mb-2">{discoveryOpportunity.problem}</p>
+                  <div className="flex flex-wrap gap-3 text-xs text-[#6b7280]">
+                    <span>Gap Score: <span className="text-[#f59e0b] font-semibold">{discoveryOpportunity.gapScore}/100</span></span>
+                    <span>Volume: <span className="text-[#fafafa] font-medium">{discoveryOpportunity.volume.toLocaleString()}/mo</span></span>
+                    <span>Competition: <span className="text-[#fafafa] font-medium">{discoveryOpportunity.competition}</span></span>
+                    <span>Market: <span className="text-[#fafafa] font-medium">{discoveryOpportunity.region}</span></span>
+                  </div>
+                </div>
+                <button
+                  onClick={clearPipeline}
+                  className="text-[#6b7280] hover:text-[#ef4444] transition-colors flex-shrink-0"
+                  title="Clear pipeline"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Input form */}
           <form onSubmit={handleAnalyse} className="bg-[#111111] border border-[#1f1f1f] rounded-[12px] p-5 space-y-4">
@@ -429,6 +584,20 @@ function NlpPageInner() {
           {/* Results */}
           {results && (
             <div className="space-y-4">
+
+              {/* Pipeline CTA — shown when from discovery */}
+              {fromDiscovery && (
+                <button
+                  onClick={handleResearchKeywords}
+                  className="w-full flex items-center justify-between bg-[#f59e0b] hover:bg-[#d97706] text-[#0a0a0a] font-bold text-sm px-5 py-3.5 rounded-[10px] transition-colors"
+                >
+                  <span>→ Research Keywords with Full Pipeline Data</span>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                  </svg>
+                </button>
+              )}
+
               {/* Score summary bar */}
               <div className="bg-[#111111] border border-[#1f1f1f] rounded-[12px] p-5 flex items-center gap-6">
                 <div className="flex flex-col items-center gap-1">
@@ -709,30 +878,32 @@ function NlpPageInner() {
                 {/* Brief */}
                 {activeTab === "Brief" && results.brief && (
                   <div className="space-y-5">
-                    {/* Write Article CTA */}
-                    <button
-                      onClick={() => {
-                        const payload = {
-                          recommendedH1: results.brief.recommendedH1,
-                          structure: results.brief.structure,
-                          wordCount: results.brief.wordCount,
-                          tone: results.brief.tone,
-                          entities: results.entities ?? [],
-                          lsiTerms: results.lsiTerms ?? [],
-                          topicalGaps: results.topicalGaps ?? [],
-                          intent: results.intent?.type ?? "informational",
-                          serpFeatures: results.serpFeatures ?? [],
-                        };
-                        localStorage.setItem("nlp_brief_data", JSON.stringify(payload));
-                        router.push(`/dashboard?from=nlp&keyword=${encodeURIComponent(results.brief.recommendedH1)}`);
-                      }}
-                      className="flex items-center justify-between w-full bg-[#f59e0b] hover:bg-[#d97706] text-[#0a0a0a] font-bold text-sm px-5 py-3 rounded-[10px] transition-colors"
-                    >
-                      <span>Write This Article →</span>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                      </svg>
-                    </button>
+                    {/* Write Article CTA (legacy — direct flow) */}
+                    {!fromDiscovery && (
+                      <button
+                        onClick={() => {
+                          const payload = {
+                            recommendedH1: results.brief.recommendedH1,
+                            structure:     results.brief.structure,
+                            wordCount:     results.brief.wordCount,
+                            tone:          results.brief.tone,
+                            entities:      results.entities ?? [],
+                            lsiTerms:      results.lsiTerms ?? [],
+                            topicalGaps:   results.topicalGaps ?? [],
+                            intent:        results.intent?.type ?? "informational",
+                            serpFeatures:  results.serpFeatures ?? [],
+                          };
+                          localStorage.setItem("nlp_brief_data", JSON.stringify(payload));
+                          router.push(`/dashboard?from=nlp&keyword=${encodeURIComponent(results.brief.recommendedH1)}`);
+                        }}
+                        className="flex items-center justify-between w-full bg-[#f59e0b] hover:bg-[#d97706] text-[#0a0a0a] font-bold text-sm px-5 py-3 rounded-[10px] transition-colors"
+                      >
+                        <span>Write This Article →</span>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                        </svg>
+                      </button>
+                    )}
 
                     <div className="p-4 bg-[#0a0a0a] rounded-[8px] border border-[#1f1f1f] space-y-2">
                       <div className="flex items-center justify-between">

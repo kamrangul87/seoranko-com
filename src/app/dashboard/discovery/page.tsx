@@ -14,7 +14,7 @@ interface Opportunity {
   volume: number;
   competition: "Low" | "Medium" | "High";
   intent: "Informational" | "Commercial" | "Transactional";
-  sources: { youtube: number; reddit: number; trends: number; news: number };
+  sources: { youtube: number; trends: number; news: number };
   entities: string[];
   whyGapExists: string;
 }
@@ -27,6 +27,12 @@ interface Summary {
 }
 
 type SourceStatus = "loading" | "done" | "error" | "skipped";
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const MARKETS = [
+  "Global", "US", "UK", "AU", "CA", "IN", "AE", "SA", "SG", "DE", "FR", "ZA", "PK",
+] as const;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -62,14 +68,55 @@ function SourceDot({ status }: { status: SourceStatus }) {
   return <span className="w-2 h-2 rounded-full bg-[#1f1f1f] inline-block" />;
 }
 
+// ─── Pipeline Bar ─────────────────────────────────────────────────────────────
+
+function PipelineBar({ step }: { step: "discovery" | "nlp" | "keywords" | "article" }) {
+  const steps = [
+    { id: "discovery", label: "Discovery" },
+    { id: "nlp",       label: "NLP Analysis" },
+    { id: "keywords",  label: "Keywords" },
+    { id: "article",   label: "Article" },
+  ] as const;
+  const currentIndex = steps.findIndex((s) => s.id === step);
+  return (
+    <div className="flex items-center mb-6 bg-[#111111] border border-[#1f1f1f] rounded-[10px] px-5 py-3">
+      {steps.map((s, i) => {
+        const isDone = i < currentIndex;
+        const isCurrent = i === currentIndex;
+        return (
+          <div key={s.id} className="flex items-center flex-1 last:flex-none">
+            <div className={`flex items-center gap-1.5 text-xs font-medium whitespace-nowrap ${isCurrent ? "text-[#f59e0b]" : isDone ? "text-[#22c55e]" : "text-[#374151]"}`}>
+              {isDone ? (
+                <span className="w-4 h-4 rounded-full bg-[#22c55e]/20 flex items-center justify-center">
+                  <svg className="w-2.5 h-2.5 text-[#22c55e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                </span>
+              ) : (
+                <span className={`w-4 h-4 rounded-full flex items-center justify-center ${isCurrent ? "bg-[#f59e0b]/20" : "bg-[#1f1f1f]"}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isCurrent ? "bg-[#f59e0b]" : "bg-[#374151]"}`} />
+                </span>
+              )}
+              {s.label}
+            </div>
+            {i < steps.length - 1 && (
+              <div className={`flex-1 h-px mx-3 ${isDone ? "bg-[#22c55e]/40" : "bg-[#1f1f1f]"}`} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 function Sidebar({ onSignOut }: { onSignOut: () => void }) {
   const navItems = [
-    { label: "Keywords", href: "/dashboard", icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg> },
-    { label: "Articles", href: "/dashboard", icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
-    { label: "Discovery", href: "/dashboard/discovery", icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg> },
-    { label: "NLP Analyser", href: "/dashboard/nlp", icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> },
+    { label: "Keywords",     href: "/dashboard",           icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg> },
+    { label: "Articles",     href: "/dashboard",           icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
+    { label: "Discovery",    href: "/dashboard/discovery", icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg> },
+    { label: "NLP Analyser", href: "/dashboard/nlp",       icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> },
   ];
   return (
     <aside className="w-56 flex-shrink-0 bg-[#0a0a0a] border-r border-[#1f1f1f] flex flex-col">
@@ -89,9 +136,7 @@ function Sidebar({ onSignOut }: { onSignOut: () => void }) {
               key={label}
               href={href}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-[8px] text-sm font-medium transition-colors ${
-                active
-                  ? "bg-[#f59e0b]/10 text-[#f59e0b]"
-                  : "text-[#6b7280] hover:text-[#fafafa] hover:bg-[#111111]"
+                active ? "bg-[#f59e0b]/10 text-[#f59e0b]" : "text-[#6b7280] hover:text-[#fafafa] hover:bg-[#111111]"
               }`}
             >
               {icon}{label}
@@ -120,6 +165,7 @@ export default function DiscoveryPage() {
   const router = useRouter();
   const [niche, setNiche] = useState("");
   const [depth, setDepth] = useState<"quick" | "deep">("quick");
+  const [region, setRegion] = useState("Global");
   const [loading, setLoading] = useState(false);
   const [stage, setStage] = useState("");
   const [status, setStatus] = useState<Record<string, SourceStatus>>({});
@@ -135,6 +181,12 @@ export default function DiscoveryPage() {
     router.push("/login");
   }
 
+  function clearPipeline() {
+    localStorage.removeItem("discovery_opportunity");
+    localStorage.removeItem("nlp_analysis");
+    localStorage.removeItem("article_brief");
+  }
+
   async function handleRun() {
     if (!niche.trim()) return;
     setLoading(true);
@@ -145,12 +197,13 @@ export default function DiscoveryPage() {
     setStatus({});
     setCounts({});
     setExpanded(null);
+    clearPipeline();
 
     try {
       const res = await fetch("/api/discovery/find", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ niche: niche.trim(), depth }),
+        body: JSON.stringify({ niche: niche.trim(), depth, region }),
       });
 
       if (!res.ok || !res.body) {
@@ -198,6 +251,23 @@ export default function DiscoveryPage() {
     }
   }
 
+  function handleNlpAnalyse(opp: Opportunity) {
+    const payload = {
+      problem:      opp.problem,
+      entities:     opp.entities,
+      gapScore:     opp.gapScore,
+      volume:       opp.volume,
+      competition:  opp.competition,
+      intent:       opp.intent,
+      whyGapExists: opp.whyGapExists,
+      region,
+    };
+    localStorage.setItem("discovery_opportunity", JSON.stringify(payload));
+    router.push(
+      `/dashboard/nlp?keyword=${encodeURIComponent(opp.problem)}&from=discovery&region=${encodeURIComponent(region)}`
+    );
+  }
+
   return (
     <div
       className="flex h-screen bg-[#0a0a0a] text-[#fafafa] overflow-hidden"
@@ -209,12 +279,15 @@ export default function DiscoveryPage() {
         <div className="max-w-5xl mx-auto px-8 py-8">
 
           {/* Header */}
-          <div className="mb-8">
+          <div className="mb-6">
             <h1 className="text-2xl font-bold mb-1">Content Gap Discovery</h1>
             <p className="text-[#6b7280] text-sm">
-              Find untapped content opportunities by scanning YouTube, Reddit, Google Trends, and News.
+              Find untapped content opportunities by scanning YouTube, Google Trends, and News.
             </p>
           </div>
+
+          {/* Pipeline bar */}
+          <PipelineBar step="discovery" />
 
           {/* Input card */}
           <div className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-5 mb-6">
@@ -227,6 +300,19 @@ export default function DiscoveryPage() {
                 placeholder="e.g. electric vehicles, keto diet, SaaS pricing"
                 className="flex-1 bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-4 py-2.5 text-sm text-[#fafafa] placeholder-[#6b7280] focus:outline-none focus:border-[#f59e0b]/50 transition-colors"
               />
+
+              {/* Market selector */}
+              <select
+                value={region}
+                onChange={(e) => setRegion(e.target.value)}
+                className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-3 py-2.5 text-sm text-[#fafafa] focus:outline-none focus:border-[#f59e0b]/50 transition-colors"
+              >
+                {MARKETS.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+
+              {/* Depth toggle */}
               <div className="flex gap-2">
                 {(["quick", "deep"] as const).map((d) => (
                   <button
@@ -242,6 +328,7 @@ export default function DiscoveryPage() {
                   </button>
                 ))}
               </div>
+
               <button
                 onClick={handleRun}
                 disabled={loading || !niche.trim()}
@@ -295,10 +382,10 @@ export default function DiscoveryPage() {
           {summary && (
             <div className="grid grid-cols-4 gap-4 mb-6">
               {[
-                { label: "Opportunities", value: summary.total },
-                { label: "Avg Gap Score", value: `${summary.avgGapScore}/100` },
+                { label: "Opportunities",    value: summary.total },
+                { label: "Avg Gap Score",    value: `${summary.avgGapScore}/100` },
                 { label: "Zero-Content Gaps", value: summary.zeroContentGaps },
-                { label: "Sources Active", value: `${summary.sourcesActive}/4` },
+                { label: "Sources Active",   value: `${summary.sourcesActive}/3` },
               ].map(({ label, value }) => (
                 <div key={label} className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-4 text-center">
                   <p className="text-xl font-bold text-[#f59e0b]">{value}</p>
@@ -364,6 +451,10 @@ export default function DiscoveryPage() {
                                 <span className="text-[#6b7280]">Competition</span>
                                 <span className={`font-medium ${COMPETITION_STYLES[opp.competition]?.split(" ")[1] ?? ""}`}>{opp.competition}</span>
                               </div>
+                              <div className="flex justify-between text-sm">
+                                <span className="text-[#6b7280]">Market</span>
+                                <span className="font-medium">{region}</span>
+                              </div>
                             </div>
                           </div>
 
@@ -391,7 +482,7 @@ export default function DiscoveryPage() {
                           </div>
                         </div>
 
-                        <div className="mt-4 pt-4 border-t border-[#1f1f1f] flex items-start gap-2">
+                        <div className="mt-4 pt-4 border-t border-[#1f1f1f] flex items-start gap-2 mb-4">
                           <svg className="w-4 h-4 text-[#f59e0b] flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
@@ -401,20 +492,16 @@ export default function DiscoveryPage() {
                           </p>
                         </div>
 
-                        <div className="mt-4 flex gap-2">
-                          <Link
-                            href={`/dashboard?kw=${encodeURIComponent(opp.problem)}`}
-                            className="flex items-center gap-1.5 bg-[#f59e0b] hover:bg-[#d97706] text-[#0a0a0a] font-semibold text-xs px-4 py-2 rounded-[8px] transition-colors"
-                          >
-                            Research Keywords →
-                          </Link>
-                          <Link
-                            href={`/dashboard/nlp?keyword=${encodeURIComponent(opp.problem)}`}
-                            className="flex items-center gap-1.5 bg-[#0a0a0a] border border-[#1f1f1f] hover:border-[#f59e0b]/40 text-[#fafafa] text-xs font-medium px-4 py-2 rounded-[8px] transition-colors"
-                          >
-                            NLP Analyse
-                          </Link>
-                        </div>
+                        {/* Pipeline CTA */}
+                        <button
+                          onClick={() => handleNlpAnalyse(opp)}
+                          className="w-full flex items-center justify-center gap-2 bg-[#f59e0b] hover:bg-[#d97706] text-[#0a0a0a] font-semibold text-sm px-4 py-2.5 rounded-[8px] transition-colors"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                          </svg>
+                          Run NLP Analysis →
+                        </button>
                       </div>
                     )}
                   </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import type {
@@ -12,6 +12,8 @@ import type {
   Country,
   Tone,
   NlpBrief,
+  NlpAnalysis,
+  PipelineData,
 } from "@/types";
 
 interface UserProfile {
@@ -31,6 +33,69 @@ const PLAN_USAGE = {
   pro:     { label: "Pro",     keywords: 2000,      articles: 100,      kPeriod: "month",    aPeriod: "month"    },
   agency:  { label: "Agency",  keywords: Infinity,  articles: Infinity, kPeriod: "month",    aPeriod: "month"    },
 };
+
+const COUNTRY_LOCATION_CODES: Record<string, number> = {
+  Global: 0,  UK: 2826, US: 2840, AU: 2036, CA: 2124,
+  DE: 2276,   FR: 2250, IN: 2356, AE: 2784, SA: 2682,
+  SG: 2702,   ZA: 2710, PK: 2586,
+};
+
+const ALL_COUNTRIES: { value: Country; label: string }[] = [
+  { value: "Global", label: "Global"         },
+  { value: "US",     label: "United States"  },
+  { value: "UK",     label: "United Kingdom" },
+  { value: "AU",     label: "Australia"      },
+  { value: "CA",     label: "Canada"         },
+  { value: "IN",     label: "India"          },
+  { value: "AE",     label: "UAE"            },
+  { value: "SA",     label: "Saudi Arabia"   },
+  { value: "SG",     label: "Singapore"      },
+  { value: "DE",     label: "Germany"        },
+  { value: "FR",     label: "France"         },
+  { value: "ZA",     label: "South Africa"   },
+  { value: "PK",     label: "Pakistan"       },
+];
+
+// ─── Pipeline Bar ─────────────────────────────────────────────────────────────
+
+function PipelineBar({ step }: { step: "discovery" | "nlp" | "keywords" | "article" }) {
+  const steps = [
+    { id: "discovery", label: "Discovery" },
+    { id: "nlp",       label: "NLP Analysis" },
+    { id: "keywords",  label: "Keywords" },
+    { id: "article",   label: "Article" },
+  ] as const;
+  const currentIndex = steps.findIndex((s) => s.id === step);
+  return (
+    <div className="flex items-center mb-6 bg-[#111111] border border-[#1f1f1f] rounded-[10px] px-5 py-3">
+      {steps.map((s, i) => {
+        const isDone = i < currentIndex;
+        const isCurrent = i === currentIndex;
+        return (
+          <div key={s.id} className="flex items-center flex-1 last:flex-none">
+            <div className={`flex items-center gap-1.5 text-xs font-medium whitespace-nowrap ${isCurrent ? "text-[#f59e0b]" : isDone ? "text-[#22c55e]" : "text-[#374151]"}`}>
+              {isDone ? (
+                <span className="w-4 h-4 rounded-full bg-[#22c55e]/20 flex items-center justify-center">
+                  <svg className="w-2.5 h-2.5 text-[#22c55e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                </span>
+              ) : (
+                <span className={`w-4 h-4 rounded-full flex items-center justify-center ${isCurrent ? "bg-[#f59e0b]/20" : "bg-[#1f1f1f]"}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isCurrent ? "bg-[#f59e0b]" : "bg-[#374151]"}`} />
+                </span>
+              )}
+              {s.label}
+            </div>
+            {i < steps.length - 1 && (
+              <div className={`flex-1 h-px mx-3 ${isDone ? "bg-[#22c55e]/40" : "bg-[#1f1f1f]"}`} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // ─── Sidebar ────────────────────────────────────────────────────────────────
 
@@ -287,6 +352,12 @@ export default function DashboardPage() {
   const [activeNav, setActiveNav] = useState("keywords");
   const [nlpBrief, setNlpBrief] = useState<NlpBrief | null>(null);
 
+  // Pipeline state
+  const [fromNlp, setFromNlp] = useState(false);
+  const [nlpAnalysis, setNlpAnalysis] = useState<NlpAnalysis | null>(null);
+  const [fromPipeline, setFromPipeline] = useState(false);
+  const [pipelineData, setPipelineData] = useState<PipelineData | null>(null);
+
   // Auth state
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
@@ -302,36 +373,9 @@ export default function DashboardPage() {
     if (data) setUserProfile(data as UserProfile);
   }
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    refreshUserProfile();
-    const params = new URLSearchParams(window.location.search);
-    const kwParam = params.get("keyword");
-    const fromNlp = params.get("from") === "nlp";
-    if (kwParam) {
-      setSeedKeyword(kwParam);
-      setActiveNav("articles");
-    }
-    if (fromNlp && kwParam) {
-      try {
-        const stored = localStorage.getItem("nlp_brief_data");
-        if (stored) {
-          const brief = JSON.parse(stored) as NlpBrief;
-          setNlpBrief(brief);
-          localStorage.removeItem("nlp_brief_data");
-        }
-      } catch { /* ignore parse errors */ }
-    }
-  }, []);
-
-  async function handleSignOut() {
-    await fetch("/api/auth/signout", { method: "POST" });
-    window.location.href = "/login";
-  }
-
   // Keyword state
   const [seedKeyword, setSeedKeyword] = useState("");
-  const [country, setCountry] = useState<Country>("UK");
+  const [country, setCountry] = useState<Country>("Global");
   const [keywords, setKeywords] = useState<KeywordResult[]>([]);
   const [kwLoading, setKwLoading] = useState(false);
   const [kwError, setKwError] = useState("");
@@ -348,7 +392,7 @@ export default function DashboardPage() {
   // Article settings
   const [wordCount, setWordCount] = useState(1000);
   const [tone, setTone] = useState<Tone>("professional");
-  const [audience, setAudience] = useState("marketing professionals");
+  const [audience, setAudience] = useState("general readers");
   const [articleLoading, setArticleLoading] = useState(false);
   const [articleStage, setArticleStage] = useState("");
   const [articleProgress, setArticleProgress] = useState(0);
@@ -360,8 +404,8 @@ export default function DashboardPage() {
   const [imagesLoading, setImagesLoading] = useState(false);
 
   // ── Keyword search ────────────────────────────────────────────────────────
-  async function handleKeywordSearch() {
-    if (!seedKeyword.trim()) return;
+  const runKeywordSearch = useCallback(async (kw: string, ctry: Country) => {
+    if (!kw.trim()) return;
     setKwLoading(true);
     setKwError("");
     setKeywords([]);
@@ -372,7 +416,7 @@ export default function DashboardPage() {
       const res = await fetch("/api/keywords", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keyword: seedKeyword.trim(), country }),
+        body: JSON.stringify({ keyword: kw.trim(), country: ctry }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to fetch keywords");
@@ -382,6 +426,85 @@ export default function DashboardPage() {
     } finally {
       setKwLoading(false);
     }
+  }, []);
+
+  async function handleKeywordSearch() {
+    await runKeywordSearch(seedKeyword, country);
+  }
+
+  function clearPipeline() {
+    localStorage.removeItem("discovery_opportunity");
+    localStorage.removeItem("nlp_analysis");
+    localStorage.removeItem("article_brief");
+    setFromNlp(false);
+    setNlpAnalysis(null);
+    setFromPipeline(false);
+    setPipelineData(null);
+    setNlpBrief(null);
+  }
+
+  useEffect(() => {
+    refreshUserProfile();
+    const params = new URLSearchParams(window.location.search);
+    const kwParam = params.get("keyword");
+    const fromParam = params.get("from");
+    const stepParam = params.get("step");
+
+    // Step 4: article generation with full pipeline data
+    if (stepParam === "article" && fromParam === "pipeline") {
+      try {
+        const stored = localStorage.getItem("article_brief");
+        if (stored) {
+          const brief = JSON.parse(stored) as PipelineData;
+          setFromPipeline(true);
+          setPipelineData(brief);
+          setSeedKeyword(brief.selectedKeywords?.[0] ?? brief.nlpData?.keyword ?? "");
+          setCountry((brief.targetMarket ?? "Global") as Country);
+          setActiveNav("articles");
+        }
+      } catch { /* ignore */ }
+      return;
+    }
+
+    // Step 3: keyword research from NLP
+    if (fromParam === "nlp" && kwParam) {
+      setSeedKeyword(kwParam);
+      try {
+        const stored = localStorage.getItem("nlp_analysis");
+        if (stored) {
+          const analysis = JSON.parse(stored) as NlpAnalysis;
+          setNlpAnalysis(analysis);
+          setFromNlp(true);
+          const mkt = (analysis.targetMarket ?? "Global") as Country;
+          setCountry(mkt);
+          setActiveNav("keywords");
+          runKeywordSearch(kwParam, mkt);
+          return;
+        }
+      } catch { /* ignore */ }
+
+      // Fallback: old nlp_brief_data flow (direct NLP → article)
+      try {
+        const briefStored = localStorage.getItem("nlp_brief_data");
+        if (briefStored) {
+          setNlpBrief(JSON.parse(briefStored) as NlpBrief);
+          localStorage.removeItem("nlp_brief_data");
+        }
+      } catch { /* ignore */ }
+      setActiveNav("articles");
+      return;
+    }
+
+    if (kwParam) {
+      setSeedKeyword(kwParam);
+      setActiveNav("articles");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleSignOut() {
+    await fetch("/api/auth/signout", { method: "POST" });
+    window.location.href = "/login";
   }
 
   function toggleKeyword(kw: string) {
@@ -433,10 +556,29 @@ export default function DashboardPage() {
     setClusterEdits((prev) => ({ ...prev, [clusterName]: current.filter((k) => k !== kw) }));
   }
 
+  // ── Pipeline article generation ───────────────────────────────────────────
+  function handleGeneratePipelineArticle() {
+    if (!nlpAnalysis) return;
+    const selectedArr = selectedKws.size > 0
+      ? Array.from(selectedKws)
+      : keywords.slice(0, 5).map((k) => k.keyword);
+    const kw = nlpAnalysis.keyword || nlpAnalysis.brief?.recommendedH1 || seedKeyword;
+    const payload: PipelineData = {
+      nlpData:          nlpAnalysis,
+      selectedKeywords: selectedArr.length > 0 ? selectedArr : [kw],
+      targetMarket:     country,
+    };
+    setFromPipeline(true);
+    setPipelineData(payload);
+    setActiveNav("articles");
+  }
+
   // ── Article generation ────────────────────────────────────────────────────
   async function handleGenerateArticle() {
     const editedKws = selectedCluster ? getClusterKeywords(selectedCluster) : null;
-    const kw = editedKws?.[0] ?? seedKeyword;
+    const kw = fromPipeline && pipelineData?.selectedKeywords?.[0]
+      ? pipelineData.selectedKeywords[0]
+      : editedKws?.[0] ?? seedKeyword;
     if (!kw) return;
     setArticleLoading(true);
     setArticle(null);
@@ -444,7 +586,6 @@ export default function DashboardPage() {
     setArticleStage("Connecting…");
     setArticleProgress(5);
 
-    // Fake progress timer — increments toward stage caps until SSE updates take over
     const progressRef = { value: 5 };
     const progressTimer = setInterval(() => {
       progressRef.value = Math.min(progressRef.value + 0.6, 88);
@@ -456,23 +597,29 @@ export default function DashboardPage() {
       : null;
 
     try {
+      const body: Record<string, unknown> = {
+        keyword:   kw,
+        cluster:   clusterToSend,
+        wordCount,
+        tone,
+        audience,
+        country,
+      };
+      if (fromPipeline && pipelineData) {
+        body.pipelineData = pipelineData;
+      } else if (nlpBrief) {
+        body.nlpBrief = nlpBrief;
+      }
+
       const res = await fetch("/api/article", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          keyword: kw,
-          cluster: clusterToSend,
-          wordCount,
-          tone,
-          audience,
-          country,
-          ...(nlpBrief ? { nlpBrief } : {}),
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!res.ok || !res.body) {
         const err = await res.json().catch(() => ({ error: "Generation failed" }));
-        throw new Error(err.error || "Generation failed");
+        throw new Error((err as { error?: string }).error || "Generation failed");
       }
 
       const reader = res.body.getReader();
@@ -490,7 +637,6 @@ export default function DashboardPage() {
           const data = JSON.parse(part.slice(6));
           if (data.stage) {
             setArticleStage(data.stage);
-            // Map known stages to progress targets
             if (data.stage.startsWith("Writing your")) { progressRef.value = Math.max(progressRef.value, 20); setArticleProgress(20); }
             if (data.stage.startsWith("Writing…"))     { progressRef.value = Math.max(progressRef.value, 40); }
             if (data.stage.startsWith("Finalising"))   { progressRef.value = 90; setArticleProgress(90); }
@@ -665,10 +811,33 @@ export default function DashboardPage() {
           <div className="max-w-6xl mx-auto px-8 py-8">
 
             {/* Page header */}
-            <div className="mb-8">
+            <div className="mb-6">
               <h1 className="text-2xl font-bold mb-1">Keyword Research</h1>
-              <p className="text-[#6b7280] text-sm">Enter a seed topic to find ranking opportunities.</p>
+              <p className="text-[#6b7280] text-sm">Enter a seed topic to find ranking opportunities across 13+ markets.</p>
             </div>
+
+            {/* Pipeline bar */}
+            {fromNlp && <PipelineBar step="keywords" />}
+
+            {/* NLP analysis banner */}
+            {fromNlp && nlpAnalysis && (
+              <div className="flex items-center justify-between bg-[#22c55e]/5 border border-[#22c55e]/20 rounded-[10px] px-4 py-3 mb-6">
+                <div className="flex items-center gap-3">
+                  <span className="w-2 h-2 rounded-full bg-[#22c55e]" />
+                  <div>
+                    <p className="text-sm font-semibold text-[#22c55e]">NLP analysis loaded</p>
+                    <p className="text-xs text-[#9ca3af] mt-0.5">
+                      {nlpAnalysis.entities.length} entities · {nlpAnalysis.topicalGaps.length} topical gaps · market: {nlpAnalysis.targetMarket}
+                    </p>
+                  </div>
+                </div>
+                <button onClick={clearPipeline} className="text-[#6b7280] hover:text-[#ef4444] transition-colors">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
 
             {/* Search bar */}
             <div className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-4 mb-6">
@@ -681,21 +850,15 @@ export default function DashboardPage() {
                   placeholder="e.g. content marketing strategy"
                   className="flex-1 bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-4 py-2.5 text-sm text-[#fafafa] placeholder-[#6b7280] focus:outline-none focus:border-[#f59e0b]/50 transition-colors"
                 />
-                <div className="flex gap-2">
-                  {(["UK", "US", "Global"] as Country[]).map((c) => (
-                    <button
-                      key={c}
-                      onClick={() => setCountry(c)}
-                      className={`px-4 py-2.5 rounded-[8px] text-sm font-medium transition-colors ${
-                        country === c
-                          ? "bg-[#f59e0b] text-[#0a0a0a] font-semibold"
-                          : "bg-[#0a0a0a] border border-[#1f1f1f] text-[#6b7280] hover:text-[#fafafa]"
-                      }`}
-                    >
-                      {c}
-                    </button>
+                <select
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value as Country)}
+                  className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-3 py-2.5 text-sm text-[#fafafa] focus:outline-none focus:border-[#f59e0b]/50 transition-colors"
+                >
+                  {ALL_COUNTRIES.map((c) => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
                   ))}
-                </div>
+                </select>
                 <button
                   onClick={handleKeywordSearch}
                   disabled={kwLoading || !seedKeyword.trim()}
@@ -791,7 +954,7 @@ export default function DashboardPage() {
                           <td className="px-4 py-3"><Sparkline data={kw.trend} /></td>
                           <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                             <Link
-                              href={`/dashboard/nlp?keyword=${encodeURIComponent(kw.keyword)}&location_code=${country === "UK" ? 2826 : country === "US" ? 2840 : 0}`}
+                              href={`/dashboard/nlp?keyword=${encodeURIComponent(kw.keyword)}&location_code=${COUNTRY_LOCATION_CODES[country] ?? 0}`}
                               className="text-xs font-semibold text-[#f59e0b] hover:text-[#d97706] transition-colors whitespace-nowrap"
                             >
                               NLP →
@@ -802,6 +965,26 @@ export default function DashboardPage() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* Pipeline CTA — generate article with full pipeline data */}
+                {fromNlp && (
+                  <div className="mb-6">
+                    <button
+                      onClick={handleGeneratePipelineArticle}
+                      className="w-full flex items-center justify-between bg-[#f59e0b] hover:bg-[#d97706] text-[#0a0a0a] font-bold text-sm px-6 py-4 rounded-[10px] transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>→ Generate Optimised Article with Full Pipeline Data</span>
+                      </div>
+                      <span className="text-xs font-normal opacity-80">
+                        Discovery + NLP + {selectedKws.size > 0 ? selectedKws.size : keywords.length} keywords
+                      </span>
+                    </button>
+                  </div>
+                )}
               </>
             )}
 
@@ -824,7 +1007,6 @@ export default function DashboardPage() {
                           isSelected ? "border-[#f59e0b] shadow-lg shadow-amber-500/10" : "border-[#1f1f1f] hover:border-[#f59e0b]/40"
                         }`}
                       >
-                        {/* Header row */}
                         <div className="flex items-start justify-between mb-3">
                           <div
                             className="flex-1 cursor-pointer"
@@ -850,7 +1032,6 @@ export default function DashboardPage() {
                           </div>
                         </div>
 
-                        {/* Keyword tags */}
                         <div className="flex flex-wrap gap-1.5 mb-3">
                           {kws.map((kw) => (
                             <span
@@ -868,7 +1049,6 @@ export default function DashboardPage() {
                           ))}
                         </div>
 
-                        {/* Edit input */}
                         {isEditing && (
                           <div className="flex gap-1.5 mt-2">
                             <input
@@ -893,7 +1073,7 @@ export default function DashboardPage() {
             )}
 
             {/* Article generator settings */}
-            {(clusters.length > 0 || keywords.length > 0) && (
+            {(clusters.length > 0 || keywords.length > 0) && !fromNlp && (
               <div className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-6">
                 <h2 className="font-bold mb-5 flex items-center gap-2">
                   <svg className="w-4 h-4 text-[#f59e0b]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -948,9 +1128,9 @@ export default function DashboardPage() {
                       onChange={(e) => setCountry(e.target.value as Country)}
                       className="w-full bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-3 py-2 text-sm text-[#fafafa] focus:outline-none focus:border-[#f59e0b]/50"
                     >
-                      <option value="UK">UK</option>
-                      <option value="US">US</option>
-                      <option value="Global">Global</option>
+                      {ALL_COUNTRIES.map((c) => (
+                        <option key={c.value} value={c.value}>{c.label}</option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -1012,7 +1192,32 @@ export default function DashboardPage() {
         {/* ── ARTICLES view ── */}
         {activeNav === "articles" && (
           <div className="max-w-6xl mx-auto px-8 py-8">
-            {nlpBrief && (
+
+            {/* Pipeline bar */}
+            {fromPipeline && <PipelineBar step="article" />}
+
+            {/* Pipeline data banner */}
+            {fromPipeline && pipelineData && (
+              <div className="flex items-center justify-between bg-[#22c55e]/5 border border-[#22c55e]/20 rounded-[10px] px-4 py-3 mb-6">
+                <div className="flex items-center gap-3">
+                  <span className="w-2 h-2 rounded-full bg-[#22c55e]" />
+                  <div>
+                    <p className="text-sm font-semibold text-[#22c55e]">Full pipeline data loaded — Discovery + NLP + Keywords injected into article</p>
+                    <p className="text-xs text-[#9ca3af] mt-0.5">
+                      {pipelineData.nlpData?.entities?.length ?? 0} entities · {pipelineData.nlpData?.topicalGaps?.length ?? 0} topical gaps · {pipelineData.selectedKeywords?.length ?? 0} keywords · market: {pipelineData.targetMarket}
+                    </p>
+                  </div>
+                </div>
+                <button onClick={clearPipeline} className="text-[#6b7280] hover:text-[#ef4444] transition-colors">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+
+            {/* Legacy NLP brief banner */}
+            {nlpBrief && !fromPipeline && (
               <div className="flex items-center justify-between bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-[10px] px-4 py-3 mb-6">
                 <div className="flex items-center gap-3">
                   <svg className="w-4 h-4 text-[#f59e0b] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1032,6 +1237,103 @@ export default function DashboardPage() {
                 </button>
               </div>
             )}
+
+            {/* Article gen form for pipeline flow */}
+            {fromPipeline && !article && !articleLoading && pipelineData && (
+              <div className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-6 mb-6">
+                <h2 className="font-bold mb-5 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-[#f59e0b]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  Article Settings
+                </h2>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+                  <div>
+                    <label className="text-[#6b7280] text-xs font-medium block mb-2 uppercase tracking-wide">Word Count</label>
+                    <select
+                      value={wordCount}
+                      onChange={(e) => setWordCount(Number(e.target.value))}
+                      className="w-full bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-3 py-2 text-sm text-[#fafafa] focus:outline-none focus:border-[#f59e0b]/50"
+                    >
+                      {[1000, 1500, 2000, 2500, 3000].map((n) => (
+                        <option key={n} value={n}>{n} words</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[#6b7280] text-xs font-medium block mb-2 uppercase tracking-wide">Tone</label>
+                    <select
+                      value={tone}
+                      onChange={(e) => setTone(e.target.value as Tone)}
+                      className="w-full bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-3 py-2 text-sm text-[#fafafa] focus:outline-none focus:border-[#f59e0b]/50"
+                    >
+                      <option value="professional">Professional</option>
+                      <option value="conversational">Conversational</option>
+                      <option value="authoritative">Authoritative</option>
+                      <option value="friendly">Friendly</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[#6b7280] text-xs font-medium block mb-2 uppercase tracking-wide">Audience</label>
+                    <input
+                      type="text"
+                      value={audience}
+                      onChange={(e) => setAudience(e.target.value)}
+                      className="w-full bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-3 py-2 text-sm text-[#fafafa] placeholder-[#6b7280] focus:outline-none focus:border-[#f59e0b]/50"
+                      placeholder="e.g. general readers"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[#6b7280] text-xs font-medium block mb-2 uppercase tracking-wide">Market</label>
+                    <select
+                      value={country}
+                      onChange={(e) => setCountry(e.target.value as Country)}
+                      className="w-full bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-3 py-2 text-sm text-[#fafafa] focus:outline-none focus:border-[#f59e0b]/50"
+                    >
+                      {ALL_COUNTRIES.map((c) => (
+                        <option key={c.value} value={c.value}>{c.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-4 py-3 mb-5">
+                  <p className="text-xs text-[#6b7280]">
+                    Primary keyword: <span className="text-[#f59e0b] font-medium">{pipelineData.selectedKeywords?.[0]}</span>
+                    {pipelineData.selectedKeywords && pipelineData.selectedKeywords.length > 1 && (
+                      <span className="ml-2">+ {pipelineData.selectedKeywords.length - 1} secondary</span>
+                    )}
+                  </p>
+                </div>
+                <button
+                  onClick={handleGenerateArticle}
+                  disabled={articleLoading}
+                  className="bg-[#f59e0b] hover:bg-[#d97706] disabled:opacity-60 disabled:cursor-not-allowed text-[#0a0a0a] font-bold text-sm px-8 py-3 rounded-[8px] transition-colors flex items-center gap-2"
+                >
+                  Generate Pipeline Article →
+                </button>
+              </div>
+            )}
+
+            {articleLoading && (
+              <div className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-6 mb-6">
+                <div className="flex justify-between items-center mb-1.5">
+                  <span className="text-xs text-[#6b7280]">{articleStage || "Generating…"}</span>
+                  <span className="text-xs text-[#f59e0b] font-semibold">{articleProgress}%</span>
+                </div>
+                <div className="h-1.5 bg-[#0a0a0a] rounded-full overflow-hidden border border-[#1f1f1f]">
+                  <div
+                    className="h-full bg-[#f59e0b] rounded-full transition-all duration-500"
+                    style={{ width: `${articleProgress}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-[10px] text-[#6b7280] mt-1">
+                  <span>Researching</span>
+                  <span>Writing</span>
+                  <span>Reviewing</span>
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center justify-between mb-8">
               <div>
                 <h1 className="text-2xl font-bold mb-1">Generated Article</h1>
@@ -1074,7 +1376,7 @@ export default function DashboardPage() {
               )}
             </div>
 
-            {!article && (
+            {!article && !articleLoading && !fromPipeline && (
               <div className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-16 text-center">
                 <svg className="w-12 h-12 text-[#2a2a2a] mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -1319,9 +1621,7 @@ export default function DashboardPage() {
               ];
               return (
                 <div className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-6">
-                  <h2 className="text-sm font-semibold uppercase tracking-wider text-[#6b7280] mb-5">
-                    Usage
-                  </h2>
+                  <h2 className="text-sm font-semibold uppercase tracking-wider text-[#6b7280] mb-5">Usage</h2>
                   <div className="space-y-5">
                     {rows.map(({ label, used, limit }) => {
                       const pct = unlimited ? 0 : Math.min(100, Math.round((used / limit) * 100));

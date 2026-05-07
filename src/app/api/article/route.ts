@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { streamClaude, parseJsonResponse } from "@/lib/anthropic";
 import { createClient } from "@/lib/supabase/server";
-import type { ArticleRequest, ArticleOutput, NlpBrief } from "@/types";
+import type { ArticleRequest, ArticleOutput, NlpBrief, PipelineData } from "@/types";
 
 // Free plan: 1 article LIFETIME (checked via articles_used_month, never reset)
 // Paid plans: monthly quota
@@ -20,7 +20,30 @@ const WORD_CAPS: Record<string, number> = {
   agency:  5000,
 };
 
-const SYSTEM_PROMPT = `You are a senior SEO editor at a leading UK digital publication with 15 years experience. You produce expert, authoritative articles that rank on Google and build genuine reader trust.
+// Market-specific authoritative sources
+const MARKET_SOURCES: Record<string, string> = {
+  UK:     "NHS, GOV.UK, Which?, The Guardian, BBC, ONS",
+  US:     "CDC, FDA, Harvard Health, Forbes, Wall Street Journal, Mayo Clinic",
+  AU:     "ABC Australia, health.gov.au, ACCC, Australian Bureau of Statistics",
+  CA:     "Health Canada, CBC, Statistics Canada, Globe and Mail",
+  DE:     "Robert Koch Institut, Statista, Der Spiegel, Bundesministerium für Gesundheit",
+  FR:     "INSEE, Le Monde, Santé publique France, service-public.fr",
+  IN:     "ICMR, Times of India, Economic Times, Ministry of Health India",
+  AE:     "Dubai Health Authority, Gulf News, Khaleej Times, UAE Government portal",
+  SA:     "Saudi Health Ministry, Arab News, Saudi Gazette",
+  SG:     "MOH Singapore, The Straits Times, Enterprise Singapore",
+  ZA:     "StatsSA, Daily Maverick, South African Government, IOL",
+  PK:     "Dawn, The News International, Pakistan Medical Association",
+  Global: "WHO, World Bank, academic journals, Wikipedia, industry-leading publications",
+};
+
+function getMarketSources(country: string): string {
+  return MARKET_SOURCES[country] ?? MARKET_SOURCES.Global;
+}
+
+function buildSystemPrompt(country: string): string {
+  const sources = getMarketSources(country);
+  return `You are a senior SEO editor at a leading digital publication with 15 years experience. You produce expert, authoritative articles that rank on Google and build genuine reader trust across any market.
 
 ARTICLE STRUCTURE RULES:
 Every article must follow this exact structure:
@@ -28,7 +51,7 @@ Every article must follow this exact structure:
 1. SEO TITLE - Under 60 characters, primary keyword near start
 2. META DESCRIPTION - Under 155 characters, includes primary keyword, compelling
 3. TABLE OF CONTENTS - After intro paragraph, list all H2 headings as anchor links
-   Format: ## Table of Contents\n- [Section Name](#section-name)\n- [Section Name](#section-name)
+   Format: ## Table of Contents\\n- [Section Name](#section-name)\\n- [Section Name](#section-name)
 4. INTRODUCTION - 2-3 paragraphs, no heading, hooks reader immediately, includes primary keyword naturally in first 100 words
 5. H2 SECTIONS - Minimum 5 H2 sections, each with 3-4 paragraphs minimum
 6. H3 SUBSECTIONS - Use H3 under H2s where topic has subtopics
@@ -50,20 +73,20 @@ BODY TEXT RULES:
 - Use contractions naturally: don't, isn't, you'll, it's, that's
 - First-person signals where genuine: "In my experience...", "I've seen..."
 - One genuine contrarian point per article, addressed with evidence
-- Never use: "In conclusion", "It is worth noting", "Delve into", "Furthermore", "Moreover", "Game-changer", "Revolutionize", "In today's world", "Needless to say", "It goes without saying"
+- Never use: "In conclusion", "It is worth noting", "Delve into", "Furthermore", "Moreover", "Game-changer", "Revolutionize", "In today's world", "Needless to say", "Leverage", "Robust", "Comprehensive"
 - Bold text ONLY for genuinely critical terms or data points - maximum 3 per article
 - Never bold entire sentences or phrases for emphasis
 
 CITATION RULES:
 - Include 3-5 external citations to authoritative sources
+- Preferred sources for this market: ${sources}
 - Format as inline links: [Source Name](https://real-known-url.com)
-- UK authoritative sources preferred: NHS, GOV.UK, ONS, Which?, Mintel, Statista UK, BBC, Guardian
 - Never fabricate URLs - if unsure of exact URL write: [Source: Organisation Name] without hyperlink
 - Include 2-3 internal link suggestions in brackets: "see our guide to [keyword research strategies]"
 
 E-E-A-T SIGNALS:
 - Include specific verifiable statistics with real source organisations
-- Reference recognisable UK brands and institutions
+- Reference recognisable brands and institutions relevant to the target market
 - Acknowledge limitations and individual variation honestly
 - Write with confident expertise - no hedging phrases like "might possibly"
 - Include at least one expert quote format: As [Organisation] noted: '[paraphrased point]'
@@ -87,6 +110,79 @@ SCORES - Return as integers 0-100:
 
 Return ONLY this exact JSON with no markdown fences:
 {"seoTitle":"under 60 chars","metaDescription":"under 155 chars","article":"full markdown article","wordCount":0,"eeaScore":0,"readabilityScore":0,"keywordDensity":"1.2%","improvements":["improvement 1","improvement 2","improvement 3"]}`;
+}
+
+function buildPipelineContext(pipelineData: PipelineData, targetMarket: string): string {
+  const { discoveryData, nlpData, selectedKeywords } = pipelineData;
+  const sources = getMarketSources(targetMarket);
+  const lines: string[] = [
+    "",
+    "═══════════════════════════════════════════════════════════",
+    "FULL PIPELINE DATA — USE EVERY PIECE OF THIS INFORMATION",
+    "═══════════════════════════════════════════════════════════",
+  ];
+
+  if (discoveryData) {
+    lines.push(
+      "",
+      "SEARCH OPPORTUNITY (from Discovery Engine):",
+      `- Problem users are searching for: ${discoveryData.problem}`,
+      `- Why content gap exists: ${discoveryData.whyGapExists}`,
+      `- Estimated search volume: ${discoveryData.volume}/month`,
+      `- Competition level: ${discoveryData.competition}`,
+      `- Search intent: ${discoveryData.intent}`,
+      `- Gap score: ${discoveryData.gapScore}/100 (higher = less competition)`,
+    );
+  }
+
+  if (nlpData) {
+    lines.push(
+      "",
+      "NLP ANALYSIS FROM TOP 10 SERP RESULTS:",
+      `- Recommended H1: ${nlpData.recommendedH1}`,
+      `- Search intent: ${nlpData.intent?.type ?? "informational"} (${nlpData.intent?.confidence ?? 50}% confidence)`,
+      `- Required entities to include naturally: ${nlpData.entities?.slice(0, 20).join(", ")}`,
+      `- Topical gaps to cover (each becomes an H2/H3): ${nlpData.topicalGaps?.slice(0, 15).join(", ")}`,
+      `- LSI terms to use naturally throughout: ${nlpData.lsiTerms?.slice(0, 20).map(t => t.term).join(", ")}`,
+      `- Article structure to follow: ${JSON.stringify(nlpData.brief?.structure ?? [])}`,
+      `- Target word count: ${nlpData.brief?.wordCount ?? 1500}`,
+    );
+  }
+
+  if (selectedKeywords && selectedKeywords.length > 0) {
+    lines.push(
+      "",
+      "KEYWORD DATA:",
+      `- Primary keyword: ${selectedKeywords[0]}`,
+      `- Related keywords to mention naturally: ${selectedKeywords.slice(1).join(", ")}`,
+    );
+  }
+
+  lines.push(
+    "",
+    `TARGET MARKET: ${targetMarket}`,
+    `AUTHORITATIVE SOURCES TO CITE: ${sources}`,
+    "",
+    "MANDATORY WRITING RULES FOR THIS ARTICLE:",
+    "1. Write in a natural human voice — vary sentence length, use contractions, avoid robotic phrasing",
+    "2. Include ALL required entities naturally — never force them awkwardly",
+    "3. Cover EVERY topical gap listed — each gap must become an H2 or H3 section",
+    "4. Use LSI terms naturally throughout — never stuff or force them",
+    "5. E-E-A-T: include first-person experience signals, expert quotes, statistics with sources",
+    "6. Cite 3-5 authoritative sources for the target market with real working anchor text links",
+    "7. FAQ section must answer real questions people ask — minimum 5 questions",
+    "8. NEVER use: 'In conclusion', 'Delve into', 'Furthermore', 'Leverage', 'Robust', 'Comprehensive', 'Game changer'",
+    "9. Keyword density: primary keyword 0.8-1.2% only",
+    "10. Every paragraph must add genuine value — no filler sentences",
+    "11. Target readability: Flesch-Kincaid grade 10-12",
+    "12. Use active voice throughout",
+    "13. Include real data, statistics, specific examples — never vague generalities",
+    "14. Write for humans first, search engines second",
+    "═══════════════════════════════════════════════════════════",
+  );
+
+  return lines.join("\n");
+}
 
 function sseEvent(data: object): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);
@@ -137,14 +233,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const body: ArticleRequest & { nlpBrief?: NlpBrief } = await req.json();
+  const body: ArticleRequest & { nlpBrief?: NlpBrief; pipelineData?: PipelineData } = await req.json();
   const {
     keyword,
     cluster,
     tone = "professional",
     audience = "general readers",
-    country = "UK",
+    country = "Global",
     nlpBrief,
+    pipelineData,
   } = body;
   let { wordCount = 1500 } = body;
 
@@ -164,7 +261,16 @@ export async function POST(req: NextRequest) {
   const secondaryKeywords =
     cluster?.keywords?.filter((k) => k !== keyword).slice(0, 6).join(", ") ?? "";
 
-  const nlpContext = nlpBrief ? `
+  const targetMarket = pipelineData?.targetMarket ?? country ?? "Global";
+  const systemPrompt = buildSystemPrompt(targetMarket);
+
+  // Build user message — inject full pipeline context or NLP brief
+  let contextBlock = "";
+
+  if (pipelineData && (pipelineData.discoveryData || pipelineData.nlpData)) {
+    contextBlock = buildPipelineContext(pipelineData, targetMarket);
+  } else if (nlpBrief) {
+    contextBlock = `
 
 You have been given a pre-analysed NLP brief. Use this data to write the article:
 - H1: ${nlpBrief.recommendedH1}
@@ -174,13 +280,14 @@ You have been given a pre-analysed NLP brief. Use this data to write the article
 - LSI terms to include naturally: ${nlpBrief.lsiTerms.slice(0, 20).map(t => t.term).join(", ")}
 - Target word count: ${nlpBrief.wordCount}
 - Search intent: ${nlpBrief.intent}
-Follow this structure exactly. Include all required entities and cover all topical gaps.` : "";
+Follow this structure exactly. Include all required entities and cover all topical gaps.`;
+  }
 
   const userMessage = `Write a ${wordCount} word article targeting: ${keyword}
 Secondary keywords: ${secondaryKeywords || "none"}
 Tone: ${tone}
 Audience: ${audience}
-Market: ${country}${nlpContext}
+Market: ${targetMarket}${contextBlock}
 Return only valid JSON.`;
 
   const research = {
@@ -197,9 +304,10 @@ Return only valid JSON.`;
 
         let charCount = 0;
         const raw = await streamClaude(
-          SYSTEM_PROMPT,
+          systemPrompt,
           userMessage,
-          (_delta, accumulated) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (_delta: any, accumulated: any) => {
             charCount = accumulated.length;
             if (charCount % 400 < 10) {
               controller.enqueue(

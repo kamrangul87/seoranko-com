@@ -13,13 +13,24 @@ function sse(data: object): Uint8Array {
 
 type SourceStatus = "loading" | "done" | "error" | "skipped";
 
+// Map region code to YouTube regionCode param
+const REGION_TO_YT: Record<string, string> = {
+  UK: "GB", US: "US", AU: "AU", CA: "CA", DE: "DE",
+  FR: "FR", IN: "IN", AE: "AE", SA: "SA", SG: "SG",
+  ZA: "ZA", PK: "PK",
+};
+
 // ─── Source fetchers ──────────────────────────────────────────────────────────
 
-async function fetchYouTube(niche: string): Promise<string[]> {
+async function fetchYouTube(niche: string, region: string): Promise<string[]> {
   const key = process.env.YOUTUBE_API_KEY;
   if (!key) return [];
 
-  const searchUrl = `https://www.googleapis.com/youtube/v3/search?q=${encodeURIComponent(niche)}&part=snippet&type=video&regionCode=GB&maxResults=20&key=${key}`;
+  const regionParam = region && REGION_TO_YT[region]
+    ? `&regionCode=${REGION_TO_YT[region]}`
+    : "";
+
+  const searchUrl = `https://www.googleapis.com/youtube/v3/search?q=${encodeURIComponent(niche)}&part=snippet&type=video${regionParam}&maxResults=20&key=${key}`;
   const res = await fetch(searchUrl);
   const data = await res.json();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -127,6 +138,9 @@ async function checkAuth(): Promise<boolean> {
   return !!user;
 }
 
+// Satisfy unused import (callClaude used by other routes in this file tree)
+void callClaude;
+
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -136,7 +150,12 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const { niche, depth = "quick" } = await req.json() as { niche: string; depth?: "quick" | "deep" };
+  const { niche, depth = "quick", region = "Global" } = await req.json() as {
+    niche: string;
+    depth?: "quick" | "deep";
+    region?: string;
+  };
+
   if (!niche?.trim()) {
     return new Response(JSON.stringify({ error: "niche is required" }), {
       status: 400, headers: { "Content-Type": "application/json" },
@@ -148,83 +167,18 @@ export async function POST(req: NextRequest) {
       try {
         const status: Record<string, SourceStatus> = {
           youtube: process.env.YOUTUBE_API_KEY ? "loading" : "skipped",
-          reddit: "loading",
-          trends: process.env.SERPAPI_KEY ? "loading" : "skipped",
-          news: process.env.NEWS_API_KEY ? "loading" : "skipped",
+          trends:  process.env.SERPAPI_KEY      ? "loading" : "skipped",
+          news:    process.env.NEWS_API_KEY     ? "loading" : "skipped",
         };
 
         controller.enqueue(sse({ stage: "fetching", status }));
 
-        // Phase 1: Claude subreddit lookup runs in parallel with non-Reddit sources
-        const [subResult, ytResult, trResult, nwResult] = await Promise.allSettled([
-          (async (): Promise<string[]> => {
-            const subredditMsg = await anthropic.messages.create({
-              model: "claude-sonnet-4-5",
-              max_tokens: 100,
-              messages: [{
-                role: "user",
-                content: `List the 3 most active subreddits for the niche "${niche}". Return ONLY a JSON array like ["fitness","bodyweightfitness","running"]. No explanation.`,
-              }],
-            });
-            const text = subredditMsg.content[0].type === "text" ? subredditMsg.content[0].text.trim() : "[]";
-            return JSON.parse(text.replace(/```json|```/g, "").trim()) as string[];
-          })(),
-          process.env.YOUTUBE_API_KEY ? fetchYouTube(niche) : Promise.resolve([]),
-          process.env.SERPAPI_KEY ? fetchTrends(niche) : Promise.resolve([]),
-          process.env.NEWS_API_KEY ? fetchNews(niche) : Promise.resolve([]),
+        // Fetch all sources in parallel
+        const [ytResult, trResult, nwResult] = await Promise.allSettled([
+          process.env.YOUTUBE_API_KEY ? fetchYouTube(niche, region) : Promise.resolve([]),
+          process.env.SERPAPI_KEY     ? fetchTrends(niche)          : Promise.resolve([]),
+          process.env.NEWS_API_KEY    ? fetchNews(niche)            : Promise.resolve([]),
         ]);
-
-        const subreddits: string[] = subResult.status === "fulfilled" ? subResult.value : [];
-
-        // Phase 2: Reddit fetches with full browser fingerprint headers to bypass CDN blocks
-        const browserHeaders = {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          "Accept": "application/json, text/plain, */*",
-          "Accept-Language": "en-US,en;q=0.9",
-          "Cache-Control": "no-cache",
-          "Pragma": "no-cache",
-          "Sec-Fetch-Dest": "empty",
-          "Sec-Fetch-Mode": "cors",
-          "Sec-Fetch-Site": "same-origin",
-          "Referer": "https://www.reddit.com/",
-        };
-
-        const redditFetches = await Promise.allSettled([
-          ...subreddits.map(sub =>
-            fetch(`https://www.reddit.com/r/${sub}/top.json?t=month&limit=15&raw_json=1`, {
-              headers: browserHeaders,
-              cache: "no-store",
-            }).then(r => r.json()).catch(() => null)
-          ),
-          fetch(`https://www.reddit.com/search.json?q=${encodeURIComponent(niche)}&sort=top&t=month&limit=25&raw_json=1`, {
-            headers: {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-              "Accept": "application/json, text/plain, */*",
-              "Accept-Language": "en-US,en;q=0.9",
-              "Cache-Control": "no-cache",
-              "Referer": "https://www.reddit.com/",
-            },
-            cache: "no-store",
-          }).then(r => r.json()).catch(() => null),
-        ]);
-
-        const redditSignals = redditFetches
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled" && r.value !== null)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .flatMap(r => (r.value?.data?.children ?? []) as any[])
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .map((post: any) => ({
-            title: (post.data?.title ?? "") as string,
-            selftext: ((post.data?.selftext ?? "") as string).slice(0, 400),
-            score: (post.data?.score ?? 0) as number,
-            subreddit: (post.data?.subreddit ?? "") as string,
-            numComments: (post.data?.num_comments ?? 0) as number,
-          }))
-          .filter(p => p.title.length > 5)
-          .slice(0, 40);
-
-        console.log("Reddit signals found:", redditSignals.length);
 
         const limit = depth === "deep" ? 30 : 20;
         const youtube = ytResult.status === "fulfilled" ? ytResult.value : [];
@@ -233,52 +187,57 @@ export async function POST(req: NextRequest) {
 
         status.youtube = process.env.YOUTUBE_API_KEY
           ? (youtube.length > 0 ? "done" : "error") : "skipped";
-        status.reddit  = redditSignals.length > 0 ? "done" : "error";
         status.trends  = process.env.SERPAPI_KEY
-          ? (trends.length > 0 ? "done" : "error") : "skipped";
+          ? (trends.length > 0  ? "done" : "error") : "skipped";
         status.news    = process.env.NEWS_API_KEY
-          ? (news.length > 0 ? "done" : "error") : "skipped";
+          ? (news.length > 0    ? "done" : "error") : "skipped";
 
         const counts = {
           youtube: youtube.length,
-          reddit:  redditSignals.length,
           trends:  trends.length,
           news:    news.length,
         };
 
         controller.enqueue(sse({ stage: "analysing", status, counts }));
 
-        // Convert reddit signal objects to strings for Claude context
-        const redditStrings = redditSignals
-          .slice(0, limit)
-          .map(p => `r/${p.subreddit}: ${p.title}${p.selftext ? ` — ${p.selftext}` : ""}`);
-
         const allSignals = [
           ...youtube.slice(0, limit),
-          ...redditStrings,
           ...trends.slice(0, 20).map(t => `TREND: ${t.term} (${t.value})`),
           ...news.slice(0, limit),
         ].join("\n");
 
-        const totalSignals = counts.youtube + counts.reddit + counts.trends + counts.news;
+        const totalSignals = counts.youtube + counts.trends + counts.news;
+        const marketLabel = region && region !== "Global" ? region : "global";
 
-        const analysisRaw = await callClaude(
-          `You are a content opportunity analyser. Here are raw signals from YouTube, Reddit, Google Trends, and News about '${niche}'.
-Signal counts available: YouTube ${counts.youtube}, Reddit ${counts.reddit}, Trends ${counts.trends}, News ${counts.news}.
+        const analysisRaw = await (async () => {
+          const msg = await anthropic.messages.create({
+            model: "claude-sonnet-4-5",
+            max_tokens: 4000,
+            messages: [{
+              role: "user",
+              content: `You are a content opportunity analyser for the ${marketLabel} market. Here are raw signals from YouTube, Google Trends, and News about '${niche}'.
+Signal counts: YouTube ${counts.youtube}, Trends ${counts.trends}, News ${counts.news}.
 Identify the top 10 content opportunities where real people are expressing problems or asking questions that have poor or no existing content answers.
 Return ONLY a JSON array of 10 objects, each with:
 - rank: number
 - problem: string (the core question/problem people are expressing)
 - gapScore: number 0-100 (100 = nobody has answered this well)
-- volume: number (estimated monthly searches)
+- volume: number (estimated monthly searches in the ${marketLabel} market)
 - competition: 'Low' | 'Medium' | 'High'
 - intent: 'Informational' | 'Commercial' | 'Transactional'
 - entities: string[]
 - whyGapExists: string (1 sentence)
-Return only valid JSON array, no markdown.`,
-          `Niche: "${niche}"\n\nSignals:\n${allSignals.slice(0, 8000)}`,
-          4000
-        );
+Return only valid JSON array, no markdown.
+
+Niche: "${niche}"
+Market: ${marketLabel}
+
+Signals:
+${allSignals.slice(0, 8000)}`,
+            }],
+          });
+          return msg.content[0].type === "text" ? msg.content[0].text : "[]";
+        })();
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let opportunities: any[] = [];
@@ -296,7 +255,6 @@ Return only valid JSON array, no markdown.`,
             ...opp,
             sources: {
               youtube: Math.round(counts.youtube / n),
-              reddit:  Math.round(counts.reddit  / n),
               trends:  Math.round(counts.trends  / n),
               news:    Math.round(counts.news    / n),
             },
