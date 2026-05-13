@@ -479,7 +479,8 @@ function NlpPageInner() {
                     <span className="w-2 h-2 rounded-full bg-[#22c55e]" />
                     <p className="text-xs font-semibold text-[#22c55e] uppercase tracking-wide">From Discovery Engine</p>
                   </div>
-                  <p className="text-sm font-medium text-[#fafafa] mb-2">{discoveryOpportunity.problem}</p>
+                  <p className="text-xs text-[#6b7280] mb-1">Original problem: {(discoveryOpportunity as DiscoveryOpportunity & { fullProblem?: string }).fullProblem ?? discoveryOpportunity.problem}</p>
+                  <p className="text-sm font-medium text-[#fafafa] mb-2">Analysing: <span className="text-[#f59e0b]">{keyword}</span></p>
                   <div className="flex flex-wrap gap-3 text-xs text-[#6b7280]">
                     <span>Gap Score: <span className="text-[#f59e0b] font-semibold">{discoveryOpportunity.gapScore}/100</span></span>
                     <span>Volume: <span className="text-[#fafafa] font-medium">{discoveryOpportunity.volume.toLocaleString()}/mo</span></span>

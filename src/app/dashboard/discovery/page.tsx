@@ -251,39 +251,49 @@ export default function DiscoveryPage() {
     }
   }
 
-  const STOP_WORDS = new Set([
-    'how', 'to', 'if', 'an', 'is', 'the', 'a', 'of', 'for', 'in', 'on', 'at',
-    'by', 'with', 'about', 'than', 'just', 'what', 'why', 'when', 'where',
-    'which', 'do', 'does', 'are', 'can', 'will', 'should', 'would', 'could',
-    'it', 'its', 'be', 'been', 'being', 'have', 'has', 'had', 'was', 'were',
-    'that', 'this', 'these', 'those', 'and', 'or', 'but', 'not', 'more',
-  ]);
+  const [analysingOpp, setAnalysingOpp] = useState<string | null>(null);
 
-  function extractShortKeyword(problem: string): string {
-    return problem
-      .split(' ')
-      .filter(w => !STOP_WORDS.has(w.toLowerCase().replace(/[^a-z]/g, '')))
-      .slice(0, 4)
-      .join(' ');
-  }
+  async function handleNlpAnalyse(opp: Opportunity) {
+    setAnalysingOpp(opp.problem);
+    try {
+      const res = await fetch('/api/utils/extract-keyword', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ problem: opp.problem }),
+      });
+      const { keyword: shortKeyword } = await res.json();
+      const resolvedKeyword = shortKeyword || opp.problem.split(' ').slice(0, 3).join(' ');
 
-  function handleNlpAnalyse(opp: Opportunity) {
-    const shortKeyword = extractShortKeyword(opp.problem);
-    const payload = {
-      problem:      opp.problem,
-      shortKeyword,
-      entities:     opp.entities,
-      gapScore:     opp.gapScore,
-      volume:       opp.volume,
-      competition:  opp.competition,
-      intent:       opp.intent,
-      whyGapExists: opp.whyGapExists,
-      region,
-    };
-    localStorage.setItem("discovery_opportunity", JSON.stringify(payload));
-    router.push(
-      `/dashboard/nlp?keyword=${encodeURIComponent(opp.problem)}&from=discovery&region=${encodeURIComponent(region)}`
-    );
+      const payload = {
+        problem:      opp.problem,
+        fullProblem:  opp.problem,
+        shortKeyword: resolvedKeyword,
+        entities:     opp.entities,
+        gapScore:     opp.gapScore,
+        volume:       opp.volume,
+        competition:  opp.competition,
+        intent:       opp.intent,
+        whyGapExists: opp.whyGapExists,
+        region,
+      };
+      localStorage.setItem("discovery_opportunity", JSON.stringify(payload));
+      router.push(
+        `/dashboard/nlp?keyword=${encodeURIComponent(resolvedKeyword)}&from=discovery&region=${encodeURIComponent(region)}`
+      );
+    } catch {
+      // Fallback: navigate with first 3 words of problem
+      const fallback = opp.problem.split(' ').slice(0, 3).join(' ');
+      localStorage.setItem("discovery_opportunity", JSON.stringify({
+        problem: opp.problem, fullProblem: opp.problem, shortKeyword: fallback,
+        entities: opp.entities, gapScore: opp.gapScore, volume: opp.volume,
+        competition: opp.competition, intent: opp.intent, whyGapExists: opp.whyGapExists, region,
+      }));
+      router.push(
+        `/dashboard/nlp?keyword=${encodeURIComponent(fallback)}&from=discovery&region=${encodeURIComponent(region)}`
+      );
+    } finally {
+      setAnalysingOpp(null);
+    }
   }
 
   return (
@@ -513,12 +523,25 @@ export default function DiscoveryPage() {
                         {/* Pipeline CTA */}
                         <button
                           onClick={() => handleNlpAnalyse(opp)}
-                          className="w-full flex items-center justify-center gap-2 bg-[#f59e0b] hover:bg-[#d97706] text-[#0a0a0a] font-semibold text-sm px-4 py-2.5 rounded-[8px] transition-colors"
+                          disabled={analysingOpp !== null}
+                          className="w-full flex items-center justify-center gap-2 bg-[#f59e0b] hover:bg-[#d97706] disabled:opacity-60 disabled:cursor-not-allowed text-[#0a0a0a] font-semibold text-sm px-4 py-2.5 rounded-[8px] transition-colors"
                         >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                          </svg>
-                          Run NLP Analysis →
+                          {analysingOpp === opp.problem ? (
+                            <>
+                              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                              </svg>
+                              Extracting keyword…
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                              </svg>
+                              Run NLP Analysis →
+                            </>
+                          )}
                         </button>
                       </div>
                     )}
