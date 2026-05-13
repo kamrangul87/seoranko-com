@@ -42,6 +42,7 @@ interface Readability {
 
 interface Brief {
   recommendedH1: string;
+  primaryKeyword?: string;
   structure: { tag: string; text: string }[];
   wordCount: number;
   tone: string;
@@ -426,8 +427,15 @@ function NlpPageInner() {
   function handleResearchKeywords() {
     if (!results) return;
     const targetMarket = LOCATION_TO_MARKET[locationCode] ?? "Global";
+
+    // Extract short keyword for DataForSEO — primaryKeyword from Claude or first 4 words of H1
+    const shortKeyword = results.brief?.primaryKeyword
+      || results.brief?.recommendedH1?.split(" ").slice(0, 4).join(" ")
+      || keyword.split(" ").slice(0, 4).join(" ");
+
     const analysis: NlpAnalysis = {
-      keyword:        keyword,
+      keyword,
+      shortKeyword,
       recommendedH1:  results.brief?.recommendedH1 ?? keyword,
       intent:         results.intent ?? { type: "informational", confidence: 50, explanation: "" },
       entities:       results.entities ?? [],
@@ -441,7 +449,7 @@ function NlpPageInner() {
       targetMarket,
     };
     localStorage.setItem("nlp_analysis", JSON.stringify(analysis));
-    router.push(`/dashboard?from=nlp&keyword=${encodeURIComponent(keyword)}`);
+    router.push(`/dashboard?from=nlp&keyword=${encodeURIComponent(shortKeyword)}`);
   }
 
   return (

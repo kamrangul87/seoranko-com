@@ -477,20 +477,25 @@ export default function DashboardPage() {
 
     // Step 3: keyword research from NLP
     if (fromParam === "nlp" && kwParam) {
-      setSeedKeyword(kwParam);
       try {
         const stored = localStorage.getItem("nlp_analysis");
         if (stored) {
           const analysis = JSON.parse(stored) as NlpAnalysis;
+          // Prefer stored shortKeyword (Claude-extracted) over raw URL param (may be long sentence)
+          const searchKeyword = analysis.shortKeyword
+            || analysis.brief?.primaryKeyword
+            || kwParam;
           setNlpAnalysis(analysis);
           setFromNlp(true);
+          setSeedKeyword(searchKeyword);
           const mkt = (analysis.targetMarket ?? "Global") as Country;
           setCountry(mkt);
           setActiveNav("keywords");
-          runKeywordSearch(kwParam, mkt);
+          runKeywordSearch(searchKeyword, mkt);
           return;
         }
       } catch { /* ignore */ }
+      setSeedKeyword(kwParam);
 
       // Fallback: old nlp_brief_data flow (direct NLP → article)
       try {

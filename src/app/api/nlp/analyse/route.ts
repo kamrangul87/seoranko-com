@@ -173,7 +173,7 @@ Return only valid JSON, no markdown.`,
 
         const call3 = safeJson(await callClaude(
           `You are a content strategist. Generate a full content brief and return ONLY a JSON object with:
-- brief: { recommendedH1: string, structure: { tag: string, text: string }[], wordCount: number, tone: string, targetAudience: string }
+- brief: { recommendedH1: string, primaryKeyword: string (extract a short 2-4 word SEO keyword from the topic that DataForSEO can search — e.g. "expensive sofa worth it", "sofa buying guide", "best sofa value" — must be a real search phrase not a sentence), structure: { tag: string, text: string }[], wordCount: number, tone: string, targetAudience: string }
 - lsiTerms: { term: string, frequency: string, status: string }[]
 - schema: string (complete JSON-LD schema markup as a string)
 - internalLinkSuggestions: { anchor: string, targetPage: string, relevance: number }[]

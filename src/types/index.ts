@@ -56,6 +56,7 @@ export interface DiscoveryOpportunity {
 
 export interface NlpAnalysis {
   keyword: string;
+  shortKeyword?: string;
   recommendedH1: string;
   intent: { type: string; confidence: number; explanation: string };
   entities: string[];
@@ -65,6 +66,7 @@ export interface NlpAnalysis {
   lsiTerms: { term: string; frequency: string; status: string }[];
   brief: {
     recommendedH1: string;
+    primaryKeyword?: string;
     structure: { tag: string; text: string }[];
     wordCount: number;
     tone: string;

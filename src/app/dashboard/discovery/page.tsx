@@ -251,9 +251,27 @@ export default function DiscoveryPage() {
     }
   }
 
+  const STOP_WORDS = new Set([
+    'how', 'to', 'if', 'an', 'is', 'the', 'a', 'of', 'for', 'in', 'on', 'at',
+    'by', 'with', 'about', 'than', 'just', 'what', 'why', 'when', 'where',
+    'which', 'do', 'does', 'are', 'can', 'will', 'should', 'would', 'could',
+    'it', 'its', 'be', 'been', 'being', 'have', 'has', 'had', 'was', 'were',
+    'that', 'this', 'these', 'those', 'and', 'or', 'but', 'not', 'more',
+  ]);
+
+  function extractShortKeyword(problem: string): string {
+    return problem
+      .split(' ')
+      .filter(w => !STOP_WORDS.has(w.toLowerCase().replace(/[^a-z]/g, '')))
+      .slice(0, 4)
+      .join(' ');
+  }
+
   function handleNlpAnalyse(opp: Opportunity) {
+    const shortKeyword = extractShortKeyword(opp.problem);
     const payload = {
       problem:      opp.problem,
+      shortKeyword,
       entities:     opp.entities,
       gapScore:     opp.gapScore,
       volume:       opp.volume,
