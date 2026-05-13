@@ -385,6 +385,7 @@ export default function DashboardPage() {
   const [keywords, setKeywords] = useState<KeywordResult[]>([]);
   const [kwLoading, setKwLoading] = useState(false);
   const [kwError, setKwError] = useState("");
+  const [kwBroaderNotice, setKwBroaderNotice] = useState("");
   const [selectedKws, setSelectedKws] = useState<Set<string>>(new Set());
 
   // Cluster state
@@ -417,6 +418,7 @@ export default function DashboardPage() {
     if (!kw.trim()) return;
     setKwLoading(true);
     setKwError("");
+    setKwBroaderNotice("");
     setKeywords([]);
     setClusters([]);
     setSelectedCluster(null);
@@ -430,6 +432,9 @@ export default function DashboardPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to fetch keywords");
       setKeywords(data.keywords);
+      if (data.broaderKeyword) {
+        setKwBroaderNotice(`Showing results for "${data.usedKeyword}" — broader keyword used for more results`);
+      }
     } catch (e) {
       setKwError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -893,6 +898,14 @@ export default function DashboardPage() {
                 </button>
               </div>
               {kwError && <p className="text-[#ef4444] text-sm mt-3">{kwError}</p>}
+              {kwBroaderNotice && (
+                <div className="flex items-center gap-2 mt-3 bg-[#f59e0b]/10 border border-[#f59e0b]/20 rounded-[8px] px-3 py-2">
+                  <svg className="w-3.5 h-3.5 text-[#f59e0b] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <p className="text-[#f59e0b] text-xs">{kwBroaderNotice}</p>
+                </div>
+              )}
             </div>
 
             {/* Keywords table */}

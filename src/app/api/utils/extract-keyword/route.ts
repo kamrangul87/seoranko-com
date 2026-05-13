@@ -9,20 +9,30 @@ export async function POST(req: NextRequest) {
     if (!problem) return NextResponse.json({ error: 'problem is required' }, { status: 400 })
 
     const raw = await callClaude(
-      'You are an SEO expert. Extract a short 2-4 word SEO keyword from a problem statement that someone would actually search on Google. Return ONLY the keyword — no punctuation, no explanation, no extra words.',
-      `Extract a short 2-4 word SEO keyword from this problem statement that someone would actually search on Google. Return ONLY the keyword, nothing else.
+      'You are an SEO keyword expert. Extract a SHORT, HIGH-VOLUME keyword from a problem statement. Return ONLY the keyword — no punctuation, no explanation, no extra words.',
+      `Extract a SHORT 2-3 word SEO keyword from this problem that has HIGH search volume on Google. Choose a BROAD, POPULAR version of the topic — not a niche long-tail phrase.
 
-Problem: "How do I know if a sofa will actually be comfortable long-term before buying it online without testing it first"
-Keyword: buy sofa online
+Rules:
+- Maximum 3 words
+- Must be something thousands of people search monthly
+- Choose the BROADER topic, not the specific angle
+- Think like someone typing quickly into Google
 
-Problem: "What are the real profit margins for home bakery businesses selling through Instagram in 2024"
-Keyword: home bakery profit margins
+Examples:
+Problem: "How do I know if a sofa will actually be comfortable long-term before buying online"
+Keyword: sofa buying guide
 
-Problem: "How do I effectively exercise when I sit 8-14 hours per day for work without adding gym time"
-Keyword: exercise for desk workers
+Problem: "What are hidden costs of starting a food truck business in UK"
+Keyword: food truck costs
 
-Problem: "How much does it actually cost to start a food truck business in the UK with all hidden fees"
-Keyword: food truck startup costs
+Problem: "How do I exercise effectively when sitting 8-14 hours for work"
+Keyword: exercise desk workers
+
+Problem: "Best way to buy furniture online without seeing it in person"
+Keyword: buy furniture online
+
+Problem: "What profit margins can home bakery businesses expect selling on Instagram"
+Keyword: home bakery profits
 
 Problem: "${problem}"
 Keyword:`,

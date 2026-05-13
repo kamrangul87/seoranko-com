@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { createHash } from 'crypto'
+import { callClaude } from '@/lib/anthropic'
 
 // Per-plan limits. Free = daily; Starter/Pro = monthly; Agency/Master = unlimited.
 const PLAN_LIMITS: Record<string, { keywords: number; period: 'day' | 'month' | 'unlimited' }> = {
@@ -121,45 +122,70 @@ export async function POST(request: NextRequest) {
       'Content-Type': 'application/json',
     }
 
-    // Call 1: seed keyword data + suggestions
-    const suggestionsRes = await fetch(
-      'https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_suggestions/live',
-      {
-        method: 'POST',
-        headers,
-        body: JSON.stringify([{
-          keyword,
-          location_code: locationCode,
-          language_code: languageCode,
-          limit: 50,
-          include_seed_keyword: true,
-        }]),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const dfsSearch = async (kw: string): Promise<{ suggestions: any[]; ideas: any[] }> => {
+      const [suggestionsRes, ideasRes] = await Promise.all([
+        fetch('https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_suggestions/live', {
+          method: 'POST', headers,
+          body: JSON.stringify([{ keyword: kw, location_code: locationCode, language_code: languageCode, limit: 100, include_seed_keyword: true }]),
+        }),
+        fetch('https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_ideas/live', {
+          method: 'POST', headers,
+          body: JSON.stringify([{ keyword: kw, location_code: locationCode, language_code: languageCode, limit: 100 }]),
+        }),
+      ])
+      const [suggestionsData, ideasData] = await Promise.all([suggestionsRes.json(), ideasRes.json()])
+      console.log(`[keywords] dfsSearch "${kw}" — suggestions: ${suggestionsData?.tasks?.[0]?.result?.[0]?.items?.length ?? 0}, ideas: ${ideasData?.tasks?.[0]?.result?.[0]?.items?.length ?? 0}`)
+      return {
+        suggestions: suggestionsData?.tasks?.[0]?.result?.[0]?.items || [],
+        ideas:       ideasData?.tasks?.[0]?.result?.[0]?.items || [],
       }
-    )
-    const suggestionsData = await suggestionsRes.json()
-    console.log('[keywords] suggestions status:', suggestionsRes.status, 'tasks[0].status_message:', suggestionsData?.tasks?.[0]?.status_message)
-    console.log('[keywords] suggestions first result sample:', JSON.stringify(suggestionsData?.tasks?.[0]?.result?.[0]?.items?.[0]))
-    const suggestions = suggestionsData?.tasks?.[0]?.result?.[0]?.items || []
+    }
 
-    // Call 2: related keyword ideas
-    const ideasRes = await fetch(
-      'https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_ideas/live',
-      {
-        method: 'POST',
-        headers,
-        body: JSON.stringify([{
-          keyword,
-          location_code: locationCode,
-          language_code: languageCode,
-          limit: 50,
-        }]),
+    // Primary search
+    let { suggestions, ideas } = await dfsSearch(keyword)
+    let usedKeyword = keyword
+    let broaderKeyword: string | null = null
+
+    // Fallback: if too few results, try progressively broader keywords
+    if (suggestions.length + ideas.length < 10) {
+      // Try removing last word first
+      const shortened = keyword.split(' ').slice(0, -1).join(' ')
+      if (shortened && shortened !== keyword) {
+        console.log(`[keywords] too few results (${suggestions.length + ideas.length}), trying shortened: "${shortened}"`)
+        const shorter = await dfsSearch(shortened)
+        if (shorter.suggestions.length + shorter.ideas.length > suggestions.length + ideas.length) {
+          suggestions = shorter.suggestions
+          ideas = shorter.ideas
+          usedKeyword = shortened
+        }
       }
-    )
-    const ideasData = await ideasRes.json()
-    console.log('[keywords] ideas status:', ideasRes.status, 'tasks[0].status_message:', ideasData?.tasks?.[0]?.status_message)
-    const ideas = ideasData?.tasks?.[0]?.result?.[0]?.items || []
 
-    console.log(`[keywords] request: keyword="${keyword}" country="${country}" location_code=${locationCode} language_code=${languageCode} suggestions=${suggestions.length} ideas=${ideas.length}`)
+      // Still too few — ask Claude for a broader alternative
+      if (suggestions.length + ideas.length < 10) {
+        try {
+          const broaderRaw = await callClaude(
+            'You are an SEO keyword expert. Return ONLY a 1-2 word broad keyword with high monthly search volume. No punctuation, no explanation.',
+            `The keyword "${keyword}" returned very few search results. Suggest a BROADER 1-2 word version with much higher search volume. Return ONLY the keyword.`
+          )
+          const broader = broaderRaw.trim().toLowerCase().replace(/[^a-z0-9 ]/g, '').trim()
+          if (broader && broader !== keyword && broader !== usedKeyword) {
+            console.log(`[keywords] still few results, trying Claude broader: "${broader}"`)
+            const broaderRes = await dfsSearch(broader)
+            if (broaderRes.suggestions.length + broaderRes.ideas.length > suggestions.length + ideas.length) {
+              suggestions = [...suggestions, ...broaderRes.suggestions]
+              ideas = [...ideas, ...broaderRes.ideas]
+              broaderKeyword = broader
+              usedKeyword = broader
+            }
+          }
+        } catch (e) {
+          console.error('[keywords] broader keyword fallback error:', e)
+        }
+      }
+    }
+
+    console.log(`[keywords] final: usedKeyword="${usedKeyword}" suggestions=${suggestions.length} ideas=${ideas.length}`)
 
     if (suggestions.length === 0 && ideas.length === 0) {
       return NextResponse.json(
@@ -261,7 +287,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ keywords: sorted, master: isMaster })
+    return NextResponse.json({
+      keywords: sorted,
+      master: isMaster,
+      ...(broaderKeyword ? { broaderKeyword, usedKeyword } : {}),
+    })
 
   } catch (error) {
     console.error('Keywords API error:', error)
