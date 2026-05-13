@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+import { createHash } from 'crypto'
 
 // Per-plan limits. Free = daily; Starter/Pro = monthly; Agency/Master = unlimited.
 const PLAN_LIMITS: Record<string, { keywords: number; period: 'day' | 'month' | 'unlimited' }> = {
@@ -9,22 +11,73 @@ const PLAN_LIMITS: Record<string, { keywords: number; period: 'day' | 'month' | 
   agency:  { keywords: Infinity, period: 'unlimited' },
 }
 
+const COUNTRY_LOCATION_CODES: Record<string, number> = {
+  Global: 0,  UK: 2826, US: 2840, AU: 2036, CA: 2124,
+  DE: 2276,   FR: 2250, IN: 2356, AE: 2784, SA: 2682,
+  SG: 2702,   ZA: 2710, PK: 2586,
+}
+
+async function checkAuth(): Promise<{ authed: boolean; isMaster: boolean; userId?: string; userEmail?: string }> {
+  const cookieStore = cookies()
+
+  // Master cookie bypass
+  const masterToken = cookieStore.get('seoranko_master')?.value
+  if (masterToken) {
+    const masterEmail = process.env.MASTER_EMAIL
+    const masterPassword = process.env.MASTER_PASSWORD
+    if (masterEmail && masterPassword) {
+      const expected = createHash('sha256')
+        .update(`${masterEmail}:${masterPassword}:master`)
+        .digest('hex')
+      if (masterToken === expected) {
+        return { authed: true, isMaster: true, userEmail: masterEmail }
+      }
+    }
+  }
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value
+        },
+      },
+    }
+  )
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { authed: false, isMaster: false }
+  return {
+    authed: true,
+    isMaster: user.email === process.env.MASTER_EMAIL,
+    userId: user.id,
+    userEmail: user.email,
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const auth = await checkAuth()
 
-    if (!user) {
+    if (!auth.authed) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const isMaster = user.email === process.env.MASTER_EMAIL
+    const isMaster = auth.isMaster
 
-    if (!isMaster) {
+    if (!isMaster && auth.userId) {
+      const cookieStore = cookies()
+      const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { cookies: { get(name: string) { return cookieStore.get(name)?.value } } }
+      )
+
       const { data: profile } = await supabase
         .from('user_profiles')
         .select('plan, keywords_used_today, keywords_used_month')
-        .eq('id', user.id)
+        .eq('id', auth.userId)
         .single()
 
       const plan = profile?.plan ?? 'free'
@@ -48,18 +101,18 @@ export async function POST(request: NextRequest) {
             keywords_used_today: (profile?.keywords_used_today ?? 0) + 1,
             keywords_used_month: (profile?.keywords_used_month ?? 0) + 1,
           })
-          .eq('id', user.id)
+          .eq('id', auth.userId)
       }
     }
 
     const { keyword, country } = await request.json()
-    const locationCode = country === 'US' ? 2840 : 2826
-    const auth = Buffer.from(
+    const locationCode = COUNTRY_LOCATION_CODES[country] ?? 2826
+    const dfsAuth = Buffer.from(
       `${process.env.DATAFORSEO_EMAIL}:${process.env.DATAFORSEO_PASSWORD}`
     ).toString('base64')
 
     const headers = {
-      'Authorization': `Basic ${auth}`,
+      'Authorization': `Basic ${dfsAuth}`,
       'Content-Type': 'application/json',
     }
 
