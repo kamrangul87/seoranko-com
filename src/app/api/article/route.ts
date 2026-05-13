@@ -106,6 +106,26 @@ SEO:
 - Secondary keywords woven into body text naturally
 - Keyword density 1.0-1.5% maximum - never forced
 
+FORMATTING RULES:
+- Use proper markdown heading syntax: # for H1, ## for H2, ### for H3
+- H1 appears only once at the very top of the article
+- Every major section must have an ## H2 heading
+- Subsections use ### H3 headings
+- Never use bold (**text**) as a substitute for headings
+- Paragraph text should be plain prose — no unnecessary bold
+- Add a blank line before and after every heading
+- Add a blank line between paragraphs
+
+HUMANISATION RULES:
+- Write as if a real expert is speaking directly to the reader
+- Use 'you' and 'your' frequently — make it personal
+- Include specific numbers, prices, brand names, real examples
+- Vary sentence length — mix short punchy sentences with longer detailed ones
+- Use rhetorical questions occasionally to engage the reader
+- Add personal insight phrases: 'In my experience...', 'What most guides miss...', 'The reality is...'
+- Never start two consecutive paragraphs the same way
+- Use British or American English based on target market
+
 SCORES - Return as integers 0-100:
 - eeaScore: 0-100 based on expertise, authority, trust signals
 - readabilityScore: 0-100 based on clarity, sentence variety, accessibility
