@@ -12,9 +12,13 @@ const PLAN_LIMITS: Record<string, { keywords: number; period: 'day' | 'month' | 
 }
 
 const COUNTRY_LOCATION_CODES: Record<string, number> = {
-  Global: 0,  UK: 2826, US: 2840, AU: 2036, CA: 2124,
-  DE: 2276,   FR: 2250, IN: 2356, AE: 2784, SA: 2682,
-  SG: 2702,   ZA: 2710, PK: 2586,
+  Global: 2840, UK: 2826, US: 2840, AU: 2036, CA: 2124,
+  DE: 2276,    FR: 2250, IN: 2356, AE: 2784, SA: 2682,
+  SG: 2702,    ZA: 2710, PK: 2586,
+}
+
+const COUNTRY_LANGUAGE_CODES: Record<string, string> = {
+  DE: 'de', FR: 'fr',
 }
 
 async function checkAuth(): Promise<{ authed: boolean; isMaster: boolean; userId?: string; userEmail?: string }> {
@@ -106,7 +110,8 @@ export async function POST(request: NextRequest) {
     }
 
     const { keyword, country } = await request.json()
-    const locationCode = COUNTRY_LOCATION_CODES[country] ?? 2826
+    const locationCode = COUNTRY_LOCATION_CODES[country] ?? 2840
+    const languageCode = COUNTRY_LANGUAGE_CODES[country] ?? 'en'
     const dfsAuth = Buffer.from(
       `${process.env.DATAFORSEO_EMAIL}:${process.env.DATAFORSEO_PASSWORD}`
     ).toString('base64')
@@ -125,13 +130,15 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify([{
           keyword,
           location_code: locationCode,
-          language_code: 'en',
+          language_code: languageCode,
           limit: 50,
           include_seed_keyword: true,
         }]),
       }
     )
     const suggestionsData = await suggestionsRes.json()
+    console.log('[keywords] suggestions status:', suggestionsRes.status, 'tasks[0].status_message:', suggestionsData?.tasks?.[0]?.status_message)
+    console.log('[keywords] suggestions first result sample:', JSON.stringify(suggestionsData?.tasks?.[0]?.result?.[0]?.items?.[0]))
     const suggestions = suggestionsData?.tasks?.[0]?.result?.[0]?.items || []
 
     // Call 2: related keyword ideas
@@ -143,46 +150,46 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify([{
           keyword,
           location_code: locationCode,
-          language_code: 'en',
+          language_code: languageCode,
           limit: 50,
         }]),
       }
     )
     const ideasData = await ideasRes.json()
+    console.log('[keywords] ideas status:', ideasRes.status, 'tasks[0].status_message:', ideasData?.tasks?.[0]?.status_message)
     const ideas = ideasData?.tasks?.[0]?.result?.[0]?.items || []
 
-    console.log('Sample suggestion keys:', JSON.stringify(Object.keys(suggestions[0] || {})))
-    console.log('Sample suggestion:', JSON.stringify(suggestions[0]))
-    console.log('Sample idea keys:', JSON.stringify(Object.keys(ideas[0] || {})))
-    console.log('Sample idea:', JSON.stringify(ideas[0]))
+    console.log(`[keywords] request: keyword="${keyword}" country="${country}" location_code=${locationCode} language_code=${languageCode} suggestions=${suggestions.length} ideas=${ideas.length}`)
+
+    if (suggestions.length === 0 && ideas.length === 0) {
+      return NextResponse.json(
+        { error: 'No keywords found for this query. Try a different keyword or country.' },
+        { status: 500 }
+      )
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const parsedSuggestions = suggestions.map((item: any) => ({
+    const parseItem = (item: any) => ({
       keyword: item.keyword,
-      volume: item.keyword_info?.search_volume || 0,
+      volume: item.keyword_info?.search_volume
+        || item.keyword_properties?.keyword_info?.search_volume
+        || item.search_volume
+        || 0,
       kd: item.keyword_properties?.keyword_difficulty
         ?? item.keyword_info?.keyword_difficulty
         ?? item.keyword_difficulty
         ?? 0,
-      cpc: item.keyword_info?.cpc || 0,
+      cpc: item.keyword_info?.cpc
+        || item.keyword_properties?.keyword_info?.cpc
+        || item.cpc
+        || 0,
       intent: item.search_intent_info?.main_intent || 'informational',
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       trend: item.keyword_info?.monthly_searches?.map((m: any) => m.search_volume) || [],
-    }))
+    })
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const parsedIdeas = ideas.map((item: any) => ({
-      keyword: item.keyword,
-      volume: item.keyword_info?.search_volume || 0,
-      kd: item.keyword_properties?.keyword_difficulty
-        ?? item.keyword_info?.keyword_difficulty
-        ?? item.keyword_difficulty
-        ?? 0,
-      cpc: item.keyword_info?.cpc || 0,
-      intent: item.search_intent_info?.main_intent || 'informational',
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      trend: item.keyword_info?.monthly_searches?.map((m: any) => m.search_volume) || [],
-    }))
+    const parsedSuggestions = suggestions.map(parseItem)
+    const parsedIdeas = ideas.map(parseItem)
 
     // Merge, deduplicate, sort by volume
     const allKeywords = [...parsedSuggestions, ...parsedIdeas]
