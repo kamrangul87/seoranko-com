@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callClaude, parseJsonResponse } from "@/lib/anthropic";
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
+import { createHash } from "crypto";
 import type { ImagePrompt } from "@/types";
 
 interface RawImagePrompt {
@@ -14,6 +17,34 @@ const SYSTEM = `You are a visual content strategist. Based on an article, genera
 
 export async function POST(req: NextRequest) {
   try {
+    const cookieStore = cookies();
+
+    // Master cookie bypass
+    let master = false;
+    const masterToken = cookieStore.get("seoranko_master")?.value;
+    if (masterToken) {
+      const masterEmail = process.env.MASTER_EMAIL;
+      const masterPassword = process.env.MASTER_PASSWORD;
+      if (masterEmail && masterPassword) {
+        const expected = createHash("sha256")
+          .update(`${masterEmail}:${masterPassword}:master`)
+          .digest("hex");
+        if (masterToken === expected) master = true;
+      }
+    }
+
+    if (!master) {
+      const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { cookies: { get(name: string) { return cookieStore.get(name)?.value; } } }
+      );
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+    }
+
     const { article, keyword } = await req.json();
 
     if (!article) {

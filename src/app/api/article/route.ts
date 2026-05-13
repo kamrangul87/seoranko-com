@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { streamClaude, parseJsonResponse } from "@/lib/anthropic";
-import { createClient } from "@/lib/supabase/server";
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
+import { createHash } from "crypto";
 import type { ArticleRequest, ArticleOutput, NlpBrief, PipelineData } from "@/types";
 
 // Free plan: 1 article LIFETIME (checked via articles_used_month, never reset)
@@ -189,17 +191,50 @@ function sseEvent(data: object): Uint8Array {
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const cookieStore = cookies();
 
-  if (!user) {
-    return new Response(
-      JSON.stringify({ error: "Unauthorized" }),
-      { status: 401, headers: { "Content-Type": "application/json" } }
-    );
+  // Master cookie bypass
+  let master = false;
+  let userId: string | undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let supabase: any = null;
+
+  const masterToken = cookieStore.get("seoranko_master")?.value;
+  if (masterToken) {
+    const masterEmail = process.env.MASTER_EMAIL;
+    const masterPassword = process.env.MASTER_PASSWORD;
+    if (masterEmail && masterPassword) {
+      const expected = createHash("sha256")
+        .update(`${masterEmail}:${masterPassword}:master`)
+        .digest("hex");
+      if (masterToken === expected) {
+        master = true;
+      }
+    }
   }
 
-  const master = user.email === process.env.MASTER_EMAIL;
+  if (!master) {
+    supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          get(name: string) {
+            return cookieStore.get(name)?.value;
+          },
+        },
+      }
+    );
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    userId = user.id;
+    master = user.email === process.env.MASTER_EMAIL;
+  }
 
   // Fetch profile once — used for limit check and post-generation DB write
   let profile: {
@@ -208,11 +243,11 @@ export async function POST(req: NextRequest) {
     articles_used_month: number;
   } | null = null;
 
-  if (!master) {
+  if (!master && supabase && userId) {
     const { data } = await supabase
       .from("user_profiles")
       .select("plan, articles_used_today, articles_used_month")
-      .eq("id", user.id)
+      .eq("id", userId)
       .single();
     profile = data;
 
@@ -232,6 +267,7 @@ export async function POST(req: NextRequest) {
       }
     }
   }
+
 
   const body: ArticleRequest & { nlpBrief?: NlpBrief; pipelineData?: PipelineData } = await req.json();
   const {
@@ -323,10 +359,10 @@ Return only valid JSON.`;
         const articleOutput = parseJsonResponse<ArticleOutput>(raw);
 
         // Save article and increment usage AFTER successful generation
-        if (!master && user) {
+        if (!master && supabase && userId) {
           await Promise.all([
             supabase.from("articles").insert({
-              user_id: user.id,
+              user_id: userId,
               title: articleOutput.seoTitle,
               meta_description: articleOutput.metaDescription,
               content: articleOutput.article,
@@ -340,7 +376,7 @@ Return only valid JSON.`;
             supabase.from("user_profiles").update({
               articles_used_today: (profile?.articles_used_today ?? 0) + 1,
               articles_used_month: (profile?.articles_used_month ?? 0) + 1,
-            }).eq("id", user.id),
+            }).eq("id", userId),
           ]);
         }
 

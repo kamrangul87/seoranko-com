@@ -384,6 +384,7 @@ export default function DashboardPage() {
   // Cluster state
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [clusterLoading, setClusterLoading] = useState(false);
+  const [clusterError, setClusterError] = useState("");
   const [selectedCluster, setSelectedCluster] = useState<Cluster | null>(null);
   const [editingCluster, setEditingCluster] = useState<string | null>(null);
   const [clusterEdits, setClusterEdits] = useState<Record<string, string[]>>({});
@@ -396,12 +397,14 @@ export default function DashboardPage() {
   const [articleLoading, setArticleLoading] = useState(false);
   const [articleStage, setArticleStage] = useState("");
   const [articleProgress, setArticleProgress] = useState(0);
+  const [articleError, setArticleError] = useState("");
   const [research, setResearch] = useState<ResearchBrief | null>(null);
   const [article, setArticle] = useState<ArticleOutput | null>(null);
 
   // Images state
   const [images, setImages] = useState<ImagePrompt[]>([]);
   const [imagesLoading, setImagesLoading] = useState(false);
+  const [imageError, setImageError] = useState("");
 
   // ── Keyword search ────────────────────────────────────────────────────────
   const runKeywordSearch = useCallback(async (kw: string, ctry: Country) => {
@@ -520,6 +523,7 @@ export default function DashboardPage() {
     const kwsToCluster = keywords.filter((k) => selectedKws.size === 0 || selectedKws.has(k.keyword));
     if (kwsToCluster.length === 0) return;
     setClusterLoading(true);
+    setClusterError("");
     try {
       const res = await fetch("/api/cluster", {
         method: "POST",
@@ -530,7 +534,7 @@ export default function DashboardPage() {
       if (!res.ok) throw new Error(data.error || "Clustering failed");
       setClusters(data.clusters);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Clustering failed");
+      setClusterError(e instanceof Error ? e.message : "Clustering failed");
     } finally {
       setClusterLoading(false);
     }
@@ -583,6 +587,7 @@ export default function DashboardPage() {
     setArticleLoading(true);
     setArticle(null);
     setResearch(null);
+    setArticleError("");
     setArticleStage("Connecting…");
     setArticleProgress(5);
 
@@ -654,7 +659,7 @@ export default function DashboardPage() {
       }
     } catch (e) {
       clearInterval(progressTimer);
-      alert(e instanceof Error ? e.message : "Article generation failed");
+      setArticleError(e instanceof Error ? e.message : "Article generation failed");
     } finally {
       setArticleLoading(false);
       setArticleStage("");
@@ -666,6 +671,7 @@ export default function DashboardPage() {
   async function handleGenerateImages() {
     if (!article) return;
     setImagesLoading(true);
+    setImageError("");
     try {
       const res = await fetch("/api/images", {
         method: "POST",
@@ -677,7 +683,7 @@ export default function DashboardPage() {
       setImages(data.images);
       setActiveNav("images");
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Image generation failed");
+      setImageError(e instanceof Error ? e.message : "Image generation failed");
     } finally {
       setImagesLoading(false);
     }
@@ -906,6 +912,12 @@ export default function DashboardPage() {
                     </button>
                   </div>
                 </div>
+
+                {clusterError && (
+                  <div className="bg-red-900/20 border border-red-500/30 rounded-[8px] px-4 py-3 mb-4 text-red-400 text-sm">
+                    {clusterError}
+                  </div>
+                )}
 
                 <div className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] overflow-hidden mb-6">
                   <table className="w-full text-sm">
@@ -1184,6 +1196,12 @@ export default function DashboardPage() {
                     </>
                   ) : "Generate Article →"}
                 </button>
+
+                {articleError && (
+                  <div className="bg-red-900/20 border border-red-500/30 rounded-[8px] px-4 py-3 mt-4 text-red-400 text-sm">
+                    {articleError}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1334,6 +1352,12 @@ export default function DashboardPage() {
               </div>
             )}
 
+            {articleError && (
+              <div className="bg-red-900/20 border border-red-500/30 rounded-[8px] px-4 py-3 mb-6 text-red-400 text-sm">
+                {articleError}
+              </div>
+            )}
+
             <div className="flex items-center justify-between mb-8">
               <div>
                 <h1 className="text-2xl font-bold mb-1">Generated Article</h1>
@@ -1375,6 +1399,12 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
+
+            {imageError && (
+              <div className="bg-red-900/20 border border-red-500/30 rounded-[8px] px-4 py-3 mb-4 text-red-400 text-sm">
+                {imageError}
+              </div>
+            )}
 
             {!article && !articleLoading && !fromPipeline && (
               <div className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-16 text-center">
