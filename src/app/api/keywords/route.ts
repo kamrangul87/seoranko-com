@@ -173,6 +173,7 @@ export async function POST(request: NextRequest) {
       keyword: item.keyword,
       volume: item.keyword_info?.search_volume
         || item.keyword_properties?.keyword_info?.search_volume
+        || item.monthly_searches?.[0]?.search_volume
         || item.search_volume
         || 0,
       kd: item.keyword_properties?.keyword_difficulty
@@ -218,6 +219,46 @@ export async function POST(request: NextRequest) {
       const filtered = sorted.filter(k => k.keyword.toLowerCase() !== keyword.toLowerCase())
       sorted.length = 0
       sorted.push(seedExists, ...filtered)
+    }
+
+    // If seed keyword still has volume 0, fetch from keyword_overview as fallback
+    if (sorted[0] && sorted[0].volume === 0) {
+      try {
+        const overviewRes = await fetch(
+          'https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_overview/live',
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify([{
+              keywords: [keyword],
+              location_code: locationCode,
+              language_code: languageCode,
+            }]),
+          }
+        )
+        const overviewData = await overviewRes.json()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const overviewItem = overviewData?.tasks?.[0]?.result?.[0]?.items?.find((i: any) =>
+          i.keyword?.toLowerCase() === keyword.toLowerCase()
+        )
+        if (overviewItem) {
+          const overviewVolume = overviewItem.keyword_info?.search_volume
+            || overviewItem.keyword_properties?.keyword_info?.search_volume
+            || overviewItem.monthly_searches?.[0]?.search_volume
+            || overviewItem.search_volume
+            || 0
+          console.log(`[keywords] overview fallback for seed "${keyword}": volume=${overviewVolume}`)
+          sorted[0].volume = overviewVolume
+          sorted[0].kd = overviewItem.keyword_properties?.keyword_difficulty
+            ?? overviewItem.keyword_info?.keyword_difficulty
+            ?? sorted[0].kd
+          sorted[0].cpc = overviewItem.keyword_info?.cpc
+            || overviewItem.keyword_properties?.keyword_info?.cpc
+            || sorted[0].cpc
+        }
+      } catch (overviewErr) {
+        console.error('[keywords] overview fallback error:', overviewErr)
+      }
     }
 
     return NextResponse.json({ keywords: sorted, master: isMaster })

@@ -306,13 +306,13 @@ function ArticleRenderer({ text }: { text: string }) {
       const heading = line.slice(3).trim();
       const id = heading.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
       elements.push(
-        <h2 key={`h2-${i}`} id={id} className="text-[#fafafa] font-bold text-[22px] leading-snug mb-3 mt-8 scroll-mt-6">
+        <h2 key={`h2-${i}`} id={id} className="text-[#fafafa] font-bold text-[22px] leading-snug mb-3 mt-9 scroll-mt-6">
           {renderInline(heading)}
         </h2>
       );
     } else if (line.startsWith("### ")) {
       elements.push(
-        <h3 key={`h3-${i}`} className="text-[#fafafa] font-semibold text-[18px] leading-snug mb-2 mt-6">
+        <h3 key={`h3-${i}`} className="text-[#fafafa] font-semibold text-[18px] leading-snug mb-[10px] mt-6">
           {renderInline(line.slice(4).trim())}
         </h3>
       );

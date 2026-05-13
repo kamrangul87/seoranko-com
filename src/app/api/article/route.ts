@@ -84,7 +84,7 @@ CITATION RULES:
 - Preferred sources for this market: ${sources}
 - Format as inline links: [Source Name](https://real-known-url.com)
 - Never fabricate URLs - if unsure of exact URL write: [Source: Organisation Name] without hyperlink
-- Include 2-3 internal link suggestions in brackets: "see our guide to [keyword research strategies]"
+- NEVER include placeholder links like [see our guide to...] or [internal link: ...] or [keyword research strategies] — if you want to reference another topic just write it naturally in prose without any brackets
 
 E-E-A-T SIGNALS:
 - Include specific verifiable statistics with real source organisations

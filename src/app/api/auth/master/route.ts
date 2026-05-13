@@ -16,8 +16,14 @@ export async function POST(request: Request) {
   const masterEmail = process.env.MASTER_EMAIL;
   const masterPassword = process.env.MASTER_PASSWORD;
 
+  console.log(
+    "[master-login] env check — MASTER_EMAIL:",
+    masterEmail ? masterEmail.slice(0, 3) + "***" : "NOT SET",
+    "| MASTER_PASSWORD:",
+    masterPassword ? masterPassword.slice(0, 3) + "***" : "NOT SET"
+  );
+
   if (!masterEmail || !masterPassword) {
-    console.log("[master-login] MASTER_EMAIL set:", !!masterEmail, "| MASTER_PASSWORD set:", !!masterPassword);
     return NextResponse.json({ error: "Not configured" }, { status: 500 });
   }
 
