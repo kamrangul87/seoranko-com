@@ -106,6 +106,18 @@ SEO:
 - Secondary keywords woven into body text naturally
 - Keyword density 1.0-1.5% maximum - never forced
 
+KEYWORD INTEGRATION RULES:
+- You will be given a list of target keywords in the context below
+- You MUST naturally include ALL provided keywords in the article at least once
+- Never force keywords awkwardly — integrate them naturally into sentences
+- Use exact match where it reads naturally; use variations where exact match sounds robotic
+- Spread keywords throughout — do not cluster them in one section
+- Primary keyword: appears in H1, first paragraph, at least one H2, and conclusion
+- Secondary keywords: appear naturally in relevant body sections
+- Long-tail keywords work best as questions in FAQ or as subheadings
+- Never use any single keyword more than 3 times total
+- Before finishing, mentally check: have I included every keyword from the list?
+
 FORMATTING RULES:
 - Use proper markdown heading syntax: # for H1, ## for H2, ### for H3
 - H1 appears only once at the very top of the article
@@ -174,9 +186,11 @@ function buildPipelineContext(pipelineData: PipelineData, targetMarket: string):
   if (selectedKeywords && selectedKeywords.length > 0) {
     lines.push(
       "",
-      "KEYWORD DATA:",
-      `- Primary keyword: ${selectedKeywords[0]}`,
-      `- Related keywords to mention naturally: ${selectedKeywords.slice(1).join(", ")}`,
+      "KEYWORD DATA — YOU MUST INCLUDE ALL OF THESE IN THE ARTICLE:",
+      `- Primary keyword (use in H1, first paragraph, one H2, conclusion): ${selectedKeywords[0]}`,
+      `- ALL secondary keywords (each must appear at least once naturally): ${selectedKeywords.slice(1).join(", ")}`,
+      "",
+      `MANDATORY KEYWORD CHECKLIST — before finishing verify each is present: ${selectedKeywords.join(" | ")}`,
     );
   }
 
@@ -315,7 +329,7 @@ export async function POST(req: NextRequest) {
   }
 
   const secondaryKeywords =
-    cluster?.keywords?.filter((k) => k !== keyword).slice(0, 6).join(", ") ?? "";
+    cluster?.keywords?.filter((k) => k !== keyword).join(", ") ?? "";
 
   const targetMarket = pipelineData?.targetMarket ?? country ?? "Global";
   const systemPrompt = buildSystemPrompt(targetMarket);
@@ -339,11 +353,16 @@ You have been given a pre-analysed NLP brief. Use this data to write the article
 Follow this structure exactly. Include all required entities and cover all topical gaps.`;
   }
 
+  const allKeywords = [keyword, ...secondaryKeywords.split(", ").filter(Boolean)];
+  const keywordChecklist = allKeywords.length > 1
+    ? `\nMANDATORY: Include ALL these keywords naturally — ${allKeywords.join(" | ")}`
+    : "";
+
   const userMessage = `Write a ${wordCount} word article targeting: ${keyword}
-Secondary keywords: ${secondaryKeywords || "none"}
+Secondary keywords (ALL must appear at least once): ${secondaryKeywords || "none"}
 Tone: ${tone}
 Audience: ${audience}
-Market: ${targetMarket}${contextBlock}
+Market: ${targetMarket}${contextBlock}${keywordChecklist}
 Return only valid JSON.`;
 
   const research = {

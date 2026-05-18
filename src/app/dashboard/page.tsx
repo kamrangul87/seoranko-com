@@ -618,6 +618,11 @@ export default function DashboardPage() {
       : null;
 
     try {
+      const allClusterKeywords = clusterToSend?.keywords ?? [];
+      const allPipelineKeywords = pipelineData?.selectedKeywords ?? [];
+      const totalKeywords = fromPipeline ? allPipelineKeywords.length : allClusterKeywords.length;
+      console.log("Sending keywords to article:", totalKeywords, fromPipeline ? allPipelineKeywords : allClusterKeywords);
+
       const body: Record<string, unknown> = {
         keyword:   kw,
         cluster:   clusterToSend,
