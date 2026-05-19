@@ -138,6 +138,21 @@ HUMANISATION RULES:
 - Never start two consecutive paragraphs the same way
 - Use British or American English based on target market
 
+ADVANCED HUMANISATION RULES:
+1. Vary sentence length dramatically — mix 5-word sentences with 25-word sentences
+2. Start some paragraphs with 'But', 'And', 'So', 'Yet' — humans do this, AI avoids it
+3. Include at least 3 rhetorical questions throughout
+4. Add one genuine contrarian take — something that challenges common advice
+5. Use British colloquialisms where appropriate: 'rather', 'whilst', 'quite', 'fairly'
+6. Include one personal anecdote or observation per major section
+7. Use em dashes — like this — for natural parenthetical thoughts
+8. Occasionally use incomplete sentences for emphasis. Like this.
+9. Reference current events or recent data from 2025-2026
+10. Add transitional phrases humans use: 'Here's the thing', 'The reality is', 'What nobody tells you'
+11. Never use these AI giveaway phrases: 'It is worth noting', 'In conclusion', 'Furthermore', 'Additionally', 'It is important to', 'Comprehensive', 'Multifaceted', 'Nuanced approach'
+12. Write the conclusion before the introduction — then rewrite the intro to naturally lead into it
+13. Read back each paragraph — if it could appear in a textbook it needs rewriting
+
 SCORES - Return as integers 0-100:
 - eeaScore: 0-100 based on expertise, authority, trust signals
 - readabilityScore: 0-100 based on clarity, sentence variety, accessibility
