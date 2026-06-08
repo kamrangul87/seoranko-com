@@ -608,112 +608,162 @@ export default function DashboardPage() {
       ? pipelineData.selectedKeywords[0]
       : editedKws?.[0] ?? seedKeyword;
     if (!kw) return;
+
     setArticleLoading(true);
     setArticle(null);
     setResearch(null);
     setPipelineLog([]);
     setArticleError("");
-    setArticleStage("Connecting…");
+    setArticleStage("Classifying…");
     setArticleProgress(5);
-
-    const progressRef = { value: 5 };
-    const progressTimer = setInterval(() => {
-      progressRef.value = Math.min(progressRef.value + 0.6, 88);
-      setArticleProgress(Math.round(progressRef.value));
-    }, 600);
-
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     const clusterToSend = selectedCluster
       ? { ...selectedCluster, keywords: editedKws ?? selectedCluster.keywords }
       : null;
+    const addLog = (msg: string) => setPipelineLog((prev) => [...prev, msg]);
 
     try {
-      const allClusterKeywords = clusterToSend?.keywords ?? [];
-      const allPipelineKeywords = pipelineData?.selectedKeywords ?? [];
-      const totalKeywords = fromPipeline ? allPipelineKeywords.length : allClusterKeywords.length;
-      console.log("Sending keywords to article:", totalKeywords, fromPipeline ? allPipelineKeywords : allClusterKeywords);
-
-      const body: Record<string, unknown> = {
-        keyword:   kw,
-        cluster:   clusterToSend,
-        wordCount,
-        tone,
-        audience,
-        country,
-      };
-      if (fromPipeline && pipelineData) {
-        body.pipelineData = pipelineData;
-      } else if (nlpBrief) {
-        body.nlpBrief = nlpBrief;
-      }
-
-      const res = await fetch("/api/article", {
+      // ── Step 1: Classify ──────────────────────────────────────
+      setArticleStage("Classifying…");
+      setArticleProgress(15);
+      const classifyRes = await fetch("/api/pipeline/classify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ keyword: kw }),
       });
-
-      if (!res.ok || !res.body) {
-        const err = await res.json().catch(() => ({ error: "Generation failed" }));
-        throw new Error((err as { error?: string }).error || "Generation failed");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const classification: any = await classifyRes.json();
+      console.log("[pipeline] Step 1 classify:", classification);
+      if (classification.error) {
+        setArticleError(typeof classification.error === "string" ? classification.error : "Classification failed");
+        return;
       }
+      addLog(`✅ Topic: ${classification.topic_category} | Risk: ${classification.risk_level}`);
+      setArticleProgress(20);
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let verifiedFacts: any[] = [];
+      let unverifiableClaims: string[] = [];
 
-      timeoutId = setTimeout(() => {
-        clearInterval(progressTimer);
-        setArticleError('Article generation timed out. The pipeline may be overloaded. Please try again.');
-        setArticleLoading(false);
-        setArticleStage('');
-      }, 90000);
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split("\n\n");
-        buffer = parts.pop() ?? "";
-        for (const part of parts) {
-          if (!part.startsWith("data: ")) continue;
-          const data = JSON.parse(part.slice(6));
-          console.log('[article-stream] event received:', data);
-          if (data.stage) {
-            setArticleStage(data.stage);
-            if (data.stage.includes("Step 1")) { progressRef.value = Math.max(progressRef.value, 15); setArticleProgress(15); }
-            if (data.stage.includes("Step 2")) { progressRef.value = Math.max(progressRef.value, 32); setArticleProgress(32); }
-            if (data.stage.includes("Step 3")) { progressRef.value = Math.max(progressRef.value, 50); setArticleProgress(50); }
-            if (data.stage.includes("Step 4") || data.stage.startsWith("Writing…")) { progressRef.value = Math.max(progressRef.value, 65); }
-            if (data.stage.includes("Step 5")) { progressRef.value = 90; setArticleProgress(90); }
-            // Legacy single-call stages
-            if (data.stage.startsWith("Writing your")) { progressRef.value = Math.max(progressRef.value, 20); setArticleProgress(20); }
-            if (data.stage.startsWith("Finalising"))   { progressRef.value = 90; setArticleProgress(90); }
-          }
-          if (data.error) {
-            clearInterval(progressTimer);
-            clearTimeout(timeoutId);
-            setArticleError(typeof data.error === 'string' ? data.error : (data.message || 'Pipeline failed — check console for details'));
-            return;
-          }
-          if (data.done) {
-            clearInterval(progressTimer);
-            setArticleProgress(100);
-            setResearch(data.research);
-            setArticle(data.article);
-            if (data.pipelineLog) setPipelineLog(data.pipelineLog as string[]);
-            setActiveNav("articles");
-            refreshUserProfile();
-          }
+      if (classification.requires_live_verification || classification.risk_level !== "low") {
+        // ── Step 2: Search ────────────────────────────────────────
+        setArticleStage("Searching…");
+        setArticleProgress(30);
+        const searchRes = await fetch("/api/pipeline/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            keyword: kw,
+            queries: classification.verification_queries,
+            risk_level: classification.risk_level,
+          }),
+        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const searchData: any = await searchRes.json();
+        console.log("[pipeline] Step 2 search done:", !!searchData.raw_facts);
+        if (searchData.error) {
+          setArticleError(typeof searchData.error === "string" ? searchData.error : "Web search failed");
+          return;
         }
+        addLog("✅ Facts collected from web search");
+        setArticleProgress(45);
+
+        // ── Step 3: Verify ────────────────────────────────────────
+        setArticleStage("Verifying…");
+        const verifyRes = await fetch("/api/pipeline/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keyword: kw, raw_facts: searchData.raw_facts }),
+        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const verifyData: any = await verifyRes.json();
+        console.log("[pipeline] Step 3 verify:", { safe: verifyData.safe_to_proceed, facts: verifyData.verified_facts?.length });
+        if (verifyData.error) {
+          setArticleError(typeof verifyData.error === "string" ? verifyData.error : "Fact verification failed");
+          return;
+        }
+        if (!verifyData.safe_to_proceed) {
+          setArticleError(verifyData.blocker_reason || "Could not verify enough facts to proceed safely.");
+          return;
+        }
+        verifiedFacts = verifyData.verified_facts ?? [];
+        unverifiableClaims = verifyData.unverifiable_claims ?? [];
+        addLog(`✅ ${verifiedFacts.length} facts verified, ${unverifiableClaims.length} flagged`);
+        setArticleProgress(60);
+      } else {
+        addLog("⏭ Search & verify skipped — low-risk evergreen topic");
+        setArticleProgress(60);
       }
+
+      // ── Step 4: Write ─────────────────────────────────────────
+      setArticleStage("Writing…");
+      setArticleProgress(65);
+      const writeRes = await fetch("/api/pipeline/write", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          keyword: kw,
+          cluster: clusterToSend,
+          verified_facts: verifiedFacts,
+          unverifiable_claims: unverifiableClaims,
+          word_count: wordCount,
+          tone,
+          audience,
+          market: country,
+          pipeline_data: fromPipeline ? pipelineData : null,
+          nlp_brief: nlpBrief ?? null,
+        }),
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const writeData: any = await writeRes.json();
+      console.log("[pipeline] Step 4 write:", { wordCount: writeData.wordCount, error: writeData.error });
+      if (writeData.error) {
+        setArticleError(typeof writeData.error === "string" ? writeData.error : "Article writing failed");
+        return;
+      }
+      addLog(`✅ Article written — ${writeData.wordCount ?? 0} words`);
+      setArticleProgress(85);
+
+      // ── Step 5: Audit ─────────────────────────────────────────
+      setArticleStage("Auditing…");
+      setArticleProgress(90);
+      const auditRes = await fetch("/api/pipeline/audit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          article: writeData.article,
+          verified_facts: verifiedFacts,
+          unverifiable_claims: unverifiableClaims,
+          published_pages: [],
+        }),
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const auditData: any = await auditRes.json();
+      console.log("[pipeline] Step 5 audit:", { article_clean: auditData.article_clean, error: auditData.error });
+      if (auditData.error) {
+        addLog("⚠️ Audit failed — using unaudited article");
+      } else {
+        addLog(`✅ Audit done — Article clean: ${auditData.article_clean}`);
+      }
+      setArticleProgress(100);
+
+      const finalArticle: ArticleOutput = {
+        ...writeData,
+        article: (auditData.final_article ?? writeData.article) as string,
+      };
+      setArticle(finalArticle);
+      setResearch({
+        intent: clusterToSend?.intent ?? "informational",
+        questions: [],
+        semanticKeywords: clusterToSend?.keywords?.filter((k: string) => k !== kw) ?? [],
+        contentGaps: [],
+      });
+      setActiveNav("articles");
+      refreshUserProfile();
+
     } catch (e) {
-      clearInterval(progressTimer);
-      clearTimeout(timeoutId);
       setArticleError(e instanceof Error ? e.message : "Article generation failed");
     } finally {
-      clearTimeout(timeoutId);
       setArticleLoading(false);
       setArticleStage("");
       setTimeout(() => setArticleProgress(0), 800);

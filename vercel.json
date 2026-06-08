@@ -2,5 +2,10 @@
   "framework": "nextjs",
   "github": {
     "silent": true
+  },
+  "functions": {
+    "src/app/api/pipeline/write/route.ts": {
+      "maxDuration": 60
+    }
   }
 }
