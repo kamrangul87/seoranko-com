@@ -400,7 +400,7 @@ export default function DashboardPage() {
   const [newKwInputs, setNewKwInputs] = useState<Record<string, string>>({});
 
   // Article settings
-  const [wordCount, setWordCount] = useState(1000);
+  const [wordCount, setWordCount] = useState(2000);
   const [tone, setTone] = useState<Tone>("professional");
   const [audience, setAudience] = useState("general readers");
   const [articleLoading, setArticleLoading] = useState(false);
@@ -622,6 +622,8 @@ export default function DashboardPage() {
       setArticleProgress(Math.round(progressRef.value));
     }, 600);
 
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
     const clusterToSend = selectedCluster
       ? { ...selectedCluster, keywords: editedKws ?? selectedCluster.keywords }
       : null;
@@ -661,6 +663,13 @@ export default function DashboardPage() {
       const decoder = new TextDecoder();
       let buffer = "";
 
+      timeoutId = setTimeout(() => {
+        clearInterval(progressTimer);
+        setArticleError('Article generation timed out. The pipeline may be overloaded. Please try again.');
+        setArticleLoading(false);
+        setArticleStage('');
+      }, 90000);
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -670,6 +679,7 @@ export default function DashboardPage() {
         for (const part of parts) {
           if (!part.startsWith("data: ")) continue;
           const data = JSON.parse(part.slice(6));
+          console.log('[article-stream] event received:', data);
           if (data.stage) {
             setArticleStage(data.stage);
             if (data.stage.includes("Step 1")) { progressRef.value = Math.max(progressRef.value, 15); setArticleProgress(15); }
@@ -681,7 +691,12 @@ export default function DashboardPage() {
             if (data.stage.startsWith("Writing your")) { progressRef.value = Math.max(progressRef.value, 20); setArticleProgress(20); }
             if (data.stage.startsWith("Finalising"))   { progressRef.value = 90; setArticleProgress(90); }
           }
-          if (data.error) throw new Error(data.error);
+          if (data.error) {
+            clearInterval(progressTimer);
+            clearTimeout(timeoutId);
+            setArticleError(typeof data.error === 'string' ? data.error : (data.message || 'Pipeline failed — check console for details'));
+            return;
+          }
           if (data.done) {
             clearInterval(progressTimer);
             setArticleProgress(100);
@@ -695,8 +710,10 @@ export default function DashboardPage() {
       }
     } catch (e) {
       clearInterval(progressTimer);
+      clearTimeout(timeoutId);
       setArticleError(e instanceof Error ? e.message : "Article generation failed");
     } finally {
+      clearTimeout(timeoutId);
       setArticleLoading(false);
       setArticleStage("");
       setTimeout(() => setArticleProgress(0), 800);
