@@ -40,7 +40,6 @@ export default function SignupPage() {
     setLoading(true);
     setError("");
 
-    // Timeout fallback: if still loading after TIMEOUT_MS, show hint
     timeoutRef.current = setTimeout(() => {
       setError("Taking too long? Check your connection and try again.");
       setLoading(false);
@@ -65,7 +64,6 @@ export default function SignupPage() {
       console.log('Supabase signup success:', data);
 
       if (data.user) {
-        // upsert so re-signup attempts don't fail on duplicate key
         await supabase.from("user_profiles").upsert({
           id: data.user.id,
           email,
@@ -74,9 +72,6 @@ export default function SignupPage() {
         });
       }
 
-      // Redirect immediately — works whether email confirmation is on or off.
-      // If confirmation is required, Supabase will still create the user and
-      // the cookie session will be set once they confirm.
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       router.push("/dashboard");
 
@@ -89,51 +84,50 @@ export default function SignupPage() {
 
   return (
     <div
-      className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-4"
+      className="min-h-screen bg-[#FAFAF8] flex items-center justify-center p-4"
       style={{ fontFamily: "'Outfit', sans-serif" }}
     >
       <div className="w-full max-w-md">
-        {/* Logo */}
         <div className="flex justify-center mb-8">
           <Link href="/" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-[#f59e0b] rounded-[8px] flex items-center justify-center">
-              <span className="text-[#0a0a0a] font-extrabold text-sm">S</span>
+            <div className="w-8 h-8 bg-[#FF6B2C] rounded-[8px] flex items-center justify-center">
+              <span className="text-white font-extrabold text-sm">S</span>
             </div>
-            <span className="font-bold text-xl tracking-tight text-[#fafafa]">Seoranko</span>
+            <span className="font-bold text-xl tracking-tight text-[#0F0F0F]">Seoranko</span>
           </Link>
         </div>
 
-        <div className="bg-[#111111] border border-[#1f1f1f] rounded-[12px] p-8">
-          <h1 className="text-xl font-bold text-[#fafafa] mb-1">Create your account</h1>
-          <p className="text-[#6b7280] text-sm mb-6">Start ranking on Google today</p>
+        <div className="bg-white border border-[#E8E8E4] rounded-[12px] p-8 shadow-sm">
+          <h1 className="text-xl font-bold text-[#0F0F0F] mb-1">Create your account</h1>
+          <p className="text-[#6B6B6B] text-sm mb-6">Start ranking on Google today</p>
 
           <form onSubmit={handleSignUp} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-[#fafafa] mb-1.5">Full Name</label>
+              <label className="block text-sm font-medium text-[#0F0F0F] mb-1.5">Full Name</label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
                 placeholder="Jane Smith"
-                className="w-full bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-4 py-2.5 text-sm text-[#fafafa] placeholder-[#6b7280] focus:outline-none focus:border-[#f59e0b]/50 transition-colors"
+                className="w-full bg-white border border-[#E8E8E4] rounded-[8px] px-4 py-2.5 text-sm text-[#0F0F0F] placeholder-[#9B9B9B] focus:outline-none focus:border-[#FF6B2C] transition-colors"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-[#fafafa] mb-1.5">Email</label>
+              <label className="block text-sm font-medium text-[#0F0F0F] mb-1.5">Email</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 placeholder="you@example.com"
-                className="w-full bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-4 py-2.5 text-sm text-[#fafafa] placeholder-[#6b7280] focus:outline-none focus:border-[#f59e0b]/50 transition-colors"
+                className="w-full bg-white border border-[#E8E8E4] rounded-[8px] px-4 py-2.5 text-sm text-[#0F0F0F] placeholder-[#9B9B9B] focus:outline-none focus:border-[#FF6B2C] transition-colors"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-[#fafafa] mb-1.5">Password</label>
+              <label className="block text-sm font-medium text-[#0F0F0F] mb-1.5">Password</label>
               <input
                 type="password"
                 value={password}
@@ -141,13 +135,12 @@ export default function SignupPage() {
                 required
                 minLength={6}
                 placeholder="Min. 6 characters"
-                className="w-full bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-4 py-2.5 text-sm text-[#fafafa] placeholder-[#6b7280] focus:outline-none focus:border-[#f59e0b]/50 transition-colors"
+                className="w-full bg-white border border-[#E8E8E4] rounded-[8px] px-4 py-2.5 text-sm text-[#0F0F0F] placeholder-[#9B9B9B] focus:outline-none focus:border-[#FF6B2C] transition-colors"
               />
             </div>
 
-            {/* Plan selector */}
             <div>
-              <label className="block text-sm font-medium text-[#fafafa] mb-2">Plan</label>
+              <label className="block text-sm font-medium text-[#0F0F0F] mb-2">Plan</label>
               <div className="grid grid-cols-3 gap-2">
                 {PLANS.map((p) => (
                   <button
@@ -156,30 +149,30 @@ export default function SignupPage() {
                     onClick={() => setPlan(p.id)}
                     className={`flex flex-col items-center p-3 rounded-[8px] border text-center transition-all ${
                       plan === p.id
-                        ? "border-[#f59e0b] bg-[#f59e0b]/5"
-                        : "border-[#1f1f1f] hover:border-[#f59e0b]/40"
+                        ? "border-[#FF6B2C] bg-[#FF6B2C]/5"
+                        : "border-[#E8E8E4] hover:border-[#FF6B2C]/40"
                     }`}
                   >
-                    <span className="text-xs font-bold text-[#fafafa]">{p.label}</span>
-                    <span className={`text-sm font-extrabold mt-0.5 ${plan === p.id ? "text-[#f59e0b]" : "text-[#6b7280]"}`}>
+                    <span className="text-xs font-bold text-[#0F0F0F]">{p.label}</span>
+                    <span className={`text-sm font-extrabold mt-0.5 ${plan === p.id ? "text-[#FF6B2C]" : "text-[#6B6B6B]"}`}>
                       {p.price}
                     </span>
-                    <span className="text-[10px] text-[#6b7280] leading-tight mt-1">{p.description}</span>
+                    <span className="text-[10px] text-[#9B9B9B] leading-tight mt-1">{p.description}</span>
                   </button>
                 ))}
               </div>
             </div>
 
             {error && (
-              <div className="bg-[#ef4444]/10 border border-[#ef4444]/20 rounded-[8px] px-4 py-3">
-                <p className="text-[#ef4444] text-sm">{error}</p>
+              <div className="bg-red-50 border border-red-200 rounded-[8px] px-4 py-3">
+                <p className="text-red-600 text-sm">{error}</p>
               </div>
             )}
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-[#f59e0b] hover:bg-[#d97706] disabled:opacity-60 disabled:cursor-not-allowed text-[#0a0a0a] font-bold text-sm py-3 rounded-[8px] transition-colors flex items-center justify-center gap-2"
+              className="w-full bg-[#FF6B2C] hover:bg-[#E85A1E] disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold text-sm py-3 rounded-[8px] transition-colors flex items-center justify-center gap-2"
             >
               {loading && (
                 <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -193,16 +186,16 @@ export default function SignupPage() {
 
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-[#1f1f1f]" />
+              <div className="w-full border-t border-[#E8E8E4]" />
             </div>
             <div className="relative flex justify-center text-xs">
-              <span className="bg-[#111111] px-3 text-[#6b7280]">or</span>
+              <span className="bg-white px-3 text-[#9B9B9B]">or</span>
             </div>
           </div>
 
-          <p className="text-center text-sm text-[#6b7280]">
+          <p className="text-center text-sm text-[#6B6B6B]">
             Already have an account?{" "}
-            <Link href="/login" className="text-[#f59e0b] hover:underline font-medium">
+            <Link href="/login" className="text-[#FF6B2C] hover:underline font-medium">
               Sign In
             </Link>
           </p>

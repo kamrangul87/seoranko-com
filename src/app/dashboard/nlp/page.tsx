@@ -152,13 +152,13 @@ function PipelineBar({ step }: { step: "discovery" | "nlp" | "keywords" | "artic
   ] as const;
   const currentIndex = steps.findIndex((s) => s.id === step);
   return (
-    <div className="flex items-center mb-6 bg-[#111111] border border-[#1f1f1f] rounded-[10px] px-5 py-3">
+    <div className="flex items-center mb-6 bg-white border border-[#E8E8E4] rounded-[10px] px-5 py-3">
       {steps.map((s, i) => {
         const isDone = i < currentIndex;
         const isCurrent = i === currentIndex;
         return (
           <div key={s.id} className="flex items-center flex-1 last:flex-none">
-            <div className={`flex items-center gap-1.5 text-xs font-medium whitespace-nowrap ${isCurrent ? "text-[#f59e0b]" : isDone ? "text-[#22c55e]" : "text-[#374151]"}`}>
+            <div className={`flex items-center gap-1.5 text-xs font-medium whitespace-nowrap ${isCurrent ? "text-[#FF6B2C]" : isDone ? "text-[#22c55e]" : "text-[#9B9B9B]"}`}>
               {isDone ? (
                 <span className="w-4 h-4 rounded-full bg-[#22c55e]/20 flex items-center justify-center">
                   <svg className="w-2.5 h-2.5 text-[#22c55e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -166,14 +166,14 @@ function PipelineBar({ step }: { step: "discovery" | "nlp" | "keywords" | "artic
                   </svg>
                 </span>
               ) : (
-                <span className={`w-4 h-4 rounded-full flex items-center justify-center ${isCurrent ? "bg-[#f59e0b]/20" : "bg-[#1f1f1f]"}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${isCurrent ? "bg-[#f59e0b]" : "bg-[#374151]"}`} />
+                <span className={`w-4 h-4 rounded-full flex items-center justify-center ${isCurrent ? "bg-[#FF6B2C]/20" : "bg-[#E8E8E4]"}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isCurrent ? "bg-[#FF6B2C]" : "bg-[#D4D4CE]"}`} />
                 </span>
               )}
               {s.label}
             </div>
             {i < steps.length - 1 && (
-              <div className={`flex-1 h-px mx-3 ${isDone ? "bg-[#22c55e]/40" : "bg-[#1f1f1f]"}`} />
+              <div className={`flex-1 h-px mx-3 ${isDone ? "bg-[#22c55e]/40" : "bg-[#E8E8E4]"}`} />
             )}
           </div>
         );
@@ -192,13 +192,13 @@ function ScoreRing({ score, size = "md" }: { score: number; size?: "sm" | "md" |
   const r = (d - sw) / 2;
   const circ = 2 * Math.PI * r;
   const offset = circ - (score / 100) * circ;
-  const color = score >= 70 ? "#22c55e" : score >= 40 ? "#f59e0b" : "#ef4444";
+  const color = score >= 70 ? "#22c55e" : score >= 40 ? "#FF6B2C" : "#ef4444";
   const fontSize = size === "lg" ? "text-xl" : size === "md" ? "text-base" : "text-xs";
 
   return (
     <div className="relative inline-flex items-center justify-center" style={{ width: d, height: d }}>
       <svg width={d} height={d} className="-rotate-90">
-        <circle cx={d / 2} cy={d / 2} r={r} fill="none" stroke="#1f1f1f" strokeWidth={sw} />
+        <circle cx={d / 2} cy={d / 2} r={r} fill="none" stroke="#E8E8E4" strokeWidth={sw} />
         <circle
           cx={d / 2} cy={d / 2} r={r} fill="none"
           stroke={color} strokeWidth={sw}
@@ -217,14 +217,14 @@ function ScoreRing({ score, size = "md" }: { score: number; size?: "sm" | "md" |
 // ─── ScoreBar ─────────────────────────────────────────────────────────────────
 
 function ScoreBar({ label, value }: { label: string; value: number }) {
-  const color = value >= 70 ? "#22c55e" : value >= 40 ? "#f59e0b" : "#ef4444";
+  const color = value >= 70 ? "#22c55e" : value >= 40 ? "#FF6B2C" : "#ef4444";
   return (
     <div className="space-y-1">
       <div className="flex justify-between text-sm">
-        <span className="text-[#9ca3af]">{label}</span>
+        <span className="text-[#9B9B9B]">{label}</span>
         <span className="font-semibold" style={{ color }}>{value}</span>
       </div>
-      <div className="h-1.5 bg-[#1f1f1f] rounded-full overflow-hidden">
+      <div className="h-1.5 bg-[#E8E8E4] rounded-full overflow-hidden">
         <div
           className="h-full rounded-full transition-all duration-700"
           style={{ width: `${value}%`, backgroundColor: color }}
@@ -245,13 +245,13 @@ function SidebarNav({ onSignOut }: { onSignOut: () => void }) {
   ];
 
   return (
-    <aside className="w-56 flex-shrink-0 bg-[#0a0a0a] border-r border-[#1f1f1f] flex flex-col">
-      <div className="p-4 border-b border-[#1f1f1f]">
+    <aside className="w-56 flex-shrink-0 bg-[#FAFAF8] border-r border-[#E8E8E4] flex flex-col">
+      <div className="p-4 border-b border-[#E8E8E4]">
         <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-7 h-7 bg-[#f59e0b] rounded-[6px] flex items-center justify-center">
+          <div className="w-7 h-7 bg-[#FF6B2C] rounded-[6px] flex items-center justify-center">
             <span className="text-[#0a0a0a] font-extrabold text-xs">S</span>
           </div>
-          <span className="font-bold text-base tracking-tight text-[#fafafa]">Seoranko</span>
+          <span className="font-bold text-base tracking-tight text-[#0F0F0F]">Seoranko</span>
         </Link>
       </div>
       <nav className="flex-1 p-3 space-y-0.5">
@@ -262,7 +262,7 @@ function SidebarNav({ onSignOut }: { onSignOut: () => void }) {
               key={label}
               href={href}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-[8px] text-sm font-medium transition-colors ${
-                active ? "bg-[#f59e0b]/10 text-[#f59e0b]" : "text-[#6b7280] hover:text-[#fafafa] hover:bg-[#111111]"
+                active ? "bg-[#FF6B2C]/10 text-[#FF6B2C]" : "text-[#6B6B6B] hover:text-[#0F0F0F] hover:bg-[#F5F4F1]"
               }`}
             >
               {icon}{label}
@@ -270,10 +270,10 @@ function SidebarNav({ onSignOut }: { onSignOut: () => void }) {
           );
         })}
       </nav>
-      <div className="p-3 border-t border-[#1f1f1f]">
+      <div className="p-3 border-t border-[#E8E8E4]">
         <button
           onClick={onSignOut}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[8px] text-sm font-medium text-[#6b7280] hover:text-[#fafafa] hover:bg-[#111111] transition-colors"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[8px] text-sm font-medium text-[#6B6B6B] hover:text-[#0F0F0F] hover:bg-[#F5F4F1] transition-colors"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
@@ -453,7 +453,7 @@ function NlpPageInner() {
   }
 
   return (
-    <div className="flex h-screen bg-[#0a0a0a]" style={{ fontFamily: "'Outfit', sans-serif" }}>
+    <div className="flex h-screen bg-[#FAFAF8]" style={{ fontFamily: "'Outfit', sans-serif" }}>
       <SidebarNav onSignOut={handleSignOut} />
 
       <main className="flex-1 overflow-y-auto">
@@ -461,8 +461,8 @@ function NlpPageInner() {
 
           {/* Header */}
           <div>
-            <h1 className="text-2xl font-bold text-[#fafafa]">NLP Analyser</h1>
-            <p className="text-[#6b7280] text-sm mt-1">
+            <h1 className="text-2xl font-bold text-[#0F0F0F]">NLP Analyser</h1>
+            <p className="text-[#6B6B6B] text-sm mt-1">
               SERP analysis, E-E-A-T scoring, content gaps, and brief generation
             </p>
           </div>
@@ -479,18 +479,18 @@ function NlpPageInner() {
                     <span className="w-2 h-2 rounded-full bg-[#22c55e]" />
                     <p className="text-xs font-semibold text-[#22c55e] uppercase tracking-wide">From Discovery Engine</p>
                   </div>
-                  <p className="text-xs text-[#6b7280] mb-1">Original problem: {(discoveryOpportunity as DiscoveryOpportunity & { fullProblem?: string }).fullProblem ?? discoveryOpportunity.problem}</p>
-                  <p className="text-sm font-medium text-[#fafafa] mb-2">Analysing: <span className="text-[#f59e0b]">{keyword}</span></p>
-                  <div className="flex flex-wrap gap-3 text-xs text-[#6b7280]">
-                    <span>Gap Score: <span className="text-[#f59e0b] font-semibold">{discoveryOpportunity.gapScore}/100</span></span>
-                    <span>Volume: <span className="text-[#fafafa] font-medium">{discoveryOpportunity.volume.toLocaleString()}/mo</span></span>
-                    <span>Competition: <span className="text-[#fafafa] font-medium">{discoveryOpportunity.competition}</span></span>
-                    <span>Market: <span className="text-[#fafafa] font-medium">{discoveryOpportunity.region}</span></span>
+                  <p className="text-xs text-[#6B6B6B] mb-1">Original problem: {(discoveryOpportunity as DiscoveryOpportunity & { fullProblem?: string }).fullProblem ?? discoveryOpportunity.problem}</p>
+                  <p className="text-sm font-medium text-[#0F0F0F] mb-2">Analysing: <span className="text-[#FF6B2C]">{keyword}</span></p>
+                  <div className="flex flex-wrap gap-3 text-xs text-[#6B6B6B]">
+                    <span>Gap Score: <span className="text-[#FF6B2C] font-semibold">{discoveryOpportunity.gapScore}/100</span></span>
+                    <span>Volume: <span className="text-[#0F0F0F] font-medium">{discoveryOpportunity.volume.toLocaleString()}/mo</span></span>
+                    <span>Competition: <span className="text-[#0F0F0F] font-medium">{discoveryOpportunity.competition}</span></span>
+                    <span>Market: <span className="text-[#0F0F0F] font-medium">{discoveryOpportunity.region}</span></span>
                   </div>
                 </div>
                 <button
                   onClick={clearPipeline}
-                  className="text-[#6b7280] hover:text-[#ef4444] transition-colors flex-shrink-0"
+                  className="text-[#6B6B6B] hover:text-[#ef4444] transition-colors flex-shrink-0"
                   title="Clear pipeline"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -502,25 +502,25 @@ function NlpPageInner() {
           )}
 
           {/* Input form */}
-          <form onSubmit={handleAnalyse} className="bg-[#111111] border border-[#1f1f1f] rounded-[12px] p-5 space-y-4">
+          <form onSubmit={handleAnalyse} className="bg-white border border-[#E8E8E4] rounded-[12px] p-5 space-y-4">
             <div className="flex gap-3">
               <div className="flex-1">
-                <label className="block text-xs font-medium text-[#9ca3af] mb-1.5 uppercase tracking-wide">Keyword</label>
+                <label className="block text-xs font-medium text-[#9B9B9B] mb-1.5 uppercase tracking-wide">Keyword</label>
                 <input
                   type="text"
                   value={keyword}
                   onChange={(e) => setKeyword(e.target.value)}
                   placeholder="e.g. best protein powder UK"
                   required
-                  className="w-full bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-4 py-2.5 text-sm text-[#fafafa] placeholder-[#4b5563] focus:outline-none focus:border-[#f59e0b]/50 transition-colors"
+                  className="w-full bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-4 py-2.5 text-sm text-[#0F0F0F] placeholder-[#9B9B9B] focus:outline-none focus:border-[#FF6B2C]/50 transition-colors"
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-[#9ca3af] mb-1.5 uppercase tracking-wide">Location</label>
+                <label className="block text-xs font-medium text-[#9B9B9B] mb-1.5 uppercase tracking-wide">Location</label>
                 <select
                   value={locationCode}
                   onChange={(e) => setLocationCode(Number(e.target.value))}
-                  className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-3 py-2.5 text-sm text-[#fafafa] focus:outline-none focus:border-[#f59e0b]/50 transition-colors"
+                  className="bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-3 py-2.5 text-sm text-[#0F0F0F] focus:outline-none focus:border-[#FF6B2C]/50 transition-colors"
                 >
                   {LOCATIONS.map((l) => (
                     <option key={l.code} value={l.code}>{l.label}</option>
@@ -534,7 +534,7 @@ function NlpPageInner() {
               <button
                 type="button"
                 onClick={() => setShowDraft(!showDraft)}
-                className="flex items-center gap-2 text-xs text-[#6b7280] hover:text-[#f59e0b] transition-colors"
+                className="flex items-center gap-2 text-xs text-[#6B6B6B] hover:text-[#E85A1E] transition-colors"
               >
                 <svg className={`w-3.5 h-3.5 transition-transform ${showDraft ? "rotate-90" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -547,7 +547,7 @@ function NlpPageInner() {
                   onChange={(e) => setDraft(e.target.value)}
                   placeholder="Paste your draft article here for full E-E-A-T and readability analysis…"
                   rows={6}
-                  className="mt-2 w-full bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] px-4 py-3 text-sm text-[#fafafa] placeholder-[#4b5563] focus:outline-none focus:border-[#f59e0b]/50 transition-colors resize-none"
+                  className="mt-2 w-full bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-4 py-3 text-sm text-[#0F0F0F] placeholder-[#9B9B9B] focus:outline-none focus:border-[#FF6B2C]/50 transition-colors resize-none"
                 />
               )}
             </div>
@@ -556,7 +556,7 @@ function NlpPageInner() {
               <button
                 type="submit"
                 disabled={loading || !keyword.trim()}
-                className="bg-[#f59e0b] hover:bg-[#d97706] disabled:opacity-50 disabled:cursor-not-allowed text-[#0a0a0a] font-bold text-sm px-6 py-2.5 rounded-[8px] transition-colors flex items-center gap-2"
+                className="bg-[#FF6B2C] hover:bg-[#E85A1E] disabled:opacity-50 disabled:cursor-not-allowed text-[#0a0a0a] font-bold text-sm px-6 py-2.5 rounded-[8px] transition-colors flex items-center gap-2"
               >
                 {loading && (
                   <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -567,7 +567,7 @@ function NlpPageInner() {
                 {loading ? "Analysing…" : "Analyse"}
               </button>
               {loading && stage && (
-                <span className="text-xs text-[#6b7280] animate-pulse">{stage}</span>
+                <span className="text-xs text-[#6B6B6B] animate-pulse">{stage}</span>
               )}
             </div>
           </form>
@@ -581,11 +581,11 @@ function NlpPageInner() {
 
           {/* Loading skeleton */}
           {loading && !results && (
-            <div className="bg-[#111111] border border-[#1f1f1f] rounded-[12px] p-8 flex flex-col items-center gap-4">
-              <div className="w-16 h-16 rounded-full border-4 border-[#1f1f1f] border-t-[#f59e0b] animate-spin" />
+            <div className="bg-white border border-[#E8E8E4] rounded-[12px] p-8 flex flex-col items-center gap-4">
+              <div className="w-16 h-16 rounded-full border-4 border-[#E8E8E4] border-t-[#FF6B2C] animate-spin" />
               <div className="text-center space-y-1">
-                <p className="text-[#fafafa] font-medium text-sm">{stage || "Running analysis…"}</p>
-                <p className="text-[#4b5563] text-xs">This may take 15–30 seconds</p>
+                <p className="text-[#0F0F0F] font-medium text-sm">{stage || "Running analysis…"}</p>
+                <p className="text-[#9B9B9B] text-xs">This may take 15–30 seconds</p>
               </div>
             </div>
           )}
@@ -598,7 +598,7 @@ function NlpPageInner() {
               {fromDiscovery && (
                 <button
                   onClick={handleResearchKeywords}
-                  className="w-full flex items-center justify-between bg-[#f59e0b] hover:bg-[#d97706] text-[#0a0a0a] font-bold text-sm px-5 py-3.5 rounded-[10px] transition-colors"
+                  className="w-full flex items-center justify-between bg-[#FF6B2C] hover:bg-[#E85A1E] text-[#0a0a0a] font-bold text-sm px-5 py-3.5 rounded-[10px] transition-colors"
                 >
                   <span>→ Research Keywords with Full Pipeline Data</span>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -608,42 +608,42 @@ function NlpPageInner() {
               )}
 
               {/* Score summary bar */}
-              <div className="bg-[#111111] border border-[#1f1f1f] rounded-[12px] p-5 flex items-center gap-6">
+              <div className="bg-white border border-[#E8E8E4] rounded-[12px] p-5 flex items-center gap-6">
                 <div className="flex flex-col items-center gap-1">
                   <ScoreRing score={results.overallScore} size="lg" />
-                  <span className="text-xs text-[#6b7280]">Overall Score</span>
+                  <span className="text-xs text-[#6B6B6B]">Overall Score</span>
                 </div>
                 <div className="flex-1 grid grid-cols-2 gap-x-6 gap-y-3">
                   <div>
-                    <p className="text-xs text-[#6b7280] mb-0.5">Intent</p>
-                    <span className="text-sm font-semibold text-[#f59e0b] capitalize">{results.intent?.type}</span>
-                    <span className="text-xs text-[#4b5563] ml-2">({results.intent?.confidence}% confidence)</span>
+                    <p className="text-xs text-[#6B6B6B] mb-0.5">Intent</p>
+                    <span className="text-sm font-semibold text-[#FF6B2C] capitalize">{results.intent?.type}</span>
+                    <span className="text-xs text-[#9B9B9B] ml-2">({results.intent?.confidence}% confidence)</span>
                   </div>
                   <div>
-                    <p className="text-xs text-[#6b7280] mb-0.5">Entities found</p>
-                    <span className="text-sm font-semibold text-[#fafafa]">{results.entities?.length ?? 0}</span>
+                    <p className="text-xs text-[#6B6B6B] mb-0.5">Entities found</p>
+                    <span className="text-sm font-semibold text-[#0F0F0F]">{results.entities?.length ?? 0}</span>
                   </div>
                   <div>
-                    <p className="text-xs text-[#6b7280] mb-0.5">Topical gaps</p>
-                    <span className="text-sm font-semibold text-[#fafafa]">{results.topicalGaps?.length ?? 0}</span>
+                    <p className="text-xs text-[#6B6B6B] mb-0.5">Topical gaps</p>
+                    <span className="text-sm font-semibold text-[#0F0F0F]">{results.topicalGaps?.length ?? 0}</span>
                   </div>
                   <div>
-                    <p className="text-xs text-[#6b7280] mb-0.5">Semantic zone</p>
-                    <span className="text-sm font-semibold text-[#fafafa]">{results.semanticSimilarityZone?.verdict ?? "N/A"}</span>
+                    <p className="text-xs text-[#6B6B6B] mb-0.5">Semantic zone</p>
+                    <span className="text-sm font-semibold text-[#0F0F0F]">{results.semanticSimilarityZone?.verdict ?? "N/A"}</span>
                   </div>
                 </div>
               </div>
 
               {/* Tabs */}
-              <div className="border-b border-[#1f1f1f] flex gap-1">
+              <div className="border-b border-[#E8E8E4] flex gap-1">
                 {TABS.map((tab) => (
                   <button
                     key={tab}
                     onClick={() => setActiveTab(tab)}
                     className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
                       activeTab === tab
-                        ? "text-[#f59e0b] border-[#f59e0b]"
-                        : "text-[#6b7280] border-transparent hover:text-[#fafafa]"
+                        ? "text-[#FF6B2C] border-[#FF6B2C]"
+                        : "text-[#6B6B6B] border-transparent hover:text-[#0F0F0F]"
                     }`}
                   >
                     {tab}
@@ -652,25 +652,25 @@ function NlpPageInner() {
               </div>
 
               {/* Tab content */}
-              <div className="bg-[#111111] border border-[#1f1f1f] rounded-[12px] p-5">
+              <div className="bg-white border border-[#E8E8E4] rounded-[12px] p-5">
 
                 {/* Overview */}
                 {activeTab === "Overview" && (
                   <div className="space-y-5">
                     <div>
-                      <h3 className="text-sm font-semibold text-[#fafafa] mb-2">Search Intent</h3>
-                      <p className="text-sm text-[#9ca3af]">{results.intent?.explanation}</p>
+                      <h3 className="text-sm font-semibold text-[#0F0F0F] mb-2">Search Intent</h3>
+                      <p className="text-sm text-[#9B9B9B]">{results.intent?.explanation}</p>
                     </div>
                     {results.serpFeatures?.length > 0 && (
                       <div>
-                        <h3 className="text-sm font-semibold text-[#fafafa] mb-3">SERP Features</h3>
+                        <h3 className="text-sm font-semibold text-[#0F0F0F] mb-3">SERP Features</h3>
                         <div className="grid grid-cols-2 gap-2">
                           {results.serpFeatures.map((f, i) => (
-                            <div key={i} className={`flex items-start gap-2 p-3 rounded-[8px] border ${f.available ? "border-[#22c55e]/20 bg-[#22c55e]/5" : "border-[#1f1f1f] bg-[#0a0a0a]"}`}>
-                              <span className={`mt-0.5 w-3 h-3 rounded-full flex-shrink-0 ${f.available ? "bg-[#22c55e]" : "bg-[#374151]"}`} />
+                            <div key={i} className={`flex items-start gap-2 p-3 rounded-[8px] border ${f.available ? "border-[#22c55e]/20 bg-[#22c55e]/5" : "border-[#E8E8E4] bg-[#FAFAF8]"}`}>
+                              <span className={`mt-0.5 w-3 h-3 rounded-full flex-shrink-0 ${f.available ? "bg-[#22c55e]" : "bg-[#D4D4CE]"}`} />
                               <div>
-                                <p className="text-xs font-medium text-[#fafafa]">{f.name}</p>
-                                <p className="text-xs text-[#6b7280] mt-0.5">{f.tip}</p>
+                                <p className="text-xs font-medium text-[#0F0F0F]">{f.name}</p>
+                                <p className="text-xs text-[#6B6B6B] mt-0.5">{f.tip}</p>
                               </div>
                             </div>
                           ))}
@@ -679,19 +679,19 @@ function NlpPageInner() {
                     )}
                     {results.semanticSimilarityZone && (
                       <div>
-                        <h3 className="text-sm font-semibold text-[#fafafa] mb-2">Semantic Similarity</h3>
-                        <div className="flex items-center gap-4 p-4 bg-[#0a0a0a] rounded-[8px] border border-[#1f1f1f]">
+                        <h3 className="text-sm font-semibold text-[#0F0F0F] mb-2">Semantic Similarity</h3>
+                        <div className="flex items-center gap-4 p-4 bg-[#FAFAF8] rounded-[8px] border border-[#E8E8E4]">
                           <ScoreRing score={results.semanticSimilarityZone.score} size="sm" />
                           <div>
-                            <p className="text-sm font-semibold text-[#fafafa]">{results.semanticSimilarityZone.verdict}</p>
-                            <p className="text-xs text-[#6b7280] mt-0.5">{results.semanticSimilarityZone.recommendation}</p>
+                            <p className="text-sm font-semibold text-[#0F0F0F]">{results.semanticSimilarityZone.verdict}</p>
+                            <p className="text-xs text-[#6B6B6B] mt-0.5">{results.semanticSimilarityZone.recommendation}</p>
                           </div>
                         </div>
                       </div>
                     )}
                     {results.message && (
-                      <div className="p-3 bg-[#f59e0b]/5 border border-[#f59e0b]/20 rounded-[8px]">
-                        <p className="text-xs text-[#f59e0b]">{results.message}</p>
+                      <div className="p-3 bg-[#FF6B2C]/5 border border-[#FF6B2C]/20 rounded-[8px]">
+                        <p className="text-xs text-[#FF6B2C]">{results.message}</p>
                       </div>
                     )}
                   </div>
@@ -702,19 +702,19 @@ function NlpPageInner() {
                   <div className="space-y-5">
                     {results.entities?.length > 0 && (
                       <div>
-                        <h3 className="text-sm font-semibold text-[#fafafa] mb-3">
-                          Competitor Entities <span className="text-[#4b5563] font-normal">({results.entities.length})</span>
+                        <h3 className="text-sm font-semibold text-[#0F0F0F] mb-3">
+                          Competitor Entities <span className="text-[#9B9B9B] font-normal">({results.entities.length})</span>
                         </h3>
                         <div className="flex flex-wrap gap-2">
                           {results.entities.map((e, i) => (
-                            <span key={i} className="px-2.5 py-1 bg-[#0a0a0a] border border-[#1f1f1f] rounded-[6px] text-xs text-[#9ca3af]">{e}</span>
+                            <span key={i} className="px-2.5 py-1 bg-[#FAFAF8] border border-[#E8E8E4] rounded-[6px] text-xs text-[#9B9B9B]">{e}</span>
                           ))}
                         </div>
                       </div>
                     )}
                     {results.missingEntities?.length > 0 && (
                       <div>
-                        <h3 className="text-sm font-semibold text-[#fafafa] mb-3">
+                        <h3 className="text-sm font-semibold text-[#0F0F0F] mb-3">
                           Missing from Your Draft <span className="text-[#ef4444]/70 font-normal">({results.missingEntities.length})</span>
                         </h3>
                         <div className="flex flex-wrap gap-2">
@@ -726,15 +726,15 @@ function NlpPageInner() {
                     )}
                     {results.internalLinkSuggestions?.length > 0 && (
                       <div>
-                        <h3 className="text-sm font-semibold text-[#fafafa] mb-3">Internal Link Suggestions</h3>
+                        <h3 className="text-sm font-semibold text-[#0F0F0F] mb-3">Internal Link Suggestions</h3>
                         <div className="space-y-2">
                           {results.internalLinkSuggestions.map((l, i) => (
-                            <div key={i} className="flex items-center justify-between p-3 bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px]">
+                            <div key={i} className="flex items-center justify-between p-3 bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px]">
                               <div>
-                                <p className="text-xs font-medium text-[#f59e0b]">{l.anchor}</p>
-                                <p className="text-xs text-[#6b7280] mt-0.5">{l.targetPage}</p>
+                                <p className="text-xs font-medium text-[#FF6B2C]">{l.anchor}</p>
+                                <p className="text-xs text-[#6B6B6B] mt-0.5">{l.targetPage}</p>
                               </div>
-                              <span className="text-xs text-[#4b5563]">Relevance: {l.relevance}%</span>
+                              <span className="text-xs text-[#9B9B9B]">Relevance: {l.relevance}%</span>
                             </div>
                           ))}
                         </div>
@@ -748,19 +748,19 @@ function NlpPageInner() {
                   <div className="space-y-5">
                     {results.subtopics?.length > 0 && (
                       <div>
-                        <h3 className="text-sm font-semibold text-[#fafafa] mb-3">
-                          Competitor Subtopics <span className="text-[#4b5563] font-normal">({results.subtopics.length})</span>
+                        <h3 className="text-sm font-semibold text-[#0F0F0F] mb-3">
+                          Competitor Subtopics <span className="text-[#9B9B9B] font-normal">({results.subtopics.length})</span>
                         </h3>
                         <div className="flex flex-wrap gap-2">
                           {results.subtopics.map((t, i) => (
-                            <span key={i} className="px-2.5 py-1 bg-[#0a0a0a] border border-[#1f1f1f] rounded-[6px] text-xs text-[#9ca3af]">{t}</span>
+                            <span key={i} className="px-2.5 py-1 bg-[#FAFAF8] border border-[#E8E8E4] rounded-[6px] text-xs text-[#9B9B9B]">{t}</span>
                           ))}
                         </div>
                       </div>
                     )}
                     {results.coveredTopics?.length > 0 && (
                       <div>
-                        <h3 className="text-sm font-semibold text-[#fafafa] mb-3">
+                        <h3 className="text-sm font-semibold text-[#0F0F0F] mb-3">
                           Covered in Draft <span className="text-[#22c55e]/70 font-normal">({results.coveredTopics.length})</span>
                         </h3>
                         <div className="flex flex-wrap gap-2">
@@ -772,7 +772,7 @@ function NlpPageInner() {
                     )}
                     {results.topicalGaps?.length > 0 && (
                       <div>
-                        <h3 className="text-sm font-semibold text-[#fafafa] mb-3">
+                        <h3 className="text-sm font-semibold text-[#0F0F0F] mb-3">
                           Topical Gaps <span className="text-[#ef4444]/70 font-normal">({results.topicalGaps.length})</span>
                         </h3>
                         <div className="flex flex-wrap gap-2">
@@ -784,20 +784,20 @@ function NlpPageInner() {
                     )}
                     {results.lsiTerms?.length > 0 && (
                       <div>
-                        <h3 className="text-sm font-semibold text-[#fafafa] mb-3">LSI Terms</h3>
+                        <h3 className="text-sm font-semibold text-[#0F0F0F] mb-3">LSI Terms</h3>
                         <table className="w-full text-xs">
                           <thead>
-                            <tr className="text-left border-b border-[#1f1f1f]">
-                              <th className="pb-2 text-[#6b7280] font-medium">Term</th>
-                              <th className="pb-2 text-[#6b7280] font-medium">Frequency</th>
-                              <th className="pb-2 text-[#6b7280] font-medium">Status</th>
+                            <tr className="text-left border-b border-[#E8E8E4]">
+                              <th className="pb-2 text-[#6B6B6B] font-medium">Term</th>
+                              <th className="pb-2 text-[#6B6B6B] font-medium">Frequency</th>
+                              <th className="pb-2 text-[#6B6B6B] font-medium">Status</th>
                             </tr>
                           </thead>
                           <tbody>
                             {results.lsiTerms.map((t, i) => (
-                              <tr key={i} className="border-b border-[#0f0f0f]">
-                                <td className="py-2 text-[#9ca3af]">{t.term}</td>
-                                <td className="py-2 text-[#6b7280]">{t.frequency}</td>
+                              <tr key={i} className="border-b border-[#F5F4F1]">
+                                <td className="py-2 text-[#9B9B9B]">{t.term}</td>
+                                <td className="py-2 text-[#6B6B6B]">{t.frequency}</td>
                                 <td className="py-2">
                                   <span className={`px-2 py-0.5 rounded-[4px] ${
                                     t.status === "present" || t.status === "covered"
@@ -819,11 +819,11 @@ function NlpPageInner() {
                   <div className="space-y-5">
                     <div className="grid grid-cols-2 gap-4">
                       {(["experience", "expertise", "authoritativeness", "trustworthiness"] as (keyof Eeat)[]).map((key) => (
-                        <div key={key} className="flex items-center gap-4 p-4 bg-[#0a0a0a] rounded-[8px] border border-[#1f1f1f]">
+                        <div key={key} className="flex items-center gap-4 p-4 bg-[#FAFAF8] rounded-[8px] border border-[#E8E8E4]">
                           <ScoreRing score={results.eeat?.[key] ?? 0} size="sm" />
                           <div>
-                            <p className="text-sm font-medium text-[#fafafa] capitalize">{key}</p>
-                            <p className="text-xs text-[#6b7280] mt-0.5">
+                            <p className="text-sm font-medium text-[#0F0F0F] capitalize">{key}</p>
+                            <p className="text-xs text-[#6B6B6B] mt-0.5">
                               {results.eeat?.[key] >= 70 ? "Strong" : results.eeat?.[key] >= 40 ? "Moderate" : "Needs work"}
                             </p>
                           </div>
@@ -831,8 +831,8 @@ function NlpPageInner() {
                       ))}
                     </div>
                     {!draft.trim() && (
-                      <div className="p-3 bg-[#f59e0b]/5 border border-[#f59e0b]/20 rounded-[8px]">
-                        <p className="text-xs text-[#f59e0b]">Add draft content above to get your personal E-E-A-T scores instead of competitor benchmarks.</p>
+                      <div className="p-3 bg-[#FF6B2C]/5 border border-[#FF6B2C]/20 rounded-[8px]">
+                        <p className="text-xs text-[#FF6B2C]">Add draft content above to get your personal E-E-A-T scores instead of competitor benchmarks.</p>
                       </div>
                     )}
                   </div>
@@ -844,31 +844,31 @@ function NlpPageInner() {
                     {results.readability && (
                       <>
                         <div className="grid grid-cols-2 gap-4">
-                          <div className="p-4 bg-[#0a0a0a] rounded-[8px] border border-[#1f1f1f]">
-                            <p className="text-xs text-[#6b7280] mb-1">Flesch-Kincaid Grade</p>
-                            <p className="text-2xl font-bold text-[#fafafa]">{results.readability.fleschKincaid}</p>
+                          <div className="p-4 bg-[#FAFAF8] rounded-[8px] border border-[#E8E8E4]">
+                            <p className="text-xs text-[#6B6B6B] mb-1">Flesch-Kincaid Grade</p>
+                            <p className="text-2xl font-bold text-[#0F0F0F]">{results.readability.fleschKincaid}</p>
                           </div>
-                          <div className="p-4 bg-[#0a0a0a] rounded-[8px] border border-[#1f1f1f]">
-                            <p className="text-xs text-[#6b7280] mb-1">Avg Sentence Length</p>
-                            <p className="text-2xl font-bold text-[#fafafa]">{results.readability.avgSentenceLength} <span className="text-sm font-normal text-[#6b7280]">words</span></p>
+                          <div className="p-4 bg-[#FAFAF8] rounded-[8px] border border-[#E8E8E4]">
+                            <p className="text-xs text-[#6B6B6B] mb-1">Avg Sentence Length</p>
+                            <p className="text-2xl font-bold text-[#0F0F0F]">{results.readability.avgSentenceLength} <span className="text-sm font-normal text-[#6B6B6B]">words</span></p>
                           </div>
-                          <div className="p-4 bg-[#0a0a0a] rounded-[8px] border border-[#1f1f1f]">
-                            <p className="text-xs text-[#6b7280] mb-1">Passive Voice</p>
-                            <p className="text-2xl font-bold text-[#fafafa]">{results.readability.passiveVoicePercent}<span className="text-sm font-normal text-[#6b7280]">%</span></p>
+                          <div className="p-4 bg-[#FAFAF8] rounded-[8px] border border-[#E8E8E4]">
+                            <p className="text-xs text-[#6B6B6B] mb-1">Passive Voice</p>
+                            <p className="text-2xl font-bold text-[#0F0F0F]">{results.readability.passiveVoicePercent}<span className="text-sm font-normal text-[#6B6B6B]">%</span></p>
                           </div>
-                          <div className="p-4 bg-[#0a0a0a] rounded-[8px] border border-[#1f1f1f]">
-                            <p className="text-xs text-[#6b7280] mb-1">Tone</p>
-                            <p className="text-lg font-semibold text-[#fafafa] capitalize">{results.readability.tone}</p>
+                          <div className="p-4 bg-[#FAFAF8] rounded-[8px] border border-[#E8E8E4]">
+                            <p className="text-xs text-[#6B6B6B] mb-1">Tone</p>
+                            <p className="text-lg font-semibold text-[#0F0F0F] capitalize">{results.readability.tone}</p>
                           </div>
                         </div>
                         {results.passiveVoiceExamples?.length > 0 && (
                           <div>
-                            <h3 className="text-sm font-semibold text-[#fafafa] mb-3">Passive Voice Examples</h3>
+                            <h3 className="text-sm font-semibold text-[#0F0F0F] mb-3">Passive Voice Examples</h3>
                             <div className="space-y-2">
                               {results.passiveVoiceExamples.map((ex, i) => (
-                                <div key={i} className="p-3 bg-[#0a0a0a] rounded-[8px] border border-[#1f1f1f] space-y-1.5">
-                                  <p className="text-xs text-[#ef4444]">Before: <span className="text-[#9ca3af]">{ex.original}</span></p>
-                                  <p className="text-xs text-[#22c55e]">After: <span className="text-[#9ca3af]">{ex.suggested}</span></p>
+                                <div key={i} className="p-3 bg-[#FAFAF8] rounded-[8px] border border-[#E8E8E4] space-y-1.5">
+                                  <p className="text-xs text-[#ef4444]">Before: <span className="text-[#9B9B9B]">{ex.original}</span></p>
+                                  <p className="text-xs text-[#22c55e]">After: <span className="text-[#9B9B9B]">{ex.suggested}</span></p>
                                 </div>
                               ))}
                             </div>
@@ -877,8 +877,8 @@ function NlpPageInner() {
                       </>
                     )}
                     {!draft.trim() && (
-                      <div className="p-3 bg-[#f59e0b]/5 border border-[#f59e0b]/20 rounded-[8px]">
-                        <p className="text-xs text-[#f59e0b]">Add draft content above to get readability scores for your article.</p>
+                      <div className="p-3 bg-[#FF6B2C]/5 border border-[#FF6B2C]/20 rounded-[8px]">
+                        <p className="text-xs text-[#FF6B2C]">Add draft content above to get readability scores for your article.</p>
                       </div>
                     )}
                   </div>
@@ -905,7 +905,7 @@ function NlpPageInner() {
                           localStorage.setItem("nlp_brief_data", JSON.stringify(payload));
                           router.push(`/dashboard?from=nlp&keyword=${encodeURIComponent(results.brief.recommendedH1)}`);
                         }}
-                        className="flex items-center justify-between w-full bg-[#f59e0b] hover:bg-[#d97706] text-[#0a0a0a] font-bold text-sm px-5 py-3 rounded-[10px] transition-colors"
+                        className="flex items-center justify-between w-full bg-[#FF6B2C] hover:bg-[#E85A1E] text-[#0a0a0a] font-bold text-sm px-5 py-3 rounded-[10px] transition-colors"
                       >
                         <span>Write This Article →</span>
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -914,22 +914,22 @@ function NlpPageInner() {
                       </button>
                     )}
 
-                    <div className="p-4 bg-[#0a0a0a] rounded-[8px] border border-[#1f1f1f] space-y-2">
+                    <div className="p-4 bg-[#FAFAF8] rounded-[8px] border border-[#E8E8E4] space-y-2">
                       <div className="flex items-center justify-between">
-                        <p className="text-xs text-[#6b7280]">Recommended H1</p>
-                        <span className="text-xs text-[#4b5563]">{results.brief.wordCount} words · {results.brief.tone} · {results.brief.targetAudience}</span>
+                        <p className="text-xs text-[#6B6B6B]">Recommended H1</p>
+                        <span className="text-xs text-[#9B9B9B]">{results.brief.wordCount} words · {results.brief.tone} · {results.brief.targetAudience}</span>
                       </div>
-                      <p className="text-sm font-semibold text-[#fafafa]">{results.brief.recommendedH1}</p>
+                      <p className="text-sm font-semibold text-[#0F0F0F]">{results.brief.recommendedH1}</p>
                     </div>
 
                     {results.brief.structure?.length > 0 && (
                       <div>
-                        <h3 className="text-sm font-semibold text-[#fafafa] mb-3">Article Structure</h3>
+                        <h3 className="text-sm font-semibold text-[#0F0F0F] mb-3">Article Structure</h3>
                         <div className="space-y-1">
                           {results.brief.structure.map((s, i) => (
-                            <div key={i} className={`flex items-center gap-2 py-1.5 px-3 rounded-[6px] ${s.tag === "H2" ? "bg-[#0a0a0a] border border-[#1f1f1f]" : "pl-6"}`}>
-                              <span className={`text-xs font-mono font-bold ${s.tag === "H2" ? "text-[#f59e0b]" : "text-[#4b5563]"}`}>{s.tag}</span>
-                              <span className="text-sm text-[#9ca3af]">{s.text}</span>
+                            <div key={i} className={`flex items-center gap-2 py-1.5 px-3 rounded-[6px] ${s.tag === "H2" ? "bg-[#FAFAF8] border border-[#E8E8E4]" : "pl-6"}`}>
+                              <span className={`text-xs font-mono font-bold ${s.tag === "H2" ? "text-[#FF6B2C]" : "text-[#9B9B9B]"}`}>{s.tag}</span>
+                              <span className="text-sm text-[#9B9B9B]">{s.text}</span>
                             </div>
                           ))}
                         </div>
@@ -939,10 +939,10 @@ function NlpPageInner() {
                     {results.schema && (
                       <div>
                         <div className="flex items-center justify-between mb-2">
-                          <h3 className="text-sm font-semibold text-[#fafafa]">JSON-LD Schema</h3>
+                          <h3 className="text-sm font-semibold text-[#0F0F0F]">JSON-LD Schema</h3>
                           <button
                             onClick={copySchema}
-                            className="text-xs text-[#f59e0b] hover:text-[#d97706] transition-colors flex items-center gap-1"
+                            className="text-xs text-[#FF6B2C] hover:text-[#E85A1E] transition-colors flex items-center gap-1"
                           >
                             {copied ? (
                               <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg> Copied</>
@@ -951,7 +951,7 @@ function NlpPageInner() {
                             )}
                           </button>
                         </div>
-                        <pre className="bg-[#0a0a0a] border border-[#1f1f1f] rounded-[8px] p-4 text-xs text-[#9ca3af] overflow-x-auto whitespace-pre-wrap break-all">
+                        <pre className="bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] p-4 text-xs text-[#9B9B9B] overflow-x-auto whitespace-pre-wrap break-all">
                           {results.schema}
                         </pre>
                       </div>
@@ -959,15 +959,15 @@ function NlpPageInner() {
 
                     {results.lsiTerms?.length > 0 && (
                       <div>
-                        <h3 className="text-sm font-semibold text-[#fafafa] mb-3">
-                          LSI / Secondary Keywords <span className="text-[#4b5563] font-normal">({results.lsiTerms.length})</span>
+                        <h3 className="text-sm font-semibold text-[#0F0F0F] mb-3">
+                          LSI / Secondary Keywords <span className="text-[#9B9B9B] font-normal">({results.lsiTerms.length})</span>
                         </h3>
                         <div className="flex flex-wrap gap-2">
                           {results.lsiTerms.map((t, i) => (
                             <span key={i} className={`px-2.5 py-1 rounded-[6px] text-xs border ${
                               t.status === "present" || t.status === "covered"
                                 ? "bg-[#22c55e]/5 border-[#22c55e]/20 text-[#22c55e]"
-                                : "bg-[#0a0a0a] border-[#1f1f1f] text-[#9ca3af]"
+                                : "bg-[#FAFAF8] border-[#E8E8E4] text-[#9B9B9B]"
                             }`}>{t.term}</span>
                           ))}
                         </div>
@@ -995,8 +995,8 @@ function NlpPageInner() {
 export default function NlpPage() {
   return (
     <Suspense fallback={
-      <div className="flex h-screen bg-[#0a0a0a] items-center justify-center" style={{ fontFamily: "'Outfit', sans-serif" }}>
-        <div className="w-8 h-8 rounded-full border-2 border-[#1f1f1f] border-t-[#f59e0b] animate-spin" />
+      <div className="flex h-screen bg-[#FAFAF8] items-center justify-center" style={{ fontFamily: "'Outfit', sans-serif" }}>
+        <div className="w-8 h-8 rounded-full border-2 border-[#E8E8E4] border-t-[#FF6B2C] animate-spin" />
       </div>
     }>
       <NlpPageInner />

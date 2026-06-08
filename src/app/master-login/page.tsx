@@ -36,23 +36,22 @@ export default function MasterLoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center px-4" style={{ fontFamily: "'Outfit', sans-serif" }}>
+    <div className="min-h-screen bg-[#FAFAF8] flex items-center justify-center px-4" style={{ fontFamily: "'Outfit', sans-serif" }}>
       <div className="w-full max-w-sm">
-        {/* Logo */}
         <div className="flex items-center gap-2.5 justify-center mb-10">
-          <div className="w-8 h-8 bg-[#f59e0b] rounded-[8px] flex items-center justify-center">
-            <span className="text-[#0a0a0a] font-extrabold text-sm">S</span>
+          <div className="w-8 h-8 bg-[#FF6B2C] rounded-[8px] flex items-center justify-center">
+            <span className="text-white font-extrabold text-sm">S</span>
           </div>
-          <span className="text-xl font-bold text-[#fafafa] tracking-tight">Seoranko</span>
+          <span className="text-xl font-bold text-[#0F0F0F] tracking-tight">Seoranko</span>
         </div>
 
-        <div className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-8">
-          <h1 className="text-xl font-bold text-[#fafafa] mb-1">Admin access</h1>
-          <p className="text-[#6b7280] text-sm mb-7">Restricted area.</p>
+        <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-8 shadow-sm">
+          <h1 className="text-xl font-bold text-[#0F0F0F] mb-1">Admin access</h1>
+          <p className="text-[#6B6B6B] text-sm mb-7">Restricted area.</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-[#fafafa] mb-1.5">
+              <label className="block text-sm font-medium text-[#0F0F0F] mb-1.5">
                 Email
               </label>
               <input
@@ -62,12 +61,12 @@ export default function MasterLoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="admin@example.com"
-                className="w-full bg-[#0a0a0a] border border-[#1f1f1f] focus:border-[#f59e0b] outline-none rounded-[8px] px-3 py-2.5 text-sm text-[#fafafa] placeholder-[#6b7280] transition-colors"
+                className="w-full bg-white border border-[#E8E8E4] focus:border-[#FF6B2C] outline-none rounded-[8px] px-3 py-2.5 text-sm text-[#0F0F0F] placeholder-[#9B9B9B] transition-colors"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-[#fafafa] mb-1.5">
+              <label className="block text-sm font-medium text-[#0F0F0F] mb-1.5">
                 Password
               </label>
               <input
@@ -77,12 +76,12 @@ export default function MasterLoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••••••"
-                className="w-full bg-[#0a0a0a] border border-[#1f1f1f] focus:border-[#f59e0b] outline-none rounded-[8px] px-3 py-2.5 text-sm text-[#fafafa] placeholder-[#6b7280] transition-colors"
+                className="w-full bg-white border border-[#E8E8E4] focus:border-[#FF6B2C] outline-none rounded-[8px] px-3 py-2.5 text-sm text-[#0F0F0F] placeholder-[#9B9B9B] transition-colors"
               />
             </div>
 
             {error && (
-              <p className="text-sm text-red-400 bg-red-400/10 border border-red-400/20 rounded-[8px] px-3 py-2">
+              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-[8px] px-3 py-2">
                 {error}
               </p>
             )}
@@ -90,14 +89,14 @@ export default function MasterLoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-[#f59e0b] hover:bg-[#d97706] disabled:opacity-60 disabled:cursor-not-allowed text-[#0a0a0a] font-bold text-sm py-3 rounded-[10px] transition-colors mt-2"
+              className="w-full bg-[#FF6B2C] hover:bg-[#E85A1E] disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold text-sm py-3 rounded-[10px] transition-colors mt-2"
             >
               {loading ? "Authenticating…" : "Sign In"}
             </button>
           </form>
         </div>
 
-        <p className="text-center text-xs text-[#6b7280] mt-6">
+        <p className="text-center text-xs text-[#9B9B9B] mt-6">
           This page is not publicly linked.
         </p>
       </div>
