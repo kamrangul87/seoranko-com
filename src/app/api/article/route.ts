@@ -3,7 +3,7 @@ import { runArticlePipeline } from "@/lib/pipeline-v2";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createHash } from "crypto";
-import type { ArticleRequest, ArticleOutput, NlpBrief, PipelineData } from "@/types";
+import type { ArticleRequest, NlpBrief, PipelineData } from "@/types";
 
 // Free plan: 1 article LIFETIME (checked via articles_used_month, never reset)
 // Paid plans: monthly quota
