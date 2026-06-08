@@ -387,6 +387,8 @@ export default function DashboardPage() {
   const [kwError, setKwError] = useState("");
   const [kwBroaderNotice, setKwBroaderNotice] = useState("");
   const [selectedKws, setSelectedKws] = useState<Set<string>>(new Set());
+  const [minVolume, setMinVolume] = useState(500);
+  const [hideNavigational, setHideNavigational] = useState(true);
 
   // Cluster state
   const [clusters, setClusters] = useState<Cluster[]>([]);
@@ -413,6 +415,11 @@ export default function DashboardPage() {
   const [images, setImages] = useState<ImagePrompt[]>([]);
   const [imagesLoading, setImagesLoading] = useState(false);
   const [imageError, setImageError] = useState("");
+
+  const visibleKeywords = keywords.filter((k) =>
+    k.volume >= minVolume &&
+    (!hideNavigational || k.intent.toLowerCase() !== 'navigational')
+  );
 
   // ── Keyword search ────────────────────────────────────────────────────────
   const runKeywordSearch = useCallback(async (kw: string, ctry: Country) => {
@@ -537,7 +544,7 @@ export default function DashboardPage() {
 
   // ── Cluster ───────────────────────────────────────────────────────────────
   async function handleCluster() {
-    const kwsToCluster = keywords.filter((k) => selectedKws.size === 0 || selectedKws.has(k.keyword));
+    const kwsToCluster = visibleKeywords.filter((k) => selectedKws.size === 0 || selectedKws.has(k.keyword));
     if (kwsToCluster.length === 0) return;
     setClusterLoading(true);
     setClusterError("");
@@ -582,7 +589,7 @@ export default function DashboardPage() {
     if (!nlpAnalysis) return;
     const selectedArr = selectedKws.size > 0
       ? Array.from(selectedKws)
-      : keywords.slice(0, 5).map((k) => k.keyword);
+      : visibleKeywords.slice(0, 5).map((k) => k.keyword);
     const kw = nlpAnalysis.keyword || nlpAnalysis.brief?.recommendedH1 || seedKeyword;
     const payload: PipelineData = {
       nlpData:          nlpAnalysis,
@@ -926,7 +933,9 @@ export default function DashboardPage() {
               <>
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-sm text-[#6B6B6B]">
-                    <span className="text-[#0F0F0F] font-semibold">{keywords.length}</span> keywords found
+                    <span className="text-[#0F0F0F] font-semibold">{visibleKeywords.length}</span>
+                    {visibleKeywords.length !== keywords.length && <span> of {keywords.length}</span>}
+                    {" "}keywords found
                     {selectedKws.size > 0 && <span> · <span className="text-[#FF6B2C]">{selectedKws.size} selected</span></span>}
                   </p>
                   <div className="flex gap-2">
@@ -956,11 +965,41 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                {/* Bulk selection buttons */}
-                <div className="flex gap-2 mb-3 flex-wrap">
+                {/* Filter + bulk selection row */}
+                <div className="flex gap-2 mb-3 flex-wrap items-center">
+                  {/* Volume filter */}
+                  <select
+                    value={minVolume}
+                    onChange={(e) => setMinVolume(Number(e.target.value))}
+                    className="bg-white border border-[#E8E8E4] rounded-lg text-sm text-[#0F0F0F] px-3 py-2 focus:outline-none focus:border-[#FF6B2C] transition-colors"
+                  >
+                    <option value={0}>All volumes</option>
+                    <option value={100}>100+ searches/mo</option>
+                    <option value={500}>500+ searches/mo</option>
+                    <option value={1000}>1,000+ searches/mo</option>
+                    <option value={5000}>5,000+ searches/mo</option>
+                  </select>
+
+                  {/* Hide Navigational toggle */}
+                  <button
+                    onClick={() => setHideNavigational((v) => !v)}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border transition-colors ${
+                      hideNavigational
+                        ? "bg-[#FFF0E8] text-[#CC4A0F] border-[#FF6B2C]/30"
+                        : "bg-white text-[#6B6B6B] border-[#E8E8E4]"
+                    }`}
+                  >
+                    <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${hideNavigational ? "bg-[#FF6B2C]" : "bg-[#D4D4CE]"}`} />
+                    Hide Navigational
+                  </button>
+
+                  {/* Divider */}
+                  <div className="w-px h-6 bg-[#E8E8E4]" />
+
+                  {/* Bulk selection buttons */}
                   <button
                     onClick={() => setSelectedKws(new Set(
-                      keywords
+                      visibleKeywords
                         .filter((k) => ['commercial', 'transactional'].includes(k.intent.toLowerCase()))
                         .map((k) => k.keyword)
                     ))}
@@ -969,7 +1008,7 @@ export default function DashboardPage() {
                     Select Commercial + Transactional
                   </button>
                   <button
-                    onClick={() => setSelectedKws(new Set(keywords.map((k) => k.keyword)))}
+                    onClick={() => setSelectedKws(new Set(visibleKeywords.map((k) => k.keyword)))}
                     className="bg-[#FFF0E8] text-[#CC4A0F] border border-[#FF6B2C]/30 px-4 py-2 rounded-lg text-sm font-semibold transition-colors hover:bg-[#FFE4D4]"
                   >
                     Select All
@@ -990,9 +1029,9 @@ export default function DashboardPage() {
                           <input
                             type="checkbox"
                             className="accent-[#f59e0b]"
-                            checked={selectedKws.size === keywords.length && keywords.length > 0}
+                            checked={visibleKeywords.length > 0 && visibleKeywords.every((k) => selectedKws.has(k.keyword))}
                             onChange={(e) =>
-                              setSelectedKws(e.target.checked ? new Set(keywords.map((k) => k.keyword)) : new Set())
+                              setSelectedKws(e.target.checked ? new Set(visibleKeywords.map((k) => k.keyword)) : new Set())
                             }
                           />
                         </th>
@@ -1004,7 +1043,7 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {keywords.map((kw) => (
+                      {visibleKeywords.map((kw) => (
                         <tr
                           key={kw.keyword}
                           className={`border-b border-[#E8E8E4] last:border-0 hover:bg-[#F0EFEB] transition-colors cursor-pointer ${
@@ -1055,7 +1094,7 @@ export default function DashboardPage() {
                         <span>→ Generate Optimised Article with Full Pipeline Data</span>
                       </div>
                       <span className="text-xs font-normal opacity-80">
-                        Discovery + NLP + {selectedKws.size > 0 ? selectedKws.size : keywords.length} keywords
+                        Discovery + NLP + {selectedKws.size > 0 ? selectedKws.size : visibleKeywords.length} keywords
                       </span>
                     </button>
                   </div>
