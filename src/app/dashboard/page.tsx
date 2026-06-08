@@ -407,6 +407,7 @@ export default function DashboardPage() {
   const [articleError, setArticleError] = useState("");
   const [research, setResearch] = useState<ResearchBrief | null>(null);
   const [article, setArticle] = useState<ArticleOutput | null>(null);
+  const [pipelineLog, setPipelineLog] = useState<string[]>([]);
 
   // Images state
   const [images, setImages] = useState<ImagePrompt[]>([]);
@@ -603,6 +604,7 @@ export default function DashboardPage() {
     setArticleLoading(true);
     setArticle(null);
     setResearch(null);
+    setPipelineLog([]);
     setArticleError("");
     setArticleStage("Connecting…");
     setArticleProgress(5);
@@ -663,8 +665,13 @@ export default function DashboardPage() {
           const data = JSON.parse(part.slice(6));
           if (data.stage) {
             setArticleStage(data.stage);
+            if (data.stage.includes("Step 1")) { progressRef.value = Math.max(progressRef.value, 15); setArticleProgress(15); }
+            if (data.stage.includes("Step 2")) { progressRef.value = Math.max(progressRef.value, 32); setArticleProgress(32); }
+            if (data.stage.includes("Step 3")) { progressRef.value = Math.max(progressRef.value, 50); setArticleProgress(50); }
+            if (data.stage.includes("Step 4") || data.stage.startsWith("Writing…")) { progressRef.value = Math.max(progressRef.value, 65); }
+            if (data.stage.includes("Step 5")) { progressRef.value = 90; setArticleProgress(90); }
+            // Legacy single-call stages
             if (data.stage.startsWith("Writing your")) { progressRef.value = Math.max(progressRef.value, 20); setArticleProgress(20); }
-            if (data.stage.startsWith("Writing…"))     { progressRef.value = Math.max(progressRef.value, 40); }
             if (data.stage.startsWith("Finalising"))   { progressRef.value = 90; setArticleProgress(90); }
           }
           if (data.error) throw new Error(data.error);
@@ -673,6 +680,7 @@ export default function DashboardPage() {
             setArticleProgress(100);
             setResearch(data.research);
             setArticle(data.article);
+            if (data.pipelineLog) setPipelineLog(data.pipelineLog as string[]);
             setActiveNav("articles");
             refreshUserProfile();
           }
@@ -1203,9 +1211,10 @@ export default function DashboardPage() {
                       />
                     </div>
                     <div className="flex justify-between text-[10px] text-[#6b7280] mt-1">
-                      <span>Researching</span>
+                      <span>Classifying</span>
+                      <span>Searching</span>
                       <span>Writing</span>
-                      <span>Reviewing</span>
+                      <span>Auditing</span>
                     </div>
                   </div>
                 )}
@@ -1374,9 +1383,10 @@ export default function DashboardPage() {
                   />
                 </div>
                 <div className="flex justify-between text-[10px] text-[#6b7280] mt-1">
-                  <span>Researching</span>
+                  <span>Classifying</span>
+                  <span>Searching</span>
                   <span>Writing</span>
-                  <span>Reviewing</span>
+                  <span>Auditing</span>
                 </div>
               </div>
             )}
@@ -1540,6 +1550,23 @@ export default function DashboardPage() {
                             {imp}
                           </li>
                         ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {pipelineLog.length > 0 && (
+                    <div className="bg-[#111111] border border-[#1f1f1f] rounded-[10px] p-4">
+                      <p className="text-xs text-[#6b7280] uppercase tracking-wide font-medium mb-3">Pipeline Log</p>
+                      <ul className="space-y-1.5">
+                        {pipelineLog.map((entry, i) => {
+                          const isOk = entry.startsWith('✅') || entry.includes('verified') || entry.includes('clean') || entry.includes('complete') || entry.includes('written') || entry.includes('collected');
+                          const isWarn = entry.startsWith('⚠️') || entry.includes('Removed') || entry.includes('issues');
+                          const isBlock = entry.startsWith('🚫') || entry.startsWith('BLOCKER');
+                          const color = isBlock ? 'text-[#ef4444]' : isWarn ? 'text-[#f59e0b]' : isOk ? 'text-[#22c55e]' : 'text-[#6b7280]';
+                          return (
+                            <li key={i} className={`text-[11px] leading-relaxed ${color}`}>{entry}</li>
+                          );
+                        })}
                       </ul>
                     </div>
                   )}

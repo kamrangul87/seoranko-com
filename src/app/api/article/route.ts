@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { streamClaude, parseJsonResponse } from "@/lib/anthropic";
+import { runArticlePipeline } from "@/lib/pipeline-v2";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createHash } from "crypto";
@@ -390,27 +390,32 @@ Return only valid JSON.`;
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        controller.enqueue(sseEvent({ stage: "Writing your article…" }));
+        // Fetch published pages for editorial audit (graceful fallback if column missing)
+        let publishedPages: string[] = [];
+        if (supabase) {
+          try {
+            const { data: pages } = await supabase
+              .from('articles')
+              .select('title')
+              .eq('status', 'published');
+            publishedPages = (pages ?? []).map((p: { title: string }) => p.title).filter(Boolean);
+          } catch { /* ignore — published pages are optional */ }
+        }
 
-        let charCount = 0;
-        const raw = await streamClaude(
+        const result = await runArticlePipeline({
+          keyword,
           systemPrompt,
           userMessage,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (_delta: any, accumulated: any) => {
-            charCount = accumulated.length;
-            if (charCount % 400 < 10) {
-              controller.enqueue(
-                sseEvent({ stage: `Writing… (${Math.round(charCount / 5)} words)` })
-              );
-            }
-          },
-          8000
-        );
+          publishedPages,
+          onStage: (msg) => controller.enqueue(sseEvent({ stage: msg })),
+        });
 
-        controller.enqueue(sseEvent({ stage: "Finalising article…" }));
+        if (!result.success) {
+          controller.enqueue(sseEvent({ error: result.blockerReason ?? 'Pipeline blocked — content could not be verified' }));
+          return;
+        }
 
-        const articleOutput = parseJsonResponse<ArticleOutput>(raw);
+        const articleOutput = result.article;
 
         // Save article and increment usage AFTER successful generation
         if (!master && supabase && userId) {
@@ -435,7 +440,7 @@ Return only valid JSON.`;
         }
 
         controller.enqueue(
-          sseEvent({ done: true, research, article: articleOutput, master })
+          sseEvent({ done: true, research, article: articleOutput, master, pipelineLog: result.pipelineLog })
         );
       } catch (err) {
         const message = err instanceof Error ? err.message : "Generation failed";
