@@ -1,9 +1,16 @@
 import { NextRequest } from "next/server";
-import { runArticlePipeline } from "@/lib/pipeline-v2";
+import { getAnthropicClient } from "@/lib/anthropic";
+import {
+  classifyTopic,
+  searchAndCollectFacts,
+  extractAndVerifyFacts,
+  editorialAudit,
+} from "@/lib/fact-verifier";
+import type { VerifiedFact } from "@/lib/fact-verifier";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createHash } from "crypto";
-import type { ArticleRequest, NlpBrief, PipelineData } from "@/types";
+import type { ArticleRequest, ArticleOutput, NlpBrief, PipelineData } from "@/types";
 
 // Free plan: 1 article LIFETIME (checked via articles_used_month, never reset)
 // Paid plans: monthly quota
@@ -317,7 +324,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
-
   const body: ArticleRequest & { nlpBrief?: NlpBrief; pipelineData?: PipelineData } = await req.json();
   const {
     keyword,
@@ -390,34 +396,114 @@ Return only valid JSON.`;
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        // Fetch published pages for editorial audit (graceful fallback if column missing)
+        const pipelineLog: string[] = [];
+        const log = (msg: string) => {
+          pipelineLog.push(msg);
+          controller.enqueue(sseEvent({ stage: msg }));
+        };
+
+        // ── STEP 1: Classify topic risk ──────────────────────────
+        log("Step 1/5: Classifying topic and risk level...");
+        const classification = await classifyTopic(keyword);
+        log(`Topic: ${classification.topic_category} | Risk: ${classification.risk_level} — ${classification.risk_reason}`);
+
+        // ── STEPS 2 & 3: Web search + fact verification ──────────
+        let verifiedFacts: VerifiedFact[] = [];
+        let unverifiableClaims: string[] = [];
+
+        if (classification.requires_live_verification || classification.risk_level !== "low") {
+          log("Step 2/5: Searching for verified facts...");
+          const rawFacts = await searchAndCollectFacts(
+            keyword,
+            classification.verification_queries,
+            classification.risk_level,
+          );
+          log("Web search complete — facts collected");
+
+          log("Step 3/5: Verifying facts...");
+          const factResult = await extractAndVerifyFacts(keyword, rawFacts);
+          verifiedFacts = factResult.verified_facts;
+          unverifiableClaims = factResult.unverifiable_claims;
+
+          if (!factResult.safe_to_proceed) {
+            controller.enqueue(sseEvent({ error: factResult.blocker_reason ?? "Could not verify enough facts to write safely." }));
+            return;
+          }
+          log(`${verifiedFacts.length} facts verified, ${unverifiableClaims.length} flagged`);
+        } else {
+          log("Steps 2–3/5: Skipped — low-risk evergreen topic");
+        }
+
+        // ── STEP 4: Write article ────────────────────────────────
+        log("Step 4/5: Writing article with verified facts...");
+
+        const factsInjection = verifiedFacts.length > 0
+          ? `\n\nVERIFIED FACTS — You MUST only use facts from this list. Do not invent statistics, dates, prices, or rules:\n${JSON.stringify(verifiedFacts, null, 2)}\n\nCLAIMS TO NEVER INCLUDE — These could not be verified. Omit them entirely:\n${unverifiableClaims.join("\n")}`
+          : "";
+
+        const finalUserMessage = userMessage + factsInjection;
+
+        const client = getAnthropicClient();
+        const articleStream = client.messages.stream({
+          model: "claude-sonnet-4-6",
+          max_tokens: 8000,
+          system: systemPrompt,
+          messages: [{ role: "user", content: finalUserMessage }],
+        });
+
+        let rawArticle = "";
+        let lastMilestone = 0;
+        for await (const event of articleStream) {
+          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+            rawArticle += event.delta.text;
+            const words = Math.round(rawArticle.length / 5);
+            if (words - lastMilestone >= 100) {
+              lastMilestone = words;
+              controller.enqueue(sseEvent({ stage: `Writing… (${words} words)` }));
+            }
+          }
+        }
+
+        // Parse JSON article output
+        const cleaned = rawArticle.replace(/```json\n?/gi, "").replace(/```\n?/gi, "").trim();
+        let articleOutput: ArticleOutput;
+        try {
+          articleOutput = JSON.parse(cleaned) as ArticleOutput;
+        } catch {
+          const obj = cleaned.match(/\{[\s\S]*\}/);
+          if (!obj) throw new Error("Article JSON parse failed");
+          articleOutput = JSON.parse(obj[0]) as ArticleOutput;
+        }
+        log(`Article written — ${articleOutput.wordCount ?? 0} words`);
+
+        // ── STEP 5: Editorial audit ──────────────────────────────
+        log("Step 5/5: Running editorial and fact audit...");
+
         let publishedPages: string[] = [];
         if (supabase) {
           try {
             const { data: pages } = await supabase
-              .from('articles')
-              .select('title')
-              .eq('status', 'published');
+              .from("articles")
+              .select("title")
+              .eq("status", "published");
             publishedPages = (pages ?? []).map((p: { title: string }) => p.title).filter(Boolean);
           } catch { /* ignore — published pages are optional */ }
         }
 
-        const result = await runArticlePipeline({
-          keyword,
-          systemPrompt,
-          userMessage,
-          publishedPages,
-          onStage: (msg) => controller.enqueue(sseEvent({ stage: msg })),
-        });
-
-        if (!result.success) {
-          controller.enqueue(sseEvent({ error: result.blockerReason ?? 'Pipeline blocked — content could not be verified' }));
-          return;
+        if (verifiedFacts.length > 0) {
+          const audit = await editorialAudit(
+            articleOutput.article,
+            verifiedFacts,
+            unverifiableClaims,
+            publishedPages,
+          );
+          articleOutput = { ...articleOutput, article: audit.final_article || articleOutput.article };
+          log(`Audit done. Broken links removed: ${audit.broken_links.length}. Article clean: ${audit.article_clean}`);
+        } else {
+          log("Editorial audit skipped — no facts to verify");
         }
 
-        const articleOutput = result.article;
-
-        // Save article and increment usage AFTER successful generation
+        // ── Save to Supabase ─────────────────────────────────────
         if (!master && supabase && userId) {
           await Promise.all([
             supabase.from("articles").insert({
@@ -440,7 +526,7 @@ Return only valid JSON.`;
         }
 
         controller.enqueue(
-          sseEvent({ done: true, research, article: articleOutput, master, pipelineLog: result.pipelineLog })
+          sseEvent({ done: true, research, article: articleOutput, master, pipelineLog })
         );
       } catch (err) {
         const message = err instanceof Error ? err.message : "Generation failed";
