@@ -14,8 +14,22 @@ async function verifyMasterCookie(token: string): Promise<boolean> {
   return token === expected
 }
 
+// Public routes — never require auth
+const PUBLIC_PATHS = ['/', '/pricing', '/auth/login', '/auth/signup', '/blog']
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
+
+  // Always allow public paths and API auth routes
+  if (
+    PUBLIC_PATHS.includes(pathname) ||
+    pathname.startsWith('/auth/') ||
+    pathname.startsWith('/api/auth') ||
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/favicon')
+  ) {
+    return NextResponse.next()
+  }
 
   // Check Supabase session cookie
   const hasSupabaseCookie = request.cookies.getAll().some(
@@ -28,17 +42,18 @@ export async function middleware(request: NextRequest) {
 
   const isAuthenticated = hasSupabaseCookie || isMaster
 
+  // Protect dashboard — redirect unauthenticated users to login
   if (!isAuthenticated && pathname.startsWith('/dashboard')) {
-    return NextResponse.redirect(new URL('/login', request.url))
-  }
-
-  if (isAuthenticated && (pathname === '/login' || pathname === '/signup')) {
-    return NextResponse.redirect(new URL('/dashboard', request.url))
+    return NextResponse.redirect(new URL('/auth/login', request.url))
   }
 
   return NextResponse.next()
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/login', '/signup'],
+  matcher: [
+    '/dashboard/:path*',
+    '/auth/login',
+    '/auth/signup',
+  ],
 }
