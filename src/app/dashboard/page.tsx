@@ -721,7 +721,7 @@ export default function DashboardPage() {
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-screen bg-[#FAFAF8] text-[#0F0F0F] overflow-hidden" style={{ fontFamily: "'Outfit', sans-serif" }}>
+    <div className="flex h-screen bg-[#FAFAF8] text-[#0F0F0F] overflow-hidden" style={{ fontFamily: "'Outfit', sans-serif", fontSize: '15px' }}>
 
       {/* ── Sidebar ── */}
       <aside className="w-56 flex-shrink-0 border-r border-[#E8E8E4] flex flex-col">
@@ -955,6 +955,32 @@ export default function DashboardPage() {
                     {clusterError}
                   </div>
                 )}
+
+                {/* Bulk selection buttons */}
+                <div className="flex gap-2 mb-3 flex-wrap">
+                  <button
+                    onClick={() => setSelectedKws(new Set(
+                      keywords
+                        .filter((k) => ['commercial', 'transactional'].includes(k.intent.toLowerCase()))
+                        .map((k) => k.keyword)
+                    ))}
+                    className="bg-[#FFF0E8] text-[#CC4A0F] border border-[#FF6B2C]/30 px-4 py-2 rounded-lg text-sm font-semibold transition-colors hover:bg-[#FFE4D4]"
+                  >
+                    Select Commercial + Transactional
+                  </button>
+                  <button
+                    onClick={() => setSelectedKws(new Set(keywords.map((k) => k.keyword)))}
+                    className="bg-[#FFF0E8] text-[#CC4A0F] border border-[#FF6B2C]/30 px-4 py-2 rounded-lg text-sm font-semibold transition-colors hover:bg-[#FFE4D4]"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    onClick={() => setSelectedKws(new Set())}
+                    className="border border-[#E8E8E4] text-[#6B6B6B] px-4 py-2 rounded-lg text-sm transition-colors hover:border-[#D4D4CE] hover:text-[#0F0F0F]"
+                  >
+                    Clear Selection
+                  </button>
+                </div>
 
                 <div className="bg-white border border-[#E8E8E4] rounded-[10px] overflow-hidden mb-6">
                   <table className="w-full text-sm">

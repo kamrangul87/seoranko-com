@@ -50,14 +50,26 @@ export interface EditorialAudit {
   final_article: string;
 }
 
-function safeParseJson<T>(text: string): T {
-  const cleaned = text.replace(/```json\n?/gi, '').replace(/```\n?/gi, '').trim();
-  try { return JSON.parse(cleaned) as T; } catch { /* continue */ }
-  const arr = cleaned.match(/\[[\s\S]*\]/);
-  if (arr) try { return JSON.parse(arr[0]) as T; } catch { /* continue */ }
-  const obj = cleaned.match(/\{[\s\S]*\}/);
-  if (obj) try { return JSON.parse(obj[0]) as T; } catch { /* continue */ }
-  throw new Error(`JSON parse failed. First 200 chars: ${text.slice(0, 200)}`);
+function cleanJson(text: string): string {
+  let cleaned = text.replace(/```[\w]*\n?/g, '').replace(/```/g, '').trim();
+  const firstBrace = Math.min(
+    cleaned.indexOf('{') === -1 ? Infinity : cleaned.indexOf('{'),
+    cleaned.indexOf('[') === -1 ? Infinity : cleaned.indexOf('[')
+  );
+  const lastBrace = Math.max(cleaned.lastIndexOf('}'), cleaned.lastIndexOf(']'));
+  if (firstBrace !== Infinity && lastBrace !== -1) {
+    cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+  }
+  return cleaned;
+}
+
+function safeParseJson<T>(text: string, context = 'unknown'): T {
+  try {
+    return JSON.parse(cleanJson(text)) as T;
+  } catch (err) {
+    console.error(`[fact-verifier] JSON parse failed in ${context}. Raw text:`, text.slice(0, 500));
+    throw new Error(`JSON parse failed in ${context}: ${err}`);
+  }
 }
 
 // ─── CALL 1: TOPIC CLASSIFICATION ────────────────────────
@@ -89,7 +101,7 @@ LOW risk: evergreen how-to guides, opinion pieces, general advice`,
   });
 
   const text = response.content[0].type === 'text' ? response.content[0].text : '{}';
-  return safeParseJson<TopicClassification>(text);
+  return safeParseJson<TopicClassification>(text, 'classifyTopic');
 }
 
 // ─── CALL 2: WEB SEARCH (Anthropic built-in tool) ────────
@@ -178,7 +190,7 @@ Respond ONLY in valid JSON with no markdown or preamble:
   });
 
   const text = response.content[0].type === 'text' ? response.content[0].text : '{}';
-  return safeParseJson<FactExtractionResult>(text);
+  return safeParseJson<FactExtractionResult>(text, 'extractAndVerifyFacts');
 }
 
 // ─── CALL 5: EDITORIAL AUDIT ──────────────────────────────
@@ -226,5 +238,5 @@ Respond ONLY in valid JSON with no markdown or preamble. The final_article field
   });
 
   const text = response.content[0].type === 'text' ? response.content[0].text : '{}';
-  return safeParseJson<EditorialAudit>(text);
+  return safeParseJson<EditorialAudit>(text, 'editorialAudit');
 }
