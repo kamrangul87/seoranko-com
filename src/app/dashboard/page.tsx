@@ -1618,7 +1618,11 @@ export default function DashboardPage() {
                     </div>
                   )}
                   <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-6">
-                    <ArticleRenderer text={article.article} />
+                    <div
+                      dangerouslySetInnerHTML={{ __html: article.article }}
+                      style={{ lineHeight: '1.8', fontSize: '15px', color: '#0F0F0F' }}
+                      className="article-rendered"
+                    />
                   </div>
                 </div>
 
