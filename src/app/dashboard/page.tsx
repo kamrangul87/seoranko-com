@@ -448,6 +448,57 @@ export default function DashboardPage() {
     }
   }, []);
 
+  const runNlpKeywordSearch = useCallback(async (kw: string, ctry: Country) => {
+    if (!kw.trim()) return;
+    setKwLoading(true);
+    setKwError("");
+    setKwBroaderNotice("");
+    setKeywords([]);
+    setClusters([]);
+    setSelectedCluster(null);
+    setArticle(null);
+
+    const words = kw.trim().split(/\s+/);
+    const variations = [...new Set([
+      kw.trim(),
+      ...(words.length >= 3 ? [words.slice(0, 2).join(' ')] : []),
+      ...(words.length >= 2 ? [words[0]] : []),
+    ])];
+
+    try {
+      const results = await Promise.all(
+        variations.map((v) =>
+          fetch("/api/keywords", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ keyword: v, country: ctry }),
+          }).then((r) => r.json()).catch(() => ({ keywords: [] }))
+        )
+      );
+
+      const seen = new Set<string>();
+      const merged: KeywordResult[] = [];
+      for (const data of results) {
+        for (const k of (data.keywords ?? []) as KeywordResult[]) {
+          if (!seen.has(k.keyword)) {
+            seen.add(k.keyword);
+            merged.push(k);
+          }
+        }
+      }
+      merged.sort((a, b) => b.volume - a.volume);
+      setKeywords(merged);
+      setSelectedKws(new Set(merged.filter((k) => k.volume >= 100).map((k) => k.keyword)));
+      if (variations.length > 1) {
+        setKwBroaderNotice(`Searched ${variations.map((v) => `"${v}"`).join(', ')} — ${merged.length} keywords merged`);
+      }
+    } catch (e) {
+      setKwError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setKwLoading(false);
+    }
+  }, []);
+
   async function handleKeywordSearch() {
     await runKeywordSearch(seedKeyword, country);
   }
@@ -501,8 +552,9 @@ export default function DashboardPage() {
           setSeedKeyword(searchKeyword);
           const mkt = (analysis.targetMarket ?? "Global") as Country;
           setCountry(mkt);
+          setMinVolume(100);
           setActiveNav("keywords");
-          runKeywordSearch(searchKeyword, mkt);
+          runNlpKeywordSearch(searchKeyword, mkt);
           return;
         }
       } catch { /* ignore */ }
@@ -895,9 +947,18 @@ export default function DashboardPage() {
               <>
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-sm text-[#6B6B6B]">
-                    <span className="text-[#0F0F0F] font-semibold">{visibleKeywords.length}</span>
-                    {visibleKeywords.length !== keywords.length && <span> of {keywords.length}</span>}
-                    {" "}keywords found
+                    <span className="text-[#0F0F0F] font-semibold">{keywords.length}</span>{" "}keywords found
+                    {visibleKeywords.length !== keywords.length && (
+                      <span>
+                        {" "}· {visibleKeywords.length} match filters ·{" "}
+                        <button
+                          onClick={() => { setMinVolume(0); setHideNavigational(false); }}
+                          className="text-[#FF6B2C] hover:underline"
+                        >
+                          Show all {keywords.length}
+                        </button>
+                      </span>
+                    )}
                     {selectedKws.size > 0 && <span> · <span className="text-[#FF6B2C]">{selectedKws.size} selected</span></span>}
                   </p>
                   <div className="flex gap-2">
