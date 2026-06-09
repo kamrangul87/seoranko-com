@@ -459,11 +459,11 @@ export default function DashboardPage() {
     setArticle(null);
 
     const words = kw.trim().split(/\s+/);
-    const variations = [...new Set([
+    const variations = Array.from(new Set([
       kw.trim(),
       ...(words.length >= 3 ? [words.slice(0, 2).join(' ')] : []),
       ...(words.length >= 2 ? [words[0]] : []),
-    ])];
+    ]));
 
     try {
       const results = await Promise.all(
