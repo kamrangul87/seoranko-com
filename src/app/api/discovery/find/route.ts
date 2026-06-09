@@ -65,7 +65,20 @@ async function fetchTrends(niche: string): Promise<{ term: string; value: number
   try {
     const url = `https://serpapi.com/search.json?engine=google_trends&q=${encodeURIComponent(niche)}&date=today+3-m&api_key=${key}`;
     const res = await fetch(url);
+
+    if (!res.ok) {
+      const body = await res.text();
+      console.error('[fetchTrends] failed:', res.status, body);
+      return [];
+    }
+
     const data = await res.json();
+
+    // SerpApi returns an error field when credits are exhausted or key is invalid
+    if (data.error) {
+      console.error('[fetchTrends] SerpApi error:', data.error);
+      return [];
+    }
 
     const results: { term: string; value: number }[] = [];
 
@@ -91,7 +104,8 @@ async function fetchTrends(niche: string): Promise<{ term: string; value: number
     }
 
     return results;
-  } catch {
+  } catch (err) {
+    console.error('[fetchTrends] exception:', err);
     return [];
   }
 }
@@ -191,6 +205,10 @@ export async function POST(req: NextRequest) {
           ? (trends.length > 0  ? "done" : "error") : "skipped";
         status.news    = process.env.NEWS_API_KEY
           ? (news.length > 0    ? "done" : "error") : "skipped";
+
+        if (trends.length === 0 && process.env.SERPAPI_KEY) {
+          console.error('[discovery] Trends returned 0 results despite SERPAPI_KEY being set — credits may be exhausted or key invalid');
+        }
 
         const counts = {
           youtube: youtube.length,
