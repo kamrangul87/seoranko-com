@@ -404,12 +404,10 @@ export default function DashboardPage() {
   const [tone, setTone] = useState<Tone>("professional");
   const [audience, setAudience] = useState("general readers");
   const [articleLoading, setArticleLoading] = useState(false);
-  const [articleStage, setArticleStage] = useState("");
-  const [articleProgress, setArticleProgress] = useState(0);
   const [articleError, setArticleError] = useState("");
-  const [research, setResearch] = useState<ResearchBrief | null>(null);
+  const [research] = useState<ResearchBrief | null>(null);
   const [article, setArticle] = useState<ArticleOutput | null>(null);
-  const [pipelineLog, setPipelineLog] = useState<string[]>([]);
+  const [pipelineLog] = useState<string[]>([]);
 
   // Images state
   const [images, setImages] = useState<ImagePrompt[]>([]);
