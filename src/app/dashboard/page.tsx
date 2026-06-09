@@ -488,7 +488,10 @@ export default function DashboardPage() {
       }
       merged.sort((a, b) => b.volume - a.volume);
       setKeywords(merged);
-      setSelectedKws(new Set(merged.filter((k) => k.volume >= 100).map((k) => k.keyword)));
+      const smartSelected = merged.filter(
+        (k) => k.volume >= 500 && k.kd <= 30 && k.intent.toLowerCase() !== 'navigational'
+      );
+      setSelectedKws(new Set((smartSelected.length > 0 ? smartSelected : []).map((k) => k.keyword)));
       if (variations.length > 1) {
         setKwBroaderNotice(`Searched ${variations.map((v) => `"${v}"`).join(', ')} — ${merged.length} keywords merged`);
       }
@@ -705,7 +708,28 @@ export default function DashboardPage() {
           keywordDensity: 0,
           improvements: [],
         });
+        const estimatedTotal = (wordCount || 1500) * 6;
+        const progress = Math.min(95, Math.round((fullArticle.length / estimatedTotal) * 100));
+        const progressBar = document.getElementById('article-progress-bar');
+        const progressPct = document.getElementById('article-progress-pct');
+        const progressLabel = document.getElementById('article-progress-label');
+        if (progressBar) (progressBar as HTMLElement).style.width = progress + '%';
+        if (progressPct) progressPct.textContent = progress + '%';
+        if (progressLabel) {
+          if (progress < 20) progressLabel.textContent = 'Researching topic and structure...';
+          else if (progress < 40) progressLabel.textContent = 'Writing introduction and key sections...';
+          else if (progress < 60) progressLabel.textContent = 'Adding expert insights and data...';
+          else if (progress < 80) progressLabel.textContent = 'Writing FAQ and conclusion...';
+          else progressLabel.textContent = 'Finalising and quality checking...';
+        }
       }
+
+      const doneBar = document.getElementById('article-progress-bar');
+      const donePct = document.getElementById('article-progress-pct');
+      const doneLabel = document.getElementById('article-progress-label');
+      if (doneBar) (doneBar as HTMLElement).style.width = '100%';
+      if (donePct) donePct.textContent = '100%';
+      if (doneLabel) doneLabel.textContent = 'Article complete ✓';
 
       refreshUserProfile();
 
@@ -1287,10 +1311,15 @@ export default function DashboardPage() {
                 )}
 
                 {articleLoading && (
-                  <div style={{ textAlign: 'center', padding: '24px 0', color: '#6B6B6B' }}>
-                    <div style={{ fontSize: '28px', marginBottom: '12px' }}>✍️</div>
-                    <div style={{ fontSize: '14px', fontWeight: 600, color: '#0F0F0F', marginBottom: '6px' }}>Writing your article…</div>
-                    <div style={{ fontSize: '13px' }}>This takes 30–60 seconds. Please wait.</div>
+                  <div style={{padding:'32px', background:'#FFF0E8', borderRadius:'12px', border:'1px solid rgba(255,107,44,0.2)', margin:'24px 0'}}>
+                    <div style={{display:'flex', justifyContent:'space-between', marginBottom:'8px'}}>
+                      <span style={{fontSize:'14px', fontWeight:600, color:'#CC4A0F'}}>✍️ Writing your article...</span>
+                      <span style={{fontSize:'14px', fontWeight:700, color:'#FF6B2C'}} id="article-progress-pct">0%</span>
+                    </div>
+                    <div style={{background:'rgba(255,107,44,0.15)', borderRadius:'8px', height:'8px', overflow:'hidden'}}>
+                      <div id="article-progress-bar" style={{height:'100%', background:'#FF6B2C', borderRadius:'8px', width:'0%', transition:'width 0.3s ease'}}></div>
+                    </div>
+                    <div style={{marginTop:'12px', fontSize:'13px', color:'#CC4A0F'}} id="article-progress-label">Preparing article structure...</div>
                   </div>
                 )}
 
@@ -1446,10 +1475,15 @@ export default function DashboardPage() {
             )}
 
             {articleLoading && (
-              <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-12 mb-6" style={{ textAlign: 'center', color: '#6B6B6B' }}>
-                <div style={{ fontSize: '32px', marginBottom: '16px' }}>✍️</div>
-                <div style={{ fontSize: '16px', fontWeight: 600, color: '#0F0F0F', marginBottom: '8px' }}>Writing your article…</div>
-                <div style={{ fontSize: '14px' }}>This takes 30–60 seconds. Please wait.</div>
+              <div style={{padding:'32px', background:'#FFF0E8', borderRadius:'12px', border:'1px solid rgba(255,107,44,0.2)', marginBottom:'24px'}}>
+                <div style={{display:'flex', justifyContent:'space-between', marginBottom:'8px'}}>
+                  <span style={{fontSize:'14px', fontWeight:600, color:'#CC4A0F'}}>✍️ Writing your article...</span>
+                  <span style={{fontSize:'14px', fontWeight:700, color:'#FF6B2C'}} id="article-progress-pct">0%</span>
+                </div>
+                <div style={{background:'rgba(255,107,44,0.15)', borderRadius:'8px', height:'8px', overflow:'hidden'}}>
+                  <div id="article-progress-bar" style={{height:'100%', background:'#FF6B2C', borderRadius:'8px', width:'0%', transition:'width 0.3s ease'}}></div>
+                </div>
+                <div style={{marginTop:'12px', fontSize:'13px', color:'#CC4A0F'}} id="article-progress-label">Preparing article structure...</div>
               </div>
             )}
 
@@ -1575,6 +1609,14 @@ export default function DashboardPage() {
                   )}
 
                   {/* Full article */}
+                  {!articleLoading && (
+                    <div style={{display:'flex', gap:'16px', padding:'12px 16px', background:'#F5F4F1', borderRadius:'8px', marginBottom:'16px', fontSize:'13px', color:'#6B6B6B', flexWrap:'wrap'}}>
+                      <span>📝 <strong style={{color:'#0F0F0F'}}>{article.article.replace(/<[^>]*>/g, '').trim().split(/\s+/).filter(Boolean).length} words</strong></span>
+                      <span>✅ <strong style={{color:'#16A34A'}}>Complete</strong></span>
+                      <span>🇬🇧 <strong style={{color:'#0F0F0F'}}>UK English</strong></span>
+                      <span>📅 <strong style={{color:'#0F0F0F'}}>June 2026</strong></span>
+                    </div>
+                  )}
                   <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-6">
                     <ArticleRenderer text={article.article} />
                   </div>
