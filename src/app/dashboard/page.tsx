@@ -303,6 +303,7 @@ export default function DashboardPage() {
   const [research] = useState<ResearchBrief | null>(null);
   const [article, setArticle] = useState<ArticleOutput | null>(null);
   const [pipelineLog] = useState<string[]>([]);
+  const [lastSecondaryKws, setLastSecondaryKws] = useState<string[]>([]);
 
   // Images state
   const [images, setImages] = useState<ImagePrompt[]>([]);
@@ -561,6 +562,18 @@ export default function DashboardPage() {
     setArticleError('');
     setArticle(null);
 
+    // Build secondary keywords from cluster + all user-selected checkboxes
+    const rawSecondary = (editedKws ?? [])
+      .concat(Array.from(selectedKws))
+      .filter((k: string) => k !== kw);
+    const deduped: Record<string, boolean> = {};
+    const finalSecondaryKws = rawSecondary.filter((k: string) => {
+      if (deduped[k]) return false;
+      deduped[k] = true;
+      return true;
+    });
+    setLastSecondaryKws(finalSecondaryKws.length > 0 ? finalSecondaryKws : [kw]);
+
     try {
       const response = await fetch('/api/article-v2', {
         method: 'POST',
@@ -570,7 +583,7 @@ export default function DashboardPage() {
           wordCount: wordCount || 2000,
           tone: tone || 'professional',
           market: country || 'United Kingdom',
-          secondaryKeywords: editedKws?.filter((k: string) => k !== kw) ?? [],
+          secondaryKeywords: finalSecondaryKws.length > 0 ? finalSecondaryKws : [kw],
           entities: nlpAnalysis?.entities ?? [],
           topicalGaps: nlpAnalysis?.topicalGaps ?? [],
         }),
@@ -593,16 +606,6 @@ export default function DashboardPage() {
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
         fullArticle += chunk;
-        setArticle({
-          seoTitle: kw,
-          metaDescription: '',
-          article: fullArticle,
-          wordCount,
-          eeaScore: 0,
-          readabilityScore: 0,
-          keywordDensity: 0,
-          improvements: [],
-        });
         const estimatedTotal = (wordCount || 1500) * 6;
         const progress = Math.min(95, Math.round((fullArticle.length / estimatedTotal) * 100));
         const progressBar = document.getElementById('article-progress-bar');
@@ -625,6 +628,17 @@ export default function DashboardPage() {
       if (doneBar) (doneBar as HTMLElement).style.width = '100%';
       if (donePct) donePct.textContent = '100%';
       if (doneLabel) doneLabel.textContent = 'Article complete ✓';
+
+      setArticle({
+        seoTitle: kw,
+        metaDescription: '',
+        article: fullArticle,
+        wordCount,
+        eeaScore: 0,
+        readabilityScore: 0,
+        keywordDensity: 0,
+        improvements: [],
+      });
 
       refreshUserProfile();
 
@@ -1503,22 +1517,29 @@ export default function DashboardPage() {
                     </div>
                   )}
 
-                  {/* Full article */}
+                  {/* Full article — only shown after generation completes */}
                   {!articleLoading && (
-                    <div style={{display:'flex', gap:'16px', padding:'12px 16px', background:'#F5F4F1', borderRadius:'8px', marginBottom:'16px', fontSize:'13px', color:'#6B6B6B', flexWrap:'wrap'}}>
-                      <span>📝 <strong style={{color:'#0F0F0F'}}>{article.article.replace(/<[^>]*>/g, '').trim().split(/\s+/).filter(Boolean).length} words</strong></span>
-                      <span>✅ <strong style={{color:'#16A34A'}}>Complete</strong></span>
-                      <span>🇬🇧 <strong style={{color:'#0F0F0F'}}>UK English</strong></span>
-                      <span>📅 <strong style={{color:'#0F0F0F'}}>June 2026</strong></span>
-                    </div>
+                    <>
+                      <div style={{display:'flex', gap:'16px', padding:'12px 16px', background:'#F5F4F1', borderRadius:'8px', marginBottom:'16px', fontSize:'13px', color:'#6B6B6B', flexWrap:'wrap'}}>
+                        <span>📝 <strong style={{color:'#0F0F0F'}}>{article.article.replace(/<[^>]*>/g, '').trim().split(/\s+/).filter(Boolean).length} words</strong></span>
+                        <span>✅ <strong style={{color:'#16A34A'}}>Complete</strong></span>
+                        <span>🇬🇧 <strong style={{color:'#0F0F0F'}}>UK English</strong></span>
+                        <span>📅 <strong style={{color:'#0F0F0F'}}>June 2026</strong></span>
+                        {lastSecondaryKws.length > 0 && (
+                          <span>🔑 <strong style={{color:'#0F0F0F'}}>
+                            {lastSecondaryKws.filter((k: string) => article.article.replace(/<[^>]*>/g, '').toLowerCase().includes(k.toLowerCase())).length}/{lastSecondaryKws.length} keywords
+                          </strong></span>
+                        )}
+                      </div>
+                      <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-6">
+                        <div
+                          dangerouslySetInnerHTML={{ __html: article.article }}
+                          style={{ lineHeight: '1.8', fontSize: '15px', color: '#0F0F0F' }}
+                          className="article-rendered"
+                        />
+                      </div>
+                    </>
                   )}
-                  <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-6">
-                    <div
-                      dangerouslySetInnerHTML={{ __html: article.article }}
-                      style={{ lineHeight: '1.8', fontSize: '15px', color: '#0F0F0F' }}
-                      className="article-rendered"
-                    />
-                  </div>
                 </div>
 
                 {/* Scores sidebar */}

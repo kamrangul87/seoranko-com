@@ -18,6 +18,8 @@ export async function POST(req: NextRequest) {
       topicalGaps = [],
     } = body;
 
+    console.log('[article-v2] received:', { keyword, secondaryKeywords: (secondaryKeywords as string[]).length, entities: (entities as string[]).length });
+
     const safeWordCount = Math.min(wordCount, 1500);
     const secondaryList = (secondaryKeywords as string[]).slice(0, 12).join(', ');
     const entitiesList = (entities as string[]).slice(0, 8).join(', ');
