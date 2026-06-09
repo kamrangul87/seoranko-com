@@ -22,9 +22,12 @@ export async function POST(req: NextRequest) {
       broken_links: audit.broken_links,
       fact_audit: audit.fact_audit,
     });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Audit failed";
-    console.error("[pipeline/audit]", message);
-    return NextResponse.json({ error: message }, { status: 500 });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } catch (error: any) {
+    console.error("[pipeline/audit] unhandled error:", error);
+    return NextResponse.json(
+      { error: error?.message || "Unknown error in audit step" },
+      { status: 500 }
+    );
   }
 }

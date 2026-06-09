@@ -82,7 +82,7 @@ Return only valid JSON.`;
 
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 8000,
+      max_tokens: 4000,
       system: systemPrompt,
       messages: [{ role: "user", content: userMessage }],
     });
@@ -103,9 +103,12 @@ Return only valid JSON.`;
     }
 
     return NextResponse.json(articleOutput);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Article writing failed";
-    console.error("[pipeline/write]", message);
-    return NextResponse.json({ error: message }, { status: 500 });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } catch (error: any) {
+    console.error("[pipeline/write] unhandled error:", error);
+    return NextResponse.json(
+      { error: error?.message || "Unknown error in write step" },
+      { status: 500 }
+    );
   }
 }

@@ -635,7 +635,7 @@ export default function DashboardPage() {
       const classification: any = await classifyRes.json();
       console.log("[pipeline] Step 1 classify:", classification);
       if (classification.error) {
-        setArticleError(typeof classification.error === "string" ? classification.error : "Classification failed");
+        setArticleError(`Step classify failed: ${typeof classification.error === "string" ? classification.error : "Unknown error"}`);
         return;
       }
       addLog(`✅ Topic: ${classification.topic_category} | Risk: ${classification.risk_level}`);
@@ -662,7 +662,7 @@ export default function DashboardPage() {
         const searchData: any = await searchRes.json();
         console.log("[pipeline] Step 2 search done:", !!searchData.raw_facts);
         if (searchData.error) {
-          setArticleError(typeof searchData.error === "string" ? searchData.error : "Web search failed");
+          setArticleError(`Step search failed: ${typeof searchData.error === "string" ? searchData.error : "Unknown error"}`);
           return;
         }
         addLog("✅ Facts collected from web search");
@@ -679,7 +679,7 @@ export default function DashboardPage() {
         const verifyData: any = await verifyRes.json();
         console.log("[pipeline] Step 3 verify:", { safe: verifyData.safe_to_proceed, facts: verifyData.verified_facts?.length });
         if (verifyData.error) {
-          setArticleError(typeof verifyData.error === "string" ? verifyData.error : "Fact verification failed");
+          setArticleError(`Step verify failed: ${typeof verifyData.error === "string" ? verifyData.error : "Unknown error"}`);
           return;
         }
         if (!verifyData.safe_to_proceed) {
@@ -718,7 +718,7 @@ export default function DashboardPage() {
       const writeData: any = await writeRes.json();
       console.log("[pipeline] Step 4 write:", { wordCount: writeData.wordCount, error: writeData.error });
       if (writeData.error) {
-        setArticleError(typeof writeData.error === "string" ? writeData.error : "Article writing failed");
+        setArticleError(`Step write failed: ${typeof writeData.error === "string" ? writeData.error : "Unknown error"}`);
         return;
       }
       addLog(`✅ Article written — ${writeData.wordCount ?? 0} words`);

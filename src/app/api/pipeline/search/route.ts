@@ -16,9 +16,12 @@ export async function POST(req: NextRequest) {
       (risk_level as RiskLevel) ?? "medium",
     );
     return NextResponse.json({ raw_facts: rawFacts });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Search failed";
-    console.error("[pipeline/search]", message);
-    return NextResponse.json({ error: message }, { status: 500 });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } catch (error: any) {
+    console.error("[pipeline/search] unhandled error:", error);
+    return NextResponse.json(
+      { error: error?.message || "Unknown error in search step" },
+      { status: 500 }
+    );
   }
 }

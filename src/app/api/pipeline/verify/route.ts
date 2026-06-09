@@ -11,9 +11,12 @@ export async function POST(req: NextRequest) {
     }
     const result = await extractAndVerifyFacts(keyword, raw_facts ?? "");
     return NextResponse.json(result);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Verification failed";
-    console.error("[pipeline/verify]", message);
-    return NextResponse.json({ error: message }, { status: 500 });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } catch (error: any) {
+    console.error("[pipeline/verify] unhandled error:", error);
+    return NextResponse.json(
+      { error: error?.message || "Unknown error in verify step" },
+      { status: 500 }
+    );
   }
 }
