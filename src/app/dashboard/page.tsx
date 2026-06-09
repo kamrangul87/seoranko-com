@@ -610,163 +610,49 @@ export default function DashboardPage() {
     if (!kw) return;
 
     setArticleLoading(true);
+    setArticleError('');
     setArticle(null);
-    setResearch(null);
-    setPipelineLog([]);
-    setArticleError("");
-    setArticleStage("Classifying…");
-    setArticleProgress(5);
-
-    const clusterToSend = selectedCluster
-      ? { ...selectedCluster, keywords: editedKws ?? selectedCluster.keywords }
-      : null;
-    const addLog = (msg: string) => setPipelineLog((prev) => [...prev, msg]);
 
     try {
-      // ── Step 1: Classify ──────────────────────────────────────
-      setArticleStage("Classifying…");
-      setArticleProgress(15);
-      const classifyRes = await fetch("/api/pipeline/classify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keyword: kw }),
-      });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const classification: any = await classifyRes.json();
-      console.log("[pipeline] Step 1 classify:", classification);
-      if (classification.error) {
-        setArticleError(`Step classify failed: ${typeof classification.error === "string" ? classification.error : "Unknown error"}`);
-        return;
-      }
-      addLog(`✅ Topic: ${classification.topic_category} | Risk: ${classification.risk_level}`);
-      setArticleProgress(20);
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let verifiedFacts: any[] = [];
-      let unverifiableClaims: string[] = [];
-
-      if (classification.requires_live_verification || classification.risk_level !== "low") {
-        // ── Step 2: Search ────────────────────────────────────────
-        setArticleStage("Searching…");
-        setArticleProgress(30);
-        const searchRes = await fetch("/api/pipeline/search", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            keyword: kw,
-            queries: classification.verification_queries,
-            risk_level: classification.risk_level,
-          }),
-        });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const searchData: any = await searchRes.json();
-        console.log("[pipeline] Step 2 search done:", !!searchData.raw_facts);
-        if (searchData.error) {
-          setArticleError(`Step search failed: ${typeof searchData.error === "string" ? searchData.error : "Unknown error"}`);
-          return;
-        }
-        addLog("✅ Facts collected from web search");
-        setArticleProgress(45);
-
-        // ── Step 3: Verify ────────────────────────────────────────
-        setArticleStage("Verifying…");
-        const verifyRes = await fetch("/api/pipeline/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ keyword: kw, raw_facts: searchData.raw_facts }),
-        });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const verifyData: any = await verifyRes.json();
-        console.log("[pipeline] Step 3 verify:", { safe: verifyData.safe_to_proceed, facts: verifyData.verified_facts?.length });
-        if (verifyData.error) {
-          setArticleError(`Step verify failed: ${typeof verifyData.error === "string" ? verifyData.error : "Unknown error"}`);
-          return;
-        }
-        if (!verifyData.safe_to_proceed) {
-          setArticleError(verifyData.blocker_reason || "Could not verify enough facts to proceed safely.");
-          return;
-        }
-        verifiedFacts = verifyData.verified_facts ?? [];
-        unverifiableClaims = verifyData.unverifiable_claims ?? [];
-        addLog(`✅ ${verifiedFacts.length} facts verified, ${unverifiableClaims.length} flagged`);
-        setArticleProgress(60);
-      } else {
-        addLog("⏭ Search & verify skipped — low-risk evergreen topic");
-        setArticleProgress(60);
-      }
-
-      // ── Step 4: Write ─────────────────────────────────────────
-      setArticleStage("Writing…");
-      setArticleProgress(65);
-      const writeRes = await fetch("/api/pipeline/write", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const response = await fetch('/api/article-v2', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           keyword: kw,
-          cluster: clusterToSend,
-          verified_facts: verifiedFacts,
-          unverifiable_claims: unverifiableClaims,
-          word_count: wordCount,
-          tone,
-          audience,
-          market: country,
-          pipeline_data: fromPipeline ? pipelineData : null,
-          nlp_brief: nlpBrief ?? null,
+          wordCount: wordCount || 2000,
+          tone: tone || 'professional',
+          market: country || 'United Kingdom',
+          secondaryKeywords: editedKws?.filter((k: string) => k !== kw) ?? [],
+          entities: nlpAnalysis?.entities ?? [],
+          topicalGaps: nlpAnalysis?.topicalGaps ?? [],
         }),
       });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const writeData: any = await writeRes.json();
-      console.log("[pipeline] Step 4 write:", { wordCount: writeData.wordCount, error: writeData.error });
-      if (writeData.error) {
-        setArticleError(`Step write failed: ${typeof writeData.error === "string" ? writeData.error : "Unknown error"}`);
+
+      const data = await response.json();
+
+      if (data.error) {
+        setArticleError(`Article generation failed: ${data.error}`);
         return;
       }
-      addLog(`✅ Article written — ${writeData.wordCount ?? 0} words`);
-      setArticleProgress(85);
 
-      // ── Step 5: Audit ─────────────────────────────────────────
-      setArticleStage("Auditing…");
-      setArticleProgress(90);
-      const auditRes = await fetch("/api/pipeline/audit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          article: writeData.article,
-          verified_facts: verifiedFacts,
-          unverifiable_claims: unverifiableClaims,
-          published_pages: [],
-        }),
+      setArticle({
+        seoTitle: kw,
+        metaDescription: '',
+        article: data.article as string,
+        wordCount: wordCount,
+        eeaScore: 0,
+        readabilityScore: 0,
+        keywordDensity: 0,
+        improvements: [],
       });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const auditData: any = await auditRes.json();
-      console.log("[pipeline] Step 5 audit:", { article_clean: auditData.article_clean, error: auditData.error });
-      if (auditData.error) {
-        addLog("⚠️ Audit failed — using unaudited article");
-      } else {
-        addLog(`✅ Audit done — Article clean: ${auditData.article_clean}`);
-      }
-      setArticleProgress(100);
-
-      const finalArticle: ArticleOutput = {
-        ...writeData,
-        article: (auditData.final_article ?? writeData.article) as string,
-      };
-      setArticle(finalArticle);
-      setResearch({
-        intent: clusterToSend?.intent ?? "informational",
-        questions: [],
-        semanticKeywords: clusterToSend?.keywords?.filter((k: string) => k !== kw) ?? [],
-        contentGaps: [],
-      });
-      setActiveNav("articles");
+      setActiveNav('articles');
       refreshUserProfile();
 
-    } catch (e) {
-      setArticleError(e instanceof Error ? e.message : "Article generation failed");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      setArticleError(`Request failed: ${err.message}`);
     } finally {
       setArticleLoading(false);
-      setArticleStage("");
-      setTimeout(() => setArticleProgress(0), 800);
     }
   }
 
@@ -1331,23 +1217,10 @@ export default function DashboardPage() {
                 )}
 
                 {articleLoading && (
-                  <div className="mb-5">
-                    <div className="flex justify-between items-center mb-1.5">
-                      <span className="text-xs text-[#6B6B6B]">{articleStage || "Generating…"}</span>
-                      <span className="text-xs text-[#FF6B2C] font-semibold">{articleProgress}%</span>
-                    </div>
-                    <div className="h-1.5 bg-[#FAFAF8] rounded-full overflow-hidden border border-[#E8E8E4]">
-                      <div
-                        className="h-full bg-[#FF6B2C] rounded-full transition-all duration-500"
-                        style={{ width: `${articleProgress}%` }}
-                      />
-                    </div>
-                    <div className="flex justify-between text-[10px] text-[#6B6B6B] mt-1">
-                      <span>Classifying</span>
-                      <span>Searching</span>
-                      <span>Writing</span>
-                      <span>Auditing</span>
-                    </div>
+                  <div style={{ textAlign: 'center', padding: '24px 0', color: '#6B6B6B' }}>
+                    <div style={{ fontSize: '28px', marginBottom: '12px' }}>✍️</div>
+                    <div style={{ fontSize: '14px', fontWeight: 600, color: '#0F0F0F', marginBottom: '6px' }}>Writing your article…</div>
+                    <div style={{ fontSize: '13px' }}>This takes 30–60 seconds. Please wait.</div>
                   </div>
                 )}
 
@@ -1362,7 +1235,7 @@ export default function DashboardPage() {
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                       </svg>
-                      {articleStage || "Generating…"}
+                      Generating…
                     </>
                   ) : "Generate Article →"}
                 </button>
@@ -1503,23 +1376,10 @@ export default function DashboardPage() {
             )}
 
             {articleLoading && (
-              <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-6 mb-6">
-                <div className="flex justify-between items-center mb-1.5">
-                  <span className="text-xs text-[#6B6B6B]">{articleStage || "Generating…"}</span>
-                  <span className="text-xs text-[#FF6B2C] font-semibold">{articleProgress}%</span>
-                </div>
-                <div className="h-1.5 bg-[#FAFAF8] rounded-full overflow-hidden border border-[#E8E8E4]">
-                  <div
-                    className="h-full bg-[#FF6B2C] rounded-full transition-all duration-500"
-                    style={{ width: `${articleProgress}%` }}
-                  />
-                </div>
-                <div className="flex justify-between text-[10px] text-[#6B6B6B] mt-1">
-                  <span>Classifying</span>
-                  <span>Searching</span>
-                  <span>Writing</span>
-                  <span>Auditing</span>
-                </div>
+              <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-12 mb-6" style={{ textAlign: 'center', color: '#6B6B6B' }}>
+                <div style={{ fontSize: '32px', marginBottom: '16px' }}>✍️</div>
+                <div style={{ fontSize: '16px', fontWeight: 600, color: '#0F0F0F', marginBottom: '8px' }}>Writing your article…</div>
+                <div style={{ fontSize: '14px' }}>This takes 30–60 seconds. Please wait.</div>
               </div>
             )}
 
