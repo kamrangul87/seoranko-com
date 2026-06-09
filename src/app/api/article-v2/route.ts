@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 
 export const maxDuration = 60;
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     const entitiesList = (entities as string[]).slice(0, 10).join(', ');
     const gapsList = (topicalGaps as string[]).slice(0, 10).join(', ');
 
-    const response = await anthropic.messages.create({
+    const stream = await anthropic.messages.stream({
       model: 'claude-sonnet-4-6',
       max_tokens: 6000,
       messages: [{
@@ -42,24 +42,43 @@ RULES:
 - Include a FAQ section at the end with 5 questions
 - Only state facts you are confident are accurate
 - Natural keyword usage — no stuffing
-- Format as clean HTML (headings, paragraphs only — no CSS or JS)
-- Add a meta description as an HTML comment on line 1: <!-- META: your description here -->
+- Format as clean HTML (headings and paragraphs only — no CSS or JS)
+- Add meta description as HTML comment on line 1: <!-- META: description here -->
 
 Write the complete article now:`
       }],
     });
 
-    const article = response.content[0].type === 'text' ? response.content[0].text : '';
+    const readable = new ReadableStream({
+      async start(controller) {
+        const encoder = new TextEncoder();
+        try {
+          for await (const chunk of stream) {
+            if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+              controller.enqueue(encoder.encode(chunk.delta.text));
+            }
+          }
+          controller.close();
+        } catch (err) {
+          controller.error(err);
+        }
+      },
+    });
 
-    if (!article) {
-      return NextResponse.json({ error: 'Empty response from Claude' }, { status: 500 });
-    }
-
-    return NextResponse.json({ success: true, article, primaryKeyword: keyword });
+    return new Response(readable, {
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Transfer-Encoding': 'chunked',
+        'X-Content-Type-Options': 'nosniff',
+      },
+    });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     console.error('[article-v2]', error);
-    return NextResponse.json({ error: error?.message || 'Article generation failed' }, { status: 500 });
+    return new Response(JSON.stringify({ error: error?.message || 'Failed' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 }

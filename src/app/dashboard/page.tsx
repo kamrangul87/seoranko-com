@@ -626,24 +626,35 @@ export default function DashboardPage() {
         }),
       });
 
-      const data = await response.json();
-
-      if (data.error) {
-        setArticleError(`Article generation failed: ${data.error}`);
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ error: 'Server error' }));
+        setArticleError(err.error || 'Article generation failed');
         return;
       }
 
-      setArticle({
-        seoTitle: kw,
-        metaDescription: '',
-        article: data.article as string,
-        wordCount: wordCount,
-        eeaScore: 0,
-        readabilityScore: 0,
-        keywordDensity: 0,
-        improvements: [],
-      });
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let fullArticle = '';
+
       setActiveNav('articles');
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        fullArticle += chunk;
+        setArticle({
+          seoTitle: kw,
+          metaDescription: '',
+          article: fullArticle,
+          wordCount,
+          eeaScore: 0,
+          readabilityScore: 0,
+          keywordDensity: 0,
+          improvements: [],
+        });
+      }
+
       refreshUserProfile();
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
