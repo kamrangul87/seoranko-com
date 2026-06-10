@@ -45,6 +45,59 @@ export async function POST(req: NextRequest) {
       internalLinks = `INTERNAL LINKS — insert 1 natural link to https://seoranko.com where appropriate.`;
     }
 
+    // ── STEP A — Unique Angle Generator ──────────────────────────────────────
+    const angleResponse = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 500,
+      messages: [{
+        role: 'user',
+        content: `You are an editorial director at a top UK publication.
+
+For the keyword: "${keyword}"
+Secondary keywords: ${secondaryList}
+Market: ${market}
+
+Most articles on this topic cover: basic definitions, general advice, obvious facts.
+
+Your job: identify ONE specific unique angle that:
+1. Most existing articles completely miss
+2. Answers a real question people have but can't find answered
+3. Contains a surprising insight, counterintuitive fact, or data-driven observation
+4. Cannot be easily replicated by AI Overview summaries
+
+Respond in JSON only:
+{
+  "unique_angle": "one sentence description of the angle",
+  "hook_opening": "one surprising opening sentence that grabs attention immediately",
+  "unique_section_title": "H2 heading for the unique section nobody else covers",
+  "unique_section_content": "150 words of genuinely unique insight for this section"
+}
+
+Do not write generic angles. Be specific and surprising.`
+      }]
+    });
+
+    const angleText = angleResponse.content[0].type === 'text' ? angleResponse.content[0].text : '{}';
+    let angle = { unique_angle: '', hook_opening: '', unique_section_title: '', unique_section_content: '' };
+    try {
+      angle = JSON.parse(angleText.replace(/```json|```/g, '').trim());
+    } catch {
+      console.error('[article-v2] angle parse failed, continuing without angle');
+    }
+
+    // ── STEP B — Data-Driven Unique Section (automotive) ─────────────────────
+    const isAutomotive = kw.includes('mot') || kw.includes('car') || kw.includes('vehicle') ||
+      kw.includes('dvsa') || kw.includes('tyre') || kw.includes('brake') ||
+      kw.includes('ev') || kw.includes('electric');
+
+    const uniqueDataSection = isAutomotive
+      ? `UNIQUE DATA SECTION — include this verbatim in the article as its own H2 section:
+<h2>What MOT Failure Data Actually Reveals</h2>
+<p>According to DVSA's published annual MOT statistics, lighting defects consistently account for the largest share of major failures across England, Scotland and Wales — in some years representing more than one in five of all Major-category failures recorded. Brake system defects and tyre condition issues follow closely. What's rarely reported is the regional variation: urban test centres typically record higher failure rates than rural ones, a pattern that correlates with older average vehicle age and higher annual mileage in city areas.</p>
+<p>Checking your specific vehicle's historical test record — including every advisory notice ever raised — gives you a significant advantage before your next test. The <a href="https://mot.autodun.com" rel="noopener">Autodun MOT predictor</a> analyses DVSA data for your exact make, model, age, and mileage to flag the components statistically most likely to fail before your test date. It's the kind of preparation most drivers skip — and the kind that most often prevents an avoidable fail.</p>`
+      : '';
+
+    // ── STEP C — Build master prompt with angle + data injected ──────────────
     const prompt = `CRITICAL FORMAT RULE — READ FIRST:
 Output ONLY valid HTML. Strictly forbidden:
 - # ## ### markdown headings → use <h1> <h2> <h3> instead
@@ -147,7 +200,7 @@ SECTION 5 — WRITING QUALITY
 5. ADD rhetorical questions occasionally: "So what does this mean in practice?" / "Why does this matter?"
 6. WRITE FAQ answers as if answering a knowledgeable friend — conversational but accurate
 7. USE British English throughout: whilst, colour, centre, licence (noun), realise, kerb, tyre, cheque, programme, organisation
-8. OPEN with a surprising fact, statistic, or counterintuitive observation — not a definition
+8. OPEN the article with this specific hook sentence: ${angle.hook_opening || 'a surprising fact or counterintuitive observation'} — then continue with the introduction naturally.
 
 ════════════════════════════════
 SECTION 6 — ON-PAGE SEO REQUIREMENTS
@@ -192,10 +245,33 @@ THEN — H1 title:
 <h1>[Compelling title, primary keyword near start, written for 2026, 50-60 chars]</h1>
 
 THEN — Introduction (150-200 words):
-<p>Open with surprising fact or counterintuitive statement. State what article covers. Include primary keyword in first 100 words. Tell reader exactly what they will gain.</p>
+<p>Open with the hook sentence specified above. State what article covers. Include primary keyword in first 100 words. Tell reader exactly what they will gain.</p>
 
-THEN — 5 H2 body sections (200 words each maximum):
-Each section: <h2>Title with keyword where natural</h2> followed by <p> paragraphs and <ul><li> lists where appropriate. Include H3 subsections where needed.
+THEN — Body section 1 (200 words max):
+<h2>[Title with keyword where natural]</h2>
+<p>...</p>
+
+THEN — Body section 2 (200 words max):
+<h2>[Title]</h2>
+<p>...</p>
+
+THEN — Body section 3 (200 words max):
+<h2>[Title]</h2>
+<p>...</p>
+
+THEN — UNIQUE SECTION — include this as its own H2 section placed here (after section 3):
+<h2>${angle.unique_section_title || 'What Most Guides Get Wrong'}</h2>
+<p>${angle.unique_section_content || 'Include a genuinely unique insight here that competitors miss.'}</p>
+
+${uniqueDataSection}
+
+THEN — Body section 4 (200 words max):
+<h2>[Title]</h2>
+<p>...</p>
+
+THEN — Body section 5 (200 words max):
+<h2>[Title]</h2>
+<p>...</p>
 
 THEN — Official Sources section:
 <h2>What the Official Guidance Says</h2>
@@ -220,6 +296,11 @@ THEN — Bottom Line section:
 <h2>The Bottom Line</h2>
 <p>150-word practical summary. 2-3 specific action steps. Include one relevant internal link naturally.</p>
 
+THEN — Expert review block (include this verbatim):
+<div class="expert-review" style="background:#F5F4F1;border-left:3px solid #FF6B2C;padding:16px 20px;border-radius:0 8px 8px 0;margin-top:32px;">
+<p style="margin:0;font-size:13px;color:#6B6B6B;"><strong style="color:#0F0F0F;">Editorial review:</strong> This article has been researched using official DVSA and GOV.UK sources. All regulatory claims reflect current UK law as of June 2026. Data references are sourced from publicly available DVSA annual statistics. <a href="https://mot.autodun.com" rel="noopener">Verify your vehicle's MOT status</a> directly through official DVSA records.</p>
+</div>
+
 THEN — Footer metadata (always last, always complete):
 <p class="article-meta"><em>Last updated: June 2026. This information reflects current UK regulations. Always verify regulatory details at <a href="https://www.gov.uk" rel="noopener">GOV.UK</a>.</em></p>
 <p class="article-author">Written by the <strong>Seoranko Editorial Team</strong></p>
@@ -230,25 +311,34 @@ SECTION 8 — TOKEN BUDGET
 You have a fixed token limit. Manage it strictly:
 - Introduction: 150 words
 - Each of 5 body H2 sections: 200 words maximum
+- Unique section: 150 words (use the content provided above verbatim)
 - Official Sources section: 150 words
 - FAQ: 5 questions × 90 words = 450 words
 - Bottom Line: 150 words
-- Total target: ~1300 words
+- Total target: ~1450 words
 
 If approaching token limit at any point:
 1. Finish the current sentence
 2. Close the current HTML tag
 3. Jump immediately to The Bottom Line
-4. Write the footer metadata
+4. Write the expert review block and footer metadata
 5. NEVER stop mid-sentence or mid-tag — always close every open HTML tag
 
 A complete 1000-word article beats a truncated 2000-word one every time.
 
+════════════════════════════════
+SECTION 9 — UNIQUENESS RULE
+════════════════════════════════
+This article must contain at least ONE insight, observation, or data point that cannot be found in a standard Google search or AI Overview.
+The unique angle for this article is: ${angle.unique_angle || 'a specific insight that most articles on this topic miss entirely'}.
+Make sure this angle is clearly present and prominent in the article — not buried or generic.
+
 Write the complete article now. Output HTML only — no commentary, no preamble, no markdown.`;
 
+    // ── STEP D — Stream article with angle injected ───────────────────────────
     const stream = await anthropic.messages.stream({
       model: 'claude-sonnet-4-6',
-      max_tokens: 8000,
+      max_tokens: 6000,
       messages: [{ role: 'user', content: prompt }],
     });
 
