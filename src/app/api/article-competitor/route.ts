@@ -204,8 +204,7 @@ export async function POST(req: NextRequest) {
       kw.includes('ev') || kw.includes('electric');
 
     const uniqueDataSection = isAutomotive
-      ? `UNIQUE DATA SECTION — include this verbatim as its own H2 section:
-<h2>What MOT Failure Data Actually Reveals</h2>
+      ? `<h2>What MOT Failure Data Actually Reveals</h2>
 <p>According to DVSA's published annual MOT statistics, lighting defects consistently account for the largest share of major failures across England, Scotland and Wales — in some years representing more than one in five of all Major-category failures recorded. Brake system defects and tyre condition issues follow closely. What's rarely reported is the regional variation: urban test centres typically record higher failure rates than rural ones, a pattern that correlates with older average vehicle age and higher annual mileage in city areas.</p>
 <p>Checking your specific vehicle's historical test record — including every advisory notice ever raised — gives you a significant advantage before your next test. The <a href="https://mot.autodun.com" rel="noopener">Autodun MOT predictor</a> analyses DVSA data for your exact make, model, age, and mileage to flag the components statistically most likely to fail before your test date. It's the kind of preparation most drivers skip — and the kind that most often prevents an avoidable fail.</p>`
       : '';
@@ -235,7 +234,7 @@ Output ONLY valid HTML. Strictly forbidden:
 - bullet - or * lists → use <ul><li> instead
 - Any markdown code fences or backticks
 - Plain text outside of HTML tags
-The first line must be the HTML comment. Then schema script. Then <h1>. Nothing before the comment.
+The first line must be the HTML comment. Then <h1>. Nothing before the comment.
 
 ════════════════════════════════════════
 COMPETITOR-BEATING ARTICLE — GOOGLE 2026
@@ -317,105 +316,97 @@ SECTION 5 — WRITING QUALITY
 ════════════════════════════════
 SECTION 6 — ON-PAGE SEO REQUIREMENTS
 ════════════════════════════════
-TITLE TAG: 50-60 characters, primary keyword near start, include year 2026 where natural
+TITLE TAG: under 60 characters, primary keyword near start, include year 2026 where natural
 META DESCRIPTION: exactly 145-155 characters, include primary keyword and a benefit
 KEYWORD PLACEMENT: primary keyword in H1, within first 100 words, in at least 2 H2 headings
-HEADING HIERARCHY: one H1, 6-8 H2 sections minimum, H3 where depth warrants
 
 ════════════════════════════════
 SECTION 7 — COMPLETE ARTICLE STRUCTURE
 ════════════════════════════════
-Output in this EXACT order:
+Write EXACTLY these sections in this exact order — no more, no fewer:
 
-LINE 1 — Meta description HTML comment:
-<!-- META: [145-155 characters — include primary keyword and a benefit] -->
+LINE 1: <!-- META: [145-155 chars, primary keyword, clear benefit] -->
 
-THEN — Article schema JSON-LD:
-<script type="application/ld+json">
+<h1>[Title: primary keyword near start, compelling, 2026 where relevant, under 60 chars]</h1>
+
+<p>[Introduction: 100 words. Open with the hook: ${angle.hook || 'a surprising fact or bold statement'}. State what article covers. Include primary keyword in first 100 words.]</p>
+
+<h2>[Section 1 title — first major topic competitors cover]</h2>
+<p>[150 words maximum. Concrete, specific, no filler.]</p>
+
+<h2>[Section 2 title — second major topic competitors cover]</h2>
+<p>[150 words maximum. Include relevant secondary keywords naturally.]</p>
+
+<h2>[Section 3 title — third major topic competitors cover]</h2>
+<p>[150 words maximum. Include internal link naturally here if relevant.]</p>
+
+<h2>[Section 4 title — unique gap none of competitors covered properly]</h2>
+<p>[150 words maximum. This is your competitive advantage — write what nobody else has.]</p>
+${uniqueDataSection}
+
+<h2>What the Official Guidance Says</h2>
+<p>[100 words. Reference 2 official UK sources with full URLs. gov.uk, dvsa.gov.uk etc.]</p>
+
+<h2>Frequently Asked Questions</h2>
+<h3>[Question 1 from competitor analysis]</h3>
+<p>[80 words — conversational, accurate answer]</p>
+<h3>[Question 2 from competitor analysis]</h3>
+<p>[80 words]</p>
+<h3>[Question 3 — from content gaps]</h3>
+<p>[80 words]</p>
+<h3>[Question 4 — practical question readers actually ask]</h3>
+<p>[80 words]</p>
+
+<h2>The Bottom Line</h2>
+<p>[80 words. Practical summary. 2 action steps. One internal link naturally.]</p>
+
+<div class='expert-review' style='background:#F5F4F1;border-left:3px solid #FF6B2C;padding:16px 20px;border-radius:0 8px 8px 0;margin-top:32px;'>
+<p style='margin:0;font-size:13px;color:#6B6B6B;'><strong style='color:#0F0F0F;'>Editorial note:</strong> This article was researched using official DVSA and GOV.UK sources and informed by analysis of the top-ranking content for this keyword. All regulatory claims reflect UK law as of June 2026. <a href='https://mot.autodun.com' rel='noopener'>Verify your vehicle's MOT status</a> through official DVSA records.</p>
+</div>
+
+<p class='article-meta'><em>Last updated: June 2026. Always verify regulatory details at <a href='https://www.gov.uk' rel='noopener'>GOV.UK</a>.</em></p>
+<p class='article-author'>Written by the <strong>Seoranko Editorial Team</strong></p>
+
+<script type='application/ld+json'>
 {"@context":"https://schema.org","@type":"Article","headline":"[exact H1 title]","author":{"@type":"Person","name":"Seoranko Editorial Team"},"publisher":{"@type":"Organization","name":"Seoranko","url":"https://seoranko.com"},"dateModified":"2026-06-09","inLanguage":"en-GB"}
 </script>
 
-THEN — H1 title:
-<h1>[Compelling title, primary keyword near start, 50-60 chars]</h1>
-
-THEN — Introduction (150-200 words):
-<p>Open with the hook. State what article covers. Include primary keyword in first 100 words.</p>
-
-THEN — Body section 1 (200 words max):
-<h2>[Cover first common competitor topic — but go deeper]</h2>
-<p>...</p>
-
-THEN — Body section 2 (200 words max):
-<h2>[Cover second topic]</h2>
-<p>...</p>
-
-THEN — Body section 3 (200 words max):
-<h2>[Cover third topic]</h2>
-<p>...</p>
-
-THEN — UNIQUE SECTION — the insight competitors completely miss:
-<h2>${angle.uniqueSection || 'What Every Other Guide Gets Wrong'}</h2>
-<p>${angle.uniqueContent || 'A genuinely unique insight filling the gap competitors leave.'}</p>
-
-${uniqueDataSection}
-
-THEN — Body section 4 (200 words max):
-<h2>[Cover content gap from competitor analysis]</h2>
-<p>...</p>
-
-THEN — Body section 5 (200 words max):
-<h2>[Cover another content gap]</h2>
-<p>...</p>
-
-THEN — Official Sources section:
-<h2>What the Official Guidance Says</h2>
-Reference and link to 2 official UK sources. Include actual URLs.
-
-THEN — FAQ section:
-<h2>Frequently Asked Questions</h2>
-Exactly 5 questions as <h3> tags. Answers in <p> tags, 80-100 words each, conversational tone.
-Include at least 2 FAQ questions that address the competitor gaps identified above.
-
-THEN — FAQ Schema JSON-LD:
-<script type="application/ld+json">
+<script type='application/ld+json'>
 {"@context":"https://schema.org","@type":"FAQPage","mainEntity":[
-{"@type":"Question","name":"[Q1]","acceptedAnswer":{"@type":"Answer","text":"[A1]"}},
+{"@type":"Question","name":"[Q1]","acceptedAnswer":{"@type":"Answer","text":"[A1 — same text as FAQ answer above]"}},
 {"@type":"Question","name":"[Q2]","acceptedAnswer":{"@type":"Answer","text":"[A2]"}},
 {"@type":"Question","name":"[Q3]","acceptedAnswer":{"@type":"Answer","text":"[A3]"}},
-{"@type":"Question","name":"[Q4]","acceptedAnswer":{"@type":"Answer","text":"[A4]"}},
-{"@type":"Question","name":"[Q5]","acceptedAnswer":{"@type":"Answer","text":"[A5]"}}
+{"@type":"Question","name":"[Q4]","acceptedAnswer":{"@type":"Answer","text":"[A4]"}}
 ]}
 </script>
 
-THEN — Bottom Line section:
-<h2>The Bottom Line</h2>
-<p>150-word practical summary. 2-3 specific action steps. Include one relevant internal link.</p>
-
-THEN — Expert review block (verbatim):
-<div class="expert-review" style="background:#F5F4F1;border-left:3px solid #FF6B2C;padding:16px 20px;border-radius:0 8px 8px 0;margin-top:32px;">
-<p style="margin:0;font-size:13px;color:#6B6B6B;"><strong style="color:#0F0F0F;">Editorial review:</strong> This article has been researched using official DVSA and GOV.UK sources. All regulatory claims reflect current UK law as of June 2026. Data references are sourced from publicly available DVSA annual statistics. <a href="https://mot.autodun.com" rel="noopener">Verify your vehicle's MOT status</a> directly through official DVSA records.</p>
-</div>
-
-THEN — Footer metadata (always last):
-<p class="article-meta"><em>Last updated: June 2026. This information reflects current UK regulations. Always verify regulatory details at <a href="https://www.gov.uk" rel="noopener">GOV.UK</a>.</em></p>
-<p class="article-author">Written by the <strong>Seoranko Editorial Team</strong></p>
-
 ════════════════════════════════
-SECTION 8 — TOKEN BUDGET
+ABSOLUTE COMPLETION RULE — READ THIS FIRST
 ════════════════════════════════
-- Introduction: 150 words
-- Each of 5 body H2 sections: 200 words maximum
-- Unique section: 150 words
-- Official Sources: 150 words
-- FAQ: 5 questions × 90 words = 450 words
-- Bottom Line: 150 words
-- Total target: ~1450 words
+You must complete the entire article. Never stop mid-sentence. Never stop mid-section.
 
-If approaching token limit:
-1. Finish the current sentence and close the HTML tag
-2. Jump immediately to The Bottom Line
-3. Write expert review block and footer metadata
-4. NEVER stop mid-sentence or mid-tag
+Token budget per section — do not exceed these limits:
+- Introduction: 100 words maximum
+- Each H2 body section: 150 words maximum
+- Official Guidance section: 100 words maximum
+- FAQ section: 4 questions × 80 words = 320 words maximum
+- Bottom Line: 80 words maximum
+- Total article body: 1200 words maximum
+
+If you are approaching your token limit at any point:
+1. Finish the current sentence immediately
+2. Close any open HTML tag
+3. Jump directly to The Bottom Line
+4. Write Bottom Line in full (80 words)
+5. Write the expert-review div
+6. Write footer metadata
+7. Write Article JSON-LD schema
+8. Write FAQ JSON-LD schema
+9. Stop
+
+A complete 1000-word article is infinitely better than a truncated 2000-word one.
+DO NOT write more than 150 words per H2 section — be concise and precise.
+DO NOT skip The Bottom Line under any circumstances.
 
 ════════════════════════════════
 SECTION 9 — COMPETITOR-BEATING RULE
@@ -427,7 +418,7 @@ Write the complete article now. Output HTML only — no commentary, no preamble,
     // ── STEP 6: Stream article ────────────────────────────────────────────────
     const stream = await anthropic.messages.stream({
       model: 'claude-sonnet-4-6',
-      max_tokens: 6000,
+      max_tokens: 8000,
       messages: [{ role: 'user', content: prompt }],
     });
 

@@ -553,26 +553,17 @@ export default function DashboardPage() {
 
   // ── Article generation ────────────────────────────────────────────────────
   async function handleGenerateArticle() {
-    const editedKws = selectedCluster ? getClusterKeywords(selectedCluster) : null;
+    const selectedKwsArray = Array.from(selectedKws);
     const kw = fromPipeline && pipelineData?.selectedKeywords?.[0]
       ? pipelineData.selectedKeywords[0]
-      : editedKws?.[0] ?? seedKeyword;
+      : selectedKwsArray[0] ?? seedKeyword;
     if (!kw) return;
 
     setArticleLoading(true);
     setArticleError('');
     setArticle(null);
 
-    // Build secondary keywords from cluster + all user-selected checkboxes
-    const rawSecondary = (editedKws ?? [])
-      .concat(Array.from(selectedKws))
-      .filter((k: string) => k !== kw);
-    const deduped: Record<string, boolean> = {};
-    const finalSecondaryKws = rawSecondary.filter((k: string) => {
-      if (deduped[k]) return false;
-      deduped[k] = true;
-      return true;
-    });
+    const finalSecondaryKws = selectedKwsArray.filter((k: string) => k !== kw);
     setLastSecondaryKws(finalSecondaryKws.length > 0 ? finalSecondaryKws : [kw]);
 
     try {
@@ -653,10 +644,10 @@ export default function DashboardPage() {
 
   // ── Competitor article generation ─────────────────────────────────────────
   async function handleCompetitorArticle() {
-    const editedKws = selectedCluster ? getClusterKeywords(selectedCluster) : null;
+    const selectedKwsArray = Array.from(selectedKws);
     const kw = fromPipeline && pipelineData?.selectedKeywords?.[0]
       ? pipelineData.selectedKeywords[0]
-      : editedKws?.[0] ?? seedKeyword;
+      : selectedKwsArray[0] ?? seedKeyword;
     if (!kw) return;
 
     setArticleLoading(true);
@@ -664,15 +655,7 @@ export default function DashboardPage() {
     setArticleError('');
     setArticle(null);
 
-    const rawSecondary = (editedKws ?? [])
-      .concat(Array.from(selectedKws))
-      .filter((k: string) => k !== kw);
-    const deduped: Record<string, boolean> = {};
-    const finalSecondaryKws = rawSecondary.filter((k: string) => {
-      if (deduped[k]) return false;
-      deduped[k] = true;
-      return true;
-    });
+    const finalSecondaryKws = selectedKwsArray.filter((k: string) => k !== kw);
     setLastSecondaryKws(finalSecondaryKws.length > 0 ? finalSecondaryKws : [kw]);
 
     try {
@@ -1245,7 +1228,7 @@ export default function DashboardPage() {
             )}
 
             {/* Article generator settings */}
-            {(clusters.length > 0 || keywords.length > 0) && !fromNlp && (
+            {(keywords.length > 0 || clusters.length > 0) && (
               <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-6">
                 <h2 className="font-bold mb-5 flex items-center gap-2">
                   <svg className="w-4 h-4 text-[#FF6B2C]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
