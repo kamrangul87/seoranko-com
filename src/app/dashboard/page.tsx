@@ -299,6 +299,7 @@ export default function DashboardPage() {
   const [tone, setTone] = useState<Tone>("professional");
   const [audience, setAudience] = useState("general readers");
   const [articleLoading, setArticleLoading] = useState(false);
+  const [isCompetitorMode, setIsCompetitorMode] = useState(false);
   const [articleError, setArticleError] = useState("");
   const [research] = useState<ResearchBrief | null>(null);
   const [article, setArticle] = useState<ArticleOutput | null>(null);
@@ -647,6 +648,107 @@ export default function DashboardPage() {
       setArticleError(`Request failed: ${err.message}`);
     } finally {
       setArticleLoading(false);
+    }
+  }
+
+  // ── Competitor article generation ─────────────────────────────────────────
+  async function handleCompetitorArticle() {
+    const editedKws = selectedCluster ? getClusterKeywords(selectedCluster) : null;
+    const kw = fromPipeline && pipelineData?.selectedKeywords?.[0]
+      ? pipelineData.selectedKeywords[0]
+      : editedKws?.[0] ?? seedKeyword;
+    if (!kw) return;
+
+    setArticleLoading(true);
+    setIsCompetitorMode(true);
+    setArticleError('');
+    setArticle(null);
+
+    const rawSecondary = (editedKws ?? [])
+      .concat(Array.from(selectedKws))
+      .filter((k: string) => k !== kw);
+    const deduped: Record<string, boolean> = {};
+    const finalSecondaryKws = rawSecondary.filter((k: string) => {
+      if (deduped[k]) return false;
+      deduped[k] = true;
+      return true;
+    });
+    setLastSecondaryKws(finalSecondaryKws.length > 0 ? finalSecondaryKws : [kw]);
+
+    try {
+      const response = await fetch('/api/article-competitor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keyword: kw,
+          wordCount: wordCount || 2000,
+          tone: tone || 'professional',
+          market: country || 'United Kingdom',
+          secondaryKeywords: finalSecondaryKws.length > 0 ? finalSecondaryKws : [kw],
+          entities: nlpAnalysis?.entities ?? [],
+          topicalGaps: nlpAnalysis?.topicalGaps ?? [],
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ error: 'Server error' }));
+        setArticleError(err.error || 'Competitor article generation failed');
+        return;
+      }
+
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let fullArticle = '';
+
+      setActiveNav('articles');
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        fullArticle += chunk;
+        const estimatedTotal = (wordCount || 1500) * 6;
+        const progress = Math.min(95, Math.round((fullArticle.length / estimatedTotal) * 100));
+        const progressBar = document.getElementById('article-progress-bar');
+        const progressPct = document.getElementById('article-progress-pct');
+        const progressLabel = document.getElementById('article-progress-label');
+        if (progressBar) (progressBar as HTMLElement).style.width = progress + '%';
+        if (progressPct) progressPct.textContent = progress + '%';
+        if (progressLabel) {
+          if (progress < 20) progressLabel.textContent = 'Analysing top 4 competitor articles...';
+          else if (progress < 40) progressLabel.textContent = 'Extracting competitor NLP data...';
+          else if (progress < 60) progressLabel.textContent = 'Identifying content gaps...';
+          else if (progress < 80) progressLabel.textContent = 'Writing superior article...';
+          else progressLabel.textContent = 'Adding unique insights competitors missed...';
+        }
+      }
+
+      const doneBar = document.getElementById('article-progress-bar');
+      const donePct = document.getElementById('article-progress-pct');
+      const doneLabel = document.getElementById('article-progress-label');
+      if (doneBar) (doneBar as HTMLElement).style.width = '100%';
+      if (donePct) donePct.textContent = '100%';
+      if (doneLabel) doneLabel.textContent = 'Competitor-beating article complete ✓';
+
+      setArticle({
+        seoTitle: kw,
+        metaDescription: '',
+        article: fullArticle,
+        wordCount,
+        eeaScore: 0,
+        readabilityScore: 0,
+        keywordDensity: 0,
+        improvements: [],
+      });
+
+      refreshUserProfile();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      setArticleError(`Request failed: ${err.message}`);
+    } finally {
+      setArticleLoading(false);
+      setIsCompetitorMode(false);
     }
   }
 
@@ -1222,7 +1324,7 @@ export default function DashboardPage() {
                 {articleLoading && (
                   <div style={{padding:'32px', background:'#FFF0E8', borderRadius:'12px', border:'1px solid rgba(255,107,44,0.2)', margin:'24px 0'}}>
                     <div style={{display:'flex', justifyContent:'space-between', marginBottom:'8px'}}>
-                      <span style={{fontSize:'14px', fontWeight:600, color:'#CC4A0F'}}>✍️ Writing your article...</span>
+                      <span style={{fontSize:'14px', fontWeight:600, color:'#CC4A0F'}}>{isCompetitorMode ? '🏆 Analysing competitors & writing superior article...' : '✍️ Writing your article...'}</span>
                       <span style={{fontSize:'14px', fontWeight:700, color:'#FF6B2C'}} id="article-progress-pct">0%</span>
                     </div>
                     <div style={{background:'rgba(255,107,44,0.15)', borderRadius:'8px', height:'8px', overflow:'hidden'}}>
@@ -1232,21 +1334,38 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                <button
-                  onClick={handleGenerateArticle}
-                  disabled={articleLoading}
-                  className="bg-[#FF6B2C] hover:bg-[#E85A1E] disabled:opacity-60 disabled:cursor-not-allowed text-[#0a0a0a] font-bold text-sm px-8 py-3 rounded-[8px] transition-colors flex items-center gap-2"
-                >
-                  {articleLoading ? (
-                    <>
-                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                      Generating…
-                    </>
-                  ) : "Generate Article →"}
-                </button>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <button
+                    onClick={handleGenerateArticle}
+                    disabled={articleLoading}
+                    className="bg-[#FF6B2C] hover:bg-[#E85A1E] disabled:opacity-60 disabled:cursor-not-allowed text-[#0a0a0a] font-bold text-sm px-8 py-3 rounded-[8px] transition-colors flex items-center gap-2"
+                  >
+                    {articleLoading && !isCompetitorMode ? (
+                      <>
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        Generating…
+                      </>
+                    ) : "Generate Article →"}
+                  </button>
+                  <button
+                    onClick={handleCompetitorArticle}
+                    disabled={articleLoading}
+                    className="bg-gradient-to-r from-[#FF6B2C] to-[#FF9A2C] hover:from-[#E85A1E] hover:to-[#E8881E] disabled:opacity-60 disabled:cursor-not-allowed text-[#0a0a0a] font-bold text-sm px-8 py-3 rounded-[8px] transition-all flex items-center gap-2 shadow-sm"
+                  >
+                    {articleLoading && isCompetitorMode ? (
+                      <>
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        Analysing…
+                      </>
+                    ) : "🏆 Competitor-Beating Article"}
+                  </button>
+                </div>
 
                 {articleError && (
                   <div className="bg-red-900/20 border border-red-500/30 rounded-[8px] px-4 py-3 mt-4 text-red-400 text-sm">
@@ -1373,20 +1492,29 @@ export default function DashboardPage() {
                     )}
                   </p>
                 </div>
-                <button
-                  onClick={handleGenerateArticle}
-                  disabled={articleLoading}
-                  className="bg-[#FF6B2C] hover:bg-[#E85A1E] disabled:opacity-60 disabled:cursor-not-allowed text-[#0a0a0a] font-bold text-sm px-8 py-3 rounded-[8px] transition-colors flex items-center gap-2"
-                >
-                  Generate Pipeline Article →
-                </button>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <button
+                    onClick={handleGenerateArticle}
+                    disabled={articleLoading}
+                    className="bg-[#FF6B2C] hover:bg-[#E85A1E] disabled:opacity-60 disabled:cursor-not-allowed text-[#0a0a0a] font-bold text-sm px-8 py-3 rounded-[8px] transition-colors flex items-center gap-2"
+                  >
+                    Generate Pipeline Article →
+                  </button>
+                  <button
+                    onClick={handleCompetitorArticle}
+                    disabled={articleLoading}
+                    className="bg-gradient-to-r from-[#FF6B2C] to-[#FF9A2C] hover:from-[#E85A1E] hover:to-[#E8881E] disabled:opacity-60 disabled:cursor-not-allowed text-[#0a0a0a] font-bold text-sm px-8 py-3 rounded-[8px] transition-all flex items-center gap-2 shadow-sm"
+                  >
+                    🏆 Competitor-Beating Article
+                  </button>
+                </div>
               </div>
             )}
 
             {articleLoading && (
               <div style={{padding:'32px', background:'#FFF0E8', borderRadius:'12px', border:'1px solid rgba(255,107,44,0.2)', marginBottom:'24px'}}>
                 <div style={{display:'flex', justifyContent:'space-between', marginBottom:'8px'}}>
-                  <span style={{fontSize:'14px', fontWeight:600, color:'#CC4A0F'}}>✍️ Writing your article...</span>
+                  <span style={{fontSize:'14px', fontWeight:600, color:'#CC4A0F'}}>{isCompetitorMode ? '🏆 Analysing competitors & writing superior article...' : '✍️ Writing your article...'}</span>
                   <span style={{fontSize:'14px', fontWeight:700, color:'#FF6B2C'}} id="article-progress-pct">0%</span>
                 </div>
                 <div style={{background:'rgba(255,107,44,0.15)', borderRadius:'8px', height:'8px', overflow:'hidden'}}>
