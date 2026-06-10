@@ -690,21 +690,42 @@ export default function DashboardPage() {
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
         fullArticle += chunk;
+        const isEnriching = fullArticle.includes('<!--SEORANKO_ENRICHING-->');
+        // Progress is based on the base article content only (before enrichment marker)
+        const baseContent = isEnriching
+          ? fullArticle.split('<!--SEORANKO_ENRICHING-->')[0]
+          : fullArticle;
         const estimatedTotal = (wordCount || 1500) * 6;
-        const progress = Math.min(95, Math.round((fullArticle.length / estimatedTotal) * 100));
+        const progress = Math.min(95, Math.round((baseContent.length / estimatedTotal) * 100));
         const progressBar = document.getElementById('article-progress-bar');
         const progressPct = document.getElementById('article-progress-pct');
         const progressLabel = document.getElementById('article-progress-label');
-        if (progressBar) (progressBar as HTMLElement).style.width = progress + '%';
-        if (progressPct) progressPct.textContent = progress + '%';
+        if (progressBar) (progressBar as HTMLElement).style.width = (isEnriching ? 97 : progress) + '%';
+        if (progressPct) progressPct.textContent = (isEnriching ? 97 : progress) + '%';
         if (progressLabel) {
-          if (progress < 20) progressLabel.textContent = 'Analysing top 4 competitor articles...';
-          else if (progress < 40) progressLabel.textContent = 'Extracting competitor NLP data...';
-          else if (progress < 60) progressLabel.textContent = 'Identifying content gaps...';
-          else if (progress < 80) progressLabel.textContent = 'Writing superior article...';
-          else progressLabel.textContent = 'Adding unique insights competitors missed...';
+          if (isEnriching) {
+            progressLabel.textContent = 'Adding missing facts from competitor research...';
+          } else if (progress < 20) {
+            progressLabel.textContent = 'Analysing top 4 competitor articles...';
+          } else if (progress < 40) {
+            progressLabel.textContent = 'Extracting competitor NLP data...';
+          } else if (progress < 60) {
+            progressLabel.textContent = 'Identifying content gaps...';
+          } else if (progress < 80) {
+            progressLabel.textContent = 'Writing superior article...';
+          } else {
+            progressLabel.textContent = 'Adding unique insights competitors missed...';
+          }
         }
       }
+
+      // Extract enriched article if enrichment ran, otherwise use base article
+      const enrichedMatch = fullArticle.match(
+        /<!--SEORANKO_ENRICHED_START-->\n([\s\S]*?)\n<!--SEORANKO_ENRICHED_END-->/
+      );
+      const finalArticle = enrichedMatch
+        ? enrichedMatch[1]
+        : fullArticle.split('<!--SEORANKO_ENRICHING-->')[0];
 
       const doneBar = document.getElementById('article-progress-bar');
       const donePct = document.getElementById('article-progress-pct');
@@ -716,7 +737,7 @@ export default function DashboardPage() {
       setArticle({
         seoTitle: kw,
         metaDescription: '',
-        article: fullArticle,
+        article: finalArticle,
         wordCount,
         eeaScore: 0,
         readabilityScore: 0,

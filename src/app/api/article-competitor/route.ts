@@ -135,6 +135,74 @@ Respond in JSON only:
   }
 }
 
+async function enrichArticleWithMissingFacts(
+  article: string,
+  keyword: string,
+  competitorContents: { url: string; content: string }[]
+): Promise<string> {
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 800,
+    messages: [{
+      role: 'user',
+      content: `You are a fact-checker. Compare this article against competitor content and identify up to 3 specific facts, data points, or insights that competitors mention but our article completely misses.
+
+OUR ARTICLE:
+${article.replace(/<[^>]*>/g, '').slice(0, 3000)}
+
+COMPETITOR CONTENT:
+${competitorContents.map(c => c.content.slice(0, 800)).join('\n---\n')}
+
+Rules:
+- Only identify facts that are SPECIFIC and VERIFIABLE (prices, percentages, legal rules, statistics)
+- Ignore generic advice that is already covered
+- Maximum 3 missing facts
+- Each fact must be genuinely useful to the reader
+
+Return ONLY valid JSON:
+{
+  "missing_facts": [
+    {
+      "fact": "exact fact statement to add",
+      "where_to_add": "which section heading to add it near",
+      "insert_after": "exact phrase in article after which to insert (max 10 words)"
+    }
+  ]
+}
+
+If no important facts are missing return: { "missing_facts": [] }`,
+    }],
+  });
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : '{}';
+
+  try {
+    const clean = text.replace(/```json|```/g, '').trim();
+    const result = JSON.parse(clean);
+
+    let enrichedArticle = article;
+
+    for (const item of result.missing_facts || []) {
+      if (item.insert_after && item.fact) {
+        const insertPoint = enrichedArticle.indexOf(item.insert_after);
+        if (insertPoint !== -1) {
+          const paraEnd = enrichedArticle.indexOf('</p>', insertPoint);
+          if (paraEnd !== -1) {
+            enrichedArticle =
+              enrichedArticle.slice(0, paraEnd) +
+              ' ' + item.fact +
+              enrichedArticle.slice(paraEnd);
+          }
+        }
+      }
+    }
+
+    return enrichedArticle;
+  } catch {
+    return article;
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -161,7 +229,10 @@ export async function POST(req: NextRequest) {
     const competitorTexts = await Promise.all(
       competitorUrls.map(url => fetchCompetitorContent(url))
     );
-    const validTexts = competitorTexts.filter(t => t.length > 100);
+    const validCompetitors = competitorUrls
+      .map((url, i) => ({ url, content: competitorTexts[i] ?? '' }))
+      .filter(c => c.content.length > 100);
+    const validTexts = validCompetitors.map(c => c.content);
     console.log('[article-competitor] valid texts:', validTexts.length);
 
     // ── STEP 3: Extract NLP from competitors ─────────────────────────────────
@@ -422,18 +493,39 @@ Write the complete article now. Output HTML only — no commentary, no preamble,
       messages: [{ role: 'user', content: prompt }],
     });
 
+    const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
-        const encoder = new TextEncoder();
+        let fullArticle = '';
         try {
+          // Stream article to client in real-time AND collect it server-side
           for await (const chunk of stream) {
             if (
               chunk.type === 'content_block_delta' &&
               chunk.delta.type === 'text_delta'
             ) {
               controller.enqueue(encoder.encode(chunk.delta.text));
+              fullArticle += chunk.delta.text;
             }
           }
+
+          // ── STEP 7: Post-write fact enrichment ───────────────────────────
+          if (validCompetitors.length > 0 && fullArticle.length > 200) {
+            // Signal to client that enrichment is starting
+            controller.enqueue(encoder.encode('\n<!--SEORANKO_ENRICHING-->'));
+
+            const enriched = await enrichArticleWithMissingFacts(
+              fullArticle,
+              keyword,
+              validCompetitors,
+            );
+
+            // Send enriched article — client replaces base article with this
+            controller.enqueue(encoder.encode(
+              `\n<!--SEORANKO_ENRICHED_START-->\n${enriched}\n<!--SEORANKO_ENRICHED_END-->`
+            ));
+          }
+
           controller.close();
         } catch (err) {
           controller.error(err);
