@@ -1,3 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import Anthropic from '@anthropic-ai/sdk';
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+
 export type ArticleMode = 'generate' | 'competitor' | 'improve';
 
 export interface ArticleMasterParams {
@@ -20,6 +25,7 @@ export interface ArticleMasterParams {
   missingElements?: string[];
   factualErrors?: string[];
   improvementPriorities?: string[];
+  liveFacts?: string;
 }
 
 export function getInternalLinks(keyword: string): string {
@@ -64,6 +70,7 @@ export function buildMasterPrompt(params: ArticleMasterParams): string {
     missingElements = [],
     factualErrors = [],
     improvementPriorities = [],
+    liveFacts = '',
   } = params;
 
   const safeWordCount = Math.min(wordCount, 1800);
@@ -77,6 +84,15 @@ export function buildMasterPrompt(params: ArticleMasterParams): string {
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().toLocaleString('en-GB', { month: 'long' });
   const isoDate = new Date().toISOString().split('T')[0];
+
+  // Schema language tag follows the target market rather than assuming en-GB
+  const langMap: Record<string, string> = {
+    'United States': 'en-US',
+    'Australia': 'en-AU',
+    'Canada': 'en-CA',
+    'United Kingdom': 'en-GB',
+  };
+  const inLanguage = langMap[market] || 'en';
 
   // ── MODE-SPECIFIC CONTEXT BLOCK ──────────────────────────────────────────
 
@@ -145,7 +161,7 @@ MASTER SEO ARTICLE PROMPT — GOOGLE ${currentYear}
 Applies to: Fresh generation | Competitor-beating | Article improvement
 ════════════════════════════════════════
 
-You are a senior UK journalist and SEO specialist with 15 years of experience. You write accurate, human, authoritative content for real people first. You never write for bots.
+You are a senior journalist and SEO specialist with 15 years of experience writing for the ${market} market. You write accurate, human, authoritative content for real people first. You never write for bots. You use the spelling, vocabulary, currency, and official bodies native to ${market}.
 
 PRIMARY KEYWORD: ${keyword}
 SECONDARY KEYWORDS (weave in naturally): ${secondaryList}
@@ -161,24 +177,79 @@ ${links}
 ${modeBlock}
 
 ════════════════════════════════
-SECTION 1 — FACT ACCURACY (MANDATORY)
+SECTION 1 — FACT ACCURACY (MANDATORY — ALL TOPICS, ALL COUNTRIES)
 ════════════════════════════════
-Google removes pages with inaccurate claims. These rules are non-negotiable:
-1. Only state facts you are highly confident are accurate as of ${currentYear}
-2. For any price, fine, date, law, or statistic — only include if you are certain it is correct
-3. If unsure of a specific figure, write around it: "verify current figures at gov.uk"
-4. NEVER invent statistics, percentages, dates, or official announcements
-5. NEVER write "X will happen" about future events unless officially confirmed
-6. Always attribute UK law claims to the correct body: DVSA, HMRC, NHS, FCA, DVLA
-7. Link regulatory claims to gov.uk or the relevant official UK body
-8. NEVER use invented person names as authors — always use: Kamran Gul, Founder of Autodun
+
+LIVE VERIFIED FACTS (searched from official sources just now — use these):
+${liveFacts || 'No live facts available — write around any uncertain specific figures'}
+
+UNIVERSAL FACT RULES — apply to every article regardless of topic or country:
+
+RULE 1 — THE SEARCH RULE (most important)
+These live facts above came from real searches. Use them.
+For any specific fact NOT in the live facts above:
+- Do NOT invent it
+- Do NOT guess it
+- Write around it: "verify current figures at [official government source for ${market}]"
+- This applies to: prices, rates, fees, fines, laws, limits, percentages, statistics,
+  form numbers, document names, official body names, legislation dates
+
+RULE 2 — NUMBERS AND RATES
+Every specific number in the article must come from either:
+a) The live verified facts above, OR
+b) Something you are 100% certain is correct for ${market} in ${currentYear}
+If neither applies: write "current rates — verify at [official source]"
+
+RULE 3 — OFFICIAL BODY NAMES
+Use exact official names only. Never abbreviate or approximate.
+Examples of correct usage:
+- UK: DVSA (not DVLA for testing), HMRC (not "tax office"), NHS (not "health service")
+- US: IRS (not "tax authority"), FDA (not "drug regulator"), SSA (not "social security office")
+- AU: ATO (not "tax office"), TGA (not "drug regulator")
+- Other countries: always use the exact official name in that country's language/convention
+
+RULE 4 — DOCUMENT AND FORM NAMES
+Certificate names, form numbers, and official document names must be exact.
+If uncertain of a specific form number or document name — describe it generically:
+"the official test certificate" not "Form XYZ-123" unless you are certain.
+
+RULE 5 — AUTHOR IDENTITY
+Always use: Kamran Gul, Founder of Autodun
+Never invent author names, credentials, or qualifications.
+Never add "IMI-accredited" or any professional qualification unless it is real.
+
+RULE 6 — STATISTICS
+Every statistic must be attributed: "According to [source]..."
+Never state percentages or figures as bare facts without a named source.
+If a statistic came from the live facts above, cite the source provided.
+
+RULE 7 — COUNTRY-SPECIFIC LAWS AND REGULATIONS
+Laws, regulations, and official rules are specific to ${market}.
+Never assume a rule from one country applies to another.
+Always make clear which jurisdiction a rule applies to.
+If the article is for a global audience, note that rules vary by country.
+
+RULE 8 — CRISIS AND HELPLINE NUMBERS
+Only include helpline numbers you are certain are correct for ${market}:
+- UK: Samaritans 116 123 | NHS 111
+- US: 988 Suicide and Crisis Lifeline
+- AU: Lifeline 13 11 14
+- CA: Crisis Services Canada 1-833-456-4566
+- Other countries: do not include specific numbers unless certain — say "contact your local emergency services"
+
+SELF-CHECK BEFORE EVERY FACTUAL SENTENCE:
+1. Is this fact in the live verified facts above? → Use it
+2. Am I 100% certain this is correct for ${market} in ${currentYear}? → Use it
+3. Neither? → Write around it or omit it
+
+A factually accurate shorter article always beats a longer article with invented facts.
 
 ════════════════════════════════
 SECTION 2 — EEAT SIGNALS (MANDATORY)
 ════════════════════════════════
 EXPERIENCE: "In practice...", "What most drivers find...", "The reality is..."
 EXPERTISE: Use correct technical terminology. Explain WHY, not just WHAT.
-AUTHORITATIVENESS: Cite at least 2 official UK sources with full URLs (gov.uk, dvsa.gov.uk, nhs.uk etc)
+AUTHORITATIVENESS: Cite at least 2 official ${market} sources with full URLs (use the correct official bodies and government domains for ${market})
 TRUSTWORTHINESS: Acknowledge limitations honestly. Never overpromise.
 
 ════════════════════════════════
@@ -214,7 +285,7 @@ SECTION 5 — WRITING QUALITY (MANDATORY)
 4. VARY paragraph length — mix 2-sentence and 5-sentence paragraphs
 5. ADD rhetorical questions occasionally: "So what does this mean in practice?"
 6. WRITE FAQ answers as if answering a knowledgeable friend — conversational but accurate
-7. USE British English: whilst, colour, centre, licence, realise, kerb, tyre, programme
+7. USE the spelling and vocabulary native to ${market} (British English for the UK, American English for the US, etc — never mix conventions)
 8. OPEN with a surprising fact, statistic, or counterintuitive observation
 
 ════════════════════════════════
@@ -256,7 +327,7 @@ LINE 1: <!-- META: [145-155 chars — include primary keyword and a clear benefi
 ${uniqueDataSection ? uniqueDataSection : ''}
 
 <h2>What the Official Guidance Says</h2>
-<p>[100 words. Reference 2 official UK sources with full URLs.]</p>
+<p>[100 words. Reference 2 official ${market} sources with full URLs.]</p>
 
 <h2>Frequently Asked Questions</h2>
 <h3>[Question 1]</h3><p>[80 words — conversational, accurate]</p>
@@ -268,14 +339,14 @@ ${uniqueDataSection ? uniqueDataSection : ''}
 <p>[80 words. Practical summary. 2 action steps. One internal link naturally.]</p>
 
 <div class="expert-review" style="background:#F5F4F1;border-left:3px solid #FF6B2C;padding:16px 20px;border-radius:0 8px 8px 0;margin-top:32px;">
-<p style="margin:0;font-size:13px;color:#6B6B6B;"><strong style="color:#0F0F0F;">Editorial note:</strong> This article was researched using official sources. All regulatory claims reflect UK law as of ${currentMonth} ${currentYear}. Always verify at <a href="https://www.gov.uk" rel="noopener">GOV.UK</a>. Autodun is not a government service.</p>
+<p style="margin:0;font-size:13px;color:#6B6B6B;"><strong style="color:#0F0F0F;">Editorial note:</strong> This article was researched using official sources. All regulatory claims reflect ${market} rules as of ${currentMonth} ${currentYear}. Always verify with the relevant official ${market} body before acting. Autodun is not a government service.</p>
 </div>
 
-<p class="article-meta"><em>Last updated: ${currentMonth} ${currentYear}. Always verify regulatory details at <a href="https://www.gov.uk" rel="noopener">GOV.UK</a>.</em></p>
+<p class="article-meta"><em>Last updated: ${currentMonth} ${currentYear}. Always verify regulatory details with the official ${market} sources cited above.</em></p>
 <p class="article-author">Written by <strong>Kamran Gul</strong>, Founder of Autodun.</p>
 
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"Article","headline":"[exact H1 title]","author":{"@type":"Person","name":"Kamran Gul"},"publisher":{"@type":"Organization","name":"Autodun","url":"https://autodun.com"},"dateModified":"${isoDate}","inLanguage":"en-GB"}
+{"@context":"https://schema.org","@type":"Article","headline":"[exact H1 title]","author":{"@type":"Person","name":"Kamran Gul"},"publisher":{"@type":"Organization","name":"Autodun","url":"https://autodun.com"},"dateModified":"${isoDate}","inLanguage":"${inLanguage}"}
 </script>
 
 <script type="application/ld+json">
@@ -316,7 +387,12 @@ NEVER omit the two JSON-LD scripts — they are mandatory for schema markup.
 Write the complete article now. Output HTML only — no commentary, no preamble.`;
 }
 
-export async function validateAndCorrect(article: string): Promise<{ article: string; corrections: string[] }> {
+export async function validateAndCorrect(
+  article: string,
+  keyword = '',
+  market = 'United Kingdom',
+  liveFacts = '',
+): Promise<{ article: string; corrections: string[] }> {
   const corrections: string[] = [];
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().toLocaleString('en-GB', { month: 'long' });
@@ -334,7 +410,7 @@ export async function validateAndCorrect(article: string): Promise<{ article: st
     corrections.push('Replaced invented author name with Kamran Gul');
   }
   if (fakeAuthorStrong.test(corrected)) {
-    corrected = corrected.replace(fakeAuthorStrong, '<strong>Kamran Gul</strong> is the founder of Autodun, an independent UK vehicle intelligence platform.');
+    corrected = corrected.replace(fakeAuthorStrong, '<strong>Kamran Gul</strong> is the founder of Autodun, an independent vehicle intelligence platform.');
     corrections.push('Fixed author bio to Kamran Gul');
   }
   if (fakeSchemaAuthor.test(corrected)) {
@@ -378,10 +454,175 @@ export async function validateAndCorrect(article: string): Promise<{ article: st
   if (!corrected.includes('Last updated') && !corrected.includes('last updated')) {
     corrected = corrected.replace(
       '</article>',
-      `<p class="article-meta"><em>Last updated: ${currentMonth} ${currentYear}. Always verify regulatory details at <a href="https://www.gov.uk" rel="noopener">GOV.UK</a>.</em></p>\n<p class="article-author">Written by <strong>Kamran Gul</strong>, Founder of Autodun.</p>\n</article>`
+      `<p class="article-meta"><em>Last updated: ${currentMonth} ${currentYear}. Always verify regulatory details with the official ${market} sources.</em></p>\n<p class="article-author">Written by <strong>Kamran Gul</strong>, Founder of Autodun.</p>\n</article>`
     );
     if (corrected.includes('article-meta')) {
       corrections.push('Added missing last-updated footer');
+    }
+  }
+
+  // FIX 6 — Universal AI fact-check against the live verified facts. This is a
+  // single Claude call that catches invented numbers/names/forms that the regex
+  // fixes above can't know about — works for any topic in any country.
+  try {
+    const factCheck = await finalFactCheck(corrected, keyword, market, liveFacts);
+    corrected = factCheck.article;
+    corrections.push(...factCheck.corrections);
+  } catch {
+    // Never let the fact-check break article delivery
+  }
+
+  return { article: corrected, corrections };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LIVE FACT VERIFICATION — runs a real web search before any article is written.
+// No hardcoded facts, no country limits, no topic limits. Works for any keyword
+// in any market. Always fails open: if search is unavailable, returns no facts
+// and the master prompt instructs the model to write around uncertain figures.
+// ─────────────────────────────────────────────────────────────────────────────
+export async function fetchVerifiedFacts(
+  keyword: string,
+  market: string,
+  competitors: string[] = [],
+): Promise<{ facts: string; sources: string[] }> {
+  const currentYear = new Date().getFullYear();
+
+  try {
+    // Determine what kind of facts need verification for this exact topic/market
+    const competitorContext = competitors.length > 0
+      ? ` Competitor pages cover: ${competitors.slice(0, 3).map(c => c.slice(0, 120)).join(' | ')}.`
+      : '';
+
+    const topicResponse = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 200,
+      messages: [{
+        role: 'user',
+        content: `For the topic "${keyword}" in ${market}, what are the 3 most important specific facts that must be verified from official sources before writing? (prices, rates, laws, limits, body names, form numbers etc).${competitorContext} List them as search queries only. Return JSON: {"queries": ["query1", "query2", "query3"]}`,
+      }],
+    });
+
+    const topicText = topicResponse.content[0].type === 'text'
+      ? topicResponse.content[0].text : '{"queries":[]}';
+    let queries: string[] = [];
+    try {
+      queries = JSON.parse(topicText.replace(/```json|```/g, '').trim()).queries || [];
+    } catch {
+      queries = [`${keyword} official rules ${market} ${currentYear}`];
+    }
+
+    // Run live web searches for each query
+    const searchResults: string[] = [];
+    const sources: string[] = [];
+
+    for (const query of queries.slice(0, 3)) {
+      try {
+        const searchResponse = await anthropic.messages.create({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 400,
+          tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
+          messages: [{
+            role: 'user',
+            content: `Search for: "${query}" — ${currentYear}. Return ONLY verified facts from official government or authoritative sources. Include the source URL for each fact. Be concise — facts only, no commentary.`,
+          }],
+        });
+
+        const facts = searchResponse.content
+          .filter((b: any) => b.type === 'text')
+          .map((b: any) => b.text)
+          .join('\n')
+          .slice(0, 500);
+
+        if (facts.trim()) searchResults.push(facts);
+
+        // Collect any cited source URLs the search surfaced
+        for (const block of searchResponse.content as any[]) {
+          for (const cite of (block?.citations || [])) {
+            if (cite?.url && !sources.includes(cite.url)) sources.push(cite.url);
+          }
+        }
+      } catch {
+        /* skip failed searches */
+      }
+    }
+
+    return {
+      facts: searchResults.join('\n\n'),
+      sources,
+    };
+  } catch {
+    return { facts: '', sources: [] };
+  }
+}
+
+// Universal post-write fact check — compares the finished article against the
+// live verified facts and flags invented numbers, names, or form references for
+// any topic in any country. Returns the corrected article plus a change log.
+async function finalFactCheck(
+  article: string,
+  keyword: string,
+  market: string,
+  liveFacts: string,
+): Promise<{ article: string; corrections: string[] }> {
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 600,
+    messages: [{
+      role: 'user',
+      content: `You are a fact-checker for a ${market} article about "${keyword}".
+
+LIVE VERIFIED FACTS (these are correct):
+${liveFacts || 'None available'}
+
+ARTICLE TO CHECK (first 2000 chars):
+${article.slice(0, 2000)}
+
+Find up to 3 specific factual claims in the article that:
+1. Contradict the live verified facts above, OR
+2. Appear to be invented specific numbers/names/forms that are not in the live facts
+
+Return ONLY valid JSON:
+{
+  "corrections": [
+    {
+      "find": "exact text to find (max 50 chars)",
+      "replace": "corrected text",
+      "reason": "why wrong"
+    }
+  ],
+  "invented_author_names": ["any person names that appear invented"]
+}
+
+If nothing is wrong return: {"corrections": [], "invented_author_names": []}`,
+    }],
+  });
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : '{}';
+  let result: any = { corrections: [], invented_author_names: [] };
+
+  try {
+    result = JSON.parse(text.replace(/```json|```/g, '').trim());
+  } catch {
+    /* keep original */
+  }
+
+  let corrected = article;
+  const corrections: string[] = [];
+
+  for (const fix of result.corrections || []) {
+    if (fix.find && fix.replace && corrected.includes(fix.find)) {
+      corrected = corrected.replace(fix.find, fix.replace);
+      corrections.push(`Fixed: "${fix.find}" → "${fix.replace}"`);
+    }
+  }
+
+  for (const name of result.invented_author_names || []) {
+    if (!name || name === 'Kamran Gul') continue;
+    const nameRegex = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
+    if (nameRegex.test(corrected)) {
+      corrected = corrected.replace(nameRegex, 'Kamran Gul');
+      corrections.push(`Replaced invented author "${name}" with Kamran Gul`);
     }
   }
 

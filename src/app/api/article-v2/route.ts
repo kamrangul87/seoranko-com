@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { buildMasterPrompt, validateAndCorrect, getInternalLinks } from '@/lib/article-master';
+import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedFacts } from '@/lib/article-master';
 
 export const maxDuration = 300;
 
@@ -76,6 +76,9 @@ Do not write generic angles. Be specific and surprising.`
 <p>Checking your specific vehicle's historical test record — including every advisory notice ever raised — gives you a significant advantage before your next test. The <a href="https://mot.autodun.com" rel="noopener">Autodun MOT predictor</a> analyses DVSA data for your exact make, model, age, and mileage to flag the components statistically most likely to fail before your test date. It's the kind of preparation most drivers skip — and the kind that most often prevents an avoidable fail.</p>`
       : '';
 
+    // ── STEP B2 — Live fact verification (web search, any topic/country) ──────
+    const { facts: liveFacts } = await fetchVerifiedFacts(keyword, market);
+
     // ── STEP C — Centralised master prompt (shared across all 3 article routes)
     const prompt = buildMasterPrompt({
       mode: 'generate',
@@ -90,6 +93,7 @@ Do not write generic angles. Be specific and surprising.`
       uniqueContent: angle.unique_section_content || '',
       uniqueDataSection,
       internalLinks: getInternalLinks(keyword),
+      liveFacts,
     });
 
     // ── STEP D — Stream article with angle injected ───────────────────────────
@@ -117,7 +121,7 @@ Do not write generic angles. Be specific and surprising.`
           // The article has already streamed to the client raw, so corrections
           // can only be logged here — the master prompt bakes in the correct
           // author and dates, so these should be no-ops
-          const { corrections } = await validateAndCorrect(fullArticle);
+          const { corrections } = await validateAndCorrect(fullArticle, keyword, market, liveFacts);
           if (corrections.length > 0) {
             console.log('[article-v2] validation corrections:', corrections);
           }

@@ -6,7 +6,7 @@ import {
   extractCompetitorNLP,
   generateUniqueAngle,
 } from '@/lib/competitor';
-import { buildMasterPrompt, validateAndCorrect, getInternalLinks } from '@/lib/article-master';
+import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedFacts } from '@/lib/article-master';
 
 // Fluid compute (default on Vercel) allows up to 300s on Hobby. The full
 // pipeline (audit + scraping + NLP + angle + 6000-token generation) needs
@@ -142,6 +142,14 @@ Return ONLY valid JSON no markdown:
 
         const angle = await generateUniqueAngle(targetKeyword, nlpData.contentGaps, nlpData.weaknesses);
 
+        // ── Live fact verification (web search, any topic/country) ────────────
+        send('<!--SEORANKO_STAGE:facts-->');
+        const { facts: liveFacts } = await fetchVerifiedFacts(
+          targetKeyword,
+          market,
+          validCompetitors.map(c => c.content),
+        );
+
         const targetWordCount = Math.max((audit.word_count || 800) + 600, 1500);
         const safeWordCount = Math.min(targetWordCount, 1800);
 
@@ -175,6 +183,7 @@ Return ONLY valid JSON no markdown:
           missingElements: audit.missing_elements || [],
           factualErrors: audit.factual_errors || [],
           improvementPriorities: audit.improvement_priority || [],
+          liveFacts,
         });
 
         // ── STEP F: Stream improved article ───────────────────────────────────
@@ -193,7 +202,7 @@ Return ONLY valid JSON no markdown:
           }
         }
 
-        const { article: validatedArticle, corrections } = await validateAndCorrect(improvedArticle);
+        const { article: validatedArticle, corrections } = await validateAndCorrect(improvedArticle, targetKeyword, market, liveFacts);
         if (corrections.length > 0) {
           console.log('[article-improve] validation corrections:', corrections);
         }

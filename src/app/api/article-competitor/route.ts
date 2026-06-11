@@ -6,7 +6,7 @@ import {
   extractCompetitorNLP,
   generateUniqueAngle,
 } from '@/lib/competitor';
-import { buildMasterPrompt, validateAndCorrect, getInternalLinks } from '@/lib/article-master';
+import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedFacts } from '@/lib/article-master';
 
 export const maxDuration = 300;
 
@@ -135,6 +135,9 @@ export async function POST(req: NextRequest) {
 <p>Checking your specific vehicle's historical test record — including every advisory notice ever raised — gives you a significant advantage before your next test. The <a href="https://mot.autodun.com" rel="noopener">Autodun MOT predictor</a> analyses DVSA data for your exact make, model, age, and mileage to flag the components statistically most likely to fail before your test date. It's the kind of preparation most drivers skip — and the kind that most often prevents an avoidable fail.</p>`
       : '';
 
+    // ── STEP 4b: Live fact verification (web search, any topic/country) ───────
+    const { facts: liveFacts } = await fetchVerifiedFacts(keyword, market, validTexts);
+
     // ── STEP 5: Centralised master prompt with competitor intelligence ────────
     const prompt = buildMasterPrompt({
       mode: 'competitor',
@@ -150,6 +153,7 @@ export async function POST(req: NextRequest) {
       uniqueDataSection,
       internalLinks: getInternalLinks(keyword),
       competitorTopics: nlp.commonTopics,
+      liveFacts,
     });
 
     // ── STEP 6: Stream article ────────────────────────────────────────────────
@@ -186,7 +190,7 @@ export async function POST(req: NextRequest) {
               validCompetitors,
             );
 
-            const { article: validatedArticle, corrections } = await validateAndCorrect(enriched);
+            const { article: validatedArticle, corrections } = await validateAndCorrect(enriched, keyword, market, liveFacts);
             if (corrections.length > 0) {
               console.log('[article-competitor] validation corrections:', corrections);
             }
@@ -199,7 +203,7 @@ export async function POST(req: NextRequest) {
             // No competitors fetched — still validate; the client only replaces
             // the article when the ENRICHED markers arrive, so only send them
             // when a correction actually changed something
-            const { article: validatedArticle, corrections } = await validateAndCorrect(fullArticle);
+            const { article: validatedArticle, corrections } = await validateAndCorrect(fullArticle, keyword, market, liveFacts);
             if (corrections.length > 0) {
               console.log('[article-competitor] validation corrections:', corrections);
               controller.enqueue(encoder.encode(

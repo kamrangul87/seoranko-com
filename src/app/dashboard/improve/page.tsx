@@ -21,6 +21,7 @@ export default function ImproveArticlePage() {
     { key: 'detecting', label: 'Detecting keyword...' },
     { key: 'auditing', label: 'Auditing your article...' },
     { key: 'competitors', label: 'Analysing top competitors...' },
+    { key: 'facts', label: 'Verifying facts from official sources...' },
     { key: 'rewriting', label: 'Rewriting and improving...' },
     { key: 'complete', label: 'Complete!' },
   ];
@@ -39,7 +40,8 @@ export default function ImproveArticlePage() {
     const stageProgress: Record<string, number> = {
       detecting: 10,
       auditing: 25,
-      competitors: 50,
+      competitors: 45,
+      facts: 60,
       rewriting: 70,
     };
 
