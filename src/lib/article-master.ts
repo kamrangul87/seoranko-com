@@ -1,7 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import Anthropic from '@anthropic-ai/sdk';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+// maxRetries lets the SDK auto-retry 429s using the server's Retry-After header.
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
+
+// Fact verification and fact-checking run on Haiku (a separate rate-limit bucket
+// from Sonnet) so they never compete with the main article generation's
+// Sonnet input-token budget.
+const FAST_MODEL = 'claude-haiku-4-5-20251001';
 
 export type ArticleMode = 'generate' | 'competitor' | 'improve';
 
@@ -495,7 +501,7 @@ export async function fetchVerifiedFacts(
       : '';
 
     const topicResponse = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: FAST_MODEL,
       max_tokens: 200,
       messages: [{
         role: 'user',
@@ -516,12 +522,13 @@ export async function fetchVerifiedFacts(
     const searchResults: string[] = [];
     const sources: string[] = [];
 
-    for (const query of queries.slice(0, 3)) {
+    for (const query of queries.slice(0, 2)) {
       try {
         const searchResponse = await anthropic.messages.create({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 400,
-          tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
+          model: FAST_MODEL,
+          max_tokens: 350,
+          // Cap internal searches so a single request can't balloon input tokens
+          tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 } as any],
           messages: [{
             role: 'user',
             content: `Search for: "${query}" — ${currentYear}. Return ONLY verified facts from official government or authoritative sources. Include the source URL for each fact. Be concise — facts only, no commentary.`,
@@ -566,7 +573,7 @@ async function finalFactCheck(
   liveFacts: string,
 ): Promise<{ article: string; corrections: string[] }> {
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: FAST_MODEL,
     max_tokens: 600,
     messages: [{
       role: 'user',

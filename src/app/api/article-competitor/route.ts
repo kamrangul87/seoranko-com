@@ -10,7 +10,11 @@ import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedF
 
 export const maxDuration = 300;
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
+
+// The fact-enrichment call runs on Haiku (separate rate-limit bucket) so it
+// doesn't eat the Sonnet input-token budget the main article generation needs.
+const FAST_MODEL = 'claude-haiku-4-5-20251001';
 
 async function enrichArticleWithMissingFacts(
   article: string,
@@ -18,7 +22,7 @@ async function enrichArticleWithMissingFacts(
   competitorContents: { url: string; content: string }[]
 ): Promise<string> {
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: FAST_MODEL,
     max_tokens: 800,
     messages: [{
       role: 'user',

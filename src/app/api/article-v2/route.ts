@@ -4,7 +4,11 @@ import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedF
 
 export const maxDuration = 300;
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
+
+// The angle generator runs on Haiku (separate rate-limit bucket) so it doesn't
+// eat the Sonnet input-token budget the main article generation needs.
+const FAST_MODEL = 'claude-haiku-4-5-20251001';
 
 export async function POST(req: NextRequest) {
   try {
@@ -27,7 +31,7 @@ export async function POST(req: NextRequest) {
 
     // ── STEP A — Unique Angle Generator ──────────────────────────────────────
     const angleResponse = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: FAST_MODEL,
       max_tokens: 500,
       messages: [{
         role: 'user',

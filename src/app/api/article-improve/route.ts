@@ -13,7 +13,11 @@ import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedF
 // ~2 minutes — 60s kills the function mid-stream.
 export const maxDuration = 300;
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
+
+// Small audit/extraction calls run on Haiku (separate rate-limit bucket) so they
+// don't consume the Sonnet budget the main article rewrite needs.
+const FAST_MODEL = 'claude-haiku-4-5-20251001';
 
 interface Audit {
   word_count: number;
@@ -62,7 +66,7 @@ export async function POST(req: NextRequest) {
         let targetKeyword = keyword.trim();
         if (!targetKeyword) {
           const kwRes = await anthropic.messages.create({
-            model: 'claude-sonnet-4-6',
+            model: FAST_MODEL,
             max_tokens: 50,
             messages: [{
               role: 'user',
@@ -89,7 +93,7 @@ export async function POST(req: NextRequest) {
         })();
 
         const auditRes = await anthropic.messages.create({
-          model: 'claude-sonnet-4-6',
+          model: FAST_MODEL,
           max_tokens: 1000,
           messages: [{
             role: 'user',
