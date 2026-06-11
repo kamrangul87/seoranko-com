@@ -6,6 +6,7 @@ import {
   extractCompetitorNLP,
   generateUniqueAngle,
 } from '@/lib/competitor';
+import { buildMasterPrompt, validateAndCorrect, getInternalLinks } from '@/lib/article-master';
 
 // Fluid compute (default on Vercel) allows up to 300s on Hobby. The full
 // pipeline (audit + scraping + NLP + angle + 6000-token generation) needs
@@ -141,22 +142,6 @@ Return ONLY valid JSON no markdown:
 
         const angle = await generateUniqueAngle(targetKeyword, nlpData.contentGaps, nlpData.weaknesses);
 
-        // ── STEP D: Build smart internal links ────────────────────────────────
-        const kw = targetKeyword.toLowerCase();
-        let internalLinks = '';
-        if (kw.includes('mot') || kw.includes('car') || kw.includes('vehicle') || kw.includes('dvsa') || kw.includes('tyre') || kw.includes('brake')) {
-          internalLinks = `Internal links to use naturally (max 3):
-- "check your MOT history" → https://mot.autodun.com
-- "free MOT predictor" → https://mot.autodun.com
-- "instant AI car advice" → https://ai.autodun.com`;
-        } else if (kw.includes('seo') || kw.includes('keyword') || kw.includes('content')) {
-          internalLinks = `Internal links to use naturally (max 2):
-- "keyword research tool" → https://seoranko.com
-- "AI article generator" → https://seoranko.com`;
-        } else {
-          internalLinks = `Add 1 relevant internal link to https://seoranko.com where appropriate.`;
-        }
-
         const targetWordCount = Math.max((audit.word_count || 800) + 600, 1500);
         const safeWordCount = Math.min(targetWordCount, 1800);
 
@@ -172,71 +157,31 @@ Return ONLY valid JSON no markdown:
           '<!--SEORANKO_META_END-->'
         );
 
-        // ── STEP E: Rewrite prompt ────────────────────────────────────────────
-        const prompt = `CRITICAL FORMAT RULE: Output ONLY valid HTML. Never use markdown (#, **, ---, -, *). Use h1 h2 h3 p ul li strong em a tags only. First line must be the META comment.
-
-You are a senior UK journalist rewriting and dramatically improving an existing article.
-
-ORIGINAL ARTICLE TO IMPROVE:
-${article.slice(0, 2000)}
-
-TARGET KEYWORD: ${targetKeyword}
-MARKET: ${market}
-TONE: ${tone}
-TARGET WORD COUNT: ${safeWordCount} words (must be longer than original ${audit.word_count || 0} words)
-
-FACTUAL ERRORS TO FIX:
-${(audit.factual_errors || []).join('\n') || 'None identified — verify all facts against official sources'}
-
-MISSING ELEMENTS TO ADD:
-${(audit.missing_elements || []).join('\n')}
-
-TOP PRIORITIES:
-${(audit.improvement_priority || []).join('\n')}
-
-COMPETITOR TOPICS TO INCLUDE:
-${nlpData.commonTopics.slice(0, 5).join(', ')}
-
-CONTENT GAPS TO COVER (competitors miss these — your advantage):
-${nlpData.contentGaps.slice(0, 4).join(', ')}
-
-UNIQUE ANGLE: ${angle.uniqueSection || 'Cover what competitors miss'}
-
-${internalLinks}
-
-REWRITE INSTRUCTIONS:
-1. Keep all accurate facts from the original — do not lose good content
-2. Fix every factual error listed above
-3. Add all missing elements listed above
-4. Restructure with proper H1, H2, H3 hierarchy
-5. Add FAQ section with 4 questions if missing
-6. Add Article schema and FAQ schema JSON-LD at the very end
-7. Add meta description comment on line 1
-8. Cite at least 2 official UK sources with full URLs
-9. Write in British English with human natural tone
-10. Never use AI giveaway phrases: "It is worth noting" / "It is important to" / "Delve into" / "Crucial" / "Leverage"
-
-FACT ACCURACY RULES:
-- Only state facts you are certain are accurate as of June 2026
-- For any price, date, fine or law — only include if verified
-- Write around uncertain figures: "verify at gov.uk"
-- Never invent statistics
-
-ABSOLUTE COMPLETION RULE:
-- Introduction: 100 words
-- Each H2 section: 150 words max
-- FAQ: 4 questions × 80 words
-- Bottom Line: 80 words
-- If approaching token limit: finish current sentence, jump to Bottom Line, write footer, write both schema scripts, stop
-- Never stop mid-sentence
-
-Write the complete improved article now. HTML only.`;
+        // ── STEP E: Centralised master prompt (shared across all 3 article routes)
+        const prompt = buildMasterPrompt({
+          mode: 'improve',
+          keyword: targetKeyword,
+          secondaryKeywords: nlpData.commonTopics || [],
+          entities: nlpData.entities || [],
+          topicalGaps: nlpData.contentGaps || [],
+          wordCount: safeWordCount,
+          tone,
+          market,
+          uniqueAngle: angle.uniqueSection || '',
+          uniqueContent: angle.uniqueContent || '',
+          internalLinks: getInternalLinks(targetKeyword),
+          competitorTopics: nlpData.commonTopics || [],
+          originalArticle: article,
+          missingElements: audit.missing_elements || [],
+          factualErrors: audit.factual_errors || [],
+          improvementPriorities: audit.improvement_priority || [],
+        });
 
         // ── STEP F: Stream improved article ───────────────────────────────────
         send('<!--SEORANKO_STAGE:rewriting-->');
         const stream = await anthropic.messages.stream({
           model: 'claude-sonnet-4-6',
-          max_tokens: 6000,
+          max_tokens: 8000,
           messages: [{ role: 'user', content: prompt }],
         });
 
@@ -248,8 +193,13 @@ Write the complete improved article now. HTML only.`;
           }
         }
 
+        const { article: validatedArticle, corrections } = await validateAndCorrect(improvedArticle);
+        if (corrections.length > 0) {
+          console.log('[article-improve] validation corrections:', corrections);
+        }
+
         // Calculate new word count and score
-        const newWordCount = improvedArticle.replace(/<[^>]*>/g, '').trim().split(/\s+/).filter(Boolean).length;
+        const newWordCount = validatedArticle.replace(/<[^>]*>/g, '').trim().split(/\s+/).filter(Boolean).length;
         const newEeatScore = Math.min(95, (audit.eeat_score || 0) + 55 + (nlpData.contentGaps.length * 3));
 
         // Build improvements list for UI
@@ -266,6 +216,7 @@ Write the complete improved article now. HTML only.`;
           '<!--SEORANKO_STATS_START-->' +
           JSON.stringify({
             improvements,
+            factsFixed: corrections,
             stats: {
               originalWordCount: audit.word_count || 0,
               newWordCount,

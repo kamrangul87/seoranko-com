@@ -6,6 +6,7 @@ import {
   extractCompetitorNLP,
   generateUniqueAngle,
 } from '@/lib/competitor';
+import { buildMasterPrompt, validateAndCorrect, getInternalLinks } from '@/lib/article-master';
 
 export const maxDuration = 300;
 
@@ -122,28 +123,6 @@ export async function POST(req: NextRequest) {
 
     // Merge entities
     const allEntities = Array.from(new Set([...nlp.entities, ...(entities as string[])])).slice(0, 10);
-    const secondaryList = (secondaryKeywords as string[]).slice(0, 12).join(', ');
-    const entitiesList = allEntities.join(', ');
-    const gapsList = allGaps.join(', ');
-
-    // Smart internal links
-    let internalLinks = '';
-    if (kw.includes('mot') || kw.includes('car') || kw.includes('vehicle') || kw.includes('dvsa') || kw.includes('tyre') || kw.includes('brake') || kw.includes('driving') || kw.includes('engine')) {
-      internalLinks = `INTERNAL LINKS — insert these naturally in the article body (maximum 3 total, never same URL twice):
-- "check your MOT history" → https://mot.autodun.com (when mentioning MOT checks or due dates)
-- "free MOT predictor" → https://mot.autodun.com (use once in Bottom Line or FAQ)
-- "find the right electric car" → https://ev.autodun.com (only if EVs mentioned)
-- "instant AI car advice" → https://ai.autodun.com (when mentioning car problems or repairs)`;
-    } else if (kw.includes('seo') || kw.includes('keyword') || kw.includes('content') || kw.includes('rank') || kw.includes('google') || kw.includes('search') || kw.includes('article')) {
-      internalLinks = `INTERNAL LINKS — insert these naturally in the article body (maximum 2 total):
-- "keyword research tool" → https://seoranko.com (when mentioning keyword research)
-- "AI article generator" → https://seoranko.com (when mentioning content creation)`;
-    } else if (kw.includes('health') || kw.includes('fitness') || kw.includes('weight') || kw.includes('diet') || kw.includes('exercise') || kw.includes('nutrition')) {
-      internalLinks = `INTERNAL LINKS — insert naturally (maximum 2 total):
-- "personalised health analysis" → https://fitford.com (when mentioning health tracking)`;
-    } else {
-      internalLinks = `INTERNAL LINKS — insert 1 natural link to https://seoranko.com where appropriate.`;
-    }
 
     // Automotive data section
     const isAutomotive = kw.includes('mot') || kw.includes('car') || kw.includes('vehicle') ||
@@ -156,211 +135,22 @@ export async function POST(req: NextRequest) {
 <p>Checking your specific vehicle's historical test record — including every advisory notice ever raised — gives you a significant advantage before your next test. The <a href="https://mot.autodun.com" rel="noopener">Autodun MOT predictor</a> analyses DVSA data for your exact make, model, age, and mileage to flag the components statistically most likely to fail before your test date. It's the kind of preparation most drivers skip — and the kind that most often prevents an avoidable fail.</p>`
       : '';
 
-    // ── STEP 5: Build master prompt with competitor intelligence ──────────────
-    const competitorIntelSection = validTexts.length > 0 ? `
-════════════════════════════════════════
-COMPETITOR INTELLIGENCE (${validTexts.length} TOP-RANKING ARTICLES ANALYSED)
-════════════════════════════════════════
-Topics every competitor covers (you must cover these better):
-${nlp.commonTopics.slice(0, 5).map((t, i) => `${i + 1}. ${t}`).join('\n')}
-
-Content gaps competitors MISS — cover all of these:
-${nlp.contentGaps.slice(0, 5).map((t, i) => `${i + 1}. ${t}`).join('\n')}
-
-Competitor weaknesses to directly address:
-${nlp.weaknesses.slice(0, 3).map((t, i) => `${i + 1}. ${t}`).join('\n')}
-
-CRITICAL: Your article must visibly outperform these results on every gap listed above.
-` : '';
-
-    const prompt = `CRITICAL FORMAT RULE — READ FIRST:
-Output ONLY valid HTML. Strictly forbidden:
-- # ## ### markdown headings → use <h1> <h2> <h3> instead
-- **bold** markdown → use <strong> instead
-- --- dividers → use <hr> instead
-- bullet - or * lists → use <ul><li> instead
-- Any markdown code fences or backticks
-- Plain text outside of HTML tags
-The first line must be the HTML comment. Then <h1>. Nothing before the comment.
-
-════════════════════════════════════════
-COMPETITOR-BEATING ARTICLE — GOOGLE 2026
-════════════════════════════════════════
-
-You are a senior UK journalist and SEO specialist with 15 years of experience writing for The Guardian, Which?, and Auto Express. Your brief: write an article that definitively outranks and outperforms every existing result for this keyword.
-
-PRIMARY KEYWORD: ${keyword}
-SECONDARY KEYWORDS (weave in naturally): ${secondaryList}
-KEY ENTITIES (mention where relevant): ${entitiesList}
-TOPICAL GAPS TO COVER: ${gapsList}
-TONE: ${tone}
-MARKET: ${market}
-TARGET WORD COUNT: ${safeWordCount} words
-
-${internalLinks}
-
-${competitorIntelSection}
-
-════════════════════════════════
-SECTION 1 — FACT ACCURACY RULES
-════════════════════════════════
-1. Only state facts you are highly confident are accurate as of June 2026
-2. For specific prices, fines, dates, or statistics — only include if you are certain
-3. If unsure of a specific figure, write around it: "always verify current figures at gov.uk"
-4. Never invent statistics, percentages, dates, or official announcements
-5. Always attribute UK law and regulatory claims to the correct body: DVSA, HMRC, NHS, FCA, DVLA
-6. Link regulatory claims to gov.uk or the relevant official UK body
-
-════════════════════════════════
-SECTION 2 — EEAT REQUIREMENTS
-════════════════════════════════
-EXPERIENCE — demonstrate firsthand knowledge:
-- Use phrases like "In practice...", "What most people find is...", "The reality is..."
-- Include practical observations only someone with real experience would know
-
-EXPERTISE — show deep subject knowledge:
-- Use correct technical terminology
-- Explain WHY things work the way they do
-- Cover nuances competitors miss (see competitor intelligence above)
-
-AUTHORITATIVENESS — cite official sources:
-- Include at least 2 official UK source citations with full URLs
-- Use phrases: "According to official guidance...", "Under current UK law...", "GOV.UK states..."
-
-TRUSTWORTHINESS — build reader confidence:
-- Acknowledge limitations honestly: "This varies — check with an expert"
-- Never overpromise
-
-════════════════════════════════
-SECTION 3 — GOOGLE HELPFUL CONTENT
-════════════════════════════════
-- Answer the reader's actual question fully and directly in the introduction
-- Cover all W-questions: What, Why, How, When, Who, How much
-- Include specific actionable steps the reader can take immediately
-- Do not pad with filler — cut anything that does not add real value
-- Include information competitors have missed or explained poorly
-
-════════════════════════════════
-SECTION 4 — AI DETECTION PREVENTION
-════════════════════════════════
-NEVER use: "It is worth noting" / "It is important to" / "In today's world" / "When it comes to" /
-"Delve into" / "Crucial" / "Leverage" / "Navigate" / "Certainly" / "In conclusion" /
-"Furthermore" / "Moreover" / "In addition to this" / "Needless to say"
-
-Use instead: "Here's the thing —" / "In practice," / "Worth knowing:" / "The honest answer is" /
-"That said," / "Practically speaking," / "Most people don't realise that" / "The short answer is"
-
-════════════════════════════════
-SECTION 5 — WRITING QUALITY
-════════════════════════════════
-1. VARY sentence length — mix short punchy sentences with longer explanatory ones
-2. START sentences differently — never start two consecutive sentences with the same word
-3. USE contractions naturally: you'll, it's, don't, that's, here's, you're, they've
-4. VARY paragraph length — mix 2-sentence with 4-5 sentence paragraphs
-5. USE British English: whilst, colour, centre, licence (noun), realise, kerb, tyre
-6. OPEN with this hook: ${angle.hook || 'a counterintuitive fact that challenges the conventional wisdom on this topic'}
-
-════════════════════════════════
-SECTION 6 — ON-PAGE SEO REQUIREMENTS
-════════════════════════════════
-TITLE TAG: under 60 characters, primary keyword near start, include year 2026 where natural
-META DESCRIPTION: exactly 145-155 characters, include primary keyword and a benefit
-KEYWORD PLACEMENT: primary keyword in H1, within first 100 words, in at least 2 H2 headings
-
-════════════════════════════════
-SECTION 7 — COMPLETE ARTICLE STRUCTURE
-════════════════════════════════
-Write EXACTLY these sections in this exact order — no more, no fewer:
-
-LINE 1: <!-- META: [145-155 chars, primary keyword, clear benefit] -->
-
-<h1>[Title: primary keyword near start, compelling, 2026 where relevant, under 60 chars]</h1>
-
-<p>[Introduction: 100 words. Open with the hook: ${angle.hook || 'a surprising fact or bold statement'}. State what article covers. Include primary keyword in first 100 words.]</p>
-
-<h2>[Section 1 title — first major topic competitors cover]</h2>
-<p>[150 words maximum. Concrete, specific, no filler.]</p>
-
-<h2>[Section 2 title — second major topic competitors cover]</h2>
-<p>[150 words maximum. Include relevant secondary keywords naturally.]</p>
-
-<h2>[Section 3 title — third major topic competitors cover]</h2>
-<p>[150 words maximum. Include internal link naturally here if relevant.]</p>
-
-<h2>[Section 4 title — unique gap none of competitors covered properly]</h2>
-<p>[150 words maximum. This is your competitive advantage — write what nobody else has.]</p>
-${uniqueDataSection}
-
-<h2>What the Official Guidance Says</h2>
-<p>[100 words. Reference 2 official UK sources with full URLs. gov.uk, dvsa.gov.uk etc.]</p>
-
-<h2>Frequently Asked Questions</h2>
-<h3>[Question 1 from competitor analysis]</h3>
-<p>[80 words — conversational, accurate answer]</p>
-<h3>[Question 2 from competitor analysis]</h3>
-<p>[80 words]</p>
-<h3>[Question 3 — from content gaps]</h3>
-<p>[80 words]</p>
-<h3>[Question 4 — practical question readers actually ask]</h3>
-<p>[80 words]</p>
-
-<h2>The Bottom Line</h2>
-<p>[80 words. Practical summary. 2 action steps. One internal link naturally.]</p>
-
-<div class='expert-review' style='background:#F5F4F1;border-left:3px solid #FF6B2C;padding:16px 20px;border-radius:0 8px 8px 0;margin-top:32px;'>
-<p style='margin:0;font-size:13px;color:#6B6B6B;'><strong style='color:#0F0F0F;'>Editorial note:</strong> This article was researched using official DVSA and GOV.UK sources and informed by analysis of the top-ranking content for this keyword. All regulatory claims reflect UK law as of June 2026. <a href='https://mot.autodun.com' rel='noopener'>Verify your vehicle's MOT status</a> through official DVSA records.</p>
-</div>
-
-<p class='article-meta'><em>Last updated: June 2026. Always verify regulatory details at <a href='https://www.gov.uk' rel='noopener'>GOV.UK</a>.</em></p>
-<p class='article-author'>Written by the <strong>Seoranko Editorial Team</strong></p>
-
-<script type='application/ld+json'>
-{"@context":"https://schema.org","@type":"Article","headline":"[exact H1 title]","author":{"@type":"Person","name":"Seoranko Editorial Team"},"publisher":{"@type":"Organization","name":"Seoranko","url":"https://seoranko.com"},"dateModified":"2026-06-09","inLanguage":"en-GB"}
-</script>
-
-<script type='application/ld+json'>
-{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[
-{"@type":"Question","name":"[Q1]","acceptedAnswer":{"@type":"Answer","text":"[A1 — same text as FAQ answer above]"}},
-{"@type":"Question","name":"[Q2]","acceptedAnswer":{"@type":"Answer","text":"[A2]"}},
-{"@type":"Question","name":"[Q3]","acceptedAnswer":{"@type":"Answer","text":"[A3]"}},
-{"@type":"Question","name":"[Q4]","acceptedAnswer":{"@type":"Answer","text":"[A4]"}}
-]}
-</script>
-
-════════════════════════════════
-ABSOLUTE COMPLETION RULE — READ THIS FIRST
-════════════════════════════════
-You must complete the entire article. Never stop mid-sentence. Never stop mid-section.
-
-Token budget per section — do not exceed these limits:
-- Introduction: 100 words maximum
-- Each H2 body section: 150 words maximum
-- Official Guidance section: 100 words maximum
-- FAQ section: 4 questions × 80 words = 320 words maximum
-- Bottom Line: 80 words maximum
-- Total article body: 1200 words maximum
-
-If you are approaching your token limit at any point:
-1. Finish the current sentence immediately
-2. Close any open HTML tag
-3. Jump directly to The Bottom Line
-4. Write Bottom Line in full (80 words)
-5. Write the expert-review div
-6. Write footer metadata
-7. Write Article JSON-LD schema
-8. Write FAQ JSON-LD schema
-9. Stop
-
-A complete 1000-word article is infinitely better than a truncated 2000-word one.
-DO NOT write more than 150 words per H2 section — be concise and precise.
-DO NOT skip The Bottom Line under any circumstances.
-
-════════════════════════════════
-SECTION 9 — COMPETITOR-BEATING RULE
-════════════════════════════════
-This article exists to outrank and outperform every existing result. Every section must be more detailed, more accurate, or more helpful than the competition. The content gaps identified must be visibly addressed. The weaknesses in current results must be directly corrected.
-
-Write the complete article now. Output HTML only — no commentary, no preamble, no markdown.`;
+    // ── STEP 5: Centralised master prompt with competitor intelligence ────────
+    const prompt = buildMasterPrompt({
+      mode: 'competitor',
+      keyword,
+      secondaryKeywords: secondaryKeywords as string[],
+      entities: allEntities,
+      topicalGaps: allGaps,
+      wordCount: safeWordCount,
+      tone,
+      market,
+      uniqueAngle: angle.uniqueSection || angle.hook || '',
+      uniqueContent: angle.uniqueContent || '',
+      uniqueDataSection,
+      internalLinks: getInternalLinks(keyword),
+      competitorTopics: nlp.commonTopics,
+    });
 
     // ── STEP 6: Stream article ────────────────────────────────────────────────
     const stream = await anthropic.messages.stream({
@@ -385,7 +175,7 @@ Write the complete article now. Output HTML only — no commentary, no preamble,
             }
           }
 
-          // ── STEP 7: Post-write fact enrichment ───────────────────────────
+          // ── STEP 7: Post-write fact enrichment + validation ───────────────
           if (validCompetitors.length > 0 && fullArticle.length > 200) {
             // Signal to client that enrichment is starting
             controller.enqueue(encoder.encode('\n<!--SEORANKO_ENRICHING-->'));
@@ -396,10 +186,26 @@ Write the complete article now. Output HTML only — no commentary, no preamble,
               validCompetitors,
             );
 
+            const { article: validatedArticle, corrections } = await validateAndCorrect(enriched);
+            if (corrections.length > 0) {
+              console.log('[article-competitor] validation corrections:', corrections);
+            }
+
             // Send enriched article — client replaces base article with this
             controller.enqueue(encoder.encode(
-              `\n<!--SEORANKO_ENRICHED_START-->\n${enriched}\n<!--SEORANKO_ENRICHED_END-->`
+              `\n<!--SEORANKO_ENRICHED_START-->\n${validatedArticle}\n<!--SEORANKO_ENRICHED_END-->`
             ));
+          } else if (fullArticle.length > 200) {
+            // No competitors fetched — still validate; the client only replaces
+            // the article when the ENRICHED markers arrive, so only send them
+            // when a correction actually changed something
+            const { article: validatedArticle, corrections } = await validateAndCorrect(fullArticle);
+            if (corrections.length > 0) {
+              console.log('[article-competitor] validation corrections:', corrections);
+              controller.enqueue(encoder.encode(
+                `\n<!--SEORANKO_ENRICHING-->\n<!--SEORANKO_ENRICHED_START-->\n${validatedArticle}\n<!--SEORANKO_ENRICHED_END-->`
+              ));
+            }
           }
 
           controller.close();
