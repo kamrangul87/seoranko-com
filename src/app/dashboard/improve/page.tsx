@@ -33,14 +33,15 @@ export default function ImproveArticlePage() {
     setLoading(true);
     setError('');
     setResult(null);
-    setProgress(10);
+    setProgress(5);
     setStage('detecting');
 
-    const stageTimers = [
-      setTimeout(() => { setStage('auditing'); setProgress(25); }, 2000),
-      setTimeout(() => { setStage('competitors'); setProgress(50); }, 5000),
-      setTimeout(() => { setStage('rewriting'); setProgress(75); }, 10000),
-    ];
+    const stageProgress: Record<string, number> = {
+      detecting: 10,
+      auditing: 25,
+      competitors: 50,
+      rewriting: 70,
+    };
 
     try {
       const res = await fetch('/api/article-improve', {
@@ -49,20 +50,67 @@ export default function ImproveArticlePage() {
         body: JSON.stringify({ article: articleInput, keyword, market, tone }),
       });
 
-      stageTimers.forEach(t => clearTimeout(t));
-
-      const data = await res.json();
-      if (data.error) {
-        setError(data.error);
+      if (!res.ok) {
+        const text = await res.text();
+        try {
+          setError(JSON.parse(text).error || 'Server error');
+        } catch {
+          setError(text.slice(0, 200) || 'Server error');
+        }
         return;
       }
 
+      // The route streams: stage markers → META JSON block → article HTML → STATS JSON block
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let fullText = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        fullText += decoder.decode(value, { stream: true });
+
+        const stageMatches = Array.from(fullText.matchAll(/<!--SEORANKO_STAGE:(\w+)-->/g));
+        if (stageMatches.length > 0) {
+          const latest = stageMatches[stageMatches.length - 1][1];
+          setStage(latest);
+          if (latest === 'rewriting') {
+            const metaEnd = fullText.indexOf('<!--SEORANKO_META_END-->');
+            const articleSoFar = metaEnd !== -1 ? fullText.slice(metaEnd) : '';
+            setProgress(Math.min(95, 70 + Math.round(articleSoFar.length / 400)));
+          } else {
+            setProgress(stageProgress[latest] ?? 10);
+          }
+        }
+      }
+
+      const errMatch = fullText.match(/<!--SEORANKO_ERROR-->([\s\S]*)$/);
+      if (errMatch) {
+        setError(errMatch[1].trim() || 'Improvement failed');
+        return;
+      }
+
+      const metaMatch = fullText.match(/<!--SEORANKO_META_START-->([\s\S]*?)<!--SEORANKO_META_END-->/);
+      const statsMatch = fullText.match(/<!--SEORANKO_STATS_START-->([\s\S]*?)<!--SEORANKO_STATS_END-->/);
+      if (!metaMatch || !statsMatch) {
+        setError('Unexpected response from server — please try again');
+        return;
+      }
+
+      const meta = JSON.parse(metaMatch[1]);
+      const statsData = JSON.parse(statsMatch[1]);
+      const articleStart = fullText.indexOf('<!--SEORANKO_META_END-->') + '<!--SEORANKO_META_END-->'.length;
+      const articleEnd = fullText.indexOf('<!--SEORANKO_STATS_START-->');
+      const improvedArticle = fullText
+        .slice(articleStart, articleEnd)
+        .replace(/<!--SEORANKO_STAGE:\w+-->/g, '')
+        .trim();
+
       setStage('complete');
       setProgress(100);
-      setResult(data);
+      setResult({ ...meta, ...statsData, improvedArticle });
 
     } catch (err: any) {
-      stageTimers.forEach(t => clearTimeout(t));
       setError(err.message || 'Something went wrong');
     } finally {
       setLoading(false);
