@@ -15,9 +15,11 @@ export const maxDuration = 300;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
 
-// Small audit/extraction calls run on Haiku (separate rate-limit bucket) so they
-// don't consume the Sonnet budget the main article rewrite needs.
+// Keyword detection runs on Haiku (simple extraction, separate rate-limit bucket).
+// Audit scoring, fact verification, and fact-check run on Sonnet — Haiku
+// over-inflates EEAT scores and misses invented author names and factual errors.
 const FAST_MODEL = 'claude-haiku-4-5-20251001';
+const MAIN_MODEL = 'claude-sonnet-4-6';
 
 interface Audit {
   word_count: number;
@@ -93,7 +95,7 @@ export async function POST(req: NextRequest) {
         })();
 
         const auditRes = await anthropic.messages.create({
-          model: FAST_MODEL,
+          model: MAIN_MODEL,
           max_tokens: 1000,
           messages: [{
             role: 'user',
