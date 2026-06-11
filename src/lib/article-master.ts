@@ -244,6 +244,39 @@ Only include helpline numbers you are certain are correct for ${market}:
 - CA: Crisis Services Canada 1-833-456-4566
 - Other countries: do not include specific numbers unless certain — say "contact your local emergency services"
 
+RULE 9 — NEVER INVENT CITATIONS, DOCUMENT NUMBERS OR REFERENCE CODES
+This is one of the most dangerous hallucination patterns in AI writing.
+
+STRICTLY FORBIDDEN — never include any of these unless they came from the live verified facts:
+- Document reference numbers: TB/432, SI 2018/1313, CFR 49.571, any alphanumeric code
+- Specific guidance document names unless from official search results
+- Study or report titles unless from official search results
+- Statistical percentages or figures without a named verifiable source
+- Named authors of official guidance unless verified
+- Specific page numbers, section numbers, or clause references
+- Any citation formatted as [Author, Year] or (Source, Year)
+
+WHEN YOU WANT TO CITE SOMETHING:
+- Only cite URLs that came from the live verified facts above
+- If you want to reference official guidance, use the generic URL format:
+  "published at [official URL from live facts]"
+- Never write "according to document TB/XXX" or "as per guidance note XX/YY"
+- If you cannot find the exact document in the live facts, say:
+  "according to official DVSA guidance at gov.uk" — not a specific document code
+
+SAFE CITATION FORMATS (use these):
+✅ "According to DVSA guidance at gov.uk/guidance/mot-testing-guide..."
+✅ "The official MOT inspection manual published at gov.uk states..."
+✅ "GOV.UK confirms that..." with a link to gov.uk
+✅ Statistics with named source: "DVSA annual testing statistics show..."
+
+UNSAFE CITATION FORMATS (never use):
+❌ "According to DVSA guidance document TB/432..."
+❌ "As per SI 2018/1313 section 4.2..."
+❌ "Research by [Name] (2024) found that..."
+❌ "The XYZ Report (2023) states..."
+❌ Any reference with a specific code, number or ID not from live search results
+
 SELF-CHECK BEFORE EVERY FACTUAL SENTENCE:
 1. Is this fact in the live verified facts above? → Use it
 2. Am I 100% certain this is correct for ${market} in ${currentYear}? → Use it
@@ -468,7 +501,35 @@ export async function validateAndCorrect(
     }
   }
 
-  // FIX 6 — Universal AI fact-check against the live verified facts. This is a
+  // FIX 6 — Remove invented document reference codes (e.g. TB/432, SI 2018/1313)
+  const inventedDocRefs = /(?:document|guidance|note|circular|bulletin|directive|specification|standard)\s+[A-Z]{1,4}[\/\-]\d{2,5}[a-z]?\b/gi;
+  if (inventedDocRefs.test(corrected)) {
+    corrected = corrected.replace(
+      /(?:including\s+)?(?:guidance\s+)?document\s+[A-Z]{1,4}[\/\-]\d{2,5}[a-z]?\s+(?:which\s+[^,\.]+)?/gi,
+      ''
+    );
+    corrected = corrected.replace(
+      /,?\s*[A-Z]{1,4}[\/\-]\d{2,5}[a-z]?\s+(?:covers?|states?|requires?|mandates?)[^,\.]+/gi,
+      ''
+    );
+    corrections.push('Removed invented document reference code — replaced with verified URL');
+  }
+
+  // FIX 7 — Flag unattributed specific statistics
+  const unattributedStats = /(\d+(?:\.\d+)?%|\d+\s+(?:million|billion|thousand))\s+(?:of\s+)?(?:cars?|vehicles?|drivers?|people|users?)/gi;
+  const statsMatches = corrected.match(unattributedStats);
+  if (statsMatches && statsMatches.length > 0) {
+    for (const stat of statsMatches) {
+      const statIndex = corrected.indexOf(stat);
+      const surrounding = corrected.slice(Math.max(0, statIndex - 100), statIndex + 100);
+      const hasSource = /according to|source:|gov\.uk|dvsa|official|published|statistics/i.test(surrounding);
+      if (!hasSource) {
+        corrections.push(`Warning: statistic "${stat}" has no attributed source — consider adding attribution`);
+      }
+    }
+  }
+
+  // FIX 8 — Universal AI fact-check against the live verified facts. This is a
   // single Claude call that catches invented numbers/names/forms that the regex
   // fixes above can't know about — works for any topic in any country.
   try {
