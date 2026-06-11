@@ -7,7 +7,10 @@ import {
   generateUniqueAngle,
 } from '@/lib/competitor';
 
-export const maxDuration = 60;
+// Fluid compute (default on Vercel) allows up to 300s on Hobby. The full
+// pipeline (audit + scraping + NLP + angle + 6000-token generation) needs
+// ~2 minutes — 60s kills the function mid-stream.
+export const maxDuration = 300;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
@@ -70,8 +73,20 @@ export async function POST(req: NextRequest) {
 
         console.log('[article-improve] keyword:', targetKeyword);
 
-        // ── STEP B: Audit the existing article ────────────────────────────────
+        // ── STEPS B + C in parallel: audit and competitor scraping only depend
+        // on the keyword, so running them concurrently cuts ~20s of dead time
         send('<!--SEORANKO_STAGE:auditing-->');
+        const competitorsPromise = (async () => {
+          const competitorUrls = await getTopCompetitorUrls(targetKeyword, market);
+          const competitorContents = await Promise.all(
+            competitorUrls.map(async url => ({
+              url,
+              content: await fetchCompetitorContent(url),
+            }))
+          );
+          return competitorContents.filter(c => c.content.length > 100);
+        })();
+
         const auditRes = await anthropic.messages.create({
           model: 'claude-sonnet-4-6',
           max_tokens: 1000,
@@ -117,16 +132,9 @@ Return ONLY valid JSON no markdown:
           };
         }
 
-        // ── STEP C: Get competitor data ───────────────────────────────────────
+        // ── Competitor NLP + unique angle ─────────────────────────────────────
         send('<!--SEORANKO_STAGE:competitors-->');
-        const competitorUrls = await getTopCompetitorUrls(targetKeyword, market);
-        const competitorContents = await Promise.all(
-          competitorUrls.map(async url => ({
-            url,
-            content: await fetchCompetitorContent(url),
-          }))
-        );
-        const validCompetitors = competitorContents.filter(c => c.content.length > 100);
+        const validCompetitors = await competitorsPromise;
         const nlpData = validCompetitors.length > 0
           ? await extractCompetitorNLP(validCompetitors.map(c => c.content), targetKeyword)
           : { commonTopics: [], contentGaps: audit.missing_elements || [], weaknesses: [], entities: [] };
