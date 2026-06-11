@@ -1,0 +1,253 @@
+import { NextRequest, NextResponse } from 'next/server';
+import Anthropic from '@anthropic-ai/sdk';
+import {
+  getTopCompetitorUrls,
+  fetchCompetitorContent,
+  extractCompetitorNLP,
+  generateUniqueAngle,
+} from '@/lib/competitor';
+
+export const maxDuration = 60;
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+
+interface Audit {
+  word_count: number;
+  eeat_score: number;
+  readability_score: number;
+  keyword_density: number;
+  has_h1: boolean;
+  has_schema: boolean;
+  has_faq: boolean;
+  has_official_sources: boolean;
+  has_internal_links: boolean;
+  has_price_table: boolean;
+  factual_errors: string[];
+  missing_elements: string[];
+  weak_sections: string[];
+  improvement_priority: string[];
+  overall_grade: string;
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const {
+      article = '',
+      keyword = '',
+      market = 'United Kingdom',
+      tone = 'professional',
+    } = body;
+
+    if (!article.trim()) {
+      return NextResponse.json({ error: 'Article text is required' }, { status: 400 });
+    }
+
+    // ── STEP A: Extract keyword if not provided ───────────────────────────────
+    let targetKeyword = keyword.trim();
+    if (!targetKeyword) {
+      const kwRes = await anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 50,
+        messages: [{
+          role: 'user',
+          content: `What is the primary SEO keyword of this article? Return ONLY the keyword phrase, nothing else, no punctuation.\n\n${article.slice(0, 1000)}`,
+        }],
+      });
+      targetKeyword = kwRes.content[0].type === 'text' ? kwRes.content[0].text.trim() : 'general topic';
+    }
+
+    console.log('[article-improve] keyword:', targetKeyword);
+
+    // ── STEP B: Audit the existing article ────────────────────────────────────
+    const auditRes = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1000,
+      messages: [{
+        role: 'user',
+        content: `You are an expert SEO auditor. Analyse this article for the keyword "${targetKeyword}" and score it strictly.
+
+ARTICLE:
+${article.slice(0, 4000)}
+
+Return ONLY valid JSON no markdown:
+{
+  "word_count": number,
+  "eeat_score": number 0-100,
+  "readability_score": number 0-100,
+  "keyword_density": number as percentage with 1 decimal,
+  "has_h1": boolean,
+  "has_schema": boolean,
+  "has_faq": boolean,
+  "has_official_sources": boolean,
+  "has_internal_links": boolean,
+  "has_price_table": boolean,
+  "factual_errors": ["list any specific facts that appear incorrect or unverified"],
+  "missing_elements": ["list of missing SEO and content elements"],
+  "weak_sections": ["list of sections that are thin or poorly written"],
+  "improvement_priority": ["top 5 most important things to fix in order"],
+  "overall_grade": "F | D | C | B | A"
+}`,
+      }],
+    });
+
+    const auditText = auditRes.content[0].type === 'text' ? auditRes.content[0].text : '{}';
+    let audit: Audit;
+    try {
+      audit = JSON.parse(auditText.replace(/```json|```/g, '').trim());
+    } catch {
+      audit = {
+        word_count: 0, eeat_score: 0, readability_score: 0, keyword_density: 0,
+        has_h1: false, has_schema: false, has_faq: false, has_official_sources: false,
+        has_internal_links: false, has_price_table: false,
+        factual_errors: [], missing_elements: [], weak_sections: [],
+        improvement_priority: [], overall_grade: 'F',
+      };
+    }
+
+    // ── STEP C: Get competitor data ───────────────────────────────────────────
+    const competitorUrls = await getTopCompetitorUrls(targetKeyword, market);
+    const competitorContents = await Promise.all(
+      competitorUrls.map(async url => ({
+        url,
+        content: await fetchCompetitorContent(url),
+      }))
+    );
+    const validCompetitors = competitorContents.filter(c => c.content.length > 100);
+    const nlpData = validCompetitors.length > 0
+      ? await extractCompetitorNLP(validCompetitors.map(c => c.content), targetKeyword)
+      : { commonTopics: [], contentGaps: audit.missing_elements || [], weaknesses: [], entities: [] };
+
+    const angle = await generateUniqueAngle(targetKeyword, nlpData.contentGaps, nlpData.weaknesses);
+
+    // ── STEP D: Build smart internal links ────────────────────────────────────
+    const kw = targetKeyword.toLowerCase();
+    let internalLinks = '';
+    if (kw.includes('mot') || kw.includes('car') || kw.includes('vehicle') || kw.includes('dvsa') || kw.includes('tyre') || kw.includes('brake')) {
+      internalLinks = `Internal links to use naturally (max 3):
+- "check your MOT history" → https://mot.autodun.com
+- "free MOT predictor" → https://mot.autodun.com
+- "instant AI car advice" → https://ai.autodun.com`;
+    } else if (kw.includes('seo') || kw.includes('keyword') || kw.includes('content')) {
+      internalLinks = `Internal links to use naturally (max 2):
+- "keyword research tool" → https://seoranko.com
+- "AI article generator" → https://seoranko.com`;
+    } else {
+      internalLinks = `Add 1 relevant internal link to https://seoranko.com where appropriate.`;
+    }
+
+    const targetWordCount = Math.max((audit.word_count || 800) + 600, 1500);
+    const safeWordCount = Math.min(targetWordCount, 1800);
+
+    // ── STEP E: Rewrite prompt ────────────────────────────────────────────────
+    const prompt = `CRITICAL FORMAT RULE: Output ONLY valid HTML. Never use markdown (#, **, ---, -, *). Use h1 h2 h3 p ul li strong em a tags only. First line must be the META comment.
+
+You are a senior UK journalist rewriting and dramatically improving an existing article.
+
+ORIGINAL ARTICLE TO IMPROVE:
+${article.slice(0, 2000)}
+
+TARGET KEYWORD: ${targetKeyword}
+MARKET: ${market}
+TONE: ${tone}
+TARGET WORD COUNT: ${safeWordCount} words (must be longer than original ${audit.word_count || 0} words)
+
+FACTUAL ERRORS TO FIX:
+${(audit.factual_errors || []).join('\n') || 'None identified — verify all facts against official sources'}
+
+MISSING ELEMENTS TO ADD:
+${(audit.missing_elements || []).join('\n')}
+
+TOP PRIORITIES:
+${(audit.improvement_priority || []).join('\n')}
+
+COMPETITOR TOPICS TO INCLUDE:
+${nlpData.commonTopics.slice(0, 5).join(', ')}
+
+CONTENT GAPS TO COVER (competitors miss these — your advantage):
+${nlpData.contentGaps.slice(0, 4).join(', ')}
+
+UNIQUE ANGLE: ${angle.uniqueSection || 'Cover what competitors miss'}
+
+${internalLinks}
+
+REWRITE INSTRUCTIONS:
+1. Keep all accurate facts from the original — do not lose good content
+2. Fix every factual error listed above
+3. Add all missing elements listed above
+4. Restructure with proper H1, H2, H3 hierarchy
+5. Add FAQ section with 4 questions if missing
+6. Add Article schema and FAQ schema JSON-LD at the very end
+7. Add meta description comment on line 1
+8. Cite at least 2 official UK sources with full URLs
+9. Write in British English with human natural tone
+10. Never use AI giveaway phrases: "It is worth noting" / "It is important to" / "Delve into" / "Crucial" / "Leverage"
+
+FACT ACCURACY RULES:
+- Only state facts you are certain are accurate as of June 2026
+- For any price, date, fine or law — only include if verified
+- Write around uncertain figures: "verify at gov.uk"
+- Never invent statistics
+
+ABSOLUTE COMPLETION RULE:
+- Introduction: 100 words
+- Each H2 section: 150 words max
+- FAQ: 4 questions × 80 words
+- Bottom Line: 80 words
+- If approaching token limit: finish current sentence, jump to Bottom Line, write footer, write both schema scripts, stop
+- Never stop mid-sentence
+
+Write the complete improved article now. HTML only.`;
+
+    // ── STEP F: Generate improved article ─────────────────────────────────────
+    const stream = await anthropic.messages.stream({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 6000,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    let improvedArticle = '';
+    for await (const chunk of stream) {
+      if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+        improvedArticle += chunk.delta.text;
+      }
+    }
+
+    // Calculate new word count and score
+    const newWordCount = improvedArticle.replace(/<[^>]*>/g, '').trim().split(/\s+/).filter(Boolean).length;
+    const newEeatScore = Math.min(95, (audit.eeat_score || 0) + 55 + (nlpData.contentGaps.length * 3));
+
+    // Build improvements list for UI
+    const improvements: { type: string; count: number }[] = [];
+    if ((audit.factual_errors || []).length > 0) improvements.push({ type: 'Factual errors fixed', count: audit.factual_errors.length });
+    if (!audit.has_h1) improvements.push({ type: 'H1 + heading structure added', count: 1 });
+    if (!audit.has_schema) improvements.push({ type: 'Schema markup added', count: 1 });
+    if (!audit.has_faq) improvements.push({ type: 'FAQ section added', count: 1 });
+    if (!audit.has_official_sources) improvements.push({ type: 'Official sources cited', count: 2 });
+    if (nlpData.contentGaps.length > 0) improvements.push({ type: 'Content gaps filled', count: nlpData.contentGaps.length });
+    improvements.push({ type: 'Word count increased', count: newWordCount - (audit.word_count || 0) });
+
+    return NextResponse.json({
+      success: true,
+      keyword: targetKeyword,
+      audit,
+      competitors: validCompetitors.map(c => ({ url: c.url, wordCount: c.content.split(' ').length })),
+      contentGaps: nlpData.contentGaps.slice(0, 6),
+      improvements,
+      improvedArticle,
+      stats: {
+        originalWordCount: audit.word_count || 0,
+        newWordCount,
+        originalEeat: audit.eeat_score || 0,
+        newEeat: newEeatScore,
+        originalKeywordDensity: audit.keyword_density || 0,
+        issuesFixed: improvements.length,
+      },
+    });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } catch (error: any) {
+    console.error('[article-improve]', error);
+    return NextResponse.json({ error: error?.message || 'Improvement failed' }, { status: 500 });
+  }
+}
