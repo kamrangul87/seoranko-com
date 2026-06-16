@@ -13,6 +13,7 @@ export default function RankingAgentPage() {
   const [error, setError] = useState('');
   const [deepAnalyses, setDeepAnalyses] = useState<Record<string, any>>({});
   const [panelArticleId, setPanelArticleId] = useState<string | null>(null);
+  const [panelLoading, setPanelLoading] = useState(false);
 
   useEffect(() => {
     fetchArticles();
@@ -42,6 +43,18 @@ export default function RankingAgentPage() {
     });
   }
 
+  function getAnalysisForArticle(article: any): any | null {
+    if (!article) return null;
+    if (deepAnalyses[article.id]) return deepAnalyses[article.id];
+    const log = (article.agent_logs || []).find((l: any) => l.action === 'DEEP_ANALYSIS');
+    if (!log?.result) return null;
+    try {
+      return JSON.parse(log.result);
+    } catch {
+      return null;
+    }
+  }
+
   async function handleTrackArticle() {
     if (!addUrl || !addKeyword) {
       setError('URL and keyword are required');
@@ -67,6 +80,8 @@ export default function RankingAgentPage() {
 
   async function handleCheckNow(articleId: string) {
     setChecking(articleId);
+    setPanelArticleId(articleId);
+    setPanelLoading(true);
     try {
       const res = await fetch('/api/ranking-agent/check', {
         method: 'POST',
@@ -78,6 +93,7 @@ export default function RankingAgentPage() {
       await fetchArticles();
     } finally {
       setChecking(null);
+      setPanelLoading(false);
     }
   }
 
@@ -95,6 +111,10 @@ export default function RankingAgentPage() {
     } finally {
       setChecking(null);
     }
+  }
+
+  function openAnalysis(article: any) {
+    setPanelArticleId(article.id);
   }
 
   function getPositionBadge(current: number | null, previous: number | null) {
@@ -134,10 +154,10 @@ export default function RankingAgentPage() {
     return '#E24B4A';
   }
 
-  function impactColor(action: string) {
-    if (action.includes('HIGH')) return '#DC2626';
-    if (action.includes('MEDIUM')) return '#EF9F27';
-    return '#16A34A';
+  function impactBadgeStyle(action: string) {
+    if (action.includes('HIGH')) return { background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA' };
+    if (action.includes('MEDIUM')) return { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' };
+    return { background: '#F0FDF4', color: '#166534', border: '1px solid #BBF7D0' };
   }
 
   const s: Record<string, any> = {
@@ -172,6 +192,8 @@ export default function RankingAgentPage() {
     actionItem: { display: 'flex', gap: '8px', fontSize: '13px', color: '#0F0F0F', padding: '8px 0', borderBottom: '1px solid #F5F4F1', alignItems: 'flex-start' },
     bulletList: { margin: 0, paddingLeft: '18px', fontSize: '13px', color: '#0F0F0F', lineHeight: 1.6 },
     gainBox: { background: '#F0FDF4', border: '1px solid #BBF7D0', color: '#16A34A', fontWeight: 700, fontSize: '13px', padding: '10px 14px', borderRadius: '8px', marginTop: '18px', textAlign: 'center' },
+    panelEmpty: { textAlign: 'center', padding: '60px 20px', color: '#9B9B9B', fontSize: '13px' },
+    spinner: { width: '32px', height: '32px', border: '3px solid #F5F4F1', borderTopColor: '#FF6B2C', borderRadius: '50%', margin: '40px auto 16px', animation: 'spin 0.8s linear infinite' },
   };
 
   function badge(color: string) {
@@ -185,10 +207,11 @@ export default function RankingAgentPage() {
   }
 
   const panelArticle = panelArticleId ? articles.find(a => a.id === panelArticleId) : null;
-  const panelAnalysis = panelArticleId ? deepAnalyses[panelArticleId] : null;
+  const panelAnalysis = getAnalysisForArticle(panelArticle);
 
   return (
     <div style={s.page}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       <div style={s.header}>
         <div style={s.title}>🤖 Ranking Agent</div>
         <div style={s.subtitle}>Tracks keyword positions automatically — detects drops, analyses competitors, logs every action.</div>
@@ -265,7 +288,6 @@ export default function RankingAgentPage() {
                   ? new Date(article.last_checked).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
                   : 'Never';
                 const target = getTargetInfo(article.current_position);
-                const hasAnalysis = !!deepAnalyses[article.id];
                 return (
                   <tr key={article.id}>
                     <td style={s.td}>
@@ -309,10 +331,10 @@ export default function RankingAgentPage() {
                       >
                         {checking === article.id ? '⏳' : '🔍 Check Now'}
                       </button>
-                      {hasAnalysis && (
+                      {article.last_checked && (
                         <div>
-                          <button style={s.viewBtn} onClick={() => setPanelArticleId(article.id)}>
-                            View Analysis
+                          <button style={s.viewBtn} onClick={() => openAnalysis(article)}>
+                            🧠 View Analysis
                           </button>
                         </div>
                       )}
@@ -326,65 +348,84 @@ export default function RankingAgentPage() {
       )}
 
       {/* Slide-out analysis panel */}
-      {panelArticleId && panelAnalysis && (
+      {panelArticleId && (
         <>
           <div style={s.overlay} onClick={() => setPanelArticleId(null)} />
           <div style={s.panel}>
             <button style={s.panelClose} onClick={() => setPanelArticleId(null)}>✕</button>
-            <div style={s.panelTitle}>{panelArticle?.keyword}</div>
-            <div style={s.panelSub}>Currently #{panelArticle?.current_position} — 25yr SEO veteran diagnosis</div>
+            <div style={s.panelTitle}>🎯 {panelArticle?.keyword}</div>
+            <div style={s.panelSub}>
+              Currently #{panelArticle?.current_position ?? '—'} — SEO Analysis
+            </div>
 
-            <div style={s.diagnosisBox}>{panelAnalysis.diagnosis}</div>
-
-            {panelAnalysis.priorityActions?.length > 0 && (
-              <>
-                <div style={s.sectionTitle}>Priority Actions</div>
-                {panelAnalysis.priorityActions.map((action: string, i: number) => (
-                  <div key={i} style={s.actionItem}>
-                    <span style={{
-                      fontSize: '10px', fontWeight: 700, color: '#fff',
-                      background: impactColor(action), borderRadius: '4px',
-                      padding: '2px 6px', flexShrink: 0, marginTop: '2px',
-                    }}>
-                      {action.includes('HIGH') ? 'HIGH' : action.includes('MEDIUM') ? 'MED' : 'LOW'}
-                    </span>
-                    <span>{action.replace(/^\d+\.\s*\[IMPACT:\s*(HIGH|MEDIUM|LOW)\]\s*/i, '')}</span>
-                  </div>
-                ))}
-              </>
-            )}
-
-            {panelAnalysis.contentGaps?.length > 0 && (
-              <>
-                <div style={s.sectionTitle}>Content Gaps</div>
-                <ul style={s.bulletList}>
-                  {panelAnalysis.contentGaps.map((gap: string, i: number) => <li key={i}>{gap}</li>)}
-                </ul>
-              </>
-            )}
-
-            {panelAnalysis.serpFeatures?.length > 0 && (
-              <>
-                <div style={s.sectionTitle}>SERP Feature Opportunities</div>
-                <ul style={s.bulletList}>
-                  {panelAnalysis.serpFeatures.map((f: string, i: number) => <li key={i}>{f}</li>)}
-                </ul>
-              </>
-            )}
-
-            {panelAnalysis.topCompetitorInsights?.length > 0 && (
-              <>
-                <div style={s.sectionTitle}>Competitor Insights</div>
-                <ul style={s.bulletList}>
-                  {panelAnalysis.topCompetitorInsights.map((insight: string, i: number) => <li key={i}>{insight}</li>)}
-                </ul>
-              </>
-            )}
-
-            {typeof panelAnalysis.estimatedPositionsToGain === 'number' && panelAnalysis.estimatedPositionsToGain > 0 && (
-              <div style={s.gainBox}>
-                +{panelAnalysis.estimatedPositionsToGain} positions in 30 days
+            {panelLoading ? (
+              <div style={s.panelEmpty}>
+                <div style={s.spinner} />
+                Running analysis...
               </div>
+            ) : !panelAnalysis ? (
+              <div style={s.panelEmpty}>
+                No analysis yet — click Check Now to run analysis.
+              </div>
+            ) : (
+              <>
+                <div style={s.sectionTitle}>🔍 Diagnosis</div>
+                <div style={s.diagnosisBox}>{panelAnalysis.diagnosis}</div>
+
+                {panelAnalysis.priorityActions?.length > 0 && (
+                  <>
+                    <div style={s.sectionTitle}>⚡ Priority Actions</div>
+                    {panelAnalysis.priorityActions.map((action: string, i: number) => (
+                      <div key={i} style={s.actionItem}>
+                        <span style={{
+                          fontSize: '10px', fontWeight: 700,
+                          ...impactBadgeStyle(action), borderRadius: '4px',
+                          padding: '2px 6px', flexShrink: 0, marginTop: '2px',
+                        }}>
+                          {action.includes('HIGH') ? 'HIGH' : action.includes('MEDIUM') ? 'MED' : 'LOW'}
+                        </span>
+                        <span>{action.replace(/^\d+\.\s*\[IMPACT:\s*(HIGH|MEDIUM|LOW)\]\s*/i, '')}</span>
+                      </div>
+                    ))}
+                  </>
+                )}
+
+                {panelAnalysis.contentGaps?.length > 0 && (
+                  <>
+                    <div style={s.sectionTitle}>📋 Content Gaps</div>
+                    <ul style={s.bulletList}>
+                      {panelAnalysis.contentGaps.map((gap: string, i: number) => <li key={i}>{gap}</li>)}
+                    </ul>
+                  </>
+                )}
+
+                {panelAnalysis.serpFeatures?.length > 0 && (
+                  <>
+                    <div style={s.sectionTitle}>🏆 SERP Opportunities</div>
+                    <ul style={s.bulletList}>
+                      {panelAnalysis.serpFeatures.map((f: string, i: number) => <li key={i}>{f}</li>)}
+                    </ul>
+                  </>
+                )}
+
+                {panelAnalysis.topCompetitorInsights?.length > 0 && (
+                  <>
+                    <div style={s.sectionTitle}>💡 Competitor Insights</div>
+                    <ul style={s.bulletList}>
+                      {panelAnalysis.topCompetitorInsights.map((insight: string, i: number) => <li key={i}>{insight}</li>)}
+                    </ul>
+                  </>
+                )}
+
+                {typeof panelAnalysis.estimatedPositionsToGain === 'number' && panelAnalysis.estimatedPositionsToGain > 0 && (
+                  <>
+                    <div style={s.sectionTitle}>📈 Estimated Gain</div>
+                    <div style={s.gainBox}>
+                      +{panelAnalysis.estimatedPositionsToGain} positions in 30 days if all actions implemented
+                    </div>
+                  </>
+                )}
+              </>
             )}
           </div>
         </>

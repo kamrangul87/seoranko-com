@@ -151,71 +151,62 @@ async function deepCompetitorAnalysis(
     } catch { /* skip */ }
   }
 
-  try {
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1500,
-      messages: [{
-        role: 'user',
-        content: `You are a senior SEO strategist with 25 years of experience. You have worked with Fortune 500 companies and ranked thousands of articles to page one.
+  const hasCompetitorContent = competitorContents.filter(c => c.length > 100).length > 0;
 
-CURRENT SITUATION:
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 1500,
+    messages: [{
+      role: 'user',
+      content: `You are a senior SEO strategist with 25 years of experience.
+You have ranked thousands of articles to page one on Google.
+
+SITUATION:
 - Keyword: "${keyword}"
 - Current position: #${currentPosition}
 - Target: Top 5
 - Article URL: ${articleUrl}
+- Competitor URLs ranking above: ${competitorUrls.slice(0, 3).join(', ')}
+${hasCompetitorContent ? `\nCOMPETITOR CONTENT ANALYSED:\n${competitorContents.slice(0, 2).join('\n---\n').slice(0, 3000)}` : '\nNote: Competitor content could not be scraped — provide analysis based on keyword and position data.'}
 
-TOP COMPETITOR CONTENT (currently ranking above us):
-${competitorContents.join('\n\n---\n\n')}
+As a 25-year SEO veteran, provide your expert diagnosis and action plan.
 
-Analyse this situation like a 25-year SEO veteran and provide:
-
-1. DIAGNOSIS: What is the single most likely reason this article is at position #${currentPosition} instead of top 5?
-
-2. COMPETITOR INSIGHTS: What are the top 3 things the ranking competitors are doing that our article likely isn't?
-
-3. CONTENT GAPS: What specific topics/sections are missing from our article that the top 5 all cover?
-
-4. SERP FEATURES: What SERP features (Featured Snippet, PAA, AI Overview) exist for this keyword and how can we win them?
-
-5. PRIORITY ACTIONS: List exactly 5 specific actions ranked by impact that would move this article from #${currentPosition} to top 5. Be brutally specific — not "improve content" but "Add an H2 section titled X covering Y with Z words".
-
-6. ESTIMATED GAIN: How many positions could we realistically gain in 30 days if we implement all 5 actions?
-
-Return ONLY valid JSON:
+Return ONLY this exact JSON structure, no markdown:
 {
-  "diagnosis": "one paragraph diagnosis",
-  "topCompetitorInsights": ["insight 1", "insight 2", "insight 3"],
-  "contentGaps": ["specific gap 1", "specific gap 2", "specific gap 3", "specific gap 4"],
-  "serpFeatures": ["feature opportunity 1", "feature opportunity 2"],
-  "priorityActions": [
-    "1. [IMPACT: HIGH] Specific action with exact details",
-    "2. [IMPACT: HIGH] Specific action with exact details",
-    "3. [IMPACT: MEDIUM] Specific action with exact details",
-    "4. [IMPACT: MEDIUM] Specific action with exact details",
-    "5. [IMPACT: LOW] Specific action with exact details"
+  "diagnosis": "2-3 sentence expert diagnosis of why this article is at position #${currentPosition} and not top 5",
+  "topCompetitorInsights": [
+    "What the #1 ranking article almost certainly does better",
+    "What the #2-3 ranking articles do that creates an advantage",
+    "A technical or structural advantage competitors likely have"
   ],
-  "estimatedPositionsToGain": number
+  "contentGaps": [
+    "Specific missing topic or section that top 5 articles cover",
+    "Missing data, statistics, or official citations",
+    "Missing FAQ questions that People Also Ask shows",
+    "Missing comparison table, price table, or structured data"
+  ],
+  "serpFeatures": [
+    "Featured Snippet opportunity: how to win it for this keyword",
+    "People Also Ask opportunity: which questions to answer"
+  ],
+  "priorityActions": [
+    "1. [IMPACT: HIGH] Add a dedicated section titled [specific H2] covering [specific topic] — this alone could move 5-8 positions",
+    "2. [IMPACT: HIGH] Add [specific schema type] schema markup — competitors ranking above likely have this",
+    "3. [IMPACT: MEDIUM] Increase word count by [specific number] words covering [specific topics]",
+    "4. [IMPACT: MEDIUM] Add [specific number] internal links from [specific existing pages] using [specific anchor text]",
+    "5. [IMPACT: LOW] Update the title tag to include [specific keyword variation] — improves CTR from position #${currentPosition}"
+  ],
+  "estimatedPositionsToGain": ${Math.min(currentPosition - 1, 15)}
 }`
-      }]
-    });
+    }]
+  });
 
-    const text = response.content[0].type === 'text' ? response.content[0].text : '{}';
-    try {
-      return JSON.parse(text.replace(/```json|```/g, '').trim());
-    } catch {
-      return {
-        diagnosis: 'Analysis unavailable',
-        topCompetitorInsights: [],
-        contentGaps: [],
-        serpFeatures: [],
-        priorityActions: [],
-        estimatedPositionsToGain: 0,
-      };
-    }
+  const text = response.content[0].type === 'text' ? response.content[0].text : '{}';
+  try {
+    return JSON.parse(text.replace(/```json|```/g, '').trim());
   } catch {
     return {
-      diagnosis: 'Analysis unavailable',
+      diagnosis: text.slice(0, 500) || 'Analysis unavailable',
       topCompetitorInsights: [],
       contentGaps: [],
       serpFeatures: [],
