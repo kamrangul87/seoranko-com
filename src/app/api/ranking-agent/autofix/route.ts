@@ -15,7 +15,7 @@ function getSupabase() {
   );
 }
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const FAST_MODEL = 'claude-haiku-4-5-20251001';
 
@@ -221,24 +221,46 @@ export async function POST(req: NextRequest) {
       } catch { /* use null */ }
     }
 
-    // STEP A — Fetch top 3 competitors
+    // STEP A — Fetch top 3 competitors (fails open to [])
     console.log('[autofix] fetching top 3 competitors for:', article.keyword);
-    const competitors = await fetchTopCompetitors(article.keyword, article.location_code || 2826);
+    let competitors: Awaited<ReturnType<typeof fetchTopCompetitors>> = [];
+    try {
+      competitors = await fetchTopCompetitors(article.keyword, article.location_code || 2826);
+    } catch (err) {
+      console.error('[autofix] fetchTopCompetitors failed:', err);
+    }
     console.log('[autofix] competitors found:', competitors.length);
 
-    // STEP B — Get latest Google updates
+    // STEP B — Get latest Google updates (fails open to default text)
     console.log('[autofix] fetching Google updates...');
-    const googleUpdates = await getLatestGoogleUpdates();
+    let googleUpdates = 'Google 2026 priorities: EEAT signals, helpful content, original research, fast page speed, schema markup, comprehensive topic coverage, human expert authorship.';
+    try {
+      googleUpdates = await getLatestGoogleUpdates();
+    } catch (err) {
+      console.error('[autofix] getLatestGoogleUpdates failed:', err);
+    }
 
-    // STEP C — Build improvement brief
+    // STEP C — Build improvement brief (fails open to a basic brief from agent analysis)
     console.log('[autofix] building improvement brief...');
-    const brief = await buildImprovementBrief(
-      article.keyword,
-      article.current_position || 20,
-      competitors,
-      agentAnalysis,
-      googleUpdates
-    );
+    let brief: Awaited<ReturnType<typeof buildImprovementBrief>>;
+    try {
+      brief = await buildImprovementBrief(
+        article.keyword,
+        article.current_position || 20,
+        competitors,
+        agentAnalysis,
+        googleUpdates
+      );
+    } catch (err) {
+      console.error('[autofix] buildImprovementBrief failed:', err);
+      brief = {
+        briefSummary: 'Comprehensive improvement needed',
+        missingElements: agentAnalysis?.contentGaps || [],
+        contentToAdd: agentAnalysis?.priorityActions || [],
+        structureChanges: [],
+        seoFixes: [],
+      };
+    }
 
     // STEP D — Build the master prompt with all intelligence injected
     const avgCompetitorWords = competitors.length > 0
@@ -350,6 +372,6 @@ Write it as if your career depends on it. Be comprehensive, accurate, and author
 
   } catch (error: any) {
     console.error('[autofix]', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Auto-fix failed' }, { status: 500 });
   }
 }
