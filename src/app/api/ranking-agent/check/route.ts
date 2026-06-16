@@ -41,7 +41,7 @@ async function checkKeywordRank(
           keyword,
           location_code: locationCode,
           language_code: 'en',
-          depth: 20,
+          depth: 50,
         }]),
         signal: AbortSignal.timeout(15000),
       }
@@ -53,16 +53,33 @@ async function checkKeywordRank(
     const competitorUrls: string[] = [];
     let position: number | null = null;
 
-    const targetDomain = new URL(targetUrl).hostname.replace('www.', '');
+    const targetDomain = targetUrl
+      .replace('https://', '')
+      .replace('http://', '')
+      .replace('www.', '')
+      .split('/')[0];
+
+    console.log('[rank-check] keyword:', keyword, 'target:', targetUrl, 'targetDomain:', targetDomain);
+    console.log('[rank-check] total items found:', items.length);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    console.log('[rank-check] organic items:', items.filter((i: any) => i.type === 'organic').length);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const item of items as any[]) {
       if (item.type !== 'organic') continue;
+
+      const itemUrl = item.url || '';
       const itemDomain = item.domain?.replace('www.', '') || '';
-      if (itemDomain === targetDomain || item.url?.includes(targetDomain)) {
+
+      // Check if target domain appears anywhere in the URL
+      if (
+        itemDomain.includes(targetDomain) ||
+        targetDomain.includes(itemDomain) ||
+        itemUrl.includes(targetDomain)
+      ) {
         position = item.rank_absolute;
-      }
-      if (item.url && !itemDomain.includes(targetDomain)) {
+        console.log('[rank-check] found at position:', position, 'url:', itemUrl);
+      } else if (item.url) {
         competitorUrls.push(item.url);
       }
     }
