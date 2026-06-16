@@ -64,16 +64,68 @@ export default function RankingAgentPage() {
     });
   }
 
+  function parseAnalysis(logs: any[]): any {
+    if (!logs || logs.length === 0) return null;
+
+    const analysisLog = [...logs]
+      .reverse()
+      .find((log: any) => log.action === 'DEEP_ANALYSIS');
+
+    if (!analysisLog?.result) return null;
+
+    let raw = analysisLog.result;
+
+    // Remove ALL markdown code fences
+    raw = raw.replace(/```json\s*/gi, '');
+    raw = raw.replace(/```\s*/gi, '');
+    raw = raw.trim();
+
+    // Find the first { and last } to extract just the JSON
+    const firstBrace = raw.indexOf('{');
+    const lastBrace = raw.lastIndexOf('}');
+
+    if (firstBrace === -1 || lastBrace === -1) {
+      // No JSON found — try to show raw text as diagnosis
+      return {
+        diagnosis: raw.slice(0, 500),
+        topCompetitorInsights: [],
+        contentGaps: [],
+        serpFeatures: [],
+        priorityActions: [],
+        estimatedPositionsToGain: 0,
+      };
+    }
+
+    const jsonStr = raw.slice(firstBrace, lastBrace + 1);
+
+    try {
+      return JSON.parse(jsonStr);
+    } catch {
+      // JSON parse failed — extract fields manually
+      const extract = (field: string) => {
+        const match = jsonStr.match(new RegExp(`"${field}":\\s*"([^"]*)"`, 'i'));
+        return match ? match[1] : '';
+      };
+      const extractArray = (field: string) => {
+        const match = jsonStr.match(new RegExp(`"${field}":\\s*\\[([^\\]]+)\\]`, 'i'));
+        if (!match) return [];
+        return match[1].match(/"([^"]+)"/g)?.map((s: string) => s.replace(/"/g, '')) || [];
+      };
+      return {
+        diagnosis: extract('diagnosis'),
+        topCompetitorInsights: extractArray('topCompetitorInsights'),
+        contentGaps: extractArray('contentGaps'),
+        serpFeatures: extractArray('serpFeatures'),
+        priorityActions: extractArray('priorityActions'),
+        estimatedPositionsToGain: parseInt(extract('estimatedPositionsToGain')) || 0,
+      };
+    }
+  }
+
   function getAnalysisForArticle(article: any): any | null {
     if (!article) return null;
     if (deepAnalyses[article.id]) return deepAnalyses[article.id];
-    const log = (article.agent_logs || []).find((l: any) => l.action === 'DEEP_ANALYSIS');
-    if (!log?.result) return null;
-    try {
-      return JSON.parse(log.result);
-    } catch {
-      return null;
-    }
+    return parseAnalysis(article.agent_logs || []);
   }
 
   async function handleTrackArticle() {
@@ -144,6 +196,7 @@ export default function RankingAgentPage() {
     if (!article) return;
     setAutoFixing(true);
     setAutoFixResult('');
+    setAutoFixArticle('');
 
     try {
       const res = await fetch('/api/ranking-agent/autofix', {
@@ -155,16 +208,29 @@ export default function RankingAgentPage() {
         }),
       });
 
-      const data = await res.json();
+      if (!res.ok) {
+        const errorText = await res.text();
+        setAutoFixResult('Error: ' + errorText.slice(0, 200));
+        return;
+      }
+
+      let data: any;
+      try {
+        data = await res.json();
+      } catch {
+        const text = await res.text();
+        setAutoFixResult('Error parsing response: ' + text.slice(0, 200));
+        return;
+      }
 
       if (data.error) {
         setAutoFixResult('Error: ' + data.error);
         return;
       }
 
-      setAutoFixArticle(data.improvedArticle);
+      setAutoFixArticle(data.improvedArticle || '');
       setAutoFixResult(
-        `✅ Auto-fix complete — analysed ${data.competitorsAnalysed} competitors, applied Google 2026 updates. Article rewritten to target top 5.`
+        `✅ Auto-fix complete — analysed ${data.competitorsAnalysed || 0} competitors, applied Google 2026 updates.`
       );
       await fetchArticles();
     } catch (err: any) {
