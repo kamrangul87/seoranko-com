@@ -5,7 +5,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { keyword, url } = body;
 
-  const login = process.env.DATAFORSEO_LOGIN;
+  const login = process.env.DATAFORSEO_EMAIL;
   const password = process.env.DATAFORSEO_PASSWORD;
 
   if (!login || !password) {

@@ -24,7 +24,7 @@ async function checkKeywordRank(
   targetUrl: string,
   locationCode: number = 2826
 ): Promise<{ position: number | null; competitorUrls: string[] }> {
-  const login = process.env.DATAFORSEO_LOGIN;
+  const login = process.env.DATAFORSEO_EMAIL;
   const password = process.env.DATAFORSEO_PASSWORD;
   if (!login || !password) return { position: null, competitorUrls: [] };
 

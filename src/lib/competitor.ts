@@ -20,7 +20,7 @@ export async function getTopCompetitorUrls(keyword: string, market: string): Pro
       method: 'POST',
       headers: {
         'Authorization': 'Basic ' + Buffer.from(
-          `${process.env.DATAFORSEO_LOGIN}:${process.env.DATAFORSEO_PASSWORD}`
+          `${process.env.DATAFORSEO_EMAIL}:${process.env.DATAFORSEO_PASSWORD}`
         ).toString('base64'),
         'Content-Type': 'application/json',
       },
