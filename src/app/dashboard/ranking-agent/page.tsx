@@ -14,6 +14,27 @@ export default function RankingAgentPage() {
   const [deepAnalyses, setDeepAnalyses] = useState<Record<string, any>>({});
   const [panelArticleId, setPanelArticleId] = useState<string | null>(null);
   const [panelLoading, setPanelLoading] = useState(false);
+  const [autoFixing, setAutoFixing] = useState(false);
+  const [autoFixResult, setAutoFixResult] = useState('');
+  const [autoFixArticle, setAutoFixArticle] = useState('');
+  const [autoFixStage, setAutoFixStage] = useState('');
+
+  useEffect(() => {
+    if (!autoFixing) { setAutoFixStage(''); return; }
+    const stages = [
+      '⏳ Fetching top 3 competitors...',
+      '⏳ Checking Google 2026 updates...',
+      '⏳ Building improvement strategy...',
+      '⏳ Rewriting article for top 5...',
+    ];
+    let i = 0;
+    setAutoFixStage(stages[0]);
+    const interval = setInterval(() => {
+      i = Math.min(i + 1, stages.length - 1);
+      setAutoFixStage(stages[i]);
+    }, 12000);
+    return () => clearInterval(interval);
+  }, [autoFixing]);
 
   useEffect(() => {
     fetchArticles();
@@ -115,6 +136,42 @@ export default function RankingAgentPage() {
 
   function openAnalysis(article: any) {
     setPanelArticleId(article.id);
+    setAutoFixResult('');
+    setAutoFixArticle('');
+  }
+
+  async function handleAutoFix(article: any) {
+    if (!article) return;
+    setAutoFixing(true);
+    setAutoFixResult('');
+
+    try {
+      const res = await fetch('/api/ranking-agent/autofix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          articleId: article.id,
+          currentArticleHtml: '',
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.error) {
+        setAutoFixResult('Error: ' + data.error);
+        return;
+      }
+
+      setAutoFixArticle(data.improvedArticle);
+      setAutoFixResult(
+        `✅ Auto-fix complete — analysed ${data.competitorsAnalysed} competitors, applied Google 2026 updates. Article rewritten to target top 5.`
+      );
+      await fetchArticles();
+    } catch (err: any) {
+      setAutoFixResult('Error: ' + err.message);
+    } finally {
+      setAutoFixing(false);
+    }
   }
 
   function getPositionBadge(current: number | null, previous: number | null) {
@@ -194,6 +251,11 @@ export default function RankingAgentPage() {
     gainBox: { background: '#F0FDF4', border: '1px solid #BBF7D0', color: '#16A34A', fontWeight: 700, fontSize: '13px', padding: '10px 14px', borderRadius: '8px', marginTop: '18px', textAlign: 'center' },
     panelEmpty: { textAlign: 'center', padding: '60px 20px', color: '#9B9B9B', fontSize: '13px' },
     spinner: { width: '32px', height: '32px', border: '3px solid #F5F4F1', borderTopColor: '#FF6B2C', borderRadius: '50%', margin: '40px auto 16px', animation: 'spin 0.8s linear infinite' },
+    autoFixBox: { background: '#0F0F0F', borderRadius: '10px', padding: '16px', marginTop: '20px' },
+    autoFixDesc: { fontSize: '12px', color: '#8899aa', marginBottom: '14px' },
+    autoFixBtn: { fontSize: '13px', fontWeight: 700, padding: '10px 16px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', width: '100%' },
+    autoFixStage: { fontSize: '12px', color: '#8899aa', marginTop: '10px', textAlign: 'center' },
+    autoFixResult: { fontSize: '12px', color: '#fff', marginTop: '12px', lineHeight: 1.5 },
   };
 
   function badge(color: string) {
@@ -425,6 +487,46 @@ export default function RankingAgentPage() {
                     </div>
                   </>
                 )}
+
+                <div style={s.autoFixBox}>
+                  <div style={s.autoFixDesc}>
+                    Automatically scrapes top 3 competitors, applies latest Google 2026
+                    algorithm requirements, and rewrites the article to target top 5.
+                  </div>
+                  <button
+                    style={{ ...s.autoFixBtn, opacity: autoFixing ? 0.6 : 1 }}
+                    onClick={() => handleAutoFix(panelArticle)}
+                    disabled={autoFixing}
+                  >
+                    {autoFixing ? '⏳ Auto-fixing...' : '🛠️ Auto-Fix Article'}
+                  </button>
+                  {autoFixing && autoFixStage && (
+                    <div style={s.autoFixStage}>{autoFixStage}</div>
+                  )}
+                  {autoFixResult && (
+                    <div style={s.autoFixResult}>{autoFixResult}</div>
+                  )}
+
+                  {autoFixArticle && (
+                    <div style={{ marginTop: '16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <div style={{ fontSize: '13px', fontWeight: 700, color: '#fff' }}>📄 Improved Article Ready</div>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(autoFixArticle);
+                            alert('Article copied to clipboard!');
+                          }}
+                          style={{ fontSize: '12px', padding: '6px 14px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+                        >
+                          📋 Copy Article
+                        </button>
+                      </div>
+                      <div style={{ background: '#1a1a2e', borderRadius: '8px', padding: '12px', maxHeight: '200px', overflowY: 'auto', fontSize: '11px', color: '#8899aa', fontFamily: 'monospace', lineHeight: 1.5 }}>
+                        {autoFixArticle.slice(0, 500)}...
+                      </div>
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </div>
