@@ -11,6 +11,8 @@ export default function RankingAgentPage() {
   const [addMarket, setAddMarket] = useState('United Kingdom');
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState('');
+  const [deepAnalyses, setDeepAnalyses] = useState<Record<string, any>>({});
+  const [panelArticleId, setPanelArticleId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchArticles();
@@ -28,6 +30,16 @@ export default function RankingAgentPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function captureDeepAnalyses(results: any[]) {
+    setDeepAnalyses(prev => {
+      const next = { ...prev };
+      for (const r of results) {
+        if (r.deepAnalysis) next[r.id] = r.deepAnalysis;
+      }
+      return next;
+    });
   }
 
   async function handleTrackArticle() {
@@ -56,11 +68,13 @@ export default function RankingAgentPage() {
   async function handleCheckNow(articleId: string) {
     setChecking(articleId);
     try {
-      await fetch('/api/ranking-agent/check', {
+      const res = await fetch('/api/ranking-agent/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ articleId }),
       });
+      const data = await res.json();
+      if (data.results) captureDeepAnalyses(data.results);
       await fetchArticles();
     } finally {
       setChecking(null);
@@ -70,11 +84,13 @@ export default function RankingAgentPage() {
   async function handleCheckAll() {
     setChecking('all');
     try {
-      await fetch('/api/ranking-agent/check', {
+      const res = await fetch('/api/ranking-agent/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ runAll: true }),
       });
+      const data = await res.json();
+      if (data.results) captureDeepAnalyses(data.results);
       await fetchArticles();
     } finally {
       setChecking(null);
@@ -90,10 +106,38 @@ export default function RankingAgentPage() {
     return <span style={badge('blue')}>#{current} →</span>;
   }
 
+  function getTrendArrow(article: any) {
+    const history = (article.rank_history || [])
+      .filter((h: any) => h.position !== null)
+      .sort((a: any, b: any) => new Date(a.checked_at).getTime() - new Date(b.checked_at).getTime());
+    if (history.length < 2) return null;
+    const recent = history.slice(-3);
+    const first = recent[0].position;
+    const last = recent[recent.length - 1].position;
+    if (last < first) return <span style={{ color: '#16A34A', fontSize: '13px', marginLeft: '6px' }} title="Improving">↗</span>;
+    if (last > first) return <span style={{ color: '#DC2626', fontSize: '13px', marginLeft: '6px' }} title="Dropping">↘</span>;
+    return <span style={{ color: '#9B9B9B', fontSize: '13px', marginLeft: '6px' }} title="Stable">→</span>;
+  }
+
+  function getTargetInfo(current: number | null) {
+    if (!current) return { label: '👻 Not indexed yet', color: '#9B9B9B' };
+    if (current <= 5) return { label: '✅ Top 5', color: '#16A34A' };
+    const toGo = current - 5;
+    if (current <= 10) return { label: `🔥 Almost there — ${toGo} to go`, color: '#FF6B2C' };
+    if (current <= 20) return { label: `⚡ ${toGo} positions to top 5`, color: '#EF9F27' };
+    return { label: `🚀 ${toGo} positions to top 5`, color: '#6B6B6B' };
+  }
+
   function getFreshnessColor(score: number) {
     if (score >= 80) return '#16A34A';
     if (score >= 60) return '#EF9F27';
     return '#E24B4A';
+  }
+
+  function impactColor(action: string) {
+    if (action.includes('HIGH')) return '#DC2626';
+    if (action.includes('MEDIUM')) return '#EF9F27';
+    return '#16A34A';
   }
 
   const s: Record<string, any> = {
@@ -114,9 +158,20 @@ export default function RankingAgentPage() {
     th: { padding: '12px 16px', fontSize: '11px', fontWeight: 600, color: '#9B9B9B', textTransform: 'uppercase', letterSpacing: '0.5px', background: '#FAFAF8', textAlign: 'left', borderBottom: '1px solid #E8E8E4' },
     td: { padding: '14px 16px', fontSize: '13px', color: '#0F0F0F', borderBottom: '1px solid #F5F4F1', verticalAlign: 'top' },
     checkBtn: { fontSize: '12px', fontWeight: 600, padding: '5px 12px', background: '#F5F4F1', color: '#0F0F0F', border: '1px solid #E8E8E4', borderRadius: '6px', cursor: 'pointer' },
+    viewBtn: { fontSize: '12px', fontWeight: 600, padding: '5px 12px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', marginTop: '6px' },
     logItem: { fontSize: '11px', color: '#6B6B6B', padding: '3px 0', borderBottom: '1px solid #F5F4F1', display: 'flex', gap: '6px' },
     errorBox: { background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '10px 14px', color: '#DC2626', fontSize: '13px', marginBottom: '14px' },
     emptyState: { textAlign: 'center', padding: '60px 20px', color: '#9B9B9B', fontSize: '14px' },
+    overlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100 },
+    panel: { position: 'fixed', top: 0, right: 0, bottom: 0, width: '460px', maxWidth: '100%', background: '#fff', boxShadow: '-8px 0 24px rgba(0,0,0,0.12)', zIndex: 101, overflowY: 'auto', padding: '24px' },
+    panelClose: { position: 'absolute', top: '20px', right: '20px', fontSize: '20px', background: 'none', border: 'none', cursor: 'pointer', color: '#6B6B6B' },
+    panelTitle: { fontSize: '16px', fontWeight: 700, color: '#0F0F0F', marginBottom: '4px', paddingRight: '30px' },
+    panelSub: { fontSize: '12px', color: '#9B9B9B', marginBottom: '18px' },
+    diagnosisBox: { borderLeft: '3px solid #FF6B2C', background: '#FFF7F2', padding: '12px 14px', borderRadius: '6px', fontSize: '13px', color: '#0F0F0F', lineHeight: 1.5, marginBottom: '18px' },
+    sectionTitle: { fontSize: '12px', fontWeight: 700, color: '#0F0F0F', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px', marginTop: '18px' },
+    actionItem: { display: 'flex', gap: '8px', fontSize: '13px', color: '#0F0F0F', padding: '8px 0', borderBottom: '1px solid #F5F4F1', alignItems: 'flex-start' },
+    bulletList: { margin: 0, paddingLeft: '18px', fontSize: '13px', color: '#0F0F0F', lineHeight: 1.6 },
+    gainBox: { background: '#F0FDF4', border: '1px solid #BBF7D0', color: '#16A34A', fontWeight: 700, fontSize: '13px', padding: '10px 14px', borderRadius: '8px', marginTop: '18px', textAlign: 'center' },
   };
 
   function badge(color: string) {
@@ -128,6 +183,9 @@ export default function RankingAgentPage() {
     };
     return { ...colors[color], fontSize: '12px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px', whiteSpace: 'nowrap' };
   }
+
+  const panelArticle = panelArticleId ? articles.find(a => a.id === panelArticleId) : null;
+  const panelAnalysis = panelArticleId ? deepAnalyses[panelArticleId] : null;
 
   return (
     <div style={s.page}>
@@ -193,6 +251,7 @@ export default function RankingAgentPage() {
               <tr>
                 <th style={s.th}>Article / Keyword</th>
                 <th style={s.th}>Position</th>
+                <th style={s.th}>🎯 Target</th>
                 <th style={s.th}>Freshness</th>
                 <th style={s.th}>Last checked</th>
                 <th style={s.th}>Agent log</th>
@@ -205,6 +264,8 @@ export default function RankingAgentPage() {
                 const lastChecked = article.last_checked
                   ? new Date(article.last_checked).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
                   : 'Never';
+                const target = getTargetInfo(article.current_position);
+                const hasAnalysis = !!deepAnalyses[article.id];
                 return (
                   <tr key={article.id}>
                     <td style={s.td}>
@@ -213,6 +274,10 @@ export default function RankingAgentPage() {
                     </td>
                     <td style={s.td}>
                       {getPositionBadge(article.current_position, article.previous_position)}
+                      {getTrendArrow(article)}
+                    </td>
+                    <td style={{ ...s.td, color: target.color, fontWeight: 600, fontSize: '12px' }}>
+                      {target.label}
                     </td>
                     <td style={s.td}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -229,8 +294,8 @@ export default function RankingAgentPage() {
                         <div style={{ fontSize: '11px', color: '#9B9B9B' }}>No activity yet</div>
                       ) : logs.map((log: any, i: number) => (
                         <div key={i} style={s.logItem}>
-                          <span style={{ color: log.action === 'RANK_DROP_DETECTED' ? '#E24B4A' : '#16A34A', fontWeight: 600, flexShrink: 0 }}>
-                            {log.action === 'RANK_DROP_DETECTED' ? '▼' : '▲'}
+                          <span style={{ color: log.action === 'RANK_DROP_DETECTED' ? '#E24B4A' : log.action === 'DEEP_ANALYSIS' ? '#FF6B2C' : '#16A34A', fontWeight: 600, flexShrink: 0 }}>
+                            {log.action === 'RANK_DROP_DETECTED' ? '▼' : log.action === 'DEEP_ANALYSIS' ? '🔎' : '▲'}
                           </span>
                           <span>{log.reason}</span>
                         </div>
@@ -244,6 +309,13 @@ export default function RankingAgentPage() {
                       >
                         {checking === article.id ? '⏳' : '🔍 Check Now'}
                       </button>
+                      {hasAnalysis && (
+                        <div>
+                          <button style={s.viewBtn} onClick={() => setPanelArticleId(article.id)}>
+                            View Analysis
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
@@ -251,6 +323,71 @@ export default function RankingAgentPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Slide-out analysis panel */}
+      {panelArticleId && panelAnalysis && (
+        <>
+          <div style={s.overlay} onClick={() => setPanelArticleId(null)} />
+          <div style={s.panel}>
+            <button style={s.panelClose} onClick={() => setPanelArticleId(null)}>✕</button>
+            <div style={s.panelTitle}>{panelArticle?.keyword}</div>
+            <div style={s.panelSub}>Currently #{panelArticle?.current_position} — 25yr SEO veteran diagnosis</div>
+
+            <div style={s.diagnosisBox}>{panelAnalysis.diagnosis}</div>
+
+            {panelAnalysis.priorityActions?.length > 0 && (
+              <>
+                <div style={s.sectionTitle}>Priority Actions</div>
+                {panelAnalysis.priorityActions.map((action: string, i: number) => (
+                  <div key={i} style={s.actionItem}>
+                    <span style={{
+                      fontSize: '10px', fontWeight: 700, color: '#fff',
+                      background: impactColor(action), borderRadius: '4px',
+                      padding: '2px 6px', flexShrink: 0, marginTop: '2px',
+                    }}>
+                      {action.includes('HIGH') ? 'HIGH' : action.includes('MEDIUM') ? 'MED' : 'LOW'}
+                    </span>
+                    <span>{action.replace(/^\d+\.\s*\[IMPACT:\s*(HIGH|MEDIUM|LOW)\]\s*/i, '')}</span>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {panelAnalysis.contentGaps?.length > 0 && (
+              <>
+                <div style={s.sectionTitle}>Content Gaps</div>
+                <ul style={s.bulletList}>
+                  {panelAnalysis.contentGaps.map((gap: string, i: number) => <li key={i}>{gap}</li>)}
+                </ul>
+              </>
+            )}
+
+            {panelAnalysis.serpFeatures?.length > 0 && (
+              <>
+                <div style={s.sectionTitle}>SERP Feature Opportunities</div>
+                <ul style={s.bulletList}>
+                  {panelAnalysis.serpFeatures.map((f: string, i: number) => <li key={i}>{f}</li>)}
+                </ul>
+              </>
+            )}
+
+            {panelAnalysis.topCompetitorInsights?.length > 0 && (
+              <>
+                <div style={s.sectionTitle}>Competitor Insights</div>
+                <ul style={s.bulletList}>
+                  {panelAnalysis.topCompetitorInsights.map((insight: string, i: number) => <li key={i}>{insight}</li>)}
+                </ul>
+              </>
+            )}
+
+            {typeof panelAnalysis.estimatedPositionsToGain === 'number' && panelAnalysis.estimatedPositionsToGain > 0 && (
+              <div style={s.gainBox}>
+                +{panelAnalysis.estimatedPositionsToGain} positions in 30 days
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   );

@@ -117,6 +117,114 @@ In 2-3 sentences, what is the most likely cause and what single action would mos
   }
 }
 
+// ── Deep competitor analysis — 25yr SEO veteran diagnosis ─────────────────────
+async function deepCompetitorAnalysis(
+  keyword: string,
+  currentPosition: number,
+  competitorUrls: string[],
+  articleUrl: string
+): Promise<{
+  diagnosis: string;
+  topCompetitorInsights: string[];
+  contentGaps: string[];
+  serpFeatures: string[];
+  priorityActions: string[];
+  estimatedPositionsToGain: number;
+}> {
+  // Fetch top 3 competitor pages
+  const competitorContents: string[] = [];
+  for (const url of competitorUrls.slice(0, 3)) {
+    try {
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        signal: AbortSignal.timeout(5000),
+      });
+      const html = await res.text();
+      const text = html
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 2000);
+      competitorContents.push(`URL: ${url}\n${text}`);
+    } catch { /* skip */ }
+  }
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1500,
+      messages: [{
+        role: 'user',
+        content: `You are a senior SEO strategist with 25 years of experience. You have worked with Fortune 500 companies and ranked thousands of articles to page one.
+
+CURRENT SITUATION:
+- Keyword: "${keyword}"
+- Current position: #${currentPosition}
+- Target: Top 5
+- Article URL: ${articleUrl}
+
+TOP COMPETITOR CONTENT (currently ranking above us):
+${competitorContents.join('\n\n---\n\n')}
+
+Analyse this situation like a 25-year SEO veteran and provide:
+
+1. DIAGNOSIS: What is the single most likely reason this article is at position #${currentPosition} instead of top 5?
+
+2. COMPETITOR INSIGHTS: What are the top 3 things the ranking competitors are doing that our article likely isn't?
+
+3. CONTENT GAPS: What specific topics/sections are missing from our article that the top 5 all cover?
+
+4. SERP FEATURES: What SERP features (Featured Snippet, PAA, AI Overview) exist for this keyword and how can we win them?
+
+5. PRIORITY ACTIONS: List exactly 5 specific actions ranked by impact that would move this article from #${currentPosition} to top 5. Be brutally specific — not "improve content" but "Add an H2 section titled X covering Y with Z words".
+
+6. ESTIMATED GAIN: How many positions could we realistically gain in 30 days if we implement all 5 actions?
+
+Return ONLY valid JSON:
+{
+  "diagnosis": "one paragraph diagnosis",
+  "topCompetitorInsights": ["insight 1", "insight 2", "insight 3"],
+  "contentGaps": ["specific gap 1", "specific gap 2", "specific gap 3", "specific gap 4"],
+  "serpFeatures": ["feature opportunity 1", "feature opportunity 2"],
+  "priorityActions": [
+    "1. [IMPACT: HIGH] Specific action with exact details",
+    "2. [IMPACT: HIGH] Specific action with exact details",
+    "3. [IMPACT: MEDIUM] Specific action with exact details",
+    "4. [IMPACT: MEDIUM] Specific action with exact details",
+    "5. [IMPACT: LOW] Specific action with exact details"
+  ],
+  "estimatedPositionsToGain": number
+}`
+      }]
+    });
+
+    const text = response.content[0].type === 'text' ? response.content[0].text : '{}';
+    try {
+      return JSON.parse(text.replace(/```json|```/g, '').trim());
+    } catch {
+      return {
+        diagnosis: 'Analysis unavailable',
+        topCompetitorInsights: [],
+        contentGaps: [],
+        serpFeatures: [],
+        priorityActions: [],
+        estimatedPositionsToGain: 0,
+      };
+    }
+  } catch {
+    return {
+      diagnosis: 'Analysis unavailable',
+      topCompetitorInsights: [],
+      contentGaps: [],
+      serpFeatures: [],
+      priorityActions: [],
+      estimatedPositionsToGain: 0,
+    };
+  }
+}
+
 // ── Calculate freshness score ─────────────────────────────────────────────────
 function calculateFreshnessScore(
   currentPosition: number | null,
@@ -244,6 +352,26 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      let deepAnalysis = null;
+      if (position && position > 5) {
+        deepAnalysis = await deepCompetitorAnalysis(
+          article.keyword,
+          position,
+          competitorUrls,
+          article.url
+        );
+
+        // Save to agent_logs
+        await supabase.from('agent_logs').insert({
+          article_id: article.id,
+          action: 'DEEP_ANALYSIS',
+          reason: `Position #${position} — full competitor analysis completed`,
+          result: JSON.stringify(deepAnalysis),
+          position_before: position,
+          position_after: position,
+        });
+      }
+
       results.push({
         id: article.id,
         keyword: article.keyword,
@@ -254,6 +382,7 @@ export async function POST(req: NextRequest) {
         freshnessScore,
         analysis,
         competitorUrls,
+        deepAnalysis,
       });
     }
 
