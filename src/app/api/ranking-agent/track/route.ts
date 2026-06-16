@@ -65,11 +65,15 @@ export async function GET() {
           action,
           reason,
           result,
+          position_before,
+          position_after,
           created_at
         )
       `)
       .eq('status', 'active')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .order('checked_at', { ascending: true, foreignTable: 'rank_history' })
+      .order('created_at', { ascending: false, foreignTable: 'agent_logs' });
 
     if (error) throw error;
 
