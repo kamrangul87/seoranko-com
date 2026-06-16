@@ -131,6 +131,14 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    id: "ranking-agent",
+    label: "Ranking Agent",
+    href: "/dashboard/ranking-agent",
+    icon: (
+      <span className="w-4 h-4 flex items-center justify-center text-sm leading-none">🤖</span>
+    ),
+  },
+  {
     id: "images",
     label: "Images",
     icon: (
