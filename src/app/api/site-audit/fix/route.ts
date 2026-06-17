@@ -173,7 +173,9 @@ async function callWithRetry<T>(fn: () => Promise<T>, retries: number = 3, delay
 // ── MAIN HANDLER ──────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
-    const { url, keyword = '', market = 'United Kingdom' } = await req.json();
+    const body = await req.json();
+    const { url, market = 'United Kingdom' } = body;
+    const keyword: string = body.keyword || body.detectedKeyword || '';
     if (!url) return NextResponse.json({ error: 'url is required' }, { status: 400 });
 
     const locationCode = market.toLowerCase().includes('united kingdom') || market.toLowerCase() === 'uk' ? 2826 : 2840;
