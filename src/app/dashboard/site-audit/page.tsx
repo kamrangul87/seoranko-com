@@ -2,6 +2,110 @@
 'use client';
 import { useState } from 'react';
 
+const platforms = [
+  {
+    id: 'copy',
+    icon: '📋',
+    label: 'Copy HTML',
+    desc: 'Any platform',
+    color: '#4B5563',
+    noForm: true,
+    fields: undefined,
+  },
+  {
+    id: 'github',
+    icon: '🐙',
+    label: 'GitHub',
+    desc: 'Static / Next.js',
+    color: '#24292f',
+    noForm: false,
+    fields: [
+      { key: 'repo', placeholder: 'owner/repo (e.g. kamrangul87/autodun-ai)', label: 'Repository', type: 'text', hint: '' },
+      { key: 'path', placeholder: 'public/blog/article.html', label: 'File path', type: 'text', hint: '' },
+      { key: 'token', placeholder: 'ghp_xxxxxxxxxxxx', label: 'Personal Access Token', type: 'password', hint: 'github.com/settings/tokens → repo → contents' },
+      { key: 'branch', placeholder: 'main', label: 'Branch (default: main)', type: 'text', hint: '' },
+    ],
+  },
+  {
+    id: 'wordpress',
+    icon: '🌐',
+    label: 'WordPress',
+    desc: 'Self-hosted / .com',
+    color: '#21759b',
+    noForm: false,
+    fields: [
+      { key: 'url', placeholder: 'https://yoursite.com', label: 'Site URL', type: 'text', hint: '' },
+      { key: 'username', placeholder: 'admin', label: 'Username', type: 'text', hint: '' },
+      { key: 'password', placeholder: 'xxxx xxxx xxxx xxxx', label: 'Application Password', type: 'password', hint: 'WP Admin → Users → Profile → Application Passwords' },
+      { key: 'status', placeholder: 'draft', label: 'Post status (draft or publish)', type: 'text', hint: '' },
+    ],
+  },
+  {
+    id: 'shopify',
+    icon: '🛍️',
+    label: 'Shopify',
+    desc: 'Shopify blogs',
+    color: '#96bf48',
+    noForm: false,
+    fields: [
+      { key: 'store', placeholder: 'your-store.myshopify.com', label: 'Store domain', type: 'text', hint: '' },
+      { key: 'token', placeholder: 'shpat_xxxxxxxxxxxx', label: 'Admin API Token', type: 'password', hint: 'Shopify Admin → Settings → Apps → Develop apps → Create app → Admin API access token' },
+      { key: 'blogId', placeholder: 'Blog ID (find in Shopify admin URL)', label: 'Blog ID', type: 'text', hint: '' },
+    ],
+  },
+  {
+    id: 'ghost',
+    icon: '👻',
+    label: 'Ghost',
+    desc: 'Ghost CMS',
+    color: '#212121',
+    noForm: false,
+    fields: [
+      { key: 'url', placeholder: 'https://yoursite.ghost.io', label: 'Ghost URL', type: 'text', hint: '' },
+      { key: 'adminKey', placeholder: 'id:secret format from Ghost Admin', label: 'Admin API Key', type: 'password', hint: 'Ghost Admin → Settings → Integrations → Add custom integration' },
+      { key: 'status', placeholder: 'draft', label: 'Status (draft or published)', type: 'text', hint: '' },
+    ],
+  },
+  {
+    id: 'webflow',
+    icon: '🔷',
+    label: 'Webflow',
+    desc: 'Webflow CMS',
+    color: '#4353ff',
+    noForm: false,
+    fields: [
+      { key: 'token', placeholder: 'Webflow API token', label: 'API Token', type: 'password', hint: 'Webflow Dashboard → Account → Integrations → API Access' },
+      { key: 'collectionId', placeholder: 'Collection ID from Webflow', label: 'CMS Collection ID', type: 'text', hint: 'Found in Webflow CMS settings URL' },
+      { key: 'siteId', placeholder: 'Site ID from Webflow', label: 'Site ID', type: 'text', hint: '' },
+    ],
+  },
+  {
+    id: 'contentful',
+    icon: '📦',
+    label: 'Contentful',
+    desc: 'Headless CMS',
+    color: '#2478cc',
+    noForm: false,
+    fields: [
+      { key: 'spaceId', placeholder: 'Space ID', label: 'Space ID', type: 'text', hint: 'Contentful → Settings → General settings' },
+      { key: 'token', placeholder: 'Content Management Token', label: 'Management Token', type: 'password', hint: 'Contentful → Settings → API keys → Content management tokens' },
+      { key: 'contentType', placeholder: 'blogPost', label: 'Content Type ID', type: 'text', hint: '' },
+    ],
+  },
+  {
+    id: 'wix',
+    icon: '🔶',
+    label: 'Wix',
+    desc: 'Wix blog',
+    color: '#faad4d',
+    noForm: false,
+    fields: [
+      { key: 'apiKey', placeholder: 'Wix API Key', label: 'API Key', type: 'password', hint: 'Wix Dashboard → Settings → Advanced → API Keys' },
+      { key: 'siteId', placeholder: 'Wix Site ID', label: 'Site ID', type: 'text', hint: 'Found in Wix dashboard URL' },
+    ],
+  },
+];
+
 export default function SiteAuditPage() {
   const [mode, setMode] = useState<'domain' | 'manual'>('domain');
   const [domain, setDomain] = useState('');
@@ -24,15 +128,13 @@ export default function SiteAuditPage() {
   const [fixStage, setFixStage] = useState('');
 
   // Publish state
-  const [publishMode, setPublishMode] = useState<'github' | 'wordpress' | null>(null);
-  const [githubRepo, setGithubRepo] = useState('');
-  const [githubToken, setGithubToken] = useState('');
-  const [githubPath, setGithubPath] = useState('');
-  const [wpUrl, setWpUrl] = useState('');
-  const [wpUsername, setWpUsername] = useState('');
-  const [wpPassword, setWpPassword] = useState('');
+  const [publishMode, setPublishMode] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishSuccess, setPublishSuccess] = useState('');
+  const [publishFields, setPublishFields] = useState<Record<string, string>>({});
+
+  const updateField = (key: string, val: string) =>
+    setPublishFields(prev => ({ ...prev, [key]: val }));
 
   async function handleAudit() {
     if (mode === 'domain' && !domain.trim()) {
@@ -52,11 +154,7 @@ export default function SiteAuditPage() {
     setDiscoveryError('');
     setDiscoveredCount(0);
     setProgress(5);
-    setProgressLabel(
-      mode === 'domain'
-        ? `Discovering pages on ${domain}...`
-        : 'Starting audit...'
-    );
+    setProgressLabel(mode === 'domain' ? `Discovering pages on ${domain}...` : 'Starting audit...');
 
     const stages = mode === 'domain' ? [
       { pct: 15, label: `Reading sitemap.xml on ${domain}...` },
@@ -126,6 +224,7 @@ export default function SiteAuditPage() {
     setFixStage('Fetching page content...');
     setPublishMode(null);
     setPublishSuccess('');
+    setPublishFields({});
 
     const stages = [
       { delay: 3000, label: 'Finding low KD keyword opportunities...' },
@@ -187,93 +286,279 @@ export default function SiteAuditPage() {
     }
   }
 
-  async function handleGithubPublish(articleHtml: string) {
+  async function handlePublish(platform: string, articleHtml: string, fr: any) {
     setPublishing(true);
     setPublishSuccess('');
-    try {
-      const [owner, repo] = githubRepo.split('/');
-      const headers: Record<string, string> = {
-        Authorization: `token ${githubToken}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/vnd.github.v3+json',
-      };
 
-      let sha = '';
-      try {
-        const getRes = await fetch(
-          `https://api.github.com/repos/${owner}/${repo}/contents/${githubPath}`,
-          { headers }
-        );
-        if (getRes.ok) {
-          const existing = await getRes.json();
-          sha = existing.sha;
+    const f = (key: string) => publishFields[`${platform}_${key}`] || '';
+    const titleMatch = articleHtml.match(/<h1[^>]*>([^<]*)<\/h1>/i);
+    const title = titleMatch?.[1]?.replace(/<[^>]+>/g, '').trim() || fr?.keyword || 'Improved Article';
+    const kwSlug = fr?.keyword?.toLowerCase().replace(/[^a-z0-9]+/g, '-') || '';
+
+    try {
+      // ── GITHUB ──────────────────────────────────────────────
+      if (platform === 'github') {
+        const [owner, repo] = f('repo').split('/');
+        const path = f('path');
+        const token = f('token');
+        const branch = f('branch') || 'main';
+
+        if (!owner || !repo || !path || !token) {
+          setPublishSuccess('❌ Fill in all GitHub fields');
+          return;
         }
-      } catch { /* new file — no SHA needed */ }
 
-      const body: any = {
-        message: 'SEO fix: improved article via SEORANKO site audit',
-        content: btoa(unescape(encodeURIComponent(articleHtml))),
-      };
-      if (sha) body.sha = sha;
-
-      const putRes = await fetch(
-        `https://api.github.com/repos/${owner}/${repo}/contents/${githubPath}`,
-        { method: 'PUT', headers, body: JSON.stringify(body) }
-      );
-
-      if (putRes.ok) {
-        setPublishSuccess(`✅ Published to GitHub — ${githubRepo}/${githubPath}`);
-      } else {
-        const err = await putRes.json();
-        setPublishSuccess(`❌ GitHub error: ${err.message}`);
-      }
-    } catch (err: any) {
-      setPublishSuccess('❌ Error: ' + err.message);
-    } finally {
-      setPublishing(false);
-    }
-  }
-
-  async function handleWordPressPublish(articleHtml: string) {
-    setPublishing(true);
-    setPublishSuccess('');
-    try {
-      const base = wpUrl.replace(/\/$/, '');
-      const credentials = btoa(`${wpUsername}:${wpPassword}`);
-
-      const titleMatch = articleHtml.match(/<h1[^>]*>([^<]+)<\/h1>/i);
-      const title = titleMatch?.[1]?.trim() || fixResult?.keyword || 'Updated Article';
-
-      const slug = fixResult?.keyword
-        ?.toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '');
-
-      const createRes = await fetch(`${base}/wp-json/wp/v2/posts`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Basic ${credentials}`,
+        const headers: Record<string, string> = {
+          Authorization: `token ${token}`,
           'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          title,
-          content: articleHtml,
-          status: 'draft',
-          slug,
-        }),
-      });
+          Accept: 'application/vnd.github.v3+json',
+        };
 
-      if (createRes.ok) {
-        const post = await createRes.json();
-        setPublishSuccess(
-          `✅ Saved as draft — review at ${base}/wp-admin/post.php?post=${post.id}&action=edit`
+        let sha = '';
+        try {
+          const getRes = await fetch(
+            `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`,
+            { headers }
+          );
+          if (getRes.ok) {
+            const existing = await getRes.json();
+            sha = existing.sha;
+          }
+        } catch { /* new file */ }
+
+        const body: any = {
+          message: `SEO fix: ${title} — improved via SEORANKO`,
+          content: btoa(unescape(encodeURIComponent(articleHtml))),
+          branch,
+        };
+        if (sha) body.sha = sha;
+
+        const res = await fetch(
+          `https://api.github.com/repos/${owner}/${repo}/contents/${path}`,
+          { method: 'PUT', headers, body: JSON.stringify(body) }
         );
-      } else {
-        const err = await createRes.json();
-        setPublishSuccess(`❌ WordPress error: ${err.message || 'Check credentials'}`);
+
+        if (res.ok) {
+          setPublishSuccess(`✅ Published to GitHub — ${f('repo')}/${path} on branch ${branch}`);
+        } else {
+          const err = await res.json();
+          setPublishSuccess(`❌ GitHub error: ${err.message}`);
+        }
       }
+
+      // ── WORDPRESS ────────────────────────────────────────────
+      else if (platform === 'wordpress') {
+        const base = f('url').replace(/\/$/, '');
+        const credentials = btoa(`${f('username')}:${f('password')}`);
+        const status = f('status') || 'draft';
+
+        if (!base || !f('username') || !f('password')) {
+          setPublishSuccess('❌ Fill in all WordPress fields');
+          return;
+        }
+
+        const res = await fetch(`${base}/wp-json/wp/v2/posts`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Basic ${credentials}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ title, content: articleHtml, status, slug: kwSlug }),
+        });
+
+        if (res.ok) {
+          const post = await res.json();
+          setPublishSuccess(
+            status === 'draft'
+              ? `✅ Saved as draft — review at ${base}/wp-admin/post.php?post=${post.id}&action=edit`
+              : `✅ Published to WordPress — ${post.link}`
+          );
+        } else {
+          const err = await res.json().catch(() => ({}));
+          setPublishSuccess(`❌ WordPress error: ${err.message || 'Check credentials and Application Password'}`);
+        }
+      }
+
+      // ── SHOPIFY ──────────────────────────────────────────────
+      else if (platform === 'shopify') {
+        const store = f('store').replace(/^https?:\/\//, '').replace(/\/$/, '');
+        const token = f('token');
+        const blogId = f('blogId');
+
+        if (!store || !token || !blogId) {
+          setPublishSuccess('❌ Fill in all Shopify fields');
+          return;
+        }
+
+        const res = await fetch(`https://${store}/admin/api/2024-01/blogs/${blogId}/articles.json`, {
+          method: 'POST',
+          headers: {
+            'X-Shopify-Access-Token': token,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ article: { title, body_html: articleHtml, published: false } }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setPublishSuccess(`✅ Saved to Shopify blog as draft — article ID: ${data.article?.id}`);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          setPublishSuccess(`❌ Shopify error: ${JSON.stringify(err).slice(0, 150)}`);
+        }
+      }
+
+      // ── GHOST ────────────────────────────────────────────────
+      else if (platform === 'ghost') {
+        const base = f('url').replace(/\/$/, '');
+        const adminKey = f('adminKey');
+        const status = f('status') || 'draft';
+
+        if (!base || !adminKey) {
+          setPublishSuccess('❌ Fill in all Ghost fields');
+          return;
+        }
+
+        const [id, secret] = adminKey.split(':');
+        if (!id || !secret) {
+          setPublishSuccess('❌ Ghost key must be in format: id:secret');
+          return;
+        }
+
+        const now = Math.floor(Date.now() / 1000);
+        const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT', kid: id }));
+        const payload = btoa(JSON.stringify({ iat: now, exp: now + 300, aud: '/admin/' }));
+
+        const res = await fetch(`${base}/ghost/api/admin/posts/`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Ghost ${header}.${payload}.signature`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ posts: [{ title, html: articleHtml, status }] }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setPublishSuccess(`✅ ${status === 'draft' ? 'Saved as draft' : 'Published'} to Ghost — ID: ${data.posts?.[0]?.id}`);
+        } else {
+          setPublishSuccess('❌ Ghost error — check your Admin API key format (id:secret)');
+        }
+      }
+
+      // ── WEBFLOW ──────────────────────────────────────────────
+      else if (platform === 'webflow') {
+        const token = f('token');
+        const collectionId = f('collectionId');
+
+        if (!token || !collectionId) {
+          setPublishSuccess('❌ Fill in all Webflow fields');
+          return;
+        }
+
+        const res = await fetch(`https://api.webflow.com/v2/collections/${collectionId}/items`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'accept-version': '1.0.0',
+          },
+          body: JSON.stringify({
+            isArchived: false,
+            isDraft: true,
+            fieldData: { name: title, slug: kwSlug, 'post-body': articleHtml },
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setPublishSuccess(`✅ Saved to Webflow CMS as draft — ID: ${data.id || 'created'}`);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          setPublishSuccess(`❌ Webflow error: ${err.message || 'Check token and collection ID'}`);
+        }
+      }
+
+      // ── CONTENTFUL ───────────────────────────────────────────
+      else if (platform === 'contentful') {
+        const spaceId = f('spaceId');
+        const token = f('token');
+        const contentType = f('contentType') || 'blogPost';
+
+        if (!spaceId || !token) {
+          setPublishSuccess('❌ Fill in all Contentful fields');
+          return;
+        }
+
+        const res = await fetch(
+          `https://api.contentful.com/spaces/${spaceId}/environments/master/entries`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/vnd.contentful.management.v1+json',
+              'X-Contentful-Content-Type': contentType,
+            },
+            body: JSON.stringify({
+              fields: {
+                title: { 'en-US': title },
+                body: { 'en-US': articleHtml },
+                slug: { 'en-US': kwSlug },
+              },
+            }),
+          }
+        );
+
+        if (res.ok) {
+          const data = await res.json();
+          setPublishSuccess(`✅ Saved to Contentful as draft — ID: ${data.sys?.id}`);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          setPublishSuccess(`❌ Contentful error: ${err.message || 'Check space ID and token'}`);
+        }
+      }
+
+      // ── WIX ──────────────────────────────────────────────────
+      else if (platform === 'wix') {
+        const apiKey = f('apiKey');
+        const siteId = f('siteId');
+
+        if (!apiKey || !siteId) {
+          setPublishSuccess('❌ Fill in all Wix fields');
+          return;
+        }
+
+        const res = await fetch('https://www.wixapis.com/blog/v3/draft-posts', {
+          method: 'POST',
+          headers: {
+            Authorization: apiKey,
+            'wix-site-id': siteId,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            draftPost: {
+              title,
+              richContent: {
+                nodes: [{
+                  type: 'PARAGRAPH',
+                  nodes: [{ type: 'TEXT', textData: { text: articleHtml.replace(/<[^>]+>/g, ' ') } }],
+                }],
+              },
+            },
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setPublishSuccess(`✅ Saved to Wix as draft — ID: ${data.draftPost?.id || 'created'}`);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          setPublishSuccess(`❌ Wix error: ${err.message || 'Check API key and site ID'}`);
+        }
+      }
+
     } catch (err: any) {
-      setPublishSuccess('❌ Error: ' + err.message);
+      setPublishSuccess(`❌ Error: ${err.message}`);
     } finally {
       setPublishing(false);
     }
@@ -313,7 +598,7 @@ export default function SiteAuditPage() {
     td: { padding: '12px 16px', fontSize: '13px', color: '#0F0F0F', borderBottom: '1px solid #F5F4F1', verticalAlign: 'top' as const },
     discoveryBanner: { background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', fontSize: '13px', color: '#1D4ED8', display: 'flex', alignItems: 'center', gap: '8px' },
     discoveryWarning: { background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', fontSize: '13px', color: '#92400E' },
-    darkInput: { width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #3a3a5e', background: '#0d0d1a', color: '#fff', fontSize: '12px', boxSizing: 'border-box' as const },
+    darkInput: { width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #2a2a4e', background: '#0d0d1a', color: '#fff', fontSize: '12px', boxSizing: 'border-box' as const },
   };
 
   return (
@@ -323,20 +608,15 @@ export default function SiteAuditPage() {
 
       {/* Input card */}
       <div style={s.card}>
-        {/* Tabs */}
         <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', background: '#F5F4F1', padding: '4px', borderRadius: '8px', width: 'fit-content' }}>
           <button
             onClick={() => setMode('domain')}
             style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600, background: mode === 'domain' ? '#fff' : 'transparent', color: mode === 'domain' ? '#0F0F0F' : '#9B9B9B', border: 'none', borderRadius: '6px', cursor: 'pointer', boxShadow: mode === 'domain' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }}
-          >
-            🌐 Domain Audit
-          </button>
+          >🌐 Domain Audit</button>
           <button
             onClick={() => setMode('manual')}
             style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600, background: mode === 'manual' ? '#fff' : 'transparent', color: mode === 'manual' ? '#0F0F0F' : '#9B9B9B', border: 'none', borderRadius: '6px', cursor: 'pointer', boxShadow: mode === 'manual' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }}
-          >
-            📋 Manual URLs
-          </button>
+          >📋 Manual URLs</button>
         </div>
 
         {error && <div style={s.errorBox}>{error}</div>}
@@ -378,11 +658,7 @@ export default function SiteAuditPage() {
           </div>
         </div>
 
-        <button
-          style={{ ...s.auditBtn, opacity: loading ? 0.6 : 1 }}
-          onClick={handleAudit}
-          disabled={loading}
-        >
+        <button style={{ ...s.auditBtn, opacity: loading ? 0.6 : 1 }} onClick={handleAudit} disabled={loading}>
           {loading ? '⏳ Auditing...' : mode === 'domain' ? '🌐 Discover & Audit All Pages' : '🔍 Audit These Pages'}
         </button>
 
@@ -409,14 +685,8 @@ export default function SiteAuditPage() {
               )}
             </div>
           )}
+          {discoveryError && <div style={s.discoveryWarning}>⚠️ {discoveryError}</div>}
 
-          {discoveryError && (
-            <div style={s.discoveryWarning}>
-              ⚠️ {discoveryError}
-            </div>
-          )}
-
-          {/* Summary stats */}
           <div style={s.statsGrid}>
             <div style={s.statBox}>
               <div style={{ ...s.statNum, color: scoreColor(results.summary.avgScore) }}>{results.summary.avgScore}</div>
@@ -440,7 +710,6 @@ export default function SiteAuditPage() {
             </div>
           </div>
 
-          {/* Results table */}
           <div style={s.table}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
@@ -499,9 +768,7 @@ export default function SiteAuditPage() {
                           <button
                             onClick={e => { e.stopPropagation(); handleFixPage(page); }}
                             style={{ fontSize: '11px', fontWeight: 700, padding: '2px 10px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '20px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
-                          >
-                            🔧 Fix Page
-                          </button>
+                          >🔧 Fix Page</button>
                           <span style={{ fontSize: '11px', color: '#9B9B9B', marginLeft: '2px' }}>{isExpanded ? '▲' : '▼'}</span>
                         </div>
                       </td>
@@ -534,12 +801,11 @@ export default function SiteAuditPage() {
                               )}
                             </div>
                           </div>
-                          {page.metaDescription && (
+                          {page.metaDescription ? (
                             <div style={{ marginTop: '12px', fontSize: '12px', color: '#6B6B6B', borderTop: '1px solid #E8E8E4', paddingTop: '10px' }}>
                               <strong>Meta description:</strong> {page.metaDescription}
                             </div>
-                          )}
-                          {!page.metaDescription && (
+                          ) : (
                             <div style={{ marginTop: '12px', fontSize: '12px', color: '#DC2626', borderTop: '1px solid #E8E8E4', paddingTop: '10px' }}>
                               <strong>Meta description:</strong> Missing
                             </div>
@@ -564,7 +830,7 @@ export default function SiteAuditPage() {
           onClick={() => !fixing && setShowFixPanel(false)}
         >
           <div
-            style={{ width: '560px', height: '100vh', background: '#fff', overflowY: 'auto', display: 'flex', flexDirection: 'column', zIndex: 1002 }}
+            style={{ width: '580px', height: '100vh', background: '#fff', overflowY: 'auto', display: 'flex', flexDirection: 'column', zIndex: 1002 }}
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
@@ -576,9 +842,8 @@ export default function SiteAuditPage() {
               >×</button>
             </div>
 
-            {/* Content */}
             <div style={{ padding: '20px', flex: 1 }}>
-              {/* Loading state */}
+              {/* Loading */}
               {fixing && (
                 <div style={{ textAlign: 'center', padding: '48px 0' }}>
                   <div style={{ fontSize: '36px', marginBottom: '16px' }}>⚙️</div>
@@ -590,7 +855,7 @@ export default function SiteAuditPage() {
                 </div>
               )}
 
-              {/* Error state */}
+              {/* Error */}
               {!fixing && fixStage && !fixResult && (
                 <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '12px 16px', color: '#DC2626', fontSize: '13px' }}>
                   {fixStage}
@@ -610,7 +875,7 @@ export default function SiteAuditPage() {
                     </div>
                   </div>
 
-                  {/* Strategy brief */}
+                  {/* Brief */}
                   {fixResult.brief?.briefSummary && (
                     <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: '#1D4ED8' }}>
                       💡 {fixResult.brief.briefSummary}
@@ -640,93 +905,109 @@ export default function SiteAuditPage() {
 
                   {/* Publish section */}
                   {fixResult.improvedArticle && (
-                    <div style={{ background: '#0F0F0F', borderRadius: '10px', padding: '20px', marginBottom: '16px' }}>
-                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>
-                        📄 Improved Article Ready
-                      </div>
-                      <div style={{ fontSize: '12px', color: '#8899aa', marginBottom: '16px' }}>
-                        {fixResult.improvedArticle.split(/\s+/).length} words · Google 2026 compliant
-                      </div>
-
-                      {/* Three publish options */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '16px' }}>
-                        <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(fixResult.improvedArticle);
-                            setPublishSuccess('✅ Copied to clipboard!');
-                            setTimeout(() => setPublishSuccess(''), 3000);
-                          }}
-                          style={{ padding: '10px 8px', background: '#2a2a3e', border: '1px solid #3a3a5e', borderRadius: '8px', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 600, textAlign: 'center' as const }}
-                        >
-                          📋 Copy HTML
-                          <div style={{ fontSize: '10px', color: '#8899aa', marginTop: '2px' }}>Paste anywhere</div>
-                        </button>
-                        <button
-                          onClick={() => setPublishMode(publishMode === 'github' ? null : 'github')}
-                          style={{ padding: '10px 8px', background: publishMode === 'github' ? '#FF6B2C' : '#2a2a3e', border: `1px solid ${publishMode === 'github' ? '#FF6B2C' : '#3a3a5e'}`, borderRadius: '8px', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 600, textAlign: 'center' as const }}
-                        >
-                          🐙 GitHub
-                          <div style={{ fontSize: '10px', color: publishMode === 'github' ? '#fff' : '#8899aa', marginTop: '2px' }}>Static sites</div>
-                        </button>
-                        <button
-                          onClick={() => setPublishMode(publishMode === 'wordpress' ? null : 'wordpress')}
-                          style={{ padding: '10px 8px', background: publishMode === 'wordpress' ? '#FF6B2C' : '#2a2a3e', border: `1px solid ${publishMode === 'wordpress' ? '#FF6B2C' : '#3a3a5e'}`, borderRadius: '8px', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 600, textAlign: 'center' as const }}
-                        >
-                          🌐 WordPress
-                          <div style={{ fontSize: '10px', color: publishMode === 'wordpress' ? '#fff' : '#8899aa', marginTop: '2px' }}>WP sites</div>
-                        </button>
+                    <div style={{ background: '#0F0F0F', borderRadius: '12px', padding: '20px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+                        <div>
+                          <div style={{ fontSize: '14px', fontWeight: 700, color: '#fff', marginBottom: '2px' }}>📄 Improved Article Ready</div>
+                          <div style={{ fontSize: '12px', color: '#8899aa' }}>
+                            {fixResult.improvedArticle.split(/\s+/).length} words · Google 2026 compliant
+                          </div>
+                        </div>
                       </div>
 
-                      {/* Publish success/error */}
+                      {/* Platform grid */}
+                      <div style={{ fontSize: '11px', fontWeight: 600, color: '#8899aa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px' }}>
+                        Choose where to publish
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', marginBottom: '14px' }}>
+                        {platforms.map(platform => (
+                          <button
+                            key={platform.id}
+                            onClick={() => {
+                              if (platform.id === 'copy') {
+                                navigator.clipboard.writeText(fixResult.improvedArticle);
+                                setPublishSuccess('✅ Copied to clipboard!');
+                                setTimeout(() => setPublishSuccess(''), 3000);
+                                return;
+                              }
+                              setPublishMode(publishMode === platform.id ? null : platform.id);
+                              setPublishSuccess('');
+                            }}
+                            style={{
+                              padding: '8px 4px',
+                              background: publishMode === platform.id ? platform.color : '#1a1a2e',
+                              border: `1px solid ${publishMode === platform.id ? platform.color : '#2a2a4e'}`,
+                              borderRadius: '8px', color: '#fff', cursor: 'pointer',
+                              fontSize: '11px', fontWeight: 600, textAlign: 'center' as const,
+                            }}
+                          >
+                            <div style={{ fontSize: '18px', marginBottom: '2px' }}>{platform.icon}</div>
+                            <div>{platform.label}</div>
+                            <div style={{ fontSize: '9px', color: publishMode === platform.id ? 'rgba(255,255,255,0.7)' : '#8899aa', marginTop: '1px' }}>
+                              {platform.desc}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Success / error */}
                       {publishSuccess && (
-                        <div style={{ background: publishSuccess.startsWith('❌') ? '#FEF2F2' : '#F0FDF4', border: `1px solid ${publishSuccess.startsWith('❌') ? '#FECACA' : '#BBF7D0'}`, borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '12px', color: publishSuccess.startsWith('❌') ? '#DC2626' : '#166534', fontWeight: 600 }}>
+                        <div style={{
+                          background: publishSuccess.includes('❌') ? '#3d1515' : '#0d2b1a',
+                          border: `1px solid ${publishSuccess.includes('❌') ? '#7f1d1d' : '#166534'}`,
+                          borderRadius: '8px', padding: '10px 14px', marginBottom: '12px',
+                          fontSize: '12px', color: publishSuccess.includes('❌') ? '#fca5a5' : '#86efac',
+                          wordBreak: 'break-all' as const,
+                        }}>
                           {publishSuccess}
                         </div>
                       )}
 
-                      {/* GitHub form */}
-                      {publishMode === 'github' && (
-                        <div style={{ background: '#1a1a2e', borderRadius: '8px', padding: '16px', marginBottom: '12px' }}>
-                          <div style={{ fontSize: '12px', fontWeight: 600, color: '#fff', marginBottom: '12px' }}>🐙 Publish to GitHub</div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            <input placeholder="GitHub repo (e.g. owner/repo-name)" value={githubRepo} onChange={e => setGithubRepo(e.target.value)} style={s.darkInput} />
-                            <input placeholder="File path (e.g. public/blog/article.html)" value={githubPath} onChange={e => setGithubPath(e.target.value)} style={s.darkInput} />
-                            <input type="password" placeholder="GitHub Personal Access Token" value={githubToken} onChange={e => setGithubToken(e.target.value)} style={s.darkInput} />
-                            <div style={{ fontSize: '10px', color: '#8899aa' }}>Token needs: repo → contents write permission. Get at github.com/settings/tokens</div>
-                            <button
-                              onClick={() => handleGithubPublish(fixResult.improvedArticle)}
-                              disabled={publishing || !githubRepo || !githubPath || !githubToken}
-                              style={{ padding: '9px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 700, opacity: publishing || !githubRepo || !githubPath || !githubToken ? 0.5 : 1 }}
-                            >
-                              {publishing ? '⏳ Publishing...' : '🚀 Publish to GitHub'}
-                            </button>
+                      {/* Dynamic platform form */}
+                      {publishMode && (() => {
+                        const platform = platforms.find(p => p.id === publishMode);
+                        if (!platform || platform.noForm || !platform.fields) return null;
+                        return (
+                          <div style={{ background: '#1a1a2e', borderRadius: '8px', padding: '16px', marginBottom: '12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+                              <span style={{ fontSize: '18px' }}>{platform.icon}</span>
+                              <span style={{ fontSize: '13px', fontWeight: 700, color: '#fff' }}>Publish to {platform.label}</span>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                              {platform.fields.map(field => (
+                                <div key={field.key}>
+                                  <div style={{ fontSize: '11px', color: '#8899aa', marginBottom: '4px', fontWeight: 600 }}>{field.label}</div>
+                                  <input
+                                    type={field.type || 'text'}
+                                    placeholder={field.placeholder}
+                                    value={publishFields[`${publishMode}_${field.key}`] || ''}
+                                    onChange={e => updateField(`${publishMode}_${field.key}`, e.target.value)}
+                                    style={s.darkInput}
+                                  />
+                                  {field.hint && (
+                                    <div style={{ fontSize: '10px', color: '#6b7280', marginTop: '3px' }}>💡 {field.hint}</div>
+                                  )}
+                                </div>
+                              ))}
+                              <button
+                                onClick={() => handlePublish(publishMode, fixResult.improvedArticle, fixResult)}
+                                disabled={publishing}
+                                style={{
+                                  padding: '10px', background: '#FF6B2C', color: '#fff', border: 'none',
+                                  borderRadius: '8px', cursor: publishing ? 'not-allowed' : 'pointer',
+                                  fontSize: '13px', fontWeight: 700, opacity: publishing ? 0.6 : 1, marginTop: '4px',
+                                }}
+                              >
+                                {publishing ? '⏳ Publishing...' : `🚀 Publish to ${platform.label}`}
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      )}
-
-                      {/* WordPress form */}
-                      {publishMode === 'wordpress' && (
-                        <div style={{ background: '#1a1a2e', borderRadius: '8px', padding: '16px', marginBottom: '12px' }}>
-                          <div style={{ fontSize: '12px', fontWeight: 600, color: '#fff', marginBottom: '12px' }}>🌐 Publish to WordPress</div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            <input placeholder="WordPress URL (e.g. https://yoursite.com)" value={wpUrl} onChange={e => setWpUrl(e.target.value)} style={s.darkInput} />
-                            <input placeholder="WordPress username" value={wpUsername} onChange={e => setWpUsername(e.target.value)} style={s.darkInput} />
-                            <input type="password" placeholder="Application password (not login password)" value={wpPassword} onChange={e => setWpPassword(e.target.value)} style={s.darkInput} />
-                            <div style={{ fontSize: '10px', color: '#8899aa' }}>Use Application Password — WP Admin → Users → Your Profile → Application Passwords</div>
-                            <button
-                              onClick={() => handleWordPressPublish(fixResult.improvedArticle)}
-                              disabled={publishing || !wpUrl || !wpUsername || !wpPassword}
-                              style={{ padding: '9px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 700, opacity: publishing || !wpUrl || !wpUsername || !wpPassword ? 0.5 : 1 }}
-                            >
-                              {publishing ? '⏳ Publishing...' : '🚀 Publish to WordPress'}
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                        );
+                      })()}
 
                       {/* Article preview */}
-                      <div style={{ background: '#1a1a2e', borderRadius: '8px', padding: '14px', maxHeight: '180px', overflowY: 'auto', fontSize: '11px', color: '#8899aa', fontFamily: 'monospace', lineHeight: 1.6 }}>
-                        {fixResult.improvedArticle.slice(0, 500)}...
+                      <div style={{ background: '#1a1a2e', borderRadius: '8px', padding: '12px', maxHeight: '150px', overflowY: 'auto', fontSize: '11px', color: '#8899aa', fontFamily: 'monospace', lineHeight: 1.5 }}>
+                        {fixResult.improvedArticle.slice(0, 400)}...
                       </div>
                     </div>
                   )}
