@@ -139,6 +139,14 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    id: "site-audit",
+    label: "Site Audit",
+    href: "/dashboard/site-audit",
+    icon: (
+      <span className="w-4 h-4 flex items-center justify-center text-sm leading-none">🔍</span>
+    ),
+  },
+  {
     id: "images",
     label: "Images",
     icon: (
