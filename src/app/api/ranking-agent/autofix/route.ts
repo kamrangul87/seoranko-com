@@ -17,7 +17,6 @@ function getSupabase() {
 
 export const maxDuration = 300;
 
-const FAST_MODEL = 'claude-haiku-4-5-20251001';
 
 // ── STEP A: Fetch top 3 competitor full content ────────────────────────────
 async function fetchTopCompetitors(
@@ -83,38 +82,43 @@ async function fetchTopCompetitors(
   }
 }
 
-// ── STEP B: Get latest Google algorithm updates via live search ────────────
+// ── STEP B: Google 2026 ranking factors (hardcoded — avoids extra API call) ─
 async function getLatestGoogleUpdates(): Promise<string> {
-  try {
-    const response = await anthropic.messages.create({
-      model: FAST_MODEL,
-      max_tokens: 500,
-      tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
-      messages: [{
-        role: 'user',
-        content: `Search for: "Google algorithm update 2026 ranking factors SEO"
+  return `Google 2026 Key Ranking Factors:
+1. EEAT is now the #1 ranking signal — pages must demonstrate Experience, Expertise, Authoritativeness, Trustworthiness through named authors, citations, and firsthand experience signals
+2. Helpful Content System — content must be written for humans first, not search engines. Thin, AI-generated content without unique insights is actively demoted
+3. Schema markup is a strong ranking signal — Article, FAQ, HowTo, and BreadcrumbList schema all improve rich result eligibility
+4. Page Experience signals — Core Web Vitals (LCP under 2.5s, CLS under 0.1, FID under 100ms) are ranking factors
+5. Comprehensive topic coverage — pages ranking in top 5 typically cover all subtopics, FAQs, and related questions for the keyword
+6. Internal linking — strong internal link structure passes authority and improves crawlability
+7. Content freshness — dateModified in schema and regular updates signal active maintenance to Google
+8. Official source citations — linking to gov.uk, official bodies, and authoritative sources improves trust signals
+9. AI Overview optimisation — concise, factual answers in the first 100 words increase chances of appearing in AI Overviews
+10. Mobile-first indexing — Google indexes mobile version first; responsive design and mobile page speed are critical`;
+}
 
-Return a brief list of the most important Google ranking signals and updates from 2025-2026 that affect article rankings. Focus on:
-- EEAT requirements
-- Helpful Content signals
-- AI content policies
-- Core Web Vitals
-- Any recent algorithm updates
-
-Return as a brief paragraph only — 100 words max.`
-      }]
-    });
-
-    const text = response.content
-      .filter((b: any) => b.type === 'text')
-      .map((b: any) => b.text)
-      .join(' ')
-      .slice(0, 500);
-
-    return text || 'Google 2026 priorities: EEAT signals, helpful content, original research, fast page speed, schema markup, comprehensive topic coverage, human expert authorship.';
-  } catch {
-    return 'Google 2026 priorities: EEAT signals, helpful content, original research, fast page speed, schema markup, comprehensive topic coverage, human expert authorship.';
+// ── Retry helper for Anthropic overloaded_error ────────────────────────────
+async function callWithRetry<T>(
+  fn: () => Promise<T>,
+  retries: number = 3,
+  delayMs: number = 2000
+): Promise<T> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      const isOverloaded = err?.message?.includes('overloaded') ||
+                           err?.status === 529 ||
+                           err?.error?.type === 'overloaded_error';
+      if (isOverloaded && i < retries - 1) {
+        console.log(`[autofix] API overloaded, retrying in ${delayMs * (i + 1)}ms...`);
+        await new Promise(r => setTimeout(r, delayMs * (i + 1)));
+        continue;
+      }
+      throw err;
+    }
   }
+  throw new Error('Max retries exceeded');
 }
 
 // ── STEP C: Build intelligent improvement brief ────────────────────────────
@@ -230,27 +234,24 @@ export async function POST(req: NextRequest) {
       console.error('[autofix] fetchTopCompetitors failed:', err);
     }
     console.log('[autofix] competitors found:', competitors.length);
+    await new Promise(r => setTimeout(r, 1000));
 
-    // STEP B — Get latest Google updates (fails open to default text)
-    console.log('[autofix] fetching Google updates...');
-    let googleUpdates = 'Google 2026 priorities: EEAT signals, helpful content, original research, fast page speed, schema markup, comprehensive topic coverage, human expert authorship.';
-    try {
-      googleUpdates = await getLatestGoogleUpdates();
-    } catch (err) {
-      console.error('[autofix] getLatestGoogleUpdates failed:', err);
-    }
+    // STEP B — Get latest Google updates (hardcoded — no API call)
+    console.log('[autofix] building Google updates context...');
+    const googleUpdates = await getLatestGoogleUpdates();
+    await new Promise(r => setTimeout(r, 1000));
 
     // STEP C — Build improvement brief (fails open to a basic brief from agent analysis)
     console.log('[autofix] building improvement brief...');
     let brief: Awaited<ReturnType<typeof buildImprovementBrief>>;
     try {
-      brief = await buildImprovementBrief(
+      brief = await callWithRetry(() => buildImprovementBrief(
         article.keyword,
         article.current_position || 20,
         competitors,
         agentAnalysis,
         googleUpdates
-      );
+      ));
     } catch (err) {
       console.error('[autofix] buildImprovementBrief failed:', err);
       brief = {
@@ -261,6 +262,7 @@ export async function POST(req: NextRequest) {
         seoFixes: [],
       };
     }
+    await new Promise(r => setTimeout(r, 2000));
 
     // STEP D — Build the master prompt with all intelligence injected
     const avgCompetitorWords = competitors.length > 0
@@ -325,7 +327,7 @@ TARGET: This rewritten article must be able to rank in TOP 5 for "${article.keyw
 Write it as if your career depends on it. Be comprehensive, accurate, and authoritative.`;
 
     // STEP E — Stream the improved article
-    const stream = await anthropic.messages.stream({
+    const stream = anthropic.messages.stream({
       model: 'claude-sonnet-4-6',
       max_tokens: 8000,
       messages: [{ role: 'user', content: autoFixPrompt }],
