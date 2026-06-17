@@ -16,10 +16,23 @@ export default function SiteAuditPage() {
   const [discoveryError, setDiscoveryError] = useState('');
   const [discoveredCount, setDiscoveredCount] = useState(0);
   const [expandedUrl, setExpandedUrl] = useState<string | null>(null);
+
+  // Fix panel state
   const [fixing, setFixing] = useState(false);
   const [fixResult, setFixResult] = useState<any>(null);
   const [showFixPanel, setShowFixPanel] = useState(false);
   const [fixStage, setFixStage] = useState('');
+
+  // Publish state
+  const [publishMode, setPublishMode] = useState<'github' | 'wordpress' | null>(null);
+  const [githubRepo, setGithubRepo] = useState('');
+  const [githubToken, setGithubToken] = useState('');
+  const [githubPath, setGithubPath] = useState('');
+  const [wpUrl, setWpUrl] = useState('');
+  const [wpUsername, setWpUsername] = useState('');
+  const [wpPassword, setWpPassword] = useState('');
+  const [publishing, setPublishing] = useState(false);
+  const [publishSuccess, setPublishSuccess] = useState('');
 
   async function handleAudit() {
     if (mode === 'domain' && !domain.trim()) {
@@ -111,6 +124,8 @@ export default function SiteAuditPage() {
     setFixResult(null);
     setShowFixPanel(true);
     setFixStage('Fetching page content...');
+    setPublishMode(null);
+    setPublishSuccess('');
 
     const stages = [
       { delay: 3000, label: 'Finding low KD keyword opportunities...' },
@@ -128,28 +143,139 @@ export default function SiteAuditPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url: page.url,
-          keyword: page.aiAnalysis?.detectedKeyword || '',
+          detectedKeyword: page.aiAnalysis?.detectedKeyword || page.title || '',
+          issues: page.issues || [],
           market,
+          pageScore: page.score,
         }),
       });
 
       timers.forEach(t => clearTimeout(t));
 
       if (!res.ok) {
-        const err = await res.text();
-        setFixStage('Fix failed: ' + err.slice(0, 200));
+        let errMsg = 'Fix failed';
+        try {
+          const errData = await res.json();
+          errMsg = errData.error || errMsg;
+        } catch {
+          errMsg = await res.text().catch(() => errMsg);
+        }
+        setFixStage('❌ Error: ' + errMsg.slice(0, 150));
         return;
       }
 
-      const data = await res.json();
-      if (data.error) { setFixStage('Error: ' + data.error); return; }
+      let data: any;
+      try {
+        data = await res.json();
+      } catch {
+        setFixStage('❌ Invalid response from server');
+        return;
+      }
+
+      if (data.error) {
+        setFixStage('❌ Error: ' + data.error);
+        return;
+      }
+
       setFixResult(data);
       setFixStage('');
     } catch (err: any) {
       timers.forEach(t => clearTimeout(t));
-      setFixStage('Error: ' + err.message);
+      setFixStage('❌ Error: ' + err.message);
     } finally {
       setFixing(false);
+    }
+  }
+
+  async function handleGithubPublish(articleHtml: string) {
+    setPublishing(true);
+    setPublishSuccess('');
+    try {
+      const [owner, repo] = githubRepo.split('/');
+      const headers: Record<string, string> = {
+        Authorization: `token ${githubToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/vnd.github.v3+json',
+      };
+
+      let sha = '';
+      try {
+        const getRes = await fetch(
+          `https://api.github.com/repos/${owner}/${repo}/contents/${githubPath}`,
+          { headers }
+        );
+        if (getRes.ok) {
+          const existing = await getRes.json();
+          sha = existing.sha;
+        }
+      } catch { /* new file — no SHA needed */ }
+
+      const body: any = {
+        message: 'SEO fix: improved article via SEORANKO site audit',
+        content: btoa(unescape(encodeURIComponent(articleHtml))),
+      };
+      if (sha) body.sha = sha;
+
+      const putRes = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/contents/${githubPath}`,
+        { method: 'PUT', headers, body: JSON.stringify(body) }
+      );
+
+      if (putRes.ok) {
+        setPublishSuccess(`✅ Published to GitHub — ${githubRepo}/${githubPath}`);
+      } else {
+        const err = await putRes.json();
+        setPublishSuccess(`❌ GitHub error: ${err.message}`);
+      }
+    } catch (err: any) {
+      setPublishSuccess('❌ Error: ' + err.message);
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function handleWordPressPublish(articleHtml: string) {
+    setPublishing(true);
+    setPublishSuccess('');
+    try {
+      const base = wpUrl.replace(/\/$/, '');
+      const credentials = btoa(`${wpUsername}:${wpPassword}`);
+
+      const titleMatch = articleHtml.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+      const title = titleMatch?.[1]?.trim() || fixResult?.keyword || 'Updated Article';
+
+      const slug = fixResult?.keyword
+        ?.toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+
+      const createRes = await fetch(`${base}/wp-json/wp/v2/posts`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${credentials}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title,
+          content: articleHtml,
+          status: 'draft',
+          slug,
+        }),
+      });
+
+      if (createRes.ok) {
+        const post = await createRes.json();
+        setPublishSuccess(
+          `✅ Saved as draft — review at ${base}/wp-admin/post.php?post=${post.id}&action=edit`
+        );
+      } else {
+        const err = await createRes.json();
+        setPublishSuccess(`❌ WordPress error: ${err.message || 'Check credentials'}`);
+      }
+    } catch (err: any) {
+      setPublishSuccess('❌ Error: ' + err.message);
+    } finally {
+      setPublishing(false);
     }
   }
 
@@ -187,6 +313,7 @@ export default function SiteAuditPage() {
     td: { padding: '12px 16px', fontSize: '13px', color: '#0F0F0F', borderBottom: '1px solid #F5F4F1', verticalAlign: 'top' as const },
     discoveryBanner: { background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', fontSize: '13px', color: '#1D4ED8', display: 'flex', alignItems: 'center', gap: '8px' },
     discoveryWarning: { background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', fontSize: '13px', color: '#92400E' },
+    darkInput: { width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #3a3a5e', background: '#0d0d1a', color: '#fff', fontSize: '12px', boxSizing: 'border-box' as const },
   };
 
   return (
@@ -429,6 +556,7 @@ export default function SiteAuditPage() {
           </div>
         </>
       )}
+
       {/* Fix Panel Overlay */}
       {showFixPanel && (
         <div
@@ -450,23 +578,26 @@ export default function SiteAuditPage() {
 
             {/* Content */}
             <div style={{ padding: '20px', flex: 1 }}>
+              {/* Loading state */}
               {fixing && (
                 <div style={{ textAlign: 'center', padding: '48px 0' }}>
                   <div style={{ fontSize: '36px', marginBottom: '16px' }}>⚙️</div>
                   <div style={{ fontWeight: 700, fontSize: '15px', color: '#0F0F0F', marginBottom: '8px' }}>Fixing page...</div>
                   <div style={{ fontSize: '13px', color: '#6B6B6B' }}>{fixStage}</div>
                   <div style={{ marginTop: '24px', background: '#F5F4F1', borderRadius: '8px', height: '6px', overflow: 'hidden' }}>
-                    <div style={{ height: '100%', background: '#FF6B2C', width: '60%', borderRadius: '8px', animation: 'pulse 2s infinite' }} />
+                    <div style={{ height: '100%', background: '#FF6B2C', width: '60%', borderRadius: '8px' }} />
                   </div>
                 </div>
               )}
 
+              {/* Error state */}
               {!fixing && fixStage && !fixResult && (
                 <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '12px 16px', color: '#DC2626', fontSize: '13px' }}>
-                  ⚠️ {fixStage}
+                  {fixStage}
                 </div>
               )}
 
+              {/* Results */}
               {fixResult && (
                 <>
                   {/* Keyword + stats */}
@@ -507,23 +638,98 @@ export default function SiteAuditPage() {
                     </div>
                   )}
 
-                  {/* Improved article */}
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                      <div style={{ fontSize: '11px', fontWeight: 700, color: '#9B9B9B', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Improved Article</div>
-                      <button
-                        onClick={() => navigator.clipboard.writeText(fixResult.improvedArticle)}
-                        style={{ fontSize: '12px', color: '#6B6B6B', background: '#F5F4F1', border: '1px solid #E8E8E4', borderRadius: '6px', cursor: 'pointer', padding: '4px 10px' }}
-                      >
-                        📋 Copy
-                      </button>
+                  {/* Publish section */}
+                  {fixResult.improvedArticle && (
+                    <div style={{ background: '#0F0F0F', borderRadius: '10px', padding: '20px', marginBottom: '16px' }}>
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#fff', marginBottom: '4px' }}>
+                        📄 Improved Article Ready
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#8899aa', marginBottom: '16px' }}>
+                        {fixResult.improvedArticle.split(/\s+/).length} words · Google 2026 compliant
+                      </div>
+
+                      {/* Three publish options */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '16px' }}>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(fixResult.improvedArticle);
+                            setPublishSuccess('✅ Copied to clipboard!');
+                            setTimeout(() => setPublishSuccess(''), 3000);
+                          }}
+                          style={{ padding: '10px 8px', background: '#2a2a3e', border: '1px solid #3a3a5e', borderRadius: '8px', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 600, textAlign: 'center' as const }}
+                        >
+                          📋 Copy HTML
+                          <div style={{ fontSize: '10px', color: '#8899aa', marginTop: '2px' }}>Paste anywhere</div>
+                        </button>
+                        <button
+                          onClick={() => setPublishMode(publishMode === 'github' ? null : 'github')}
+                          style={{ padding: '10px 8px', background: publishMode === 'github' ? '#FF6B2C' : '#2a2a3e', border: `1px solid ${publishMode === 'github' ? '#FF6B2C' : '#3a3a5e'}`, borderRadius: '8px', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 600, textAlign: 'center' as const }}
+                        >
+                          🐙 GitHub
+                          <div style={{ fontSize: '10px', color: publishMode === 'github' ? '#fff' : '#8899aa', marginTop: '2px' }}>Static sites</div>
+                        </button>
+                        <button
+                          onClick={() => setPublishMode(publishMode === 'wordpress' ? null : 'wordpress')}
+                          style={{ padding: '10px 8px', background: publishMode === 'wordpress' ? '#FF6B2C' : '#2a2a3e', border: `1px solid ${publishMode === 'wordpress' ? '#FF6B2C' : '#3a3a5e'}`, borderRadius: '8px', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 600, textAlign: 'center' as const }}
+                        >
+                          🌐 WordPress
+                          <div style={{ fontSize: '10px', color: publishMode === 'wordpress' ? '#fff' : '#8899aa', marginTop: '2px' }}>WP sites</div>
+                        </button>
+                      </div>
+
+                      {/* Publish success/error */}
+                      {publishSuccess && (
+                        <div style={{ background: publishSuccess.startsWith('❌') ? '#FEF2F2' : '#F0FDF4', border: `1px solid ${publishSuccess.startsWith('❌') ? '#FECACA' : '#BBF7D0'}`, borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '12px', color: publishSuccess.startsWith('❌') ? '#DC2626' : '#166534', fontWeight: 600 }}>
+                          {publishSuccess}
+                        </div>
+                      )}
+
+                      {/* GitHub form */}
+                      {publishMode === 'github' && (
+                        <div style={{ background: '#1a1a2e', borderRadius: '8px', padding: '16px', marginBottom: '12px' }}>
+                          <div style={{ fontSize: '12px', fontWeight: 600, color: '#fff', marginBottom: '12px' }}>🐙 Publish to GitHub</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <input placeholder="GitHub repo (e.g. owner/repo-name)" value={githubRepo} onChange={e => setGithubRepo(e.target.value)} style={s.darkInput} />
+                            <input placeholder="File path (e.g. public/blog/article.html)" value={githubPath} onChange={e => setGithubPath(e.target.value)} style={s.darkInput} />
+                            <input type="password" placeholder="GitHub Personal Access Token" value={githubToken} onChange={e => setGithubToken(e.target.value)} style={s.darkInput} />
+                            <div style={{ fontSize: '10px', color: '#8899aa' }}>Token needs: repo → contents write permission. Get at github.com/settings/tokens</div>
+                            <button
+                              onClick={() => handleGithubPublish(fixResult.improvedArticle)}
+                              disabled={publishing || !githubRepo || !githubPath || !githubToken}
+                              style={{ padding: '9px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 700, opacity: publishing || !githubRepo || !githubPath || !githubToken ? 0.5 : 1 }}
+                            >
+                              {publishing ? '⏳ Publishing...' : '🚀 Publish to GitHub'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* WordPress form */}
+                      {publishMode === 'wordpress' && (
+                        <div style={{ background: '#1a1a2e', borderRadius: '8px', padding: '16px', marginBottom: '12px' }}>
+                          <div style={{ fontSize: '12px', fontWeight: 600, color: '#fff', marginBottom: '12px' }}>🌐 Publish to WordPress</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <input placeholder="WordPress URL (e.g. https://yoursite.com)" value={wpUrl} onChange={e => setWpUrl(e.target.value)} style={s.darkInput} />
+                            <input placeholder="WordPress username" value={wpUsername} onChange={e => setWpUsername(e.target.value)} style={s.darkInput} />
+                            <input type="password" placeholder="Application password (not login password)" value={wpPassword} onChange={e => setWpPassword(e.target.value)} style={s.darkInput} />
+                            <div style={{ fontSize: '10px', color: '#8899aa' }}>Use Application Password — WP Admin → Users → Your Profile → Application Passwords</div>
+                            <button
+                              onClick={() => handleWordPressPublish(fixResult.improvedArticle)}
+                              disabled={publishing || !wpUrl || !wpUsername || !wpPassword}
+                              style={{ padding: '9px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 700, opacity: publishing || !wpUrl || !wpUsername || !wpPassword ? 0.5 : 1 }}
+                            >
+                              {publishing ? '⏳ Publishing...' : '🚀 Publish to WordPress'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Article preview */}
+                      <div style={{ background: '#1a1a2e', borderRadius: '8px', padding: '14px', maxHeight: '180px', overflowY: 'auto', fontSize: '11px', color: '#8899aa', fontFamily: 'monospace', lineHeight: 1.6 }}>
+                        {fixResult.improvedArticle.slice(0, 500)}...
+                      </div>
                     </div>
-                    <textarea
-                      readOnly
-                      value={fixResult.improvedArticle}
-                      style={{ width: '100%', height: '420px', padding: '14px', fontSize: '12px', fontFamily: 'monospace', border: '1px solid #E8E8E4', borderRadius: '8px', resize: 'none' as const, color: '#0F0F0F', background: '#FAFAF8', boxSizing: 'border-box' as const }}
-                    />
-                  </div>
+                  )}
                 </>
               )}
             </div>
