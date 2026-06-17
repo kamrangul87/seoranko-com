@@ -16,6 +16,10 @@ export default function SiteAuditPage() {
   const [discoveryError, setDiscoveryError] = useState('');
   const [discoveredCount, setDiscoveredCount] = useState(0);
   const [expandedUrl, setExpandedUrl] = useState<string | null>(null);
+  const [fixing, setFixing] = useState(false);
+  const [fixResult, setFixResult] = useState<any>(null);
+  const [showFixPanel, setShowFixPanel] = useState(false);
+  const [fixStage, setFixStage] = useState('');
 
   async function handleAudit() {
     if (mode === 'domain' && !domain.trim()) {
@@ -99,6 +103,53 @@ export default function SiteAuditPage() {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleFixPage(page: any) {
+    setFixing(true);
+    setFixResult(null);
+    setShowFixPanel(true);
+    setFixStage('Fetching page content...');
+
+    const stages = [
+      { delay: 3000, label: 'Finding low KD keyword opportunities...' },
+      { delay: 8000, label: 'Analysing top 3 competitors...' },
+      { delay: 14000, label: 'Building improvement brief...' },
+      { delay: 20000, label: 'Writing Google 2026-optimised article...' },
+      { delay: 35000, label: 'Validating and humanising content...' },
+    ];
+
+    const timers = stages.map(({ delay, label }) => setTimeout(() => setFixStage(label), delay));
+
+    try {
+      const res = await fetch('/api/site-audit/fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: page.url,
+          keyword: page.aiAnalysis?.detectedKeyword || '',
+          market,
+        }),
+      });
+
+      timers.forEach(t => clearTimeout(t));
+
+      if (!res.ok) {
+        const err = await res.text();
+        setFixStage('Fix failed: ' + err.slice(0, 200));
+        return;
+      }
+
+      const data = await res.json();
+      if (data.error) { setFixStage('Error: ' + data.error); return; }
+      setFixResult(data);
+      setFixStage('');
+    } catch (err: any) {
+      timers.forEach(t => clearTimeout(t));
+      setFixStage('Error: ' + err.message);
+    } finally {
+      setFixing(false);
     }
   }
 
@@ -318,6 +369,12 @@ export default function SiteAuditPage() {
                               {page.opportunities.length} opp{page.opportunities.length !== 1 ? 's' : ''}
                             </span>
                           )}
+                          <button
+                            onClick={e => { e.stopPropagation(); handleFixPage(page); }}
+                            style={{ fontSize: '11px', fontWeight: 700, padding: '2px 10px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '20px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
+                          >
+                            🔧 Fix Page
+                          </button>
                           <span style={{ fontSize: '11px', color: '#9B9B9B', marginLeft: '2px' }}>{isExpanded ? '▲' : '▼'}</span>
                         </div>
                       </td>
@@ -371,6 +428,107 @@ export default function SiteAuditPage() {
             </table>
           </div>
         </>
+      )}
+      {/* Fix Panel Overlay */}
+      {showFixPanel && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1001, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end' }}
+          onClick={() => !fixing && setShowFixPanel(false)}
+        >
+          <div
+            style={{ width: '560px', height: '100vh', background: '#fff', overflowY: 'auto', display: 'flex', flexDirection: 'column', zIndex: 1002 }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ background: '#0F0F0F', padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+              <div style={{ color: '#fff', fontWeight: 700, fontSize: '15px' }}>🔧 Fix This Page</div>
+              <button
+                onClick={() => !fixing && setShowFixPanel(false)}
+                style={{ color: '#9B9B9B', background: 'none', border: 'none', fontSize: '22px', cursor: fixing ? 'not-allowed' : 'pointer', lineHeight: 1 }}
+              >×</button>
+            </div>
+
+            {/* Content */}
+            <div style={{ padding: '20px', flex: 1 }}>
+              {fixing && (
+                <div style={{ textAlign: 'center', padding: '48px 0' }}>
+                  <div style={{ fontSize: '36px', marginBottom: '16px' }}>⚙️</div>
+                  <div style={{ fontWeight: 700, fontSize: '15px', color: '#0F0F0F', marginBottom: '8px' }}>Fixing page...</div>
+                  <div style={{ fontSize: '13px', color: '#6B6B6B' }}>{fixStage}</div>
+                  <div style={{ marginTop: '24px', background: '#F5F4F1', borderRadius: '8px', height: '6px', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', background: '#FF6B2C', width: '60%', borderRadius: '8px', animation: 'pulse 2s infinite' }} />
+                  </div>
+                </div>
+              )}
+
+              {!fixing && fixStage && !fixResult && (
+                <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '12px 16px', color: '#DC2626', fontSize: '13px' }}>
+                  ⚠️ {fixStage}
+                </div>
+              )}
+
+              {fixResult && (
+                <>
+                  {/* Keyword + stats */}
+                  <div style={{ background: '#F5F4F1', borderRadius: '10px', padding: '14px 16px', marginBottom: '16px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#9B9B9B', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>Target Keyword</div>
+                    <div style={{ fontSize: '16px', fontWeight: 700, color: '#FF6B2C' }}>{fixResult.keyword}</div>
+                    <div style={{ fontSize: '12px', color: '#6B6B6B', marginTop: '4px' }}>
+                      {fixResult.competitorsAnalysed} competitor{fixResult.competitorsAnalysed !== 1 ? 's' : ''} analysed
+                      {fixResult.avgCompetitorWords > 0 && ` · avg ${fixResult.avgCompetitorWords.toLocaleString()} words`}
+                    </div>
+                  </div>
+
+                  {/* Strategy brief */}
+                  {fixResult.brief?.briefSummary && (
+                    <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: '#1D4ED8' }}>
+                      💡 {fixResult.brief.briefSummary}
+                    </div>
+                  )}
+
+                  {/* Low KD keywords */}
+                  {fixResult.lowKdKeywords?.length > 0 && (
+                    <div style={{ marginBottom: '16px' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: '#9B9B9B', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>Low KD Keywords to Target</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {fixResult.lowKdKeywords.slice(0, 8).map((k: any, i: number) => (
+                          <span key={i} style={{ background: '#F5F4F1', border: '1px solid #E8E8E4', borderRadius: '20px', fontSize: '11px', padding: '3px 10px', color: '#0F0F0F' }}>
+                            {k.keyword} <span style={{ color: '#9B9B9B' }}>KD {k.kd}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Corrections */}
+                  {fixResult.corrections?.length > 0 && (
+                    <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', fontSize: '12px', color: '#16A34A' }}>
+                      ✓ {fixResult.corrections.length} correction{fixResult.corrections.length !== 1 ? 's' : ''} applied automatically
+                    </div>
+                  )}
+
+                  {/* Improved article */}
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: '#9B9B9B', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Improved Article</div>
+                      <button
+                        onClick={() => navigator.clipboard.writeText(fixResult.improvedArticle)}
+                        style={{ fontSize: '12px', color: '#6B6B6B', background: '#F5F4F1', border: '1px solid #E8E8E4', borderRadius: '6px', cursor: 'pointer', padding: '4px 10px' }}
+                      >
+                        📋 Copy
+                      </button>
+                    </div>
+                    <textarea
+                      readOnly
+                      value={fixResult.improvedArticle}
+                      style={{ width: '100%', height: '420px', padding: '14px', fontSize: '12px', fontFamily: 'monospace', border: '1px solid #E8E8E4', borderRadius: '8px', resize: 'none' as const, color: '#0F0F0F', background: '#FAFAF8', boxSizing: 'border-box' as const }}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
