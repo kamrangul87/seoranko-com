@@ -73,51 +73,64 @@ export default function RankingAgentPage() {
 
     if (!analysisLog?.result) return null;
 
-    let raw = analysisLog.result;
+    let raw: string = typeof analysisLog.result === 'string'
+      ? analysisLog.result
+      : JSON.stringify(analysisLog.result);
 
-    // Remove ALL markdown code fences
-    raw = raw.replace(/```json\s*/gi, '');
-    raw = raw.replace(/```\s*/gi, '');
-    raw = raw.trim();
+    // Step 1: Remove ALL markdown
+    raw = raw.replace(/```json/gi, '').replace(/```/gi, '').trim();
 
-    // Find the first { and last } to extract just the JSON
-    const firstBrace = raw.indexOf('{');
-    const lastBrace = raw.lastIndexOf('}');
+    // Step 2: If the whole thing is a JSON string (double-encoded), parse outer first
+    if (raw.startsWith('"') && raw.endsWith('"')) {
+      try { raw = JSON.parse(raw); } catch { /* continue */ }
+    }
 
-    if (firstBrace === -1 || lastBrace === -1) {
-      // No JSON found — try to show raw text as diagnosis
+    // Step 3: Find the JSON object boundaries
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start === -1 || end === -1 || end <= start) {
       return {
-        diagnosis: raw.slice(0, 500),
-        topCompetitorInsights: [],
-        contentGaps: [],
-        serpFeatures: [],
-        priorityActions: [],
+        diagnosis: raw.replace(/["\\]/g, '').slice(0, 600),
+        topCompetitorInsights: [], contentGaps: [],
+        serpFeatures: [], priorityActions: [],
         estimatedPositionsToGain: 0,
       };
     }
 
-    const jsonStr = raw.slice(firstBrace, lastBrace + 1);
+    const jsonOnly = raw.slice(start, end + 1);
 
+    // Step 4: Parse the JSON
     try {
-      return JSON.parse(jsonStr);
+      const parsed = JSON.parse(jsonOnly);
+      return parsed;
     } catch {
-      // JSON parse failed — extract fields manually
-      const extract = (field: string) => {
-        const match = jsonStr.match(new RegExp(`"${field}":\\s*"([^"]*)"`, 'i'));
-        return match ? match[1] : '';
+      // Step 5: Manual extraction fallback
+      const getStr = (key: string): string => {
+        const patterns = [
+          new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`),
+          new RegExp(`"${key}"\\s*:\\s*'((?:[^'\\\\]|\\\\.)*)'`),
+        ];
+        for (const p of patterns) {
+          const m = jsonOnly.match(p);
+          if (m?.[1]) return m[1].replace(/\\n/g, ' ').replace(/\\"/g, '"');
+        }
+        return '';
       };
-      const extractArray = (field: string) => {
-        const match = jsonStr.match(new RegExp(`"${field}":\\s*\\[([^\\]]+)\\]`, 'i'));
-        if (!match) return [];
-        return match[1].match(/"([^"]+)"/g)?.map((s: string) => s.replace(/"/g, '')) || [];
+
+      const getArr = (key: string): string[] => {
+        const m = jsonOnly.match(new RegExp(`"${key}"\\s*:\\s*\\[([\\s\\S]*?)\\]`));
+        if (!m?.[1]) return [];
+        const matches = m[1].match(/"((?:[^"\\\\]|\\\\.)+)"/g);
+        return matches?.map((s: string) => s.slice(1, -1).replace(/\\"/g, '"')) || [];
       };
+
       return {
-        diagnosis: extract('diagnosis'),
-        topCompetitorInsights: extractArray('topCompetitorInsights'),
-        contentGaps: extractArray('contentGaps'),
-        serpFeatures: extractArray('serpFeatures'),
-        priorityActions: extractArray('priorityActions'),
-        estimatedPositionsToGain: parseInt(extract('estimatedPositionsToGain')) || 0,
+        diagnosis: getStr('diagnosis') || jsonOnly.slice(0, 400).replace(/[{}"\\]/g, ''),
+        topCompetitorInsights: getArr('topCompetitorInsights'),
+        contentGaps: getArr('contentGaps'),
+        serpFeatures: getArr('serpFeatures'),
+        priorityActions: getArr('priorityActions'),
+        estimatedPositionsToGain: parseInt(getStr('estimatedPositionsToGain')) || 0,
       };
     }
   }
@@ -336,6 +349,12 @@ export default function RankingAgentPage() {
 
   const panelArticle = panelArticleId ? articles.find(a => a.id === panelArticleId) : null;
   const panelAnalysis = getAnalysisForArticle(panelArticle);
+  const diagnosisText = panelAnalysis?.diagnosis || '';
+  const cleanDiagnosis = diagnosisText
+    .replace(/^[`\s]*json\s*/i, '')
+    .replace(/^[{"`\\]+/, '')
+    .replace(/["`\\]+$/, '')
+    .trim();
 
   return (
     <div style={s.page}>
@@ -498,7 +517,7 @@ export default function RankingAgentPage() {
             ) : (
               <>
                 <div style={s.sectionTitle}>🔍 Diagnosis</div>
-                <div style={s.diagnosisBox}>{panelAnalysis.diagnosis}</div>
+                <div style={s.diagnosisBox}>{cleanDiagnosis}</div>
 
                 {panelAnalysis.priorityActions?.length > 0 && (
                   <>
