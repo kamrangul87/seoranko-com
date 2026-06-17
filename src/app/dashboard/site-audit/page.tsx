@@ -6,9 +6,10 @@ const PLATFORMS = [
   {
     id: 'github', icon: '🐙', name: 'GitHub', desc: 'Static / Next.js', color: '#24292f',
     fields: [
-      { key: 'repo', label: 'Repository', placeholder: 'owner/repo', type: 'text', hint: '' },
+      { key: 'repo', label: 'Repository (owner/repo)', placeholder: 'e.g. kamrangul87/my-website', type: 'text', hint: 'Must be owner/repo format — not a full URL' },
       { key: 'branch', label: 'Branch', placeholder: 'main', type: 'text', hint: '' },
       { key: 'token', label: 'Personal Access Token', placeholder: 'ghp_xxxxxxxxxxxx', type: 'password', hint: 'github.com/settings/tokens → repo → contents' },
+      { key: 'path', label: 'File path in repo (optional)', placeholder: 'content/blog/article.html', type: 'text', hint: 'Leave blank to auto-generate from keyword slug' },
     ],
   },
   {
@@ -123,12 +124,19 @@ export default function SiteAuditPage() {
 
     try {
       if (selectedPlatform === 'github') {
-        const [owner, repo] = pf('repo').split('/');
-        if (!owner || !repo || !pf('token')) throw new Error('Fill in all GitHub fields');
+        const repoVal = pf('repo').trim().replace(/^https?:\/\/(www\.)?github\.com\//, '');
+        const token = pf('token').trim();
+        if (!repoVal) throw new Error('Repository is required — enter in owner/repo format');
+        if (!repoVal.includes('/')) throw new Error('Repository must be in owner/repo format (e.g. kamrangul87/my-website), not just the repo name');
+        const slashIdx = repoVal.indexOf('/');
+        const owner = repoVal.slice(0, slashIdx);
+        const repo = repoVal.slice(slashIdx + 1);
+        if (!owner || !repo) throw new Error('Repository must be in owner/repo format (e.g. kamrangul87/my-website)');
+        if (!token) throw new Error('Personal Access Token is required — paste the ghp_... token from GitHub Settings → Developer settings → Personal access tokens');
         const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
-          headers: { Authorization: `token ${pf('token')}`, Accept: 'application/vnd.github.v3+json' },
+          headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github.v3+json' },
         });
-        if (!res.ok) throw new Error(`GitHub: ${res.status} — check repo name and token`);
+        if (!res.ok) throw new Error(`GitHub: ${res.status} — check repo name and token permissions (needs repo scope)`);
         const data = await res.json();
         setConnectionStatus('ok');
         setConnectionMsg(`Connected to ${data.full_name} (${data.visibility})`);
@@ -312,11 +320,14 @@ export default function SiteAuditPage() {
       }
 
       if (platformId === 'github') {
-        const [owner, repo] = f('repo').split('/');
-        const token = f('token');
-        const branch = f('branch') || 'main';
-        const path = `content/${kwSlug}.html`;
-        if (!owner || !repo || !token) { setPublishSuccess('❌ Connect GitHub first in Step 1'); return; }
+        const repoVal = f('repo').trim().replace(/^https?:\/\/(www\.)?github\.com\//, '');
+        const slashIdx = repoVal.indexOf('/');
+        const owner = repoVal.slice(0, slashIdx);
+        const repo = repoVal.slice(slashIdx + 1);
+        const token = f('token').trim();
+        const branch = f('branch').trim() || 'main';
+        const path = f('path').trim() || `content/${kwSlug}.html`;
+        if (!owner || !repo || !token) { setPublishSuccess('❌ Connect GitHub first in Step 1 (repo must be owner/repo format)'); return; }
         const headers: Record<string, string> = {
           Authorization: `token ${token}`, 'Content-Type': 'application/json',
           Accept: 'application/vnd.github.v3+json',
@@ -491,8 +502,10 @@ export default function SiteAuditPage() {
                     <input
                       type={field.type || 'text'}
                       placeholder={field.placeholder}
+                      autoComplete={field.type === 'password' ? 'new-password' : 'off'}
                       value={pf(field.key)}
                       onChange={e => setPf(field.key, e.target.value)}
+                      onInput={e => setPf(field.key, (e.target as HTMLInputElement).value)}
                       style={{ width: '100%', padding: '9px 12px', border: '1px solid #E8E8E4', borderRadius: '8px', fontSize: '13px', background: '#fff', color: '#0F0F0F', boxSizing: 'border-box' as const }}
                     />
                     {field.hint && <div style={{ fontSize: '11px', color: '#9B9B9B', marginTop: '3px' }}>💡 {field.hint}</div>}
