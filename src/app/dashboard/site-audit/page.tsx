@@ -2,111 +2,78 @@
 'use client';
 import { useState } from 'react';
 
-const platforms = [
+const PLATFORMS = [
   {
-    id: 'copy',
-    icon: '📋',
-    label: 'Copy HTML',
-    desc: 'Any platform',
-    color: '#4B5563',
-    noForm: true,
-    fields: undefined,
-  },
-  {
-    id: 'github',
-    icon: '🐙',
-    label: 'GitHub',
-    desc: 'Static / Next.js',
-    color: '#24292f',
-    noForm: false,
+    id: 'github', icon: '🐙', name: 'GitHub', desc: 'Static / Next.js', color: '#24292f',
     fields: [
-      { key: 'repo', placeholder: 'owner/repo (e.g. kamrangul87/autodun-ai)', label: 'Repository', type: 'text', hint: '' },
-      { key: 'path', placeholder: 'public/blog/article.html', label: 'File path', type: 'text', hint: '' },
-      { key: 'token', placeholder: 'ghp_xxxxxxxxxxxx', label: 'Personal Access Token', type: 'password', hint: 'github.com/settings/tokens → repo → contents' },
-      { key: 'branch', placeholder: 'main', label: 'Branch (default: main)', type: 'text', hint: '' },
+      { key: 'repo', label: 'Repository', placeholder: 'owner/repo', type: 'text', hint: '' },
+      { key: 'branch', label: 'Branch', placeholder: 'main', type: 'text', hint: '' },
+      { key: 'token', label: 'Personal Access Token', placeholder: 'ghp_xxxxxxxxxxxx', type: 'password', hint: 'github.com/settings/tokens → repo → contents' },
     ],
   },
   {
-    id: 'wordpress',
-    icon: '🌐',
-    label: 'WordPress',
-    desc: 'Self-hosted / .com',
-    color: '#21759b',
-    noForm: false,
+    id: 'wordpress', icon: '🌐', name: 'WordPress', desc: 'Self-hosted / .com', color: '#21759b',
     fields: [
-      { key: 'url', placeholder: 'https://yoursite.com', label: 'Site URL', type: 'text', hint: '' },
-      { key: 'username', placeholder: 'admin', label: 'Username', type: 'text', hint: '' },
-      { key: 'password', placeholder: 'xxxx xxxx xxxx xxxx', label: 'Application Password', type: 'password', hint: 'WP Admin → Users → Profile → Application Passwords' },
-      { key: 'status', placeholder: 'draft', label: 'Post status (draft or publish)', type: 'text', hint: '' },
+      { key: 'url', label: 'Site URL', placeholder: 'https://yoursite.com', type: 'text', hint: '' },
+      { key: 'username', label: 'Username', placeholder: 'admin', type: 'text', hint: '' },
+      { key: 'password', label: 'Application Password', placeholder: 'xxxx xxxx xxxx', type: 'password', hint: 'WP Admin → Users → Profile → Application Passwords' },
     ],
   },
   {
-    id: 'shopify',
-    icon: '🛍️',
-    label: 'Shopify',
-    desc: 'Shopify blogs',
-    color: '#96bf48',
-    noForm: false,
+    id: 'shopify', icon: '🛍️', name: 'Shopify', desc: 'Shopify blogs', color: '#96bf48',
     fields: [
-      { key: 'store', placeholder: 'your-store.myshopify.com', label: 'Store domain', type: 'text', hint: '' },
-      { key: 'token', placeholder: 'shpat_xxxxxxxxxxxx', label: 'Admin API Token', type: 'password', hint: 'Shopify Admin → Settings → Apps → Develop apps → Create app → Admin API access token' },
-      { key: 'blogId', placeholder: 'Blog ID (find in Shopify admin URL)', label: 'Blog ID', type: 'text', hint: '' },
+      { key: 'store', label: 'Store domain', placeholder: 'your-store.myshopify.com', type: 'text', hint: '' },
+      { key: 'token', label: 'Admin API Token', placeholder: 'shpat_xxxxxxxxxxxx', type: 'password', hint: 'Shopify Admin → Settings → Apps → Develop apps' },
+      { key: 'blogId', label: 'Blog ID', placeholder: '123456789', type: 'text', hint: '' },
     ],
   },
   {
-    id: 'ghost',
-    icon: '👻',
-    label: 'Ghost',
-    desc: 'Ghost CMS',
-    color: '#212121',
-    noForm: false,
+    id: 'ghost', icon: '👻', name: 'Ghost', desc: 'Ghost CMS', color: '#212121',
     fields: [
-      { key: 'url', placeholder: 'https://yoursite.ghost.io', label: 'Ghost URL', type: 'text', hint: '' },
-      { key: 'adminKey', placeholder: 'id:secret format from Ghost Admin', label: 'Admin API Key', type: 'password', hint: 'Ghost Admin → Settings → Integrations → Add custom integration' },
-      { key: 'status', placeholder: 'draft', label: 'Status (draft or published)', type: 'text', hint: '' },
+      { key: 'url', label: 'Ghost URL', placeholder: 'https://yoursite.ghost.io', type: 'text', hint: '' },
+      { key: 'adminKey', label: 'Admin API Key', placeholder: 'id:secret', type: 'password', hint: 'Ghost Admin → Settings → Integrations' },
     ],
   },
   {
-    id: 'webflow',
-    icon: '🔷',
-    label: 'Webflow',
-    desc: 'Webflow CMS',
-    color: '#4353ff',
-    noForm: false,
+    id: 'webflow', icon: '🔷', name: 'Webflow', desc: 'Webflow CMS', color: '#4353ff',
     fields: [
-      { key: 'token', placeholder: 'Webflow API token', label: 'API Token', type: 'password', hint: 'Webflow Dashboard → Account → Integrations → API Access' },
-      { key: 'collectionId', placeholder: 'Collection ID from Webflow', label: 'CMS Collection ID', type: 'text', hint: 'Found in Webflow CMS settings URL' },
-      { key: 'siteId', placeholder: 'Site ID from Webflow', label: 'Site ID', type: 'text', hint: '' },
+      { key: 'token', label: 'API Token', placeholder: 'Webflow API token', type: 'password', hint: 'Webflow Dashboard → Account → Integrations → API Access' },
+      { key: 'collectionId', label: 'CMS Collection ID', placeholder: 'Collection ID', type: 'text', hint: '' },
     ],
   },
   {
-    id: 'contentful',
-    icon: '📦',
-    label: 'Contentful',
-    desc: 'Headless CMS',
-    color: '#2478cc',
-    noForm: false,
+    id: 'contentful', icon: '📦', name: 'Contentful', desc: 'Headless CMS', color: '#2478cc',
     fields: [
-      { key: 'spaceId', placeholder: 'Space ID', label: 'Space ID', type: 'text', hint: 'Contentful → Settings → General settings' },
-      { key: 'token', placeholder: 'Content Management Token', label: 'Management Token', type: 'password', hint: 'Contentful → Settings → API keys → Content management tokens' },
-      { key: 'contentType', placeholder: 'blogPost', label: 'Content Type ID', type: 'text', hint: '' },
+      { key: 'spaceId', label: 'Space ID', placeholder: 'Space ID', type: 'text', hint: 'Contentful → Settings → General settings' },
+      { key: 'token', label: 'Management Token', placeholder: 'Content Management Token', type: 'password', hint: 'Contentful → Settings → API keys → Content management tokens' },
+      { key: 'contentType', label: 'Content Type ID', placeholder: 'blogPost', type: 'text', hint: '' },
     ],
   },
   {
-    id: 'wix',
-    icon: '🔶',
-    label: 'Wix',
-    desc: 'Wix blog',
-    color: '#faad4d',
-    noForm: false,
+    id: 'wix', icon: '🔶', name: 'Wix', desc: 'Wix blog', color: '#faad4d',
     fields: [
-      { key: 'apiKey', placeholder: 'Wix API Key', label: 'API Key', type: 'password', hint: 'Wix Dashboard → Settings → Advanced → API Keys' },
-      { key: 'siteId', placeholder: 'Wix Site ID', label: 'Site ID', type: 'text', hint: 'Found in Wix dashboard URL' },
+      { key: 'apiKey', label: 'API Key', placeholder: 'Wix API Key', type: 'password', hint: 'Wix Dashboard → Settings → Advanced → API Keys' },
+      { key: 'siteId', label: 'Site ID', placeholder: 'Wix Site ID', type: 'text', hint: '' },
     ],
+  },
+  {
+    id: 'manual', icon: '📋', name: 'No CMS', desc: 'Copy HTML', color: '#6B7280',
+    fields: [],
+    noConnect: true,
   },
 ];
 
 export default function SiteAuditPage() {
+  const [stage, setStage] = useState<'connect' | 'audit' | 'results'>('connect');
+
+  // Stage 1 — platform connection
+  const [selectedPlatform, setSelectedPlatform] = useState<string>('manual');
+  const [platformFields, setPlatformFields] = useState<Record<string, string>>({});
+  const [connecting, setConnecting] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'ok' | 'error'>('idle');
+  const [connectionMsg, setConnectionMsg] = useState('');
+
+  // Stage 2 — audit
   const [mode, setMode] = useState<'domain' | 'manual'>('domain');
   const [domain, setDomain] = useState('');
   const [urls, setUrls] = useState('');
@@ -118,29 +85,97 @@ export default function SiteAuditPage() {
   const [results, setResults] = useState<any>(null);
   const [discoverySource, setDiscoverySource] = useState('');
   const [discoveryError, setDiscoveryError] = useState('');
-  const [discoveredCount, setDiscoveredCount] = useState(0);
   const [expandedUrl, setExpandedUrl] = useState<string | null>(null);
 
-  // Fix panel state
+  // Stage 3 — fix panel
   const [fixing, setFixing] = useState(false);
   const [fixResult, setFixResult] = useState<any>(null);
   const [showFixPanel, setShowFixPanel] = useState(false);
-  const [fixStage, setFixStage] = useState('');
-
-  // Publish state
+  const [fixingPage, setFixingPage] = useState<any>(null);
+  const [fixStep, setFixStep] = useState(0);
+  const [fixStageLabel, setFixStageLabel] = useState('');
   const [publishMode, setPublishMode] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishSuccess, setPublishSuccess] = useState('');
-  const [publishFields, setPublishFields] = useState<Record<string, string>>({});
 
-  const updateField = (key: string, val: string) =>
-    setPublishFields(prev => ({ ...prev, [key]: val }));
+  const pf = (key: string) => platformFields[`${selectedPlatform}_${key}`] || '';
+  const setPf = (key: string, val: string) =>
+    setPlatformFields(prev => ({ ...prev, [`${selectedPlatform}_${key}`]: val }));
 
-  async function handleAudit() {
-    if (mode === 'domain' && !domain.trim()) {
-      setError('Please enter a domain');
+  const getFixField = (platformId: string, key: string) =>
+    platformFields[`${platformId}_${key}`] || '';
+
+  // ── Stage 1: Test connection ───────────────────────────────────────────────
+  async function handleConnect() {
+    const plat = PLATFORMS.find(p => p.id === selectedPlatform);
+    if (!plat) return;
+
+    if (plat.noConnect || selectedPlatform === 'manual') {
+      setConnectionStatus('ok');
+      setConnectionMsg('No connection needed — you can copy the HTML after fixing.');
+      setStage('audit');
       return;
     }
+
+    setConnecting(true);
+    setConnectionStatus('idle');
+    setConnectionMsg('');
+
+    try {
+      if (selectedPlatform === 'github') {
+        const [owner, repo] = pf('repo').split('/');
+        if (!owner || !repo || !pf('token')) throw new Error('Fill in all GitHub fields');
+        const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+          headers: { Authorization: `token ${pf('token')}`, Accept: 'application/vnd.github.v3+json' },
+        });
+        if (!res.ok) throw new Error(`GitHub: ${res.status} — check repo name and token`);
+        const data = await res.json();
+        setConnectionStatus('ok');
+        setConnectionMsg(`Connected to ${data.full_name} (${data.visibility})`);
+
+      } else if (selectedPlatform === 'wordpress') {
+        if (!pf('url') || !pf('username') || !pf('password')) throw new Error('Fill in all WordPress fields');
+        const base = pf('url').replace(/\/$/, '');
+        const res = await fetch(`${base}/wp-json/wp/v2/users/me`, {
+          headers: { Authorization: `Basic ${btoa(`${pf('username')}:${pf('password')}`) }` },
+        });
+        if (!res.ok) throw new Error(`WordPress: ${res.status} — check URL and Application Password`);
+        const data = await res.json();
+        setConnectionStatus('ok');
+        setConnectionMsg(`Connected as ${data.name} on ${pf('url')}`);
+
+      } else if (selectedPlatform === 'shopify') {
+        if (!pf('store') || !pf('token')) throw new Error('Fill in store and token');
+        const store = pf('store').replace(/^https?:\/\//, '').replace(/\/$/, '');
+        const res = await fetch(`https://${store}/admin/api/2024-01/shop.json`, {
+          headers: { 'X-Shopify-Access-Token': pf('token') },
+        });
+        if (!res.ok) throw new Error(`Shopify: ${res.status} — check store and token`);
+        const data = await res.json();
+        setConnectionStatus('ok');
+        setConnectionMsg(`Connected to ${data.shop?.name || store}`);
+
+      } else {
+        // Ghost, Webflow, Contentful, Wix — assume connected if fields filled
+        const plat2 = PLATFORMS.find(p => p.id === selectedPlatform);
+        const allFilled = plat2?.fields.every(f => platformFields[`${selectedPlatform}_${f.key}`]);
+        if (!allFilled) throw new Error('Fill in all fields');
+        setConnectionStatus('ok');
+        setConnectionMsg(`${plat2?.name} credentials saved — connection will be verified on publish.`);
+      }
+
+      setTimeout(() => setStage('audit'), 800);
+    } catch (err: any) {
+      setConnectionStatus('error');
+      setConnectionMsg(err.message);
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  // ── Stage 2: Run audit ─────────────────────────────────────────────────────
+  async function handleAudit() {
+    if (mode === 'domain' && !domain.trim()) { setError('Please enter a domain'); return; }
     if (mode === 'manual') {
       const list = urls.split('\n').map(u => u.trim()).filter(Boolean);
       if (list.length === 0) { setError('Please paste at least one URL'); return; }
@@ -152,32 +187,19 @@ export default function SiteAuditPage() {
     setResults(null);
     setDiscoverySource('');
     setDiscoveryError('');
-    setDiscoveredCount(0);
     setProgress(5);
     setProgressLabel(mode === 'domain' ? `Discovering pages on ${domain}...` : 'Starting audit...');
 
-    const stages = mode === 'domain' ? [
-      { pct: 15, label: `Reading sitemap.xml on ${domain}...` },
-      { pct: 30, label: 'Pages discovered — fetching content...' },
-      { pct: 50, label: 'Analysing page structure and EEAT signals...' },
-      { pct: 70, label: 'Finding keyword opportunities...' },
-      { pct: 85, label: 'Identifying content gaps with AI...' },
-      { pct: 95, label: 'Building audit report...' },
-    ] : [
-      { pct: 20, label: 'Fetching pages...' },
-      { pct: 40, label: 'Analysing EEAT signals...' },
-      { pct: 60, label: 'Finding keyword opportunities...' },
-      { pct: 80, label: 'Identifying content gaps...' },
-      { pct: 95, label: 'Building report...' },
+    const stages = [
+      { pct: 20, label: 'Reading sitemap.xml...' },
+      { pct: 40, label: 'Fetching page content...' },
+      { pct: 60, label: 'Analysing EEAT signals...' },
+      { pct: 75, label: 'Detecting target keywords...' },
+      { pct: 88, label: 'Building audit report...' },
     ];
-
-    let stageIndex = 0;
+    let si = 0;
     const interval = setInterval(() => {
-      if (stageIndex < stages.length) {
-        setProgress(stages[stageIndex].pct);
-        setProgressLabel(stages[stageIndex].label);
-        stageIndex++;
-      }
+      if (si < stages.length) { setProgress(stages[si].pct); setProgressLabel(stages[si].label); si++; }
     }, 5000);
 
     try {
@@ -190,15 +212,9 @@ export default function SiteAuditPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-
       clearInterval(interval);
 
-      if (!res.ok) {
-        const err = await res.text();
-        setError('Audit failed: ' + err.slice(0, 200));
-        return;
-      }
-
+      if (!res.ok) { setError('Audit failed: ' + (await res.text()).slice(0, 200)); return; }
       const data = await res.json();
       if (data.error) { setError(data.error); return; }
 
@@ -206,9 +222,8 @@ export default function SiteAuditPage() {
       setProgressLabel('Audit complete!');
       setDiscoverySource(data.discoverySource || '');
       setDiscoveryError(data.discoveryError || '');
-      setDiscoveredCount(data.results?.length || 0);
       setResults(data);
-
+      setStage('results');
     } catch (err: any) {
       clearInterval(interval);
       setError(err.message);
@@ -217,24 +232,29 @@ export default function SiteAuditPage() {
     }
   }
 
+  // ── Stage 3: Fix page ──────────────────────────────────────────────────────
+  const FIX_STEPS = [
+    'Fetching page content...',
+    'Finding low KD keyword opportunities...',
+    'Analysing top 3 competitors...',
+    'Building improvement brief...',
+    'Writing Google 2026-optimised article...',
+  ];
+
   async function handleFixPage(page: any) {
     setFixing(true);
     setFixResult(null);
+    setFixingPage(page);
     setShowFixPanel(true);
-    setFixStage('Fetching page content...');
+    setFixStep(0);
+    setFixStageLabel(FIX_STEPS[0]);
     setPublishMode(null);
     setPublishSuccess('');
-    setPublishFields({});
 
-    const stages = [
-      { delay: 3000, label: 'Finding low KD keyword opportunities...' },
-      { delay: 8000, label: 'Analysing top 3 competitors...' },
-      { delay: 14000, label: 'Building improvement brief...' },
-      { delay: 20000, label: 'Writing Google 2026-optimised article...' },
-      { delay: 35000, label: 'Validating and humanising content...' },
-    ];
-
-    const timers = stages.map(({ delay, label }) => setTimeout(() => setFixStage(label), delay));
+    const delays = [3000, 8000, 14000, 20000];
+    const timers = delays.map((delay, i) =>
+      setTimeout(() => { setFixStep(i + 1); setFixStageLabel(FIX_STEPS[i + 1]); }, delay)
+    );
 
     try {
       const res = await fetch('/api/site-audit/fix', {
@@ -242,321 +262,140 @@ export default function SiteAuditPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url: page.url,
-          detectedKeyword: page.aiAnalysis?.detectedKeyword || page.title || '',
+          detectedKeyword: page.aiAnalysis?.detectedKeyword || page.h1 || page.title || '',
           issues: page.issues || [],
           market,
           pageScore: page.score,
         }),
       });
-
       timers.forEach(t => clearTimeout(t));
 
       if (!res.ok) {
-        let errMsg = 'Fix failed';
-        try {
-          const errData = await res.json();
-          errMsg = errData.error || errMsg;
-        } catch {
-          errMsg = await res.text().catch(() => errMsg);
-        }
-        setFixStage('❌ Error: ' + errMsg.slice(0, 150));
+        let msg = 'Fix failed';
+        try { const d = await res.json(); msg = d.error || msg; } catch { msg = await res.text().catch(() => msg); }
+        setFixStageLabel('❌ ' + msg.slice(0, 150));
+        setFixStep(-1);
         return;
       }
 
       let data: any;
-      try {
-        data = await res.json();
-      } catch {
-        setFixStage('❌ Invalid response from server');
-        return;
-      }
+      try { data = await res.json(); } catch { setFixStageLabel('❌ Invalid response'); setFixStep(-1); return; }
+      if (data.error) { setFixStageLabel('❌ ' + data.error); setFixStep(-1); return; }
 
-      if (data.error) {
-        setFixStage('❌ Error: ' + data.error);
-        return;
-      }
-
+      setFixStep(5);
+      setFixStageLabel('');
       setFixResult(data);
-      setFixStage('');
     } catch (err: any) {
       timers.forEach(t => clearTimeout(t));
-      setFixStage('❌ Error: ' + err.message);
+      setFixStageLabel('❌ ' + err.message);
+      setFixStep(-1);
     } finally {
       setFixing(false);
     }
   }
 
-  async function handlePublish(platform: string, articleHtml: string, fr: any) {
+  // ── Publish ────────────────────────────────────────────────────────────────
+  async function handlePublish(platformId: string, articleHtml: string, fr: any) {
     setPublishing(true);
     setPublishSuccess('');
-
-    const f = (key: string) => publishFields[`${platform}_${key}`] || '';
+    const f = (key: string) => getFixField(platformId, key);
     const titleMatch = articleHtml.match(/<h1[^>]*>([^<]*)<\/h1>/i);
     const title = titleMatch?.[1]?.replace(/<[^>]+>/g, '').trim() || fr?.keyword || 'Improved Article';
     const kwSlug = fr?.keyword?.toLowerCase().replace(/[^a-z0-9]+/g, '-') || '';
 
     try {
-      // ── GITHUB ──────────────────────────────────────────────
-      if (platform === 'github') {
+      if (platformId === 'manual') {
+        await navigator.clipboard.writeText(articleHtml);
+        setPublishSuccess('✅ HTML copied to clipboard!');
+        setTimeout(() => setPublishSuccess(''), 3000);
+        return;
+      }
+
+      if (platformId === 'github') {
         const [owner, repo] = f('repo').split('/');
-        const path = f('path');
         const token = f('token');
         const branch = f('branch') || 'main';
-
-        if (!owner || !repo || !path || !token) {
-          setPublishSuccess('❌ Fill in all GitHub fields');
-          return;
-        }
-
+        const path = `content/${kwSlug}.html`;
+        if (!owner || !repo || !token) { setPublishSuccess('❌ Connect GitHub first in Step 1'); return; }
         const headers: Record<string, string> = {
-          Authorization: `token ${token}`,
-          'Content-Type': 'application/json',
+          Authorization: `token ${token}`, 'Content-Type': 'application/json',
           Accept: 'application/vnd.github.v3+json',
         };
-
         let sha = '';
         try {
-          const getRes = await fetch(
-            `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`,
-            { headers }
-          );
-          if (getRes.ok) {
-            const existing = await getRes.json();
-            sha = existing.sha;
-          }
+          const getRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`, { headers });
+          if (getRes.ok) { const ex = await getRes.json(); sha = ex.sha; }
         } catch { /* new file */ }
-
-        const body: any = {
-          message: `SEO fix: ${title} — improved via SEORANKO`,
-          content: btoa(unescape(encodeURIComponent(articleHtml))),
-          branch,
-        };
+        const body: any = { message: `SEO fix: ${title}`, content: btoa(unescape(encodeURIComponent(articleHtml))), branch };
         if (sha) body.sha = sha;
+        const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, { method: 'PUT', headers, body: JSON.stringify(body) });
+        if (res.ok) setPublishSuccess(`✅ Published to GitHub — ${f('repo')}/${path}`);
+        else { const e = await res.json(); setPublishSuccess(`❌ GitHub: ${e.message}`); }
 
-        const res = await fetch(
-          `https://api.github.com/repos/${owner}/${repo}/contents/${path}`,
-          { method: 'PUT', headers, body: JSON.stringify(body) }
-        );
-
-        if (res.ok) {
-          setPublishSuccess(`✅ Published to GitHub — ${f('repo')}/${path} on branch ${branch}`);
-        } else {
-          const err = await res.json();
-          setPublishSuccess(`❌ GitHub error: ${err.message}`);
-        }
-      }
-
-      // ── WORDPRESS ────────────────────────────────────────────
-      else if (platform === 'wordpress') {
+      } else if (platformId === 'wordpress') {
         const base = f('url').replace(/\/$/, '');
-        const credentials = btoa(`${f('username')}:${f('password')}`);
-        const status = f('status') || 'draft';
-
-        if (!base || !f('username') || !f('password')) {
-          setPublishSuccess('❌ Fill in all WordPress fields');
-          return;
-        }
-
+        const status = 'draft';
         const res = await fetch(`${base}/wp-json/wp/v2/posts`, {
           method: 'POST',
-          headers: {
-            Authorization: `Basic ${credentials}`,
-            'Content-Type': 'application/json',
-          },
+          headers: { Authorization: `Basic ${btoa(`${f('username')}:${f('password')}`)}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ title, content: articleHtml, status, slug: kwSlug }),
         });
+        if (res.ok) { const post = await res.json(); setPublishSuccess(`✅ Saved as draft in WordPress — post ID ${post.id}`); }
+        else { const e = await res.json().catch(() => ({})); setPublishSuccess(`❌ WordPress: ${e.message || 'Check credentials'}`); }
 
-        if (res.ok) {
-          const post = await res.json();
-          setPublishSuccess(
-            status === 'draft'
-              ? `✅ Saved as draft — review at ${base}/wp-admin/post.php?post=${post.id}&action=edit`
-              : `✅ Published to WordPress — ${post.link}`
-          );
-        } else {
-          const err = await res.json().catch(() => ({}));
-          setPublishSuccess(`❌ WordPress error: ${err.message || 'Check credentials and Application Password'}`);
-        }
-      }
-
-      // ── SHOPIFY ──────────────────────────────────────────────
-      else if (platform === 'shopify') {
+      } else if (platformId === 'shopify') {
         const store = f('store').replace(/^https?:\/\//, '').replace(/\/$/, '');
-        const token = f('token');
-        const blogId = f('blogId');
-
-        if (!store || !token || !blogId) {
-          setPublishSuccess('❌ Fill in all Shopify fields');
-          return;
-        }
-
-        const res = await fetch(`https://${store}/admin/api/2024-01/blogs/${blogId}/articles.json`, {
+        const res = await fetch(`https://${store}/admin/api/2024-01/blogs/${f('blogId')}/articles.json`, {
           method: 'POST',
-          headers: {
-            'X-Shopify-Access-Token': token,
-            'Content-Type': 'application/json',
-          },
+          headers: { 'X-Shopify-Access-Token': f('token'), 'Content-Type': 'application/json' },
           body: JSON.stringify({ article: { title, body_html: articleHtml, published: false } }),
         });
+        if (res.ok) { const d = await res.json(); setPublishSuccess(`✅ Saved to Shopify as draft — ID ${d.article?.id}`); }
+        else { const e = await res.json().catch(() => ({})); setPublishSuccess(`❌ Shopify: ${JSON.stringify(e).slice(0, 100)}`); }
 
-        if (res.ok) {
-          const data = await res.json();
-          setPublishSuccess(`✅ Saved to Shopify blog as draft — article ID: ${data.article?.id}`);
-        } else {
-          const err = await res.json().catch(() => ({}));
-          setPublishSuccess(`❌ Shopify error: ${JSON.stringify(err).slice(0, 150)}`);
-        }
-      }
-
-      // ── GHOST ────────────────────────────────────────────────
-      else if (platform === 'ghost') {
+      } else if (platformId === 'ghost') {
         const base = f('url').replace(/\/$/, '');
-        const adminKey = f('adminKey');
-        const status = f('status') || 'draft';
-
-        if (!base || !adminKey) {
-          setPublishSuccess('❌ Fill in all Ghost fields');
-          return;
-        }
-
-        const [id, secret] = adminKey.split(':');
-        if (!id || !secret) {
-          setPublishSuccess('❌ Ghost key must be in format: id:secret');
-          return;
-        }
-
+        const [id, secret] = f('adminKey').split(':');
+        if (!id || !secret) { setPublishSuccess('❌ Ghost key must be id:secret format'); return; }
         const now = Math.floor(Date.now() / 1000);
         const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT', kid: id }));
         const payload = btoa(JSON.stringify({ iat: now, exp: now + 300, aud: '/admin/' }));
-
         const res = await fetch(`${base}/ghost/api/admin/posts/`, {
           method: 'POST',
-          headers: {
-            Authorization: `Ghost ${header}.${payload}.signature`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ posts: [{ title, html: articleHtml, status }] }),
+          headers: { Authorization: `Ghost ${header}.${payload}.signature`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ posts: [{ title, html: articleHtml, status: 'draft' }] }),
         });
+        if (res.ok) { const d = await res.json(); setPublishSuccess(`✅ Saved as draft in Ghost — ID ${d.posts?.[0]?.id}`); }
+        else setPublishSuccess('❌ Ghost error — check Admin API key format');
 
-        if (res.ok) {
-          const data = await res.json();
-          setPublishSuccess(`✅ ${status === 'draft' ? 'Saved as draft' : 'Published'} to Ghost — ID: ${data.posts?.[0]?.id}`);
-        } else {
-          setPublishSuccess('❌ Ghost error — check your Admin API key format (id:secret)');
-        }
-      }
-
-      // ── WEBFLOW ──────────────────────────────────────────────
-      else if (platform === 'webflow') {
-        const token = f('token');
-        const collectionId = f('collectionId');
-
-        if (!token || !collectionId) {
-          setPublishSuccess('❌ Fill in all Webflow fields');
-          return;
-        }
-
-        const res = await fetch(`https://api.webflow.com/v2/collections/${collectionId}/items`, {
+      } else if (platformId === 'webflow') {
+        const res = await fetch(`https://api.webflow.com/v2/collections/${f('collectionId')}/items`, {
           method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            'accept-version': '1.0.0',
-          },
-          body: JSON.stringify({
-            isArchived: false,
-            isDraft: true,
-            fieldData: { name: title, slug: kwSlug, 'post-body': articleHtml },
-          }),
+          headers: { Authorization: `Bearer ${f('token')}`, 'Content-Type': 'application/json', 'accept-version': '1.0.0' },
+          body: JSON.stringify({ isArchived: false, isDraft: true, fieldData: { name: title, slug: kwSlug, 'post-body': articleHtml } }),
         });
+        if (res.ok) { const d = await res.json(); setPublishSuccess(`✅ Saved to Webflow CMS as draft — ID ${d.id}`); }
+        else { const e = await res.json().catch(() => ({})); setPublishSuccess(`❌ Webflow: ${e.message || 'Check token'}`); }
 
-        if (res.ok) {
-          const data = await res.json();
-          setPublishSuccess(`✅ Saved to Webflow CMS as draft — ID: ${data.id || 'created'}`);
-        } else {
-          const err = await res.json().catch(() => ({}));
-          setPublishSuccess(`❌ Webflow error: ${err.message || 'Check token and collection ID'}`);
-        }
-      }
+      } else if (platformId === 'contentful') {
+        const ct = f('contentType') || 'blogPost';
+        const res = await fetch(`https://api.contentful.com/spaces/${f('spaceId')}/environments/master/entries`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${f('token')}`, 'Content-Type': 'application/vnd.contentful.management.v1+json', 'X-Contentful-Content-Type': ct },
+          body: JSON.stringify({ fields: { title: { 'en-US': title }, body: { 'en-US': articleHtml }, slug: { 'en-US': kwSlug } } }),
+        });
+        if (res.ok) { const d = await res.json(); setPublishSuccess(`✅ Saved to Contentful as draft — ID ${d.sys?.id}`); }
+        else { const e = await res.json().catch(() => ({})); setPublishSuccess(`❌ Contentful: ${e.message || 'Check credentials'}`); }
 
-      // ── CONTENTFUL ───────────────────────────────────────────
-      else if (platform === 'contentful') {
-        const spaceId = f('spaceId');
-        const token = f('token');
-        const contentType = f('contentType') || 'blogPost';
-
-        if (!spaceId || !token) {
-          setPublishSuccess('❌ Fill in all Contentful fields');
-          return;
-        }
-
-        const res = await fetch(
-          `https://api.contentful.com/spaces/${spaceId}/environments/master/entries`,
-          {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/vnd.contentful.management.v1+json',
-              'X-Contentful-Content-Type': contentType,
-            },
-            body: JSON.stringify({
-              fields: {
-                title: { 'en-US': title },
-                body: { 'en-US': articleHtml },
-                slug: { 'en-US': kwSlug },
-              },
-            }),
-          }
-        );
-
-        if (res.ok) {
-          const data = await res.json();
-          setPublishSuccess(`✅ Saved to Contentful as draft — ID: ${data.sys?.id}`);
-        } else {
-          const err = await res.json().catch(() => ({}));
-          setPublishSuccess(`❌ Contentful error: ${err.message || 'Check space ID and token'}`);
-        }
-      }
-
-      // ── WIX ──────────────────────────────────────────────────
-      else if (platform === 'wix') {
-        const apiKey = f('apiKey');
-        const siteId = f('siteId');
-
-        if (!apiKey || !siteId) {
-          setPublishSuccess('❌ Fill in all Wix fields');
-          return;
-        }
-
+      } else if (platformId === 'wix') {
         const res = await fetch('https://www.wixapis.com/blog/v3/draft-posts', {
           method: 'POST',
-          headers: {
-            Authorization: apiKey,
-            'wix-site-id': siteId,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            draftPost: {
-              title,
-              richContent: {
-                nodes: [{
-                  type: 'PARAGRAPH',
-                  nodes: [{ type: 'TEXT', textData: { text: articleHtml.replace(/<[^>]+>/g, ' ') } }],
-                }],
-              },
-            },
-          }),
+          headers: { Authorization: f('apiKey'), 'wix-site-id': f('siteId'), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ draftPost: { title, richContent: { nodes: [{ type: 'PARAGRAPH', nodes: [{ type: 'TEXT', textData: { text: articleHtml.replace(/<[^>]+>/g, ' ') } }] }] } } }),
         });
-
-        if (res.ok) {
-          const data = await res.json();
-          setPublishSuccess(`✅ Saved to Wix as draft — ID: ${data.draftPost?.id || 'created'}`);
-        } else {
-          const err = await res.json().catch(() => ({}));
-          setPublishSuccess(`❌ Wix error: ${err.message || 'Check API key and site ID'}`);
-        }
+        if (res.ok) { const d = await res.json(); setPublishSuccess(`✅ Saved to Wix as draft — ID ${d.draftPost?.id}`); }
+        else { const e = await res.json().catch(() => ({})); setPublishSuccess(`❌ Wix: ${e.message || 'Check credentials'}`); }
       }
-
     } catch (err: any) {
       setPublishSuccess(`❌ Error: ${err.message}`);
     } finally {
@@ -564,91 +403,180 @@ export default function SiteAuditPage() {
     }
   }
 
-  function scoreColor(score: number) {
-    if (score >= 70) return '#16A34A';
-    if (score >= 50) return '#EF9F27';
-    return '#DC2626';
-  }
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function scoreColor(s: number) { return s >= 70 ? '#16A34A' : s >= 50 ? '#EF9F27' : '#DC2626'; }
+  function gradeLabel(s: number) { return s >= 80 ? 'A' : s >= 70 ? 'B' : s >= 50 ? 'C' : s >= 30 ? 'D' : 'F'; }
 
-  function scoreBg(score: number) {
-    if (score >= 70) return '#F0FDF4';
-    if (score >= 50) return '#FFFBEB';
-    return '#FEF2F2';
-  }
+  const activePlatform = PLATFORMS.find(p => p.id === selectedPlatform);
 
-  const s: Record<string, any> = {
-    page: { padding: '32px', maxWidth: '1100px', margin: '0 auto' },
-    title: { fontSize: '22px', fontWeight: 700, color: '#0F0F0F', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' },
-    subtitle: { fontSize: '14px', color: '#6B6B6B', marginBottom: '24px' },
-    card: { background: '#fff', border: '1px solid #E8E8E4', borderRadius: '12px', padding: '20px', marginBottom: '20px' },
-    label: { fontSize: '11px', fontWeight: 600, color: '#9B9B9B', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block' },
-    input: { width: '100%', fontSize: '14px', padding: '10px 14px', border: '1px solid #E8E8E4', borderRadius: '8px', background: '#fff', color: '#0F0F0F', boxSizing: 'border-box' as const },
-    textarea: { width: '100%', fontSize: '13px', padding: '10px 14px', border: '1px solid #E8E8E4', borderRadius: '8px', background: '#fff', color: '#0F0F0F', fontFamily: 'monospace', minHeight: '120px', resize: 'vertical' as const, boxSizing: 'border-box' as const },
-    select: { fontSize: '13px', padding: '9px 12px', border: '1px solid #E8E8E4', borderRadius: '8px', background: '#fff', color: '#0F0F0F' },
-    hint: { fontSize: '12px', color: '#9B9B9B', marginTop: '6px' },
-    auditBtn: { fontSize: '14px', fontWeight: 700, padding: '11px 24px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', marginTop: '16px', width: '100%' },
-    errorBox: { background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '10px 14px', color: '#DC2626', fontSize: '13px', marginBottom: '14px' },
-    progressBar: { background: '#F5F4F1', borderRadius: '8px', height: '8px', overflow: 'hidden', marginBottom: '8px', marginTop: '16px' },
-    statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '20px' },
-    statBox: { background: '#fff', border: '1px solid #E8E8E4', borderRadius: '10px', padding: '14px 16px', textAlign: 'center' as const },
-    statNum: { fontSize: '24px', fontWeight: 700, color: '#0F0F0F' },
-    statLabel: { fontSize: '11px', color: '#9B9B9B', marginTop: '2px', textTransform: 'uppercase' as const, letterSpacing: '0.5px' },
-    table: { background: '#fff', border: '1px solid #E8E8E4', borderRadius: '12px', overflow: 'hidden', width: '100%' },
-    th: { padding: '12px 16px', fontSize: '11px', fontWeight: 600, color: '#9B9B9B', textTransform: 'uppercase' as const, letterSpacing: '0.5px', background: '#FAFAF8', textAlign: 'left' as const, borderBottom: '1px solid #E8E8E4' },
-    td: { padding: '12px 16px', fontSize: '13px', color: '#0F0F0F', borderBottom: '1px solid #F5F4F1', verticalAlign: 'top' as const },
-    discoveryBanner: { background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', fontSize: '13px', color: '#1D4ED8', display: 'flex', alignItems: 'center', gap: '8px' },
-    discoveryWarning: { background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', fontSize: '13px', color: '#92400E' },
-    darkInput: { width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #2a2a4e', background: '#0d0d1a', color: '#fff', fontSize: '12px', boxSizing: 'border-box' as const },
-  };
-
+  // ── RENDER ─────────────────────────────────────────────────────────────────
   return (
-    <div style={s.page}>
-      <div style={s.title}>🔬 Site Audit</div>
-      <div style={s.subtitle}>Discover all pages from your sitemap and audit each one for SEO issues and opportunities.</div>
+    <div style={{ padding: '32px', maxWidth: '1100px', margin: '0 auto', fontFamily: 'system-ui, sans-serif' }}>
 
-      {/* Input card */}
-      <div style={s.card}>
-        <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', background: '#F5F4F1', padding: '4px', borderRadius: '8px', width: 'fit-content' }}>
-          <button
-            onClick={() => setMode('domain')}
-            style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600, background: mode === 'domain' ? '#fff' : 'transparent', color: mode === 'domain' ? '#0F0F0F' : '#9B9B9B', border: 'none', borderRadius: '6px', cursor: 'pointer', boxShadow: mode === 'domain' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }}
-          >🌐 Domain Audit</button>
-          <button
-            onClick={() => setMode('manual')}
-            style={{ padding: '7px 16px', fontSize: '13px', fontWeight: 600, background: mode === 'manual' ? '#fff' : 'transparent', color: mode === 'manual' ? '#0F0F0F' : '#9B9B9B', border: 'none', borderRadius: '6px', cursor: 'pointer', boxShadow: mode === 'manual' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }}
-          >📋 Manual URLs</button>
+      {/* Header */}
+      <div style={{ marginBottom: '28px' }}>
+        <div style={{ fontSize: '22px', fontWeight: 700, color: '#0F0F0F', marginBottom: '4px' }}>
+          🔬 SEO Workshop
         </div>
+        <div style={{ fontSize: '14px', color: '#6B6B6B' }}>
+          Connect your platform · run a full audit · fix every issue · publish back automatically
+        </div>
+      </div>
 
-        {error && <div style={s.errorBox}>{error}</div>}
+      {/* Step bar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0', marginBottom: '28px' }}>
+        {['Connect Platform', 'Run Audit', 'Fix & Publish'].map((label, i) => {
+          const stepKey = (['connect', 'audit', 'results'] as const)[i];
+          const active = stage === stepKey;
+          const done = (stage === 'audit' && i === 0) || (stage === 'results' && i <= 1);
+          return (
+            <div key={label} style={{ display: 'flex', alignItems: 'center', flex: i < 2 ? 1 : 'none' }}>
+              <div
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: done ? 'pointer' : 'default' }}
+                onClick={() => { if (done || active) setStage(stepKey); }}
+              >
+                <div style={{
+                  width: '28px', height: '28px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '12px', fontWeight: 700, flexShrink: 0,
+                  background: done ? '#16A34A' : active ? '#FF6B2C' : '#E8E8E4',
+                  color: done || active ? '#fff' : '#9B9B9B',
+                }}>
+                  {done ? '✓' : i + 1}
+                </div>
+                <span style={{ fontSize: '13px', fontWeight: active ? 700 : 500, color: active ? '#0F0F0F' : done ? '#16A34A' : '#9B9B9B', whiteSpace: 'nowrap' }}>
+                  {label}
+                </span>
+              </div>
+              {i < 2 && <div style={{ flex: 1, height: '2px', background: done ? '#16A34A' : '#E8E8E4', margin: '0 12px' }} />}
+            </div>
+          );
+        })}
+      </div>
 
-        {mode === 'domain' ? (
-          <>
-            <label style={s.label}>Enter your domain</label>
-            <input
-              style={s.input}
-              placeholder="autodun.com or https://autodun.com"
-              value={domain}
-              onChange={e => setDomain(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && !loading && handleAudit()}
-            />
-            <div style={s.hint}>We&apos;ll automatically find all pages via your sitemap.xml</div>
-          </>
-        ) : (
-          <>
-            <label style={s.label}>Paste URLs (one per line — max 20)</label>
-            <textarea
-              style={s.textarea}
-              placeholder={'https://example.com/page-1\nhttps://example.com/page-2\nhttps://example.com/page-3'}
-              value={urls}
-              onChange={e => setUrls(e.target.value)}
-            />
-          </>
-        )}
+      {/* ── STAGE 1: Connect ── */}
+      {stage === 'connect' && (
+        <div style={{ background: '#fff', border: '1px solid #E8E8E4', borderRadius: '12px', padding: '24px' }}>
+          <div style={{ fontSize: '16px', fontWeight: 700, color: '#0F0F0F', marginBottom: '4px' }}>Where does your content live?</div>
+          <div style={{ fontSize: '13px', color: '#6B6B6B', marginBottom: '20px' }}>
+            Connect your CMS once — we&apos;ll publish fixed pages back automatically after the audit.
+          </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '14px' }}>
-          <div>
-            <label style={{ ...s.label, display: 'inline-block', marginBottom: 0, marginRight: '8px' }}>Market</label>
-            <select style={s.select} value={market} onChange={e => setMarket(e.target.value)}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginBottom: '20px' }}>
+            {PLATFORMS.map(p => (
+              <button
+                key={p.id}
+                onClick={() => { setSelectedPlatform(p.id); setConnectionStatus('idle'); setConnectionMsg(''); }}
+                style={{
+                  padding: '12px 8px', border: `2px solid ${selectedPlatform === p.id ? p.color : '#E8E8E4'}`,
+                  borderRadius: '10px', background: selectedPlatform === p.id ? p.color + '14' : '#FAFAF8',
+                  cursor: 'pointer', textAlign: 'center' as const, transition: 'all 0.15s',
+                }}
+              >
+                <div style={{ fontSize: '22px', marginBottom: '4px' }}>{p.icon}</div>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: selectedPlatform === p.id ? p.color : '#0F0F0F' }}>{p.name}</div>
+                <div style={{ fontSize: '10px', color: '#9B9B9B', marginTop: '1px' }}>{p.desc}</div>
+              </button>
+            ))}
+          </div>
+
+          {activePlatform && !activePlatform.noConnect && activePlatform.fields.length > 0 && (
+            <div style={{ background: '#F5F4F1', borderRadius: '10px', padding: '16px', marginBottom: '16px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#0F0F0F', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>{activePlatform.icon}</span> {activePlatform.name} credentials
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {activePlatform.fields.map(field => (
+                  <div key={field.key}>
+                    <div style={{ fontSize: '11px', fontWeight: 600, color: '#6B6B6B', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{field.label}</div>
+                    <input
+                      type={field.type || 'text'}
+                      placeholder={field.placeholder}
+                      value={pf(field.key)}
+                      onChange={e => setPf(field.key, e.target.value)}
+                      style={{ width: '100%', padding: '9px 12px', border: '1px solid #E8E8E4', borderRadius: '8px', fontSize: '13px', background: '#fff', color: '#0F0F0F', boxSizing: 'border-box' as const }}
+                    />
+                    {field.hint && <div style={{ fontSize: '11px', color: '#9B9B9B', marginTop: '3px' }}>💡 {field.hint}</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {connectionStatus === 'ok' && (
+            <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '13px', color: '#16A34A' }}>
+              ✅ {connectionMsg}
+            </div>
+          )}
+          {connectionStatus === 'error' && (
+            <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '13px', color: '#DC2626' }}>
+              ❌ {connectionMsg}
+            </div>
+          )}
+
+          <button
+            onClick={handleConnect}
+            disabled={connecting}
+            style={{ width: '100%', padding: '12px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: 700, cursor: connecting ? 'not-allowed' : 'pointer', opacity: connecting ? 0.7 : 1 }}
+          >
+            {connecting ? '⏳ Testing connection...' : selectedPlatform === 'manual' ? '📋 Skip — I\'ll copy HTML manually →' : `🔌 Connect ${activePlatform?.name} & Continue →`}
+          </button>
+        </div>
+      )}
+
+      {/* ── STAGE 2: Audit ── */}
+      {stage === 'audit' && (
+        <div style={{ background: '#fff', border: '1px solid #E8E8E4', borderRadius: '12px', padding: '24px' }}>
+          <div style={{ fontSize: '16px', fontWeight: 700, color: '#0F0F0F', marginBottom: '4px' }}>Run your diagnostic</div>
+          <div style={{ fontSize: '13px', color: '#6B6B6B', marginBottom: '20px' }}>
+            Enter your domain or paste specific URLs — we&apos;ll check 50+ SEO signals on every page.
+          </div>
+
+          <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', background: '#F5F4F1', padding: '4px', borderRadius: '8px', width: 'fit-content' }}>
+            {(['domain', 'manual'] as const).map(m => (
+              <button key={m} onClick={() => setMode(m)} style={{
+                padding: '7px 16px', fontSize: '13px', fontWeight: 600,
+                background: mode === m ? '#fff' : 'transparent',
+                color: mode === m ? '#0F0F0F' : '#9B9B9B',
+                border: 'none', borderRadius: '6px', cursor: 'pointer',
+                boxShadow: mode === m ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              }}>
+                {m === 'domain' ? '🌐 Domain Audit' : '📋 Manual URLs'}
+              </button>
+            ))}
+          </div>
+
+          {error && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '10px 14px', color: '#DC2626', fontSize: '13px', marginBottom: '14px' }}>{error}</div>}
+
+          {mode === 'domain' ? (
+            <>
+              <label style={{ fontSize: '11px', fontWeight: 600, color: '#9B9B9B', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '6px' }}>Your domain</label>
+              <input
+                style={{ width: '100%', fontSize: '14px', padding: '10px 14px', border: '1px solid #E8E8E4', borderRadius: '8px', background: '#fff', color: '#0F0F0F', boxSizing: 'border-box' as const }}
+                placeholder="autodun.com or https://autodun.com"
+                value={domain}
+                onChange={e => setDomain(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && !loading && handleAudit()}
+              />
+              <div style={{ fontSize: '12px', color: '#9B9B9B', marginTop: '6px' }}>We&apos;ll automatically discover all pages via your sitemap.xml</div>
+            </>
+          ) : (
+            <>
+              <label style={{ fontSize: '11px', fontWeight: 600, color: '#9B9B9B', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '6px' }}>URLs to audit (one per line, max 20)</label>
+              <textarea
+                style={{ width: '100%', fontSize: '13px', padding: '10px 14px', border: '1px solid #E8E8E4', borderRadius: '8px', background: '#fff', color: '#0F0F0F', fontFamily: 'monospace', minHeight: '120px', resize: 'vertical' as const, boxSizing: 'border-box' as const }}
+                placeholder={'https://example.com/page-1\nhttps://example.com/page-2'}
+                value={urls}
+                onChange={e => setUrls(e.target.value)}
+              />
+            </>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '14px', marginBottom: '4px' }}>
+            <label style={{ fontSize: '11px', fontWeight: 600, color: '#9B9B9B', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Market</label>
+            <select
+              style={{ fontSize: '13px', padding: '8px 12px', border: '1px solid #E8E8E4', borderRadius: '8px', background: '#fff', color: '#0F0F0F' }}
+              value={market} onChange={e => setMarket(e.target.value)}
+            >
               <option>United Kingdom</option>
               <option>United States</option>
               <option>Australia</option>
@@ -656,120 +584,142 @@ export default function SiteAuditPage() {
               <option>Ireland</option>
             </select>
           </div>
-        </div>
 
-        <button style={{ ...s.auditBtn, opacity: loading ? 0.6 : 1 }} onClick={handleAudit} disabled={loading}>
-          {loading ? '⏳ Auditing...' : mode === 'domain' ? '🌐 Discover & Audit All Pages' : '🔍 Audit These Pages'}
-        </button>
+          <button
+            style={{ width: '100%', padding: '12px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', marginTop: '16px', opacity: loading ? 0.6 : 1 }}
+            onClick={handleAudit} disabled={loading}
+          >
+            {loading ? '⏳ Auditing...' : mode === 'domain' ? '🔍 Discover & Audit All Pages' : '🔍 Audit These Pages'}
+          </button>
 
-        {loading && (
-          <>
-            <div style={s.progressBar}>
-              <div style={{ height: '100%', borderRadius: '8px', background: '#FF6B2C', width: `${progress}%`, transition: 'width 0.5s ease' }} />
-            </div>
-            <div style={{ fontSize: '13px', color: '#6B6B6B', textAlign: 'center' }}>{progressLabel}</div>
-          </>
-        )}
-      </div>
-
-      {/* Results */}
-      {results && (
-        <>
-          {discoverySource && (
-            <div style={s.discoveryBanner}>
-              🗺️ <strong>Discovery:</strong> {discoverySource}
-              {discoveredCount > 0 && results.summary.totalPages > results.summary.audited && (
-                <span style={{ marginLeft: '4px', color: '#1D4ED8', opacity: 0.7 }}>
-                  — audited first {results.summary.audited} of {results.summary.totalPages}
-                </span>
-              )}
+          {loading && (
+            <div style={{ marginTop: '16px' }}>
+              <div style={{ background: '#F5F4F1', borderRadius: '8px', height: '8px', overflow: 'hidden', marginBottom: '8px' }}>
+                <div style={{ height: '100%', borderRadius: '8px', background: '#FF6B2C', width: `${progress}%`, transition: 'width 0.5s ease' }} />
+              </div>
+              <div style={{ fontSize: '13px', color: '#6B6B6B', textAlign: 'center' as const }}>{progressLabel}</div>
             </div>
           )}
-          {discoveryError && <div style={s.discoveryWarning}>⚠️ {discoveryError}</div>}
+        </div>
+      )}
 
-          <div style={s.statsGrid}>
-            <div style={s.statBox}>
-              <div style={{ ...s.statNum, color: scoreColor(results.summary.avgScore) }}>{results.summary.avgScore}</div>
-              <div style={s.statLabel}>Avg SEO Score</div>
+      {/* ── STAGE 3: Results ── */}
+      {stage === 'results' && results && (
+        <>
+          {discoverySource && (
+            <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '13px', color: '#1D4ED8' }}>
+              🗺️ <strong>Discovery:</strong> {discoverySource}
             </div>
-            <div style={s.statBox}>
-              <div style={s.statNum}>{results.summary.audited}</div>
-              <div style={s.statLabel}>Pages Audited</div>
+          )}
+          {discoveryError && (
+            <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '13px', color: '#92400E' }}>
+              ⚠️ {discoveryError}
             </div>
-            <div style={s.statBox}>
-              <div style={{ ...s.statNum, color: results.summary.criticalIssues > 0 ? '#DC2626' : '#16A34A' }}>
-                {results.summary.criticalIssues}
+          )}
+
+          {/* Summary stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px', marginBottom: '20px' }}>
+            {[
+              { label: 'Avg Score', value: results.summary.avgScore, color: scoreColor(results.summary.avgScore), sub: gradeLabel(results.summary.avgScore) },
+              { label: 'Pages Audited', value: results.summary.audited, color: '#0F0F0F', sub: '' },
+              { label: 'Critical Pages', value: results.summary.criticalIssues, color: results.summary.criticalIssues > 0 ? '#DC2626' : '#16A34A', sub: '' },
+              { label: 'Need Attention', value: results.summary.pagesNeedingAttention, color: results.summary.pagesNeedingAttention > 0 ? '#EF9F27' : '#16A34A', sub: 'score < 70' },
+              { label: 'Have Schema', value: results.summary.pagesWithSchema, color: '#16A34A', sub: '' },
+            ].map(stat => (
+              <div key={stat.label} style={{ background: '#fff', border: '1px solid #E8E8E4', borderRadius: '10px', padding: '14px 16px', textAlign: 'center' as const }}>
+                <div style={{ fontSize: '26px', fontWeight: 700, color: stat.color }}>{stat.value}{stat.sub && <span style={{ fontSize: '14px', marginLeft: '4px' }}>{stat.sub}</span>}</div>
+                <div style={{ fontSize: '11px', color: '#9B9B9B', marginTop: '2px', textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>{stat.label}</div>
               </div>
-              <div style={s.statLabel}>Critical Pages</div>
-            </div>
-            <div style={s.statBox}>
-              <div style={{ ...s.statNum, color: results.summary.pagesWithSchema > 0 ? '#16A34A' : '#9B9B9B' }}>
-                {results.summary.pagesWithSchema}
-              </div>
-              <div style={s.statLabel}>Have Schema</div>
-            </div>
+            ))}
           </div>
 
-          <div style={s.table}>
+          {/* Results table */}
+          <div style={{ background: '#fff', border: '1px solid #E8E8E4', borderRadius: '12px', overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  <th style={s.th}>Page</th>
-                  <th style={s.th}>Score</th>
-                  <th style={s.th}>Words</th>
-                  <th style={s.th}>Schema</th>
-                  <th style={s.th}>Issues / Opportunities</th>
+                  {['Page', 'Grade', 'Words', 'Signals', 'Actions'].map(h => (
+                    <th key={h} style={{ padding: '12px 16px', fontSize: '11px', fontWeight: 600, color: '#9B9B9B', textTransform: 'uppercase' as const, letterSpacing: '0.5px', background: '#FAFAF8', textAlign: 'left' as const, borderBottom: '1px solid #E8E8E4' }}>{h}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {results.results.flatMap((page: any) => {
                   const isExpanded = expandedUrl === page.url;
                   const shortUrl = page.url.replace(/^https?:\/\//, '');
+                  const criticals = page.issues.filter((i: any) => i.severity === 'critical').length;
+                  const warnings = page.issues.filter((i: any) => i.severity === 'warning').length;
+
                   const rows = [
                     <tr
                       key={page.url}
                       style={{ cursor: 'pointer', background: isExpanded ? '#FAFAF8' : '#fff' }}
                       onClick={() => setExpandedUrl(isExpanded ? null : page.url)}
                     >
-                      <td style={s.td}>
-                        <div style={{ fontWeight: 600, fontSize: '12px', marginBottom: '2px', wordBreak: 'break-all' }}>
-                          {shortUrl.length > 65 ? shortUrl.slice(0, 65) + '...' : shortUrl}
+                      <td style={{ padding: '12px 16px', fontSize: '13px', color: '#0F0F0F', borderBottom: '1px solid #F5F4F1', verticalAlign: 'top' as const, maxWidth: '280px' }}>
+                        <div style={{ fontWeight: 600, fontSize: '12px', wordBreak: 'break-all', marginBottom: '2px' }}>
+                          {shortUrl.length > 60 ? shortUrl.slice(0, 60) + '...' : shortUrl}
                         </div>
                         {page.title
-                          ? <div style={{ fontSize: '11px', color: '#6B6B6B' }}>{page.title.length > 65 ? page.title.slice(0, 65) + '...' : page.title}</div>
+                          ? <div style={{ fontSize: '11px', color: '#6B6B6B' }}>{page.title.slice(0, 60)}{page.title.length > 60 ? '...' : ''}</div>
                           : <div style={{ fontSize: '11px', color: '#DC2626' }}>No title tag</div>
                         }
+                        {page.aiAnalysis?.detectedKeyword && (
+                          <div style={{ fontSize: '10px', color: '#FF6B2C', marginTop: '2px', fontWeight: 600 }}>
+                            🎯 {page.aiAnalysis.detectedKeyword}
+                          </div>
+                        )}
                       </td>
-                      <td style={s.td}>
-                        <span style={{ background: scoreBg(page.score), color: scoreColor(page.score), fontWeight: 700, fontSize: '13px', padding: '4px 10px', borderRadius: '20px', whiteSpace: 'nowrap' }}>
-                          {page.score}/100
-                        </span>
+                      <td style={{ padding: '12px 16px', borderBottom: '1px solid #F5F4F1', verticalAlign: 'top' as const }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                          <div style={{
+                            width: '44px', height: '44px', borderRadius: '50%',
+                            border: `3px solid ${scoreColor(page.score)}`,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '16px', fontWeight: 700, color: scoreColor(page.score),
+                          }}>
+                            {gradeLabel(page.score)}
+                          </div>
+                          <div style={{ fontSize: '10px', color: '#9B9B9B' }}>{page.score}/100</div>
+                        </div>
                       </td>
-                      <td style={{ ...s.td, fontWeight: 600, color: page.wordCount < 600 ? '#DC2626' : '#16A34A' }}>
+                      <td style={{ padding: '12px 16px', borderBottom: '1px solid #F5F4F1', verticalAlign: 'top' as const, fontWeight: 600, fontSize: '13px', color: page.wordCount < 600 ? '#DC2626' : '#16A34A' }}>
                         {page.wordCount.toLocaleString()}
                       </td>
-                      <td style={s.td}>
-                        <span style={{ fontSize: '12px', fontWeight: 700, color: page.hasSchema ? '#16A34A' : '#9B9B9B' }}>
-                          {page.hasSchema ? '✓ Yes' : '✗ No'}
-                        </span>
+                      <td style={{ padding: '12px 16px', borderBottom: '1px solid #F5F4F1', verticalAlign: 'top' as const }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                          {criticals > 0 && (
+                            <span style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', fontSize: '10px', padding: '2px 7px', borderRadius: '20px', fontWeight: 600, whiteSpace: 'nowrap' as const }}>
+                              ⛔ {criticals} critical
+                            </span>
+                          )}
+                          {warnings > 0 && (
+                            <span style={{ background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A', fontSize: '10px', padding: '2px 7px', borderRadius: '20px', fontWeight: 600, whiteSpace: 'nowrap' as const }}>
+                              ⚠️ {warnings} warning{warnings !== 1 ? 's' : ''}
+                            </span>
+                          )}
+                          {page.hasSchema && (
+                            <span style={{ fontSize: '10px', color: '#16A34A' }}>✓ schema</span>
+                          )}
+                          {page.hasFaq && (
+                            <span style={{ fontSize: '10px', color: '#16A34A' }}>✓ FAQ</span>
+                          )}
+                        </div>
                       </td>
-                      <td style={s.td}>
-                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
-                          {page.issues.length > 0 && (
-                            <span style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', fontSize: '11px', padding: '2px 8px', borderRadius: '20px', fontWeight: 600 }}>
-                              {page.issues.length} issue{page.issues.length !== 1 ? 's' : ''}
-                            </span>
-                          )}
-                          {page.opportunities.length > 0 && (
-                            <span style={{ background: '#F0FDF4', color: '#16A34A', border: '1px solid #BBF7D0', fontSize: '11px', padding: '2px 8px', borderRadius: '20px', fontWeight: 600 }}>
-                              {page.opportunities.length} opp{page.opportunities.length !== 1 ? 's' : ''}
-                            </span>
-                          )}
+                      <td style={{ padding: '12px 16px', borderBottom: '1px solid #F5F4F1', verticalAlign: 'top' as const }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                           <button
                             onClick={e => { e.stopPropagation(); handleFixPage(page); }}
-                            style={{ fontSize: '11px', fontWeight: 700, padding: '2px 10px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '20px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
-                          >🔧 Fix Page</button>
-                          <span style={{ fontSize: '11px', color: '#9B9B9B', marginLeft: '2px' }}>{isExpanded ? '▲' : '▼'}</span>
+                            style={{ fontSize: '11px', fontWeight: 700, padding: '6px 12px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
+                          >
+                            🔧 Fix This Page
+                          </button>
+                          <button
+                            onClick={e => { e.stopPropagation(); setExpandedUrl(isExpanded ? null : page.url); }}
+                            style={{ fontSize: '11px', padding: '4px 8px', background: 'none', color: '#9B9B9B', border: '1px solid #E8E8E4', borderRadius: '6px', cursor: 'pointer' }}
+                          >
+                            {isExpanded ? '▲ Hide' : '▼ Details'}
+                          </button>
                         </div>
                       </td>
                     </tr>,
@@ -778,38 +728,43 @@ export default function SiteAuditPage() {
                   if (isExpanded) {
                     rows.push(
                       <tr key={`${page.url}-detail`}>
-                        <td colSpan={5} style={{ ...s.td, background: '#FAFAF8', borderTop: '1px solid #F5F4F1' }}>
+                        <td colSpan={5} style={{ padding: '16px 20px', background: '#FAFAF8', borderBottom: '1px solid #E8E8E4' }}>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                             <div>
-                              <div style={{ fontSize: '11px', fontWeight: 700, color: '#DC2626', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>⚠️ Issues</div>
-                              {page.issues.length === 0 ? (
-                                <div style={{ fontSize: '12px', color: '#16A34A' }}>✓ No critical issues found</div>
-                              ) : (
-                                <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '12px', color: '#0F0F0F', lineHeight: 1.8 }}>
-                                  {page.issues.map((issue: string, j: number) => <li key={j}>{issue}</li>)}
-                                </ul>
-                              )}
+                              <div style={{ fontSize: '11px', fontWeight: 700, color: '#DC2626', textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '8px' }}>Issues</div>
+                              {page.issues.length === 0
+                                ? <div style={{ fontSize: '12px', color: '#16A34A' }}>✓ No issues found</div>
+                                : <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    {page.issues.map((issue: any, j: number) => (
+                                      <div key={j} style={{ fontSize: '12px', color: '#0F0F0F', display: 'flex', gap: '6px', alignItems: 'flex-start' }}>
+                                        <span style={{ color: issue.severity === 'critical' ? '#DC2626' : issue.severity === 'warning' ? '#EF9F27' : '#9B9B9B', flexShrink: 0 }}>
+                                          {issue.severity === 'critical' ? '⛔' : issue.severity === 'warning' ? '⚠️' : 'ℹ️'}
+                                        </span>
+                                        {issue.message}
+                                      </div>
+                                    ))}
+                                  </div>
+                              }
                             </div>
                             <div>
-                              <div style={{ fontSize: '11px', fontWeight: 700, color: '#16A34A', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>✨ Opportunities</div>
-                              {page.opportunities.length === 0 ? (
-                                <div style={{ fontSize: '12px', color: '#9B9B9B' }}>No quick wins identified</div>
-                              ) : (
-                                <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '12px', color: '#0F0F0F', lineHeight: 1.8 }}>
-                                  {page.opportunities.map((opp: string, j: number) => <li key={j}>{opp}</li>)}
-                                </ul>
+                              <div style={{ fontSize: '11px', fontWeight: 700, color: '#16A34A', textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '8px' }}>Quick Wins</div>
+                              {(page.aiAnalysis?.quickWins?.length > 0 ? page.aiAnalysis.quickWins : page.opportunities).length === 0
+                                ? <div style={{ fontSize: '12px', color: '#9B9B9B' }}>No quick wins</div>
+                                : <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    {(page.aiAnalysis?.quickWins?.length > 0 ? page.aiAnalysis.quickWins : page.opportunities).map((win: string, j: number) => (
+                                      <div key={j} style={{ fontSize: '12px', color: '#0F0F0F', display: 'flex', gap: '6px' }}>
+                                        <span style={{ color: '#16A34A', flexShrink: 0 }}>→</span>{win}
+                                      </div>
+                                    ))}
+                                  </div>
+                              }
+                              {page.metaDescription && (
+                                <div style={{ marginTop: '12px', fontSize: '11px', color: '#6B6B6B', borderTop: '1px solid #E8E8E4', paddingTop: '10px' }}>
+                                  <strong>Meta:</strong> {page.metaDescription}
+                                </div>
                               )}
                             </div>
                           </div>
-                          {page.metaDescription ? (
-                            <div style={{ marginTop: '12px', fontSize: '12px', color: '#6B6B6B', borderTop: '1px solid #E8E8E4', paddingTop: '10px' }}>
-                              <strong>Meta description:</strong> {page.metaDescription}
-                            </div>
-                          ) : (
-                            <div style={{ marginTop: '12px', fontSize: '12px', color: '#DC2626', borderTop: '1px solid #E8E8E4', paddingTop: '10px' }}>
-                              <strong>Meta description:</strong> Missing
-                            </div>
-                          )}
                         </td>
                       </tr>
                     );
@@ -823,19 +778,26 @@ export default function SiteAuditPage() {
         </>
       )}
 
-      {/* Fix Panel Overlay */}
+      {/* ── Fix Panel Overlay ── */}
       {showFixPanel && (
         <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1001, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end' }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end' }}
           onClick={() => !fixing && setShowFixPanel(false)}
         >
           <div
-            style={{ width: '580px', height: '100vh', background: '#fff', overflowY: 'auto', display: 'flex', flexDirection: 'column', zIndex: 1002 }}
+            style={{ width: '600px', height: '100vh', background: '#fff', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}
             onClick={e => e.stopPropagation()}
           >
-            {/* Header */}
+            {/* Panel header */}
             <div style={{ background: '#0F0F0F', padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-              <div style={{ color: '#fff', fontWeight: 700, fontSize: '15px' }}>🔧 Fix This Page</div>
+              <div>
+                <div style={{ color: '#fff', fontWeight: 700, fontSize: '15px' }}>🔧 Fix This Page</div>
+                {fixingPage && (
+                  <div style={{ fontSize: '11px', color: '#8899aa', marginTop: '2px' }}>
+                    {fixingPage.url.replace(/^https?:\/\//, '').slice(0, 55)}
+                  </div>
+                )}
+              </div>
               <button
                 onClick={() => !fixing && setShowFixPanel(false)}
                 style={{ color: '#9B9B9B', background: 'none', border: 'none', fontSize: '22px', cursor: fixing ? 'not-allowed' : 'pointer', lineHeight: 1 }}
@@ -843,46 +805,58 @@ export default function SiteAuditPage() {
             </div>
 
             <div style={{ padding: '20px', flex: 1 }}>
-              {/* Loading */}
-              {fixing && (
-                <div style={{ textAlign: 'center', padding: '48px 0' }}>
-                  <div style={{ fontSize: '36px', marginBottom: '16px' }}>⚙️</div>
-                  <div style={{ fontWeight: 700, fontSize: '15px', color: '#0F0F0F', marginBottom: '8px' }}>Fixing page...</div>
-                  <div style={{ fontSize: '13px', color: '#6B6B6B' }}>{fixStage}</div>
-                  <div style={{ marginTop: '24px', background: '#F5F4F1', borderRadius: '8px', height: '6px', overflow: 'hidden' }}>
-                    <div style={{ height: '100%', background: '#FF6B2C', width: '60%', borderRadius: '8px' }} />
-                  </div>
+              {/* Progress steps */}
+              {(fixing || fixStep > 0) && fixStep !== -1 && !fixResult && (
+                <div style={{ marginBottom: '24px' }}>
+                  {FIX_STEPS.map((step, i) => {
+                    const done = i < fixStep;
+                    const active = i === fixStep && fixing;
+                    return (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: i < FIX_STEPS.length - 1 ? '1px solid #F5F4F1' : 'none' }}>
+                        <div style={{
+                          width: '22px', height: '22px', borderRadius: '50%', flexShrink: 0,
+                          background: done ? '#16A34A' : active ? '#FF6B2C' : '#F5F4F1',
+                          color: done || active ? '#fff' : '#9B9B9B',
+                          fontSize: '11px', fontWeight: 700,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          {done ? '✓' : active ? '⟳' : i + 1}
+                        </div>
+                        <div style={{ fontSize: '13px', color: active ? '#0F0F0F' : done ? '#6B6B6B' : '#9B9B9B', fontWeight: active ? 600 : 400 }}>
+                          {step}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
               {/* Error */}
-              {!fixing && fixStage && !fixResult && (
+              {fixStep === -1 && (
                 <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '12px 16px', color: '#DC2626', fontSize: '13px' }}>
-                  {fixStage}
+                  {fixStageLabel}
                 </div>
               )}
 
-              {/* Results */}
+              {/* Fix result */}
               {fixResult && (
                 <>
                   {/* Keyword + stats */}
                   <div style={{ background: '#F5F4F1', borderRadius: '10px', padding: '14px 16px', marginBottom: '16px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#9B9B9B', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>Target Keyword</div>
-                    <div style={{ fontSize: '16px', fontWeight: 700, color: '#FF6B2C' }}>{fixResult.keyword}</div>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#9B9B9B', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Target Keyword</div>
+                    <div style={{ fontSize: '18px', fontWeight: 700, color: '#FF6B2C' }}>{fixResult.keyword}</div>
                     <div style={{ fontSize: '12px', color: '#6B6B6B', marginTop: '4px' }}>
                       {fixResult.competitorsAnalysed} competitor{fixResult.competitorsAnalysed !== 1 ? 's' : ''} analysed
-                      {fixResult.avgCompetitorWords > 0 && ` · avg ${fixResult.avgCompetitorWords.toLocaleString()} words`}
+                      {fixResult.avgCompetitorWords > 0 && ` · avg ${fixResult.avgCompetitorWords.toLocaleString()} competitor words`}
                     </div>
                   </div>
 
-                  {/* Brief */}
                   {fixResult.brief?.briefSummary && (
                     <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: '#1D4ED8' }}>
                       💡 {fixResult.brief.briefSummary}
                     </div>
                   )}
 
-                  {/* Low KD keywords */}
                   {fixResult.lowKdKeywords?.length > 0 && (
                     <div style={{ marginBottom: '16px' }}>
                       <div style={{ fontSize: '11px', fontWeight: 700, color: '#9B9B9B', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>Low KD Keywords to Target</div>
@@ -896,61 +870,49 @@ export default function SiteAuditPage() {
                     </div>
                   )}
 
-                  {/* Corrections */}
                   {fixResult.corrections?.length > 0 && (
                     <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', fontSize: '12px', color: '#16A34A' }}>
                       ✓ {fixResult.corrections.length} correction{fixResult.corrections.length !== 1 ? 's' : ''} applied automatically
                     </div>
                   )}
 
-                  {/* Publish section */}
                   {fixResult.improvedArticle && (
                     <div style={{ background: '#0F0F0F', borderRadius: '12px', padding: '20px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
                         <div>
                           <div style={{ fontSize: '14px', fontWeight: 700, color: '#fff', marginBottom: '2px' }}>📄 Improved Article Ready</div>
                           <div style={{ fontSize: '12px', color: '#8899aa' }}>
-                            {fixResult.improvedArticle.split(/\s+/).length} words · Google 2026 compliant
+                            ~{fixResult.improvedArticle.split(/\s+/).length.toLocaleString()} words · Google 2026 compliant
                           </div>
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#FF6B2C', fontWeight: 700, background: '#1a1a2e', padding: '4px 10px', borderRadius: '20px' }}>
+                          {activePlatform?.icon} {activePlatform?.name}
                         </div>
                       </div>
 
-                      {/* Platform grid */}
                       <div style={{ fontSize: '11px', fontWeight: 600, color: '#8899aa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px' }}>
-                        Choose where to publish
+                        Publish destination
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', marginBottom: '14px' }}>
-                        {platforms.map(platform => (
+                        {PLATFORMS.map(p => (
                           <button
-                            key={platform.id}
-                            onClick={() => {
-                              if (platform.id === 'copy') {
-                                navigator.clipboard.writeText(fixResult.improvedArticle);
-                                setPublishSuccess('✅ Copied to clipboard!');
-                                setTimeout(() => setPublishSuccess(''), 3000);
-                                return;
-                              }
-                              setPublishMode(publishMode === platform.id ? null : platform.id);
-                              setPublishSuccess('');
-                            }}
+                            key={p.id}
+                            onClick={() => { setPublishMode(p.id === publishMode ? null : p.id); setPublishSuccess(''); }}
                             style={{
-                              padding: '8px 4px',
-                              background: publishMode === platform.id ? platform.color : '#1a1a2e',
-                              border: `1px solid ${publishMode === platform.id ? platform.color : '#2a2a4e'}`,
-                              borderRadius: '8px', color: '#fff', cursor: 'pointer',
-                              fontSize: '11px', fontWeight: 600, textAlign: 'center' as const,
+                              padding: '8px 4px', borderRadius: '8px', cursor: 'pointer',
+                              background: publishMode === p.id ? p.color : '#1a1a2e',
+                              border: `1px solid ${publishMode === p.id ? p.color : '#2a2a4e'}`,
+                              color: '#fff', fontSize: '11px', fontWeight: 600, textAlign: 'center' as const,
+                              outline: selectedPlatform === p.id && publishMode !== p.id ? '2px solid #FF6B2C' : 'none',
+                              outlineOffset: '2px',
                             }}
                           >
-                            <div style={{ fontSize: '18px', marginBottom: '2px' }}>{platform.icon}</div>
-                            <div>{platform.label}</div>
-                            <div style={{ fontSize: '9px', color: publishMode === platform.id ? 'rgba(255,255,255,0.7)' : '#8899aa', marginTop: '1px' }}>
-                              {platform.desc}
-                            </div>
+                            <div style={{ fontSize: '16px', marginBottom: '2px' }}>{p.icon}</div>
+                            <div>{p.name}</div>
                           </button>
                         ))}
                       </div>
 
-                      {/* Success / error */}
                       {publishSuccess && (
                         <div style={{
                           background: publishSuccess.includes('❌') ? '#3d1515' : '#0d2b1a',
@@ -963,51 +925,60 @@ export default function SiteAuditPage() {
                         </div>
                       )}
 
-                      {/* Dynamic platform form */}
-                      {publishMode && (() => {
-                        const platform = platforms.find(p => p.id === publishMode);
-                        if (!platform || platform.noForm || !platform.fields) return null;
+                      {publishMode && publishMode !== 'manual' && (() => {
+                        const p = PLATFORMS.find(pl => pl.id === publishMode);
+                        if (!p || p.fields.length === 0) return null;
+                        const hasCredentials = p.fields.every(f => platformFields[`${publishMode}_${f.key}`]);
                         return (
-                          <div style={{ background: '#1a1a2e', borderRadius: '8px', padding: '16px', marginBottom: '12px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-                              <span style={{ fontSize: '18px' }}>{platform.icon}</span>
-                              <span style={{ fontSize: '13px', fontWeight: 700, color: '#fff' }}>Publish to {platform.label}</span>
+                          <div style={{ background: '#1a1a2e', borderRadius: '8px', padding: '14px', marginBottom: '12px' }}>
+                            <div style={{ fontSize: '12px', color: hasCredentials ? '#86efac' : '#8899aa', marginBottom: '10px', fontWeight: 600 }}>
+                              {hasCredentials ? `✅ Using ${p.name} credentials from Step 1` : `⚠️ ${p.name} credentials not set — go back to Step 1 to connect`}
                             </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                              {platform.fields.map(field => (
-                                <div key={field.key}>
-                                  <div style={{ fontSize: '11px', color: '#8899aa', marginBottom: '4px', fontWeight: 600 }}>{field.label}</div>
-                                  <input
-                                    type={field.type || 'text'}
-                                    placeholder={field.placeholder}
-                                    value={publishFields[`${publishMode}_${field.key}`] || ''}
-                                    onChange={e => updateField(`${publishMode}_${field.key}`, e.target.value)}
-                                    style={s.darkInput}
-                                  />
-                                  {field.hint && (
-                                    <div style={{ fontSize: '10px', color: '#6b7280', marginTop: '3px' }}>💡 {field.hint}</div>
-                                  )}
-                                </div>
-                              ))}
-                              <button
-                                onClick={() => handlePublish(publishMode, fixResult.improvedArticle, fixResult)}
-                                disabled={publishing}
-                                style={{
-                                  padding: '10px', background: '#FF6B2C', color: '#fff', border: 'none',
-                                  borderRadius: '8px', cursor: publishing ? 'not-allowed' : 'pointer',
-                                  fontSize: '13px', fontWeight: 700, opacity: publishing ? 0.6 : 1, marginTop: '4px',
-                                }}
-                              >
-                                {publishing ? '⏳ Publishing...' : `🚀 Publish to ${platform.label}`}
-                              </button>
-                            </div>
+                            {!hasCredentials && p.fields.map(field => (
+                              <div key={field.key} style={{ marginBottom: '8px' }}>
+                                <div style={{ fontSize: '11px', color: '#8899aa', marginBottom: '3px' }}>{field.label}</div>
+                                <input
+                                  type={field.type || 'text'}
+                                  placeholder={field.placeholder}
+                                  value={platformFields[`${publishMode}_${field.key}`] || ''}
+                                  onChange={e => setPlatformFields(prev => ({ ...prev, [`${publishMode}_${field.key}`]: e.target.value }))}
+                                  style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid #2a2a4e', background: '#0d0d1a', color: '#fff', fontSize: '12px', boxSizing: 'border-box' as const }}
+                                />
+                              </div>
+                            ))}
+                            <button
+                              onClick={() => handlePublish(publishMode, fixResult.improvedArticle, fixResult)}
+                              disabled={publishing}
+                              style={{ width: '100%', padding: '10px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '8px', cursor: publishing ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 700, opacity: publishing ? 0.6 : 1, marginTop: '4px' }}
+                            >
+                              {publishing ? '⏳ Publishing...' : `🚀 Publish to ${p.name}`}
+                            </button>
                           </div>
                         );
                       })()}
 
+                      {publishMode === 'manual' && (
+                        <button
+                          onClick={() => handlePublish('manual', fixResult.improvedArticle, fixResult)}
+                          style={{ width: '100%', padding: '10px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 700, marginBottom: '12px' }}
+                        >
+                          📋 Copy HTML to Clipboard
+                        </button>
+                      )}
+
+                      {!publishMode && (
+                        <button
+                          onClick={() => handlePublish(selectedPlatform, fixResult.improvedArticle, fixResult)}
+                          disabled={publishing}
+                          style={{ width: '100%', padding: '10px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '8px', cursor: publishing ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 700, opacity: publishing ? 0.6 : 1, marginBottom: '12px' }}
+                        >
+                          {publishing ? '⏳ Publishing...' : `🚀 Publish to ${activePlatform?.name}`}
+                        </button>
+                      )}
+
                       {/* Article preview */}
-                      <div style={{ background: '#1a1a2e', borderRadius: '8px', padding: '12px', maxHeight: '150px', overflowY: 'auto', fontSize: '11px', color: '#8899aa', fontFamily: 'monospace', lineHeight: 1.5 }}>
-                        {fixResult.improvedArticle.slice(0, 400)}...
+                      <div style={{ background: '#1a1a2e', borderRadius: '8px', padding: '12px', maxHeight: '140px', overflowY: 'auto', fontSize: '11px', color: '#8899aa', fontFamily: 'monospace', lineHeight: 1.5 }}>
+                        {fixResult.improvedArticle.slice(0, 500)}...
                       </div>
                     </div>
                   )}
