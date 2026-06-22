@@ -425,7 +425,7 @@ Return ONLY valid JSON:
     const internalLinks = getInternalLinks(kwData.primary);
 
     const fixPrompt = `${buildMasterPrompt({
-      mode: 'improve',
+      mode: 'generate',
       keyword: kwData.primary,
       secondaryKeywords: [
         ...competitorHeadings,
@@ -438,10 +438,6 @@ Return ONLY valid JSON:
       market,
       internalLinks,
       competitorTopics: brief.missingElements,
-      originalArticle: pageData.html || `Page at ${url} targeting "${kwData.primary}"`,
-      missingElements: brief.missingElements,
-      factualErrors: [],
-      improvementPriorities: [...brief.seoFixes, ...brief.structureChanges],
     })}
 
 ═══════════════════════════════════════

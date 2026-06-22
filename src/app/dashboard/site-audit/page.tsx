@@ -1113,7 +1113,7 @@ export default function SiteAuditPage() {
                       {/* Re-audit button — shown after a successful publish */}
                       {publishSuccess && !publishSuccess.includes('❌') && (
                         <button
-                          onClick={() => { setShowFixPanel(false); handleAudit(); }}
+                          onClick={() => { setShowFixPanel(false); setStage('audit'); handleAudit(); }}
                           style={{ width: '100%', padding: '11px', background: '#16A34A', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 700, marginTop: '10px' }}
                         >
                           🔄 Re-run Audit — Check Updated Score
