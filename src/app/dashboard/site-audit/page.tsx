@@ -326,6 +326,11 @@ export default function SiteAuditPage() {
           fallbackMetaDescription: page.metaDescription || '',
           fallbackH2s: page.h2s || [],
           fallbackWordCount: page.wordCount || 0,
+          ...(selectedPlatform === 'github' && platformFields['github_repo'] ? {
+            githubRepo: platformFields['github_repo'],
+            githubToken: platformFields['github_token'],
+            githubBranch: platformFields['github_branch'] || 'main',
+          } : {}),
         }),
       });
       timers.forEach(t => clearTimeout(t));
@@ -974,6 +979,29 @@ export default function SiteAuditPage() {
                   {fixResult.corrections?.length > 0 && (
                     <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', fontSize: '12px', color: '#16A34A' }}>
                       ✓ {fixResult.corrections.length} correction{fixResult.corrections.length !== 1 ? 's' : ''} applied automatically
+                    </div>
+                  )}
+
+                  {fixResult.isNewPage && (
+                    <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: '#1D4ED8', marginBottom: '4px' }}>
+                        ✨ New page created
+                      </div>
+                      {fixResult.githubFilePath && (
+                        <div style={{ fontSize: '12px', color: '#3B82F6', marginBottom: '4px' }}>
+                          Pushed to <code style={{ background: '#DBEAFE', padding: '1px 5px', borderRadius: '4px' }}>{fixResult.githubFilePath}</code>
+                        </div>
+                      )}
+                      {fixResult.commitUrl && (
+                        <a
+                          href={fixResult.commitUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ fontSize: '12px', color: '#1D4ED8', fontWeight: 600, textDecoration: 'none' }}
+                        >
+                          🔗 View commit →
+                        </a>
+                      )}
                     </div>
                   )}
 

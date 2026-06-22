@@ -21,12 +21,15 @@ const GOOGLE_2026 = `Google 2026 Key Ranking Factors:
 10. Mobile-first indexing — Google indexes mobile version first; responsive design and mobile page speed are critical`;
 
 // ── STEP 1: Fetch target page HTML ────────────────────────────────────────
-async function fetchPageHtml(url: string): Promise<{ html: string; text: string; title: string; h1: string }> {
+async function fetchPageHtml(url: string): Promise<{ html: string; text: string; title: string; h1: string; httpStatus: number }> {
   const res = await fetch(url, {
     headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEOBot/1.0)' },
     signal: AbortSignal.timeout(10000),
   });
-  if (!res.ok) throw new Error(`Failed to fetch page: HTTP ${res.status}`);
+  const httpStatus = res.status;
+  if (!res.ok) {
+    return { html: '', text: '', title: '', h1: '', httpStatus };
+  }
   const html = await res.text();
 
   const title = html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]?.trim() || '';
@@ -40,7 +43,7 @@ async function fetchPageHtml(url: string): Promise<{ html: string; text: string;
     .replace(/\s+/g, ' ')
     .trim();
 
-  return { html: html.slice(0, 8000), text: text.slice(0, 6000), title, h1 };
+  return { html: html.slice(0, 8000), text: text.slice(0, 6000), title, h1, httpStatus };
 }
 
 // ── STEP 2: Get low KD keywords via DataForSEO ────────────────────────────
@@ -150,6 +153,114 @@ async function getTopCompetitors(keyword: string, locationCode: number): Promise
   }
 }
 
+// ── GitHub push helper ────────────────────────────────────────────────────
+function extractPageSlug(url: string): string {
+  try {
+    const pathname = new URL(url).pathname.replace(/^\//, '').replace(/\/$/, '');
+    return pathname || 'index';
+  } catch {
+    return 'index';
+  }
+}
+
+function wrapArticleInHtml(article: string, pageUrl: string, title: string, description: string): string {
+  const today = new Date().toISOString();
+  const safeTitle = title.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const safeDesc = description.replace(/"/g, '&quot;').slice(0, 155);
+  const safeUrl = pageUrl.replace(/"/g, '&quot;');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${safeTitle}</title>
+  <meta name="description" content="${safeDesc}">
+  <link rel="canonical" href="${safeUrl}">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": "${title.replace(/"/g, '\\"').slice(0, 110)}",
+    "description": "${description.replace(/"/g, '\\"').slice(0, 155)}",
+    "url": "${safeUrl}",
+    "datePublished": "${today}",
+    "dateModified": "${today}"
+  }
+  </script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 800px; margin: 0 auto; padding: 24px 16px; line-height: 1.7; color: #333; }
+    h1 { font-size: 2rem; line-height: 1.2; color: #111; margin-bottom: 0.5em; }
+    h2 { font-size: 1.4rem; color: #222; margin-top: 2em; border-bottom: 2px solid #f0f0f0; padding-bottom: 0.3em; }
+    h3 { font-size: 1.1rem; color: #333; margin-top: 1.5em; }
+    p { margin: 1em 0; } ul, ol { margin: 1em 0; padding-left: 1.5em; } li { margin: 0.4em 0; }
+    strong { color: #111; }
+    @media (max-width: 600px) { h1 { font-size: 1.5rem; } h2 { font-size: 1.2rem; } }
+  </style>
+</head>
+<body>
+${article}
+</body>
+</html>`;
+}
+
+async function pushToGithub(
+  repo: string,
+  token: string,
+  branch: string,
+  filePath: string,
+  content: string,
+  message: string
+): Promise<{ commitUrl: string; filePath: string } | null> {
+  const repoVal = repo.trim().replace(/^https?:\/\/(www\.)?github\.com\//, '');
+  const slashIdx = repoVal.indexOf('/');
+  const owner = repoVal.slice(0, slashIdx);
+  const repoName = repoVal.slice(slashIdx + 1);
+  if (!owner || !repoName) return null;
+
+  const headers: Record<string, string> = {
+    Authorization: `token ${token}`,
+    'Content-Type': 'application/json',
+    Accept: 'application/vnd.github.v3+json',
+  };
+
+  let sha = '';
+  try {
+    const getRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repoName}/contents/${filePath}?ref=${branch}`,
+      { headers, signal: AbortSignal.timeout(8000) }
+    );
+    if (getRes.ok) { const ex = await getRes.json(); sha = ex.sha; }
+  } catch { /* new file */ }
+
+  const putBody: any = {
+    message,
+    content: Buffer.from(content).toString('base64'),
+    branch,
+  };
+  if (sha) putBody.sha = sha;
+
+  const putRes = await fetch(
+    `https://api.github.com/repos/${owner}/${repoName}/contents/${filePath}`,
+    { method: 'PUT', headers, body: JSON.stringify(putBody), signal: AbortSignal.timeout(12000) }
+  );
+
+  if (!putRes.ok) {
+    const err = await putRes.json().catch(() => ({}));
+    console.error('[site-audit/fix] GitHub push failed:', err.message);
+    return null;
+  }
+
+  const data = await putRes.json();
+  const commitSha: string = data.commit?.sha || '';
+  return {
+    commitUrl: commitSha
+      ? `https://github.com/${owner}/${repoName}/commit/${commitSha}`
+      : `https://github.com/${owner}/${repoName}`,
+    filePath,
+  };
+}
+
 // ── Retry helper for Anthropic overloaded_error ────────────────────────────
 async function callWithRetry<T>(fn: () => Promise<T>, retries: number = 3, delayMs: number = 2000): Promise<T> {
   for (let i = 0; i < retries; i++) {
@@ -183,19 +294,18 @@ export async function POST(req: NextRequest) {
     const fallbackMetaDescription: string = body.fallbackMetaDescription || '';
     const fallbackH2s: string[] = Array.isArray(body.fallbackH2s) ? body.fallbackH2s : [];
 
+    const githubRepo: string = body.githubRepo || '';
+    const githubToken: string = body.githubToken || '';
+    const githubBranch: string = body.githubBranch || 'main';
+
     const locationCode = market.toLowerCase().includes('united kingdom') || market.toLowerCase() === 'uk' ? 2826 : 2840;
 
     // STEP 1 — Fetch target page
     console.log('[site-audit/fix] fetching page:', url);
     let pageData: Awaited<ReturnType<typeof fetchPageHtml>>;
-    try {
-      pageData = await fetchPageHtml(url);
-    } catch (err: any) {
-      const hasFallback = fallbackTitle || fallbackH1 || fallbackMetaDescription || fallbackH2s.length > 0;
-      if (!hasFallback && !keyword) {
-        return NextResponse.json({ error: `Cannot fetch page: ${err.message}` }, { status: 400 });
-      }
-      console.warn('[site-audit/fix] page fetch failed, using audit fallback data');
+    let is404 = false;
+
+    const buildSyntheticPageData = (httpStatus: number) => {
       const syntheticTitle = fallbackTitle || url;
       const syntheticH1 = fallbackH1 || fallbackTitle || '';
       const textParts = [fallbackH1, fallbackMetaDescription, ...fallbackH2s].filter(Boolean);
@@ -209,7 +319,24 @@ export async function POST(req: NextRequest) {
         ...fallbackH2s.map(h2 => `<h2>${h2}</h2>`),
         `</body></html>`,
       ].filter(Boolean).join('\n');
-      pageData = { title: syntheticTitle, h1: syntheticH1, text: syntheticText, html: syntheticHtml };
+      return { title: syntheticTitle, h1: syntheticH1, text: syntheticText, html: syntheticHtml, httpStatus };
+    };
+
+    try {
+      pageData = await fetchPageHtml(url);
+      if (pageData.httpStatus >= 400) {
+        is404 = true;
+        console.warn(`[site-audit/fix] page returned HTTP ${pageData.httpStatus}, generating new page from fallback data`);
+        pageData = buildSyntheticPageData(pageData.httpStatus);
+      }
+    } catch (err: any) {
+      const hasFallback = fallbackTitle || fallbackH1 || fallbackMetaDescription || fallbackH2s.length > 0;
+      if (!hasFallback && !keyword) {
+        return NextResponse.json({ error: `Cannot fetch page: ${err.message}` }, { status: 400 });
+      }
+      console.warn('[site-audit/fix] page fetch network error, using audit fallback data');
+      is404 = true;
+      pageData = buildSyntheticPageData(0);
     }
 
     // STEP 2 — Detect keyword and find low KD opportunities
@@ -370,6 +497,31 @@ Write the fully improved, humanised article now. Make it rank #1 for "${kwData.p
       market
     );
 
+    // STEP 8 — Push new HTML page to GitHub for 404 pages
+    let commitUrl: string | null = null;
+    let githubFilePath: string | null = null;
+
+    if (is404 && githubRepo && githubToken) {
+      console.log('[site-audit/fix] pushing new page to GitHub...');
+      const slug = extractPageSlug(url);
+      const filePath = `public/${slug}/index.html`;
+      const metaDesc = brief?.briefSummary?.slice(0, 155) || fallbackMetaDescription || '';
+      const htmlPage = wrapArticleInHtml(validatedArticle, url, pageData.title || kwData.primary, metaDesc);
+      const pushResult = await pushToGithub(
+        githubRepo,
+        githubToken,
+        githubBranch,
+        filePath,
+        htmlPage,
+        `SEO: create ${filePath} — optimised for "${kwData.primary}" via SEORANKO`
+      );
+      if (pushResult) {
+        commitUrl = pushResult.commitUrl;
+        githubFilePath = pushResult.filePath;
+        console.log('[site-audit/fix] pushed to GitHub:', filePath);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       improvedArticle: validatedArticle,
@@ -379,6 +531,9 @@ Write the fully improved, humanised article now. Make it rank #1 for "${kwData.p
       avgCompetitorWords,
       brief,
       corrections,
+      isNewPage: is404,
+      commitUrl,
+      githubFilePath,
     });
 
   } catch (error: any) {
