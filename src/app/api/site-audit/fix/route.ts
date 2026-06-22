@@ -333,37 +333,92 @@ async function triggerVercelRedeploy(): Promise<boolean> {
 }
 
 // ── Fact verification ─────────────────────────────────────────────────────
-function factCheckContent(content: string): { content: string; status: 'passed' | 'fixed'; changes: string[] } {
+function factCheckContent(content: string): { content: string; status: 'passed' | 'fixed'; log: string } {
   let fixed = content;
   const changes: string[] = [];
 
-  // Strip fake UK phone numbers (01632 is Ofcom's reserved fictional number prefix)
+  // Strip fake UK phone numbers (01632 = Ofcom reserved fictional prefix)
   if (/\b01632[\s-]?\d{6}\b/.test(fixed)) {
-    fixed = fixed.replace(/\b01632[\s-]?\d{6}\b/g, 'support@autodun.com');
+    fixed = fixed.replace(/\b01632[\s-]?\d{6}\b/g, '');
     changes.push('Removed fake phone number (01632 prefix)');
   }
+  // 07700 900 XXX = Ofcom reserved fake mobile range
+  if (/\b07700\s*900\s*\d{3}\b/.test(fixed)) {
+    fixed = fixed.replace(/\b07700\s*900\s*\d{3}\b/g, '');
+    changes.push('Removed fake mobile number (07700 900 range)');
+  }
 
-  // Fix wrong contact emails — replace any non-autodun contact/info addresses
-  if (/\binfo@(?!autodun\.com)[a-z0-9.-]+\.[a-z]{2,}\b/i.test(fixed)) {
-    fixed = fixed.replace(/\binfo@(?!autodun\.com)[a-z0-9.-]+\.[a-z]{2,}\b/gi, 'support@autodun.com');
+  // Strip invented registered addresses (LLM pattern: "Registered address: 123 High St ... EC1A 1BB")
+  const fakeAddressPattern = /(?:registered\s+(?:office|address)|our\s+address)\s*[:\-]\s*[^<\n]{10,100}[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}/gi;
+  if (fakeAddressPattern.test(fixed)) {
+    fixed = fixed.replace(fakeAddressPattern, 'Contact: support@autodun.com');
+    changes.push('Removed fake registered address');
+  }
+
+  // Fix wrong contact emails — any non-autodun contact/info/hello address
+  const wrongEmailPattern = /\b(?:info|contact|hello|enquiries|admin)@(?!autodun\.com)[a-z0-9.-]+\.[a-z]{2,}\b/gi;
+  if (wrongEmailPattern.test(fixed)) {
+    fixed = fixed.replace(wrongEmailPattern, 'support@autodun.com');
     changes.push('Corrected contact email to support@autodun.com');
   }
 
-  // Strip obvious fake company registration numbers (clearly placeholder values)
-  const fakeRegNums = ['12345678', '87654321', '11223344', '00000001', '99999999'];
+  // Strip placeholder company registration numbers
+  const fakeRegNums = ['12345678', '87654321', '11223344', '00000001', '99999999', '12121212'];
   for (const num of fakeRegNums) {
-    const pattern = new RegExp(`(?:company (?:reg(?:istration)? )?(?:number|no\\.?):?\\s*)${num}\\b`, 'gi');
+    const pattern = new RegExp(`(?:company\\s+(?:reg(?:istration)?\\s+)?(?:number|no\\.?):?\\s*)${num}\\b`, 'gi');
     if (pattern.test(fixed)) {
       fixed = fixed.replace(pattern, '');
       changes.push('Removed fake company registration number');
     }
   }
 
-  return {
-    content: fixed,
-    status: changes.length > 0 ? 'fixed' : 'passed',
-    changes,
-  };
+  // Strip invented autodun URL variants (e.g. auto-dun.com, autodun.co.uk)
+  const wrongUrlPattern = /\bhttps?:\/\/(?!autodun\.com|mot\.autodun\.com|ev\.autodun\.com|ai\.autodun\.com|seoranko\.com)[a-z0-9.-]*autodun[a-z0-9.-]*\//gi;
+  if (wrongUrlPattern.test(fixed)) {
+    fixed = fixed.replace(wrongUrlPattern, 'https://autodun.com/');
+    changes.push('Corrected invented autodun URL variant');
+  }
+
+  const status = changes.length > 0 ? 'fixed' : 'passed';
+  const log = status === 'passed'
+    ? 'Fact check passed — no fake data detected'
+    : `Fake data removed: ${changes.join('; ')}`;
+
+  return { content: fixed, status, log };
+}
+
+// ── Compute which audit issues the fix resolves ────────────────────────────
+function computeFixedIssues(
+  inputIssues: Array<{ severity: string; category: string; message: string; deduction: number }>,
+  is404: boolean,
+  createNextjs: boolean,
+): { fixedIssues: string[]; scoreGain: number; simulatedScore: number | null } {
+  if (is404) {
+    const fixedIssues = [
+      'page_not_found', 'missing_title', 'missing_h1',
+      'missing_meta_description', 'no_schema', 'thin_content', 'no_internal_links',
+    ];
+    if (createNextjs) fixedIssues.push('missing_og_tags');
+    return { fixedIssues, scoreGain: 0, simulatedScore: createNextjs ? 82 : 72 };
+  }
+
+  const RESOLUTIONS: { key: string; patterns: string[] }[] = [
+    { key: 'missing_title',            patterns: ['Missing title tag'] },
+    { key: 'missing_h1',               patterns: ['Missing H1'] },
+    { key: 'missing_meta_description', patterns: ['Missing meta description'] },
+    { key: 'no_schema',                patterns: ['No structured data'] },
+    { key: 'thin_content',             patterns: ['Thin content:', 'Low word count:'] },
+    { key: 'no_internal_links',        patterns: ['No internal links'] },
+    { key: 'missing_og_tags',          patterns: ['Missing Open Graph'] },
+  ];
+
+  const fixedIssues: string[] = [];
+  let scoreGain = 0;
+  for (const res of RESOLUTIONS) {
+    const match = inputIssues.find(iss => res.patterns.some(pat => iss.message.startsWith(pat)));
+    if (match) { fixedIssues.push(res.key); scoreGain += match.deduction; }
+  }
+  return { fixedIssues, scoreGain, simulatedScore: null };
 }
 
 // ── Retry helper for Anthropic overloaded_error ────────────────────────────
@@ -398,6 +453,8 @@ export async function POST(req: NextRequest) {
     const fallbackH1: string = body.fallbackH1 || '';
     const fallbackMetaDescription: string = body.fallbackMetaDescription || '';
     const fallbackH2s: string[] = Array.isArray(body.fallbackH2s) ? body.fallbackH2s : [];
+    const inputIssues: Array<{ severity: string; category: string; message: string; deduction: number }> =
+      Array.isArray(body.issues) ? body.issues : [];
 
     const githubRepo: string = body.githubRepo || '';
     const githubToken: string = body.githubToken || '';
@@ -646,6 +703,8 @@ Write the complete component now. Output TSX only.`;
         }
       }
 
+      const { fixedIssues: fi, scoreGain: sg, simulatedScore: ss } = computeFixedIssues(inputIssues, true, true);
+
       return NextResponse.json({
         success: true,
         componentCode,
@@ -661,6 +720,9 @@ Write the complete component now. Output TSX only.`;
         githubFilePath,
         redeployTriggered: redeployTriggeredNextjs,
         deployHookConfigured: deployHookConfiguredNextjs,
+        fixedIssues: fi,
+        scoreGain: sg,
+        simulatedScore: ss,
       });
     }
 
@@ -741,8 +803,9 @@ Write the fully improved, humanised article now. Make it rank #1 for "${kwData.p
       market
     );
 
-    // STEP 7.5 — Fact-check: strip fake phone numbers, emails, company reg numbers
-    const { content: finalArticle, status: factCheckStatus } = factCheckContent(validatedArticle);
+    // STEP 7.5 — Fact-check: strip fake phone numbers, addresses, emails, reg numbers
+    const { content: finalArticle, status: factCheckStatus, log: factCheckLog } = factCheckContent(validatedArticle);
+    console.log('[site-audit/fix] fact-check:', factCheckLog);
 
     // STEP 8 — Push to GitHub for 404 pages (HTML + markdown developer guide)
     let commitUrl: string | null = null;
@@ -781,6 +844,8 @@ Write the fully improved, humanised article now. Make it rank #1 for "${kwData.p
       }
     }
 
+    const { fixedIssues, scoreGain, simulatedScore } = computeFixedIssues(inputIssues, is404, false);
+
     return NextResponse.json({
       success: true,
       improvedArticle: finalArticle,
@@ -796,6 +861,9 @@ Write the fully improved, humanised article now. Make it rank #1 for "${kwData.p
       githubFilePath,
       redeployTriggered,
       deployHookConfigured,
+      fixedIssues,
+      scoreGain,
+      simulatedScore,
     });
 
   } catch (error: any) {

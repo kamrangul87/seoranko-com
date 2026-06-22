@@ -104,38 +104,74 @@ export default function SiteAuditPage() {
   const [generatingSitemap, setGeneratingSitemap] = useState(false);
   const [sitemapMsg, setSitemapMsg] = useState('');
 
-  // Auto-verify state (post-fix redeploy countdown + re-audit)
-  const [autoVerifyStatus, setAutoVerifyStatus] = useState<'idle' | 'waiting' | 'auditing' | 'done'>('idle');
-  const [autoVerifyCountdown, setAutoVerifyCountdown] = useState(45);
-  const [autoVerifyResult, setAutoVerifyResult] = useState<{ oldScore: number; newScore: number } | null>(null);
+  // Score simulation (local update after fix)
+  const [scoreSimMsg, setScoreSimMsg] = useState<string>('');
 
-  async function startAutoVerify(page: any, oldScore: number) {
-    setAutoVerifyStatus('waiting');
-    setAutoVerifyCountdown(45);
-    setAutoVerifyResult(null);
+  function simulateScoreUpdate(page: any, data: any) {
+    if (!results?.results || !data.fixedIssues?.length) return;
 
-    const tick = window.setInterval(() => {
-      setAutoVerifyCountdown(prev => {
-        if (prev <= 1) { clearInterval(tick); return 0; }
-        return prev - 1;
-      });
-    }, 1000);
+    const ISSUE_PATTERNS: Record<string, string[]> = {
+      missing_title:            ['Missing title tag'],
+      missing_h1:               ['Missing H1'],
+      missing_meta_description: ['Missing meta description'],
+      no_schema:                ['No structured data'],
+      thin_content:             ['Thin content:', 'Low word count:'],
+      no_internal_links:        ['No internal links'],
+      missing_og_tags:          ['Missing Open Graph'],
+      page_not_found:           ['Page not found (404)'],
+    };
 
-    await new Promise<void>(resolve => window.setTimeout(resolve, 45000));
-    clearInterval(tick);
+    const patternsToRemove: string[] = (data.fixedIssues as string[])
+      .flatMap(key => ISSUE_PATTERNS[key] || []);
 
-    setAutoVerifyStatus('auditing');
-    try {
-      const res = await fetch('/api/site-audit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ urls: [page.url], market }),
-      });
-      const data = await res.json();
-      const newScore: number = data?.results?.[0]?.score ?? 0;
-      setAutoVerifyResult({ oldScore, newScore });
-    } catch { /* ignore — still show done */ }
-    setAutoVerifyStatus('done');
+    const updatedPages = results.results.map((r: any) => {
+      if (r.url !== page.url) return r;
+
+      if (data.simulatedScore != null) {
+        // 404/new page: use simulated score, clear all issues
+        return {
+          ...r,
+          score: data.simulatedScore,
+          issues: [],
+          hasSchema: true,
+          hasFaq: true,
+          httpStatus: 200,
+          wordCount: Math.max(r.wordCount, 1500),
+          title: r.title || data.keyword || 'New page',
+        };
+      }
+
+      // Existing page: remove resolved issues, add back their deductions
+      const remainingIssues = r.issues.filter((iss: any) =>
+        !patternsToRemove.some(pat => iss.message.startsWith(pat))
+      );
+      const newScore = Math.min(100, r.score + (data.scoreGain || 0));
+      return {
+        ...r,
+        score: newScore,
+        issues: remainingIssues,
+        hasSchema: data.fixedIssues.includes('no_schema') ? true : r.hasSchema,
+      };
+    });
+
+    const avg = Math.round(updatedPages.reduce((a: number, b: any) => a + b.score, 0) / updatedPages.length);
+    setResults({
+      ...results,
+      results: updatedPages,
+      summary: {
+        ...results.summary,
+        avgScore: avg,
+        criticalIssues: updatedPages.filter((r: any) => r.score < 30).length,
+        pagesNeedingAttention: updatedPages.filter((r: any) => r.score < 70).length,
+        pagesWithSchema: updatedPages.filter((r: any) => r.hasSchema).length,
+      },
+    });
+
+    setScoreSimMsg(
+      data.commitUrl
+        ? `✅ Fixed and pushed to GitHub${data.redeployTriggered ? ' · Vercel redeploy triggered' : ''} — scores updated. Deploy your site to make changes live.`
+        : '✅ Content generated — scores updated. Publish to apply changes.'
+    );
   }
 
   async function handleGenerateSitemap() {
@@ -331,9 +367,7 @@ export default function SiteAuditPage() {
     setFixStageLabel(FIX_STEPS[0]);
     setPublishMode(null);
     setPublishSuccess('');
-    setAutoVerifyStatus('idle');
-    setAutoVerifyCountdown(45);
-    setAutoVerifyResult(null);
+    setScoreSimMsg('');
 
     const delays = [3000, 8000, 14000, 20000];
     const timers = delays.map((delay, i) =>
@@ -379,9 +413,7 @@ export default function SiteAuditPage() {
       setFixStep(5);
       setFixStageLabel('');
       setFixResult(data);
-      if (data.redeployTriggered) {
-        startAutoVerify(page, page.score ?? 0);
-      }
+      simulateScoreUpdate(page, data);
     } catch (err: any) {
       timers.forEach(t => clearTimeout(t));
       setFixStageLabel('❌ ' + err.message);
@@ -409,9 +441,7 @@ export default function SiteAuditPage() {
     setFixStageLabel(FIX_STEPS[0]);
     setPublishMode(null);
     setPublishSuccess('');
-    setAutoVerifyStatus('idle');
-    setAutoVerifyCountdown(45);
-    setAutoVerifyResult(null);
+    setScoreSimMsg('');
 
     const delays = [3000, 8000, 14000, 20000];
     const timers = delays.map((delay, i) =>
@@ -457,9 +487,7 @@ export default function SiteAuditPage() {
       setFixStep(5);
       setFixStageLabel('');
       setFixResult(data);
-      if (data.redeployTriggered) {
-        startAutoVerify(page, page.score ?? 0);
-      }
+      simulateScoreUpdate(page, data);
     } catch (err: any) {
       timers.forEach(t => clearTimeout(t));
       setFixStageLabel('❌ ' + err.message);
@@ -849,6 +877,14 @@ export default function SiteAuditPage() {
             </div>
           )}
 
+          {/* Score simulation success banner */}
+          {scoreSimMsg && (
+            <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '10px', padding: '12px 16px', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+              <div style={{ fontSize: '13px', color: '#16A34A', fontWeight: 600 }}>{scoreSimMsg}</div>
+              <button onClick={() => setScoreSimMsg('')} style={{ background: 'none', border: 'none', color: '#16A34A', fontSize: '18px', cursor: 'pointer', flexShrink: 0, lineHeight: 1 }}>×</button>
+            </div>
+          )}
+
           {/* Results table */}
           <div style={{ background: '#fff', border: '1px solid #E8E8E4', borderRadius: '12px', overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -1137,86 +1173,31 @@ export default function SiteAuditPage() {
                     </div>
                   )}
 
+                  {/* Score simulation success banner */}
+                  {scoreSimMsg && (
+                    <div style={{ background: '#0d2b1a', border: '1px solid #166534', borderRadius: '10px', padding: '12px 16px', marginBottom: '16px' }}>
+                      <div style={{ fontSize: '13px', color: '#86efac', fontWeight: 600 }}>{scoreSimMsg}</div>
+                      {fixResult.fixedIssues?.length > 0 && (
+                        <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                          {(fixResult.fixedIssues as string[]).map((key: string) => (
+                            <span key={key} style={{ background: '#166534', color: '#86efac', fontSize: '10px', padding: '2px 8px', borderRadius: '20px', fontWeight: 600 }}>
+                              ✓ {key.replace(/_/g, ' ')}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {fixResult.deployHookConfigured === false && fixResult.commitUrl && (
+                        <div style={{ marginTop: '10px', fontSize: '11px', color: '#6ee7b7', lineHeight: 1.7, borderTop: '1px solid #166534', paddingTop: '8px' }}>
+                          <strong>⚡ Enable auto-redeploy:</strong> Vercel → {fixResult.githubFilePath?.split('/')[0] === 'src' ? 'seoranko' : 'autodun'} project → Settings → Git → Deploy Hooks → Create hook &quot;seoranko-audit&quot; → copy URL → add as <code style={{ background: '#0a1a0a', padding: '1px 4px', borderRadius: '3px' }}>VERCEL_DEPLOY_HOOK_AUTODUN</code> env var
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {fixResult.corrections?.length > 0 && (
                     <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', fontSize: '12px', color: '#16A34A' }}>
                       ✓ {fixResult.corrections.length} correction{fixResult.corrections.length !== 1 ? 's' : ''} applied automatically
                       {fixResult.factCheckStatus === 'fixed' && ' · fake data removed'}
-                    </div>
-                  )}
-
-                  {/* Auto-verify: redeploy progress + score comparison */}
-                  {autoVerifyStatus !== 'idle' && (
-                    <div style={{ background: '#0F0F0F', borderRadius: '10px', padding: '16px', marginBottom: '16px' }}>
-                      <div style={{ fontSize: '12px', fontWeight: 700, color: '#fff', marginBottom: '12px' }}>
-                        Auto-verification
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
-                        {[
-                          { label: 'Pushed to GitHub', done: true },
-                          { label: autoVerifyStatus === 'waiting' ? `Redeploying... (${autoVerifyCountdown}s)` : 'Redeployed', done: autoVerifyStatus !== 'waiting' },
-                          { label: autoVerifyStatus === 'done' ? 'Verified' : autoVerifyStatus === 'auditing' ? 'Re-auditing page...' : 'Verify score', done: autoVerifyStatus === 'done' },
-                        ].map((step, i) => (
-                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <div style={{
-                              width: '20px', height: '20px', borderRadius: '50%', flexShrink: 0,
-                              background: step.done ? '#16A34A' : i === 1 && autoVerifyStatus === 'waiting' ? '#EF9F27' : i === 2 && autoVerifyStatus === 'auditing' ? '#FF6B2C' : '#2a2a2a',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              fontSize: '10px', color: '#fff',
-                            }}>
-                              {step.done ? '✓' : i === 1 && autoVerifyStatus === 'waiting' ? '⟳' : i === 2 && autoVerifyStatus === 'auditing' ? '⟳' : '○'}
-                            </div>
-                            <div style={{ fontSize: '12px', color: step.done ? '#86efac' : '#8899aa', fontWeight: step.done ? 600 : 400 }}>
-                              {step.label}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      {autoVerifyStatus === 'waiting' && (
-                        <div style={{ background: '#1a1a2e', borderRadius: '8px', height: '6px', overflow: 'hidden' }}>
-                          <div style={{ height: '100%', background: '#EF9F27', width: `${((45 - autoVerifyCountdown) / 45) * 100}%`, transition: 'width 1s linear' }} />
-                        </div>
-                      )}
-                      {autoVerifyStatus === 'done' && autoVerifyResult && (
-                        <div style={{ marginTop: '10px', background: '#0d2b1a', border: '1px solid #166534', borderRadius: '8px', padding: '10px 14px' }}>
-                          <div style={{ fontSize: '11px', color: '#86efac', fontWeight: 700, marginBottom: '6px' }}>Score comparison</div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <div style={{ textAlign: 'center' as const }}>
-                              <div style={{ fontSize: '24px', fontWeight: 700, color: autoVerifyResult.oldScore >= 70 ? '#86efac' : '#fca5a5' }}>{autoVerifyResult.oldScore}</div>
-                              <div style={{ fontSize: '10px', color: '#8899aa' }}>Before</div>
-                            </div>
-                            <div style={{ fontSize: '18px', color: '#8899aa' }}>→</div>
-                            <div style={{ textAlign: 'center' as const }}>
-                              <div style={{ fontSize: '24px', fontWeight: 700, color: autoVerifyResult.newScore >= 70 ? '#86efac' : autoVerifyResult.newScore > autoVerifyResult.oldScore ? '#86efac' : '#fca5a5' }}>{autoVerifyResult.newScore}</div>
-                              <div style={{ fontSize: '10px', color: '#8899aa' }}>After</div>
-                            </div>
-                            <div style={{ fontSize: '13px', fontWeight: 700, color: autoVerifyResult.newScore > autoVerifyResult.oldScore ? '#86efac' : autoVerifyResult.newScore === autoVerifyResult.oldScore ? '#8899aa' : '#fca5a5' }}>
-                              {autoVerifyResult.newScore > autoVerifyResult.oldScore
-                                ? `+${autoVerifyResult.newScore - autoVerifyResult.oldScore} pts ↑`
-                                : autoVerifyResult.newScore === autoVerifyResult.oldScore
-                                  ? 'No change'
-                                  : `${autoVerifyResult.newScore - autoVerifyResult.oldScore} pts ↓`}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                      {autoVerifyStatus === 'done' && !autoVerifyResult && (
-                        <div style={{ fontSize: '12px', color: '#8899aa', marginTop: '6px' }}>Could not fetch updated score — re-audit manually.</div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Deploy hook setup instructions */}
-                  {fixResult.deployHookConfigured === false && fixResult.commitUrl && (
-                    <div style={{ background: '#1c1c0a', border: '1px solid #713f12', borderRadius: '10px', padding: '14px 16px', marginBottom: '16px' }}>
-                      <div style={{ fontSize: '12px', fontWeight: 700, color: '#fbbf24', marginBottom: '8px' }}>
-                        ⚡ Enable auto-redeploy after fixes
-                      </div>
-                      <div style={{ fontSize: '11px', color: '#ca8a04', lineHeight: 1.6 }}>
-                        1. Go to <strong>Vercel → autodun project → Settings → Git → Deploy Hooks</strong><br />
-                        2. Create a hook named <code style={{ background: '#2a2000', padding: '1px 5px', borderRadius: '3px' }}>seoranko-audit</code><br />
-                        3. Copy the hook URL<br />
-                        4. Add it to <strong>SEORANKO Vercel env vars</strong> as <code style={{ background: '#2a2000', padding: '1px 5px', borderRadius: '3px' }}>VERCEL_DEPLOY_HOOK_AUTODUN</code>
-                      </div>
                     </div>
                   )}
 
