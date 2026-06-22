@@ -163,6 +163,14 @@ function extractPageSlug(url: string): string {
   }
 }
 
+function slugToComponentName(slug: string): string {
+  return slug
+    .split(/[-_/]/)
+    .filter(Boolean)
+    .map(s => s.charAt(0).toUpperCase() + s.slice(1))
+    .join('');
+}
+
 function articleHtmlToMarkdown(html: string): string {
   return html
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
@@ -346,6 +354,7 @@ export async function POST(req: NextRequest) {
     const githubRepo: string = body.githubRepo || '';
     const githubToken: string = body.githubToken || '';
     const githubBranch: string = body.githubBranch || 'main';
+    const createNextjs: boolean = Boolean(body.createNextjs);
 
     const locationCode = market.toLowerCase().includes('united kingdom') || market.toLowerCase() === 'uk' ? 2826 : 2840;
 
@@ -464,6 +473,142 @@ Return ONLY valid JSON:
       };
     }
     await new Promise(r => setTimeout(r, 2000));
+
+    // STEP 5a — Create Next.js component (alternative to HTML article)
+    if (createNextjs) {
+      const slug = extractPageSlug(url);
+      const componentName = slugToComponentName(slug) || 'Home';
+      const avgWords = competitors.length > 0
+        ? Math.round(competitors.reduce((s, c) => s + c.wordCount, 0) / competitors.length)
+        : 1200;
+      const targetWords = Math.max(avgWords + 200, 1200);
+      const secKeywords = kwData.keywords.slice(0, 6).map(k => k.keyword).join(', ');
+      const compHeadings = competitors.flatMap(c => c.headings).filter(Boolean).slice(0, 8).join(', ');
+      const today = new Date().toISOString().split('T')[0];
+
+      const componentPrompt = `You are an expert Next.js developer. Generate a production-ready Next.js 14 App Router page component.
+
+FILE: src/app/${slug}/page.tsx
+COMPONENT NAME: ${componentName}Page
+TARGET KEYWORD: "${kwData.primary}"
+MARKET: ${market}
+STRATEGY: ${brief.briefSummary}
+TARGET WORD COUNT: ${targetWords} words
+SECONDARY KEYWORDS (use naturally): ${secKeywords}
+${compHeadings ? `COMPETITOR SECTION IDEAS (cover these): ${compHeadings}` : ''}
+MUST ADD: ${brief.contentToAdd.join(', ')}
+TECH FIXES: ${brief.seoFixes.join(', ')}
+
+Output ONLY valid TypeScript/TSX — no markdown code fences, no explanations, no comments outside JSX.
+Start immediately with: import type { Metadata } from 'next';
+
+REQUIRED EXACT STRUCTURE:
+
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: '[60-char title with keyword]',
+  description: '[150-char meta description with keyword and CTA]',
+  openGraph: { title: '[same title]', description: '[same description]', type: 'article' },
+};
+
+export default function ${componentName}Page() {
+  return (
+    <article className="max-w-3xl mx-auto px-4 py-12 font-sans">
+
+      <h1 className="text-3xl font-bold text-gray-900 mb-6 leading-tight">[H1 with keyword]</h1>
+
+      <p className="text-lg text-gray-700 mb-6">[100-word intro with keyword in first sentence]</p>
+
+      [EXACTLY 5 sections like this:]
+      <section className="mb-8">
+        <h2 className="text-xl font-semibold text-gray-800 mt-8 mb-4">[H2 with secondary keyword]</h2>
+        <p className="text-gray-700 mb-4">[150 words]</p>
+      </section>
+
+      <section className="mt-12 bg-gray-50 rounded-lg p-6">
+        <h2 className="text-xl font-semibold text-gray-800 mb-6">Frequently Asked Questions</h2>
+        [4 FAQ items as:]
+        <div className="mb-4">
+          <h3 className="font-semibold text-gray-900 mb-2">[Question?]</h3>
+          <p className="text-gray-700">[80-word answer]</p>
+        </div>
+      </section>
+
+      <section className="mt-8 p-4 border-l-4 border-orange-500 bg-orange-50">
+        <h2 className="text-lg font-semibold mb-2">The Bottom Line</h2>
+        <p className="text-gray-700">[80-word practical summary with 2 action steps]</p>
+      </section>
+
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": "[H1]",
+        "author": { "@type": "Person", "name": "Kamran Gul" },
+        "publisher": { "@type": "Organization", "name": "Autodun", "url": "https://autodun.com" },
+        "datePublished": "${today}",
+        "dateModified": "${today}"
+      })}} />
+
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+          [4 FAQ objects]
+        ]
+      })}} />
+
+    </article>
+  );
+}
+
+Write the complete component now. Output TSX only.`;
+
+      console.log('[site-audit/fix] streaming Next.js component...');
+      const compStream = anthropic.messages.stream({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 8000,
+        messages: [{ role: 'user', content: componentPrompt }],
+      });
+
+      let componentCode = '';
+      for await (const chunk of compStream) {
+        if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+          componentCode += chunk.delta.text;
+        }
+      }
+      // Strip any accidental markdown fences
+      componentCode = componentCode.replace(/^```[a-z]*\n?/gm, '').replace(/```\s*$/gm, '').trim();
+
+      let commitUrl: string | null = null;
+      let githubFilePath: string | null = null;
+      if (githubRepo && githubToken) {
+        const nextjsPath = `src/app/${slug}/page.tsx`;
+        const pushResult = await pushToGithub(
+          githubRepo, githubToken, githubBranch, nextjsPath, componentCode,
+          `feat: add ${nextjsPath} — optimised for "${kwData.primary}" via SEORANKO`
+        );
+        if (pushResult) {
+          commitUrl = pushResult.commitUrl;
+          githubFilePath = pushResult.filePath;
+          console.log('[site-audit/fix] pushed Next.js component to:', nextjsPath);
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        componentCode,
+        keyword: kwData.primary,
+        lowKdKeywords: kwData.keywords,
+        competitorsAnalysed: competitors.length,
+        avgCompetitorWords: avgWords,
+        brief,
+        corrections: [],
+        isNewPage: true,
+        commitUrl,
+        githubFilePath,
+      });
+    }
 
     // STEP 5 — Build master prompt
     const avgCompetitorWords = competitors.length > 0

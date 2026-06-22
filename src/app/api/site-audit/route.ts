@@ -304,10 +304,25 @@ function scorePage(page: PageSignals, allPages: PageSignals[]): {
   opportunities: string[];
 } {
   if (page.fetchError && page.wordCount === 0) {
+    const is404 = page.httpStatus === 404;
     return {
-      score: 20,
-      issues: [{ severity: 'critical', category: 'crawlability', message: `Page cannot be accessed: ${page.fetchError}`, deduction: 15 }],
-      opportunities: ['Fix the page accessibility issue — Google cannot crawl or index this page'],
+      score: is404 ? 30 : 20,
+      issues: [{
+        severity: 'critical' as const,
+        category: 'crawlability' as const,
+        message: is404
+          ? 'Page not found (404) — this route does not exist yet'
+          : `Page cannot be accessed: ${page.fetchError}`,
+        deduction: 15,
+      }],
+      opportunities: is404
+        ? [
+            'Create this page in your Next.js app at app/[slug]/page.tsx',
+            'Add metadata export with title, description, and Open Graph tags',
+            'Include Article + FAQPage JSON-LD schema for rich results',
+            'Target keyword: ' + (page.title || 'detect from URL path'),
+          ]
+        : ['Fix the page accessibility issue — Google cannot crawl or index this page'],
     };
   }
 
@@ -633,6 +648,7 @@ export async function POST(req: NextRequest) {
           hasTwitterCard: page.hasTwitterCard,
           noindex: page.noindex,
           isHttps: page.isHttps,
+          httpStatus: page.httpStatus,
           score,
           issues,
           opportunities,

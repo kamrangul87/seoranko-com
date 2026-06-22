@@ -287,13 +287,77 @@ export default function SiteAuditPage() {
     }
   }
 
+  // ── Stage 3: Create Next.js page (for 404 routes) ─────────────────────────
+  async function handleCreatePage(page: any) {
+    setFixing(true);
+    setFixResult(null);
+    setFixingPage(page);
+    setShowFixPanel(true);
+    setFixStep(0);
+    setFixStageLabel(FIX_STEPS[0]);
+    setPublishMode(null);
+    setPublishSuccess('');
+
+    const delays = [3000, 8000, 14000, 20000];
+    const timers = delays.map((delay, i) =>
+      setTimeout(() => { setFixStep(i + 1); setFixStageLabel(FIX_STEPS[i + 1]); }, delay)
+    );
+
+    try {
+      const res = await fetch('/api/site-audit/fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: page.url,
+          detectedKeyword: page.aiAnalysis?.detectedKeyword || page.h1 || page.title || '',
+          issues: page.issues || [],
+          market,
+          pageScore: page.score,
+          fallbackTitle: page.title || '',
+          fallbackH1: page.h1 || '',
+          fallbackMetaDescription: page.metaDescription || '',
+          fallbackH2s: page.h2s || [],
+          createNextjs: true,
+          ...(selectedPlatform === 'github' && platformFields['github_repo'] ? {
+            githubRepo: platformFields['github_repo'],
+            githubToken: platformFields['github_token'],
+            githubBranch: platformFields['github_branch'] || 'main',
+          } : {}),
+        }),
+      });
+      timers.forEach(t => clearTimeout(t));
+
+      if (!res.ok) {
+        let msg = 'Create failed';
+        try { const d = await res.json(); msg = d.error || msg; } catch { msg = await res.text().catch(() => msg); }
+        setFixStageLabel('❌ ' + msg.slice(0, 150));
+        setFixStep(-1);
+        return;
+      }
+
+      let data: any;
+      try { data = await res.json(); } catch { setFixStageLabel('❌ Invalid response'); setFixStep(-1); return; }
+      if (data.error) { setFixStageLabel('❌ ' + data.error); setFixStep(-1); return; }
+
+      setFixStep(5);
+      setFixStageLabel('');
+      setFixResult(data);
+    } catch (err: any) {
+      timers.forEach(t => clearTimeout(t));
+      setFixStageLabel('❌ ' + err.message);
+      setFixStep(-1);
+    } finally {
+      setFixing(false);
+    }
+  }
+
   // ── Stage 3: Fix page ──────────────────────────────────────────────────────
   const FIX_STEPS = [
     'Fetching page content...',
     'Finding low KD keyword opportunities...',
     'Analysing top 3 competitors...',
     'Building improvement brief...',
-    'Writing Google 2026-optimised article...',
+    'Generating optimised content...',
   ];
 
   async function handleFixPage(page: any) {
@@ -820,12 +884,21 @@ export default function SiteAuditPage() {
                       </td>
                       <td style={{ padding: '12px 16px', borderBottom: '1px solid #F5F4F1', verticalAlign: 'top' as const }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                          <button
-                            onClick={e => { e.stopPropagation(); handleFixPage(page); }}
-                            style={{ fontSize: '11px', fontWeight: 700, padding: '6px 12px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
-                          >
-                            🔧 Fix This Page
-                          </button>
+                          {page.httpStatus === 404 ? (
+                            <button
+                              onClick={e => { e.stopPropagation(); handleCreatePage(page); }}
+                              style={{ fontSize: '11px', fontWeight: 700, padding: '6px 12px', background: '#1D4ED8', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
+                            >
+                              ✨ Create This Page
+                            </button>
+                          ) : (
+                            <button
+                              onClick={e => { e.stopPropagation(); handleFixPage(page); }}
+                              style={{ fontSize: '11px', fontWeight: 700, padding: '6px 12px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
+                            >
+                              🔧 Fix This Page
+                            </button>
+                          )}
                           <button
                             onClick={e => { e.stopPropagation(); setExpandedUrl(isExpanded ? null : page.url); }}
                             style={{ fontSize: '11px', padding: '4px 8px', background: 'none', color: '#9B9B9B', border: '1px solid #E8E8E4', borderRadius: '6px', cursor: 'pointer' }}
@@ -937,7 +1010,9 @@ export default function SiteAuditPage() {
             {/* Panel header */}
             <div style={{ background: '#0F0F0F', padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
               <div>
-                <div style={{ color: '#fff', fontWeight: 700, fontSize: '15px' }}>🔧 Fix This Page</div>
+                <div style={{ color: '#fff', fontWeight: 700, fontSize: '15px' }}>
+                  {fixResult?.componentCode ? '✨ Create This Page' : '🔧 Fix This Page'}
+                </div>
                 {fixingPage && (
                   <div style={{ fontSize: '11px', color: '#8899aa', marginTop: '2px' }}>
                     {fixingPage.url.replace(/^https?:\/\//, '').slice(0, 55)}
@@ -1022,7 +1097,7 @@ export default function SiteAuditPage() {
                     </div>
                   )}
 
-                  {fixResult.isNewPage && (
+                  {fixResult.isNewPage && !fixResult.componentCode && (
                     <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px' }}>
                       <div style={{ fontSize: '13px', fontWeight: 700, color: '#1D4ED8', marginBottom: '4px' }}>
                         ✨ New page created
@@ -1033,15 +1108,76 @@ export default function SiteAuditPage() {
                         </div>
                       )}
                       {fixResult.commitUrl && (
-                        <a
-                          href={fixResult.commitUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{ fontSize: '12px', color: '#1D4ED8', fontWeight: 600, textDecoration: 'none' }}
-                        >
+                        <a href={fixResult.commitUrl} target="_blank" rel="noreferrer"
+                          style={{ fontSize: '12px', color: '#1D4ED8', fontWeight: 600, textDecoration: 'none' }}>
                           🔗 View commit →
                         </a>
                       )}
+                    </div>
+                  )}
+
+                  {/* Next.js component panel — shown when Create This Page was used */}
+                  {fixResult.componentCode && (
+                    <div style={{ background: '#0F0F0F', borderRadius: '12px', padding: '20px', marginBottom: '16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
+                        <div>
+                          <div style={{ fontSize: '14px', fontWeight: 700, color: '#fff', marginBottom: '2px' }}>⚛️ Next.js Component Ready</div>
+                          <div style={{ fontSize: '12px', color: '#8899aa' }}>
+                            {fixResult.githubFilePath || 'page.tsx'}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#FF6B2C', fontWeight: 700, background: '#1a1a2e', padding: '4px 10px', borderRadius: '20px' }}>
+                          TypeScript · App Router
+                        </div>
+                      </div>
+
+                      {fixResult.commitUrl ? (
+                        <div style={{ background: '#0d2b1a', border: '1px solid #166534', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px' }}>
+                          <div style={{ fontSize: '12px', color: '#86efac', marginBottom: '4px' }}>
+                            ✅ Pushed to GitHub — {fixResult.githubFilePath}
+                          </div>
+                          <a href={fixResult.commitUrl} target="_blank" rel="noreferrer"
+                            style={{ fontSize: '12px', color: '#86efac', fontWeight: 600, textDecoration: 'none' }}>
+                            🔗 View commit →
+                          </a>
+                        </div>
+                      ) : (
+                        <div style={{ background: '#1a1a2e', border: '1px solid #2a2a4e', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '12px', color: '#8899aa' }}>
+                          ℹ️ Connect GitHub in Step 1 to push this file automatically
+                        </div>
+                      )}
+
+                      <div style={{ fontSize: '11px', fontWeight: 600, color: '#8899aa', textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '6px' }}>
+                        Component preview
+                      </div>
+                      <div style={{ background: '#1a1a2e', borderRadius: '8px', padding: '12px', maxHeight: '200px', overflowY: 'auto', fontSize: '10px', color: '#a8c4e8', fontFamily: 'monospace', lineHeight: 1.6, whiteSpace: 'pre' as const }}>
+                        {fixResult.componentCode.slice(0, 1000)}
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          try {
+                            const blob = new Blob([fixResult.componentCode], { type: 'text/plain' });
+                            const a = document.createElement('a');
+                            a.href = URL.createObjectURL(blob);
+                            let slug = 'page';
+                            try { slug = new URL(fixingPage?.url || '').pathname.replace(/\//g, '-').replace(/^-/, '') || 'page'; } catch { /* skip */ }
+                            a.download = `${slug}.tsx`;
+                            a.click();
+                            URL.revokeObjectURL(a.href);
+                          } catch { /* skip */ }
+                        }}
+                        style={{ width: '100%', padding: '9px', background: '#1D4ED8', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 700, marginTop: '10px' }}
+                      >
+                        ⬇ Download page.tsx
+                      </button>
+
+                      <button
+                        onClick={() => { setShowFixPanel(false); setStage('audit'); handleAudit(); }}
+                        style={{ width: '100%', padding: '10px', background: '#16A34A', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 700, marginTop: '8px' }}
+                      >
+                        🔄 Re-run Audit — Check Updated Score
+                      </button>
                     </div>
                   )}
 
