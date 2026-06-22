@@ -755,6 +755,7 @@ export default function SiteAuditPage() {
                   const shortUrl = page.url.replace(/^https?:\/\//, '');
                   const criticals = page.issues.filter((i: any) => i.severity === 'critical').length;
                   const warnings = page.issues.filter((i: any) => i.severity === 'warning').length;
+                  const notices = page.issues.filter((i: any) => i.severity === 'notice').length;
 
                   const rows = [
                     <tr
@@ -804,6 +805,11 @@ export default function SiteAuditPage() {
                               ⚠️ {warnings} warning{warnings !== 1 ? 's' : ''}
                             </span>
                           )}
+                          {notices > 0 && (
+                            <span style={{ background: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE', fontSize: '10px', padding: '2px 7px', borderRadius: '20px', fontWeight: 600, whiteSpace: 'nowrap' as const }}>
+                              💡 {notices} notice{notices !== 1 ? 's' : ''}
+                            </span>
+                          )}
                           {page.hasSchema && (
                             <span style={{ fontSize: '10px', color: '#16A34A' }}>✓ schema</span>
                           )}
@@ -832,25 +838,59 @@ export default function SiteAuditPage() {
                   ];
 
                   if (isExpanded) {
+                    const catOrder = ['crawlability', 'onpage', 'technical', 'content', 'schema'] as const;
+                    const catMeta: Record<string, { icon: string; label: string; color: string }> = {
+                      crawlability: { icon: '🕷️', label: 'Crawlability & Indexing', color: '#7C3AED' },
+                      onpage:       { icon: '📝', label: 'On-Page SEO',             color: '#DC2626' },
+                      technical:    { icon: '⚙️', label: 'Technical',               color: '#1D4ED8' },
+                      content:      { icon: '📄', label: 'Content Quality',         color: '#92400E' },
+                      schema:       { icon: '🔷', label: 'Schema & Structured Data', color: '#0F766E' },
+                    };
+                    const grouped: Record<string, any[]> = {};
+                    for (const issue of page.issues) {
+                      const cat = (issue.category as string) || 'onpage';
+                      if (!grouped[cat]) grouped[cat] = [];
+                      grouped[cat].push(issue);
+                    }
                     rows.push(
                       <tr key={`${page.url}-detail`}>
                         <td colSpan={5} style={{ padding: '16px 20px', background: '#FAFAF8', borderBottom: '1px solid #E8E8E4' }}>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                             <div>
-                              <div style={{ fontSize: '11px', fontWeight: 700, color: '#DC2626', textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '8px' }}>Issues</div>
-                              {page.issues.length === 0
-                                ? <div style={{ fontSize: '12px', color: '#16A34A' }}>✓ No issues found</div>
-                                : <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                    {page.issues.map((issue: any, j: number) => (
-                                      <div key={j} style={{ fontSize: '12px', color: '#0F0F0F', display: 'flex', gap: '6px', alignItems: 'flex-start' }}>
-                                        <span style={{ color: issue.severity === 'critical' ? '#DC2626' : issue.severity === 'warning' ? '#EF9F27' : '#9B9B9B', flexShrink: 0 }}>
-                                          {issue.severity === 'critical' ? '⛔' : issue.severity === 'warning' ? '⚠️' : 'ℹ️'}
-                                        </span>
-                                        {issue.message}
+                              <div style={{ fontSize: '11px', fontWeight: 700, color: '#0F0F0F', textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '10px' }}>
+                                Issues ({page.issues.length})
+                              </div>
+                              {page.issues.length === 0 ? (
+                                <div style={{ fontSize: '12px', color: '#16A34A' }}>✓ No issues found</div>
+                              ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                  {catOrder.filter(cat => grouped[cat]?.length > 0).map(cat => {
+                                    const meta = catMeta[cat];
+                                    return (
+                                      <div key={cat}>
+                                        <div style={{ fontSize: '10px', fontWeight: 700, color: meta.color, textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '4px' }}>
+                                          {meta.icon} {meta.label}
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                          {grouped[cat].map((issue: any, j: number) => (
+                                            <div key={j} style={{ fontSize: '11px', color: '#0F0F0F', display: 'flex', gap: '6px', alignItems: 'flex-start' }}>
+                                              <span style={{ color: issue.severity === 'critical' ? '#DC2626' : issue.severity === 'warning' ? '#EF9F27' : '#3B82F6', flexShrink: 0, fontSize: '10px' }}>
+                                                {issue.severity === 'critical' ? '⛔' : issue.severity === 'warning' ? '⚠️' : '💡'}
+                                              </span>
+                                              <span style={{ flex: 1 }}>{issue.message}</span>
+                                              {issue.deduction > 0 && (
+                                                <span style={{ fontSize: '10px', fontWeight: 700, color: issue.severity === 'critical' ? '#DC2626' : issue.severity === 'warning' ? '#EF9F27' : '#3B82F6', flexShrink: 0, whiteSpace: 'nowrap' as const }}>
+                                                  -{issue.deduction}
+                                                </span>
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
                                       </div>
-                                    ))}
-                                  </div>
-                              }
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
                             <div>
                               <div style={{ fontSize: '11px', fontWeight: 700, color: '#16A34A', textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '8px' }}>Quick Wins</div>
