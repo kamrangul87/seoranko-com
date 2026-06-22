@@ -178,6 +178,11 @@ export async function POST(req: NextRequest) {
     const keyword: string = body.keyword || body.detectedKeyword || '';
     if (!url) return NextResponse.json({ error: 'url is required' }, { status: 400 });
 
+    const fallbackTitle: string = body.fallbackTitle || '';
+    const fallbackH1: string = body.fallbackH1 || '';
+    const fallbackMetaDescription: string = body.fallbackMetaDescription || '';
+    const fallbackH2s: string[] = Array.isArray(body.fallbackH2s) ? body.fallbackH2s : [];
+
     const locationCode = market.toLowerCase().includes('united kingdom') || market.toLowerCase() === 'uk' ? 2826 : 2840;
 
     // STEP 1 — Fetch target page
@@ -186,7 +191,25 @@ export async function POST(req: NextRequest) {
     try {
       pageData = await fetchPageHtml(url);
     } catch (err: any) {
-      return NextResponse.json({ error: `Cannot fetch page: ${err.message}` }, { status: 400 });
+      const hasFallback = fallbackTitle || fallbackH1 || fallbackMetaDescription || fallbackH2s.length > 0;
+      if (!hasFallback && !keyword) {
+        return NextResponse.json({ error: `Cannot fetch page: ${err.message}` }, { status: 400 });
+      }
+      console.warn('[site-audit/fix] page fetch failed, using audit fallback data');
+      const syntheticTitle = fallbackTitle || url;
+      const syntheticH1 = fallbackH1 || fallbackTitle || '';
+      const textParts = [fallbackH1, fallbackMetaDescription, ...fallbackH2s].filter(Boolean);
+      const syntheticText = textParts.length > 0
+        ? textParts.join('. ')
+        : `Page at ${url} targeting "${keyword}"`;
+      const syntheticHtml = [
+        `<html><head><title>${syntheticTitle}</title></head><body>`,
+        syntheticH1 ? `<h1>${syntheticH1}</h1>` : '',
+        fallbackMetaDescription ? `<meta name="description" content="${fallbackMetaDescription}">` : '',
+        ...fallbackH2s.map(h2 => `<h2>${h2}</h2>`),
+        `</body></html>`,
+      ].filter(Boolean).join('\n');
+      pageData = { title: syntheticTitle, h1: syntheticH1, text: syntheticText, html: syntheticHtml };
     }
 
     // STEP 2 — Detect keyword and find low KD opportunities

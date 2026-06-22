@@ -99,6 +99,53 @@ export default function SiteAuditPage() {
   const [publishing, setPublishing] = useState(false);
   const [publishSuccess, setPublishSuccess] = useState('');
 
+  // Generate sitemap state
+  const [sitemapXml, setSitemapXml] = useState<string | null>(null);
+  const [generatingSitemap, setGeneratingSitemap] = useState(false);
+  const [sitemapMsg, setSitemapMsg] = useState('');
+
+  async function handleGenerateSitemap() {
+    if (!results?.results) return;
+    setGeneratingSitemap(true);
+    setSitemapXml(null);
+    setSitemapMsg('');
+    const urls = results.results.map((r: any) => r.url);
+    const githubConnected = selectedPlatform === 'github' && platformFields['github_repo'] && platformFields['github_token'];
+    try {
+      const res = await fetch('/api/site-audit/generate-sitemap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          urls,
+          domain,
+          ...(githubConnected ? {
+            githubRepo: platformFields['github_repo'],
+            githubToken: platformFields['github_token'],
+            githubBranch: platformFields['github_branch'] || 'main',
+          } : {}),
+        }),
+      });
+      const data = await res.json();
+      if (data.error) { setSitemapMsg('❌ ' + data.error); return; }
+      setSitemapXml(data.xml);
+      if (data.pushed) setSitemapMsg(`✅ Pushed to ${data.path}`);
+    } catch (err: any) {
+      setSitemapMsg('❌ ' + err.message);
+    } finally {
+      setGeneratingSitemap(false);
+    }
+  }
+
+  function downloadSitemap() {
+    if (!sitemapXml) return;
+    const blob = new Blob([sitemapXml], { type: 'application/xml' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'sitemap.xml';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
   const pf = (key: string) => platformFields[`${selectedPlatform}_${key}`] || '';
   const setPf = (key: string, val: string) =>
     setPlatformFields(prev => ({ ...prev, [`${selectedPlatform}_${key}`]: val }));
@@ -274,6 +321,11 @@ export default function SiteAuditPage() {
           issues: page.issues || [],
           market,
           pageScore: page.score,
+          fallbackTitle: page.title || '',
+          fallbackH1: page.h1 || '',
+          fallbackMetaDescription: page.metaDescription || '',
+          fallbackH2s: page.h2s || [],
+          fallbackWordCount: page.wordCount || 0,
         }),
       });
       timers.forEach(t => clearTimeout(t));
@@ -646,6 +698,42 @@ export default function SiteAuditPage() {
             ))}
           </div>
 
+          {/* Generate Sitemap */}
+          <div style={{ background: '#fff', border: '1px solid #E8E8E4', borderRadius: '10px', padding: '14px 18px', marginBottom: '16px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ flex: 1, minWidth: '200px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#0F0F0F' }}>📐 Generate Sitemap</div>
+              <div style={{ fontSize: '11px', color: '#9B9B9B', marginTop: '2px' }}>
+                Build a valid XML sitemap from all {results.results.length} audited pages
+                {selectedPlatform === 'github' && platformFields['github_repo'] ? ` · push to ${platformFields['github_repo']}` : ' · download as sitemap.xml'}
+              </div>
+            </div>
+            <button
+              onClick={handleGenerateSitemap}
+              disabled={generatingSitemap}
+              style={{ padding: '8px 16px', background: '#0F0F0F', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, cursor: generatingSitemap ? 'not-allowed' : 'pointer', opacity: generatingSitemap ? 0.6 : 1, whiteSpace: 'nowrap' as const }}
+            >
+              {generatingSitemap ? '⏳ Generating...' : '📐 Generate Sitemap'}
+            </button>
+            {sitemapXml && (
+              <button
+                onClick={downloadSitemap}
+                style={{ padding: '8px 16px', background: '#16A34A', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' as const }}
+              >
+                ⬇ Download sitemap.xml
+              </button>
+            )}
+          </div>
+          {sitemapMsg && (
+            <div style={{ background: sitemapMsg.includes('❌') ? '#FEF2F2' : '#F0FDF4', border: `1px solid ${sitemapMsg.includes('❌') ? '#FECACA' : '#BBF7D0'}`, borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '12px', color: sitemapMsg.includes('❌') ? '#DC2626' : '#16A34A' }}>
+              {sitemapMsg}
+            </div>
+          )}
+          {sitemapXml && !sitemapMsg.includes('❌') && !sitemapMsg.includes('✅ Pushed') && (
+            <div style={{ background: '#F5F4F1', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', maxHeight: '120px', overflowY: 'auto', fontSize: '11px', color: '#6B6B6B', fontFamily: 'monospace' }}>
+              {sitemapXml.slice(0, 600)}...
+            </div>
+          )}
+
           {/* Results table */}
           <div style={{ background: '#fff', border: '1px solid #E8E8E4', borderRadius: '12px', overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -993,6 +1081,16 @@ export default function SiteAuditPage() {
                       <div style={{ background: '#1a1a2e', borderRadius: '8px', padding: '12px', maxHeight: '140px', overflowY: 'auto', fontSize: '11px', color: '#8899aa', fontFamily: 'monospace', lineHeight: 1.5 }}>
                         {fixResult.improvedArticle.slice(0, 500)}...
                       </div>
+
+                      {/* Re-audit button — shown after a successful publish */}
+                      {publishSuccess && !publishSuccess.includes('❌') && (
+                        <button
+                          onClick={() => { setShowFixPanel(false); handleAudit(); }}
+                          style={{ width: '100%', padding: '11px', background: '#16A34A', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 700, marginTop: '10px' }}
+                        >
+                          🔄 Re-run Audit — Check Updated Score
+                        </button>
+                      )}
                     </div>
                   )}
                 </>

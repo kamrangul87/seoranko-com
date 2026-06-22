@@ -88,6 +88,33 @@ async function discoverUrlsFromDomain(domain: string): Promise<{
   };
 }
 
+// ── Crawl homepage for internal links (fallback when sitemap is sparse) ───
+async function crawlHomepageForLinks(baseUrl: string): Promise<string[]> {
+  try {
+    const res = await fetch(baseUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEOBot/1.0)' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return [];
+    const html = await res.text();
+    const linkMatches = Array.from(html.matchAll(/href=["']([^"'#?]+)["']/gi));
+    const urls = linkMatches
+      .map(m => m[1].trim())
+      .filter(href => href && !href.startsWith('mailto:') && !href.startsWith('tel:') && !href.startsWith('javascript:'))
+      .map(href => {
+        if (href.startsWith('http')) return href.startsWith(baseUrl) ? href : null;
+        if (href.startsWith('/')) return `${baseUrl}${href}`;
+        return null;
+      })
+      .filter((u): u is string => Boolean(u))
+      .filter(u => !u.match(/\.(jpg|jpeg|png|gif|svg|css|js|ico|woff|woff2|ttf|pdf|zip|xml)\b/i))
+      .filter(u => u !== baseUrl && u !== `${baseUrl}/`);
+    return Array.from(new Set(urls)).slice(0, 30);
+  } catch {
+    return [];
+  }
+}
+
 // ── STEP B: Extended page signals ─────────────────────────────────────────
 interface PageSignals {
   url: string;
@@ -325,6 +352,19 @@ export async function POST(req: NextRequest) {
       urlList = discovery.urls;
       discoverySource = discovery.source;
       discoveryError = discovery.error || '';
+
+      // If sitemap found fewer than 10 pages, crawl homepage for more internal links
+      if (urlList.length < 10) {
+        const base = domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
+        const baseUrl = `https://${base}`;
+        const crawledUrls = await crawlHomepageForLinks(baseUrl);
+        const existingSet = new Set(urlList);
+        const newUrls = crawledUrls.filter(u => !existingSet.has(u));
+        if (newUrls.length > 0) {
+          urlList = [...urlList, ...newUrls];
+          discoverySource += ` + ${newUrls.length} page${newUrls.length !== 1 ? 's' : ''} via homepage crawl`;
+        }
+      }
     } else if (urls && Array.isArray(urls)) {
       urlList = urls.slice(0, 20).map((u: string) => u.trim()).filter(Boolean);
     }
