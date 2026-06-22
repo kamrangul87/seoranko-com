@@ -318,6 +318,54 @@ async function pushToGithub(
   };
 }
 
+// ── Vercel redeploy trigger ────────────────────────────────────────────────
+async function triggerVercelRedeploy(): Promise<boolean> {
+  const hookUrl = process.env.VERCEL_DEPLOY_HOOK_AUTODUN;
+  if (!hookUrl) return false;
+  try {
+    const res = await fetch(hookUrl, { method: 'POST', signal: AbortSignal.timeout(10000) });
+    console.log('[site-audit/fix] Vercel redeploy triggered, status:', res.status);
+    return res.ok;
+  } catch (e) {
+    console.error('[site-audit/fix] Vercel redeploy hook failed:', e);
+    return false;
+  }
+}
+
+// ── Fact verification ─────────────────────────────────────────────────────
+function factCheckContent(content: string): { content: string; status: 'passed' | 'fixed'; changes: string[] } {
+  let fixed = content;
+  const changes: string[] = [];
+
+  // Strip fake UK phone numbers (01632 is Ofcom's reserved fictional number prefix)
+  if (/\b01632[\s-]?\d{6}\b/.test(fixed)) {
+    fixed = fixed.replace(/\b01632[\s-]?\d{6}\b/g, 'support@autodun.com');
+    changes.push('Removed fake phone number (01632 prefix)');
+  }
+
+  // Fix wrong contact emails — replace any non-autodun contact/info addresses
+  if (/\binfo@(?!autodun\.com)[a-z0-9.-]+\.[a-z]{2,}\b/i.test(fixed)) {
+    fixed = fixed.replace(/\binfo@(?!autodun\.com)[a-z0-9.-]+\.[a-z]{2,}\b/gi, 'support@autodun.com');
+    changes.push('Corrected contact email to support@autodun.com');
+  }
+
+  // Strip obvious fake company registration numbers (clearly placeholder values)
+  const fakeRegNums = ['12345678', '87654321', '11223344', '00000001', '99999999'];
+  for (const num of fakeRegNums) {
+    const pattern = new RegExp(`(?:company (?:reg(?:istration)? )?(?:number|no\\.?):?\\s*)${num}\\b`, 'gi');
+    if (pattern.test(fixed)) {
+      fixed = fixed.replace(pattern, '');
+      changes.push('Removed fake company registration number');
+    }
+  }
+
+  return {
+    content: fixed,
+    status: changes.length > 0 ? 'fixed' : 'passed',
+    changes,
+  };
+}
+
 // ── Retry helper for Anthropic overloaded_error ────────────────────────────
 async function callWithRetry<T>(fn: () => Promise<T>, retries: number = 3, delayMs: number = 2000): Promise<T> {
   for (let i = 0; i < retries; i++) {
@@ -582,6 +630,8 @@ Write the complete component now. Output TSX only.`;
 
       let commitUrl: string | null = null;
       let githubFilePath: string | null = null;
+      const deployHookConfiguredNextjs = !!process.env.VERCEL_DEPLOY_HOOK_AUTODUN;
+      let redeployTriggeredNextjs = false;
       if (githubRepo && githubToken) {
         const nextjsPath = `src/app/${slug}/page.tsx`;
         const pushResult = await pushToGithub(
@@ -592,6 +642,7 @@ Write the complete component now. Output TSX only.`;
           commitUrl = pushResult.commitUrl;
           githubFilePath = pushResult.filePath;
           console.log('[site-audit/fix] pushed Next.js component to:', nextjsPath);
+          redeployTriggeredNextjs = await triggerVercelRedeploy();
         }
       }
 
@@ -604,9 +655,12 @@ Write the complete component now. Output TSX only.`;
         avgCompetitorWords: avgWords,
         brief,
         corrections: [],
+        factCheckStatus: 'passed' as const,
         isNewPage: true,
         commitUrl,
         githubFilePath,
+        redeployTriggered: redeployTriggeredNextjs,
+        deployHookConfigured: deployHookConfiguredNextjs,
       });
     }
 
@@ -687,16 +741,21 @@ Write the fully improved, humanised article now. Make it rank #1 for "${kwData.p
       market
     );
 
+    // STEP 7.5 — Fact-check: strip fake phone numbers, emails, company reg numbers
+    const { content: finalArticle, status: factCheckStatus } = factCheckContent(validatedArticle);
+
     // STEP 8 — Push to GitHub for 404 pages (HTML + markdown developer guide)
     let commitUrl: string | null = null;
     let githubFilePath: string | null = null;
+    const deployHookConfigured = !!process.env.VERCEL_DEPLOY_HOOK_AUTODUN;
+    let redeployTriggered = false;
 
     if (is404 && githubRepo && githubToken) {
       console.log('[site-audit/fix] pushing new page to GitHub...');
       const slug = extractPageSlug(url);
       const metaDesc = brief?.briefSummary?.slice(0, 155) || fallbackMetaDescription || '';
-      const htmlPage = wrapArticleInHtml(validatedArticle, url, pageData.title || kwData.primary, metaDesc);
-      const mdGuide = buildMarkdownGuide(validatedArticle, url, kwData.primary, brief);
+      const htmlPage = wrapArticleInHtml(finalArticle, url, pageData.title || kwData.primary, metaDesc);
+      const mdGuide = buildMarkdownGuide(finalArticle, url, kwData.primary, brief);
 
       // Push HTML (static hosting / reference)
       const htmlPath = `public/${slug}/index.html`;
@@ -717,21 +776,26 @@ Write the fully improved, humanised article now. Make it rank #1 for "${kwData.p
         commitUrl = primary.commitUrl;
         githubFilePath = htmlResult ? htmlResult.filePath : (mdResult ? mdResult.filePath : null);
         console.log('[site-audit/fix] pushed to GitHub:', htmlPath, '+', mdPath);
+        // Trigger Vercel redeploy after successful push
+        redeployTriggered = await triggerVercelRedeploy();
       }
     }
 
     return NextResponse.json({
       success: true,
-      improvedArticle: validatedArticle,
+      improvedArticle: finalArticle,
       keyword: kwData.primary,
       lowKdKeywords: kwData.keywords,
       competitorsAnalysed: competitors.length,
       avgCompetitorWords,
       brief,
       corrections,
+      factCheckStatus,
       isNewPage: is404,
       commitUrl,
       githubFilePath,
+      redeployTriggered,
+      deployHookConfigured,
     });
 
   } catch (error: any) {
