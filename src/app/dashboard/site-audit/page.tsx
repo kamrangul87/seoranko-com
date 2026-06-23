@@ -487,6 +487,7 @@ export default function SiteAuditPage() {
             githubRepo: platformFields['github_repo'],
             githubToken: platformFields['github_token'],
             githubBranch: platformFields['github_branch'] || 'main',
+            fixExistingNextjs: true,
           } : {}),
         }),
       });

@@ -164,6 +164,49 @@ function extractPageSlug(url: string): string {
   }
 }
 
+// Maps a page URL to its Next.js App Router file path
+function getNextjsPagePath(url: string): string {
+  try {
+    const pathname = new URL(url).pathname.replace(/^\//, '').replace(/\/$/, '');
+    if (!pathname) return 'src/app/page.tsx';
+    return `src/app/${pathname}/page.tsx`;
+  } catch {
+    return 'src/app/page.tsx';
+  }
+}
+
+// Fetch an existing file from GitHub and decode it
+async function fetchFileFromGithub(
+  repo: string,
+  token: string,
+  branch: string,
+  filePath: string
+): Promise<{ content: string; sha: string } | null> {
+  const repoVal = repo.trim().replace(/^https?:\/\/(www\.)?github\.com\//, '');
+  const slashIdx = repoVal.indexOf('/');
+  const owner = repoVal.slice(0, slashIdx);
+  const repoName = repoVal.slice(slashIdx + 1);
+  if (!owner || !repoName) return null;
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${owner}/${repoName}/contents/${filePath}?ref=${encodeURIComponent(branch)}`,
+      {
+        headers: {
+          Authorization: `token ${token}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+        signal: AbortSignal.timeout(8000),
+      }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const content = Buffer.from((data.content as string).replace(/\n/g, ''), 'base64').toString('utf-8');
+    return { content, sha: data.sha as string };
+  } catch {
+    return null;
+  }
+}
+
 function slugToComponentName(slug: string): string {
   return slug
     .split(/[-_/]/)
@@ -405,8 +448,10 @@ function computeFixedIssues(
 
   const RESOLUTIONS: { key: string; patterns: string[] }[] = [
     { key: 'missing_title',            patterns: ['Missing title tag'] },
+    { key: 'title_too_long',           patterns: ['Title too long:'] },
     { key: 'missing_h1',               patterns: ['Missing H1'] },
     { key: 'missing_meta_description', patterns: ['Missing meta description'] },
+    { key: 'meta_too_long',            patterns: ['Meta description too long:'] },
     { key: 'no_schema',                patterns: ['No structured data'] },
     { key: 'thin_content',             patterns: ['Thin content:', 'Low word count:'] },
     { key: 'no_internal_links',        patterns: ['No internal links'] },
@@ -462,6 +507,7 @@ export async function POST(req: NextRequest) {
     const githubToken: string = body.githubToken || '';
     const githubBranch: string = body.githubBranch || 'main';
     const createNextjs: boolean = Boolean(body.createNextjs);
+    const fixExistingNextjs: boolean = Boolean(body.fixExistingNextjs);
 
     const locationCode = market.toLowerCase().includes('united kingdom') || market.toLowerCase() === 'uk' ? 2826 : 2840;
 
@@ -585,6 +631,7 @@ Return ONLY valid JSON:
     if (createNextjs) {
       const slug = extractPageSlug(url);
       const componentName = slugToComponentName(slug) || 'Home';
+      const nextjsPagePath = getNextjsPagePath(url);
       const avgWords = competitors.length > 0
         ? Math.round(competitors.reduce((s, c) => s + c.wordCount, 0) / competitors.length)
         : 1200;
@@ -595,7 +642,7 @@ Return ONLY valid JSON:
 
       const componentPrompt = `You are an expert Next.js developer. Generate a production-ready Next.js 14 App Router page component.
 
-FILE: src/app/${slug}/page.tsx
+FILE: ${nextjsPagePath}
 COMPONENT NAME: ${componentName}Page
 TARGET KEYWORD: "${kwData.primary}"
 MARKET: ${market}
@@ -692,15 +739,14 @@ Write the complete component now. Output TSX only.`;
       const deployHookConfiguredNextjs = !!process.env.VERCEL_DEPLOY_HOOK_AUTODUN;
       let redeployTriggeredNextjs = false;
       if (githubRepo && githubToken) {
-        const nextjsPath = `src/app/${slug}/page.tsx`;
         const pushResult = await pushToGithub(
-          githubRepo, githubToken, githubBranch, nextjsPath, componentCode,
-          `feat: add ${nextjsPath} — optimised for "${kwData.primary}" via SEORANKO`
+          githubRepo, githubToken, githubBranch, nextjsPagePath, componentCode,
+          `feat: add ${nextjsPagePath} — optimised for "${kwData.primary}" via SEORANKO`
         );
         if (pushResult) {
           commitUrl = pushResult.commitUrl;
           githubFilePath = pushResult.filePath;
-          console.log('[site-audit/fix] pushed Next.js component to:', nextjsPath);
+          console.log('[site-audit/fix] pushed Next.js component to:', nextjsPagePath);
           redeployTriggeredNextjs = await triggerVercelRedeploy();
         }
       }
@@ -729,6 +775,131 @@ Write the complete component now. Output TSX only.`;
         githubFilePath,
         redeployTriggered: redeployTriggeredNextjs,
         deployHookConfigured: deployHookConfiguredNextjs,
+        fixedIssues: fi,
+        scoreGain: sg,
+        simulatedScore: ss,
+        scoreBeforeFix: sbf,
+        scoreAfterFix: saf,
+      });
+    }
+
+    // STEP 5b — Rewrite an existing Next.js source file with SEO fixes
+    if (fixExistingNextjs && githubRepo && githubToken) {
+      const filePath = getNextjsPagePath(url);
+      console.log('[site-audit/fix] reading existing Next.js file:', filePath);
+
+      const existingFile = await fetchFileFromGithub(githubRepo, githubToken, githubBranch, filePath);
+      const existingContent = existingFile?.content || '';
+
+      const today = new Date().toISOString().split('T')[0];
+      const secKeywords = kwData.keywords.slice(0, 6).map(k => k.keyword).join(', ');
+      const issuesList = inputIssues.length > 0
+        ? inputIssues.map(i => `- [${i.severity.toUpperCase()}] ${i.message}`).join('\n')
+        : '- Missing visible H1 tag\n- No structured data schema\n- Title too long or missing\n- Thin content';
+
+      const rewritePrompt = `You are an expert Next.js developer and SEO specialist.
+
+TASK: Rewrite the following Next.js page component to fix all SEO issues listed below while preserving every existing import, component, functionality, and layout.
+
+FILE PATH: ${filePath}
+PAGE URL: ${url}
+TARGET KEYWORD: "${kwData.primary}"
+SECONDARY KEYWORDS (weave naturally): ${secKeywords}
+TODAY: ${today}
+
+SEO ISSUES TO FIX:
+${issuesList}
+
+EXISTING FILE CONTENT:
+\`\`\`tsx
+${existingContent.slice(0, 14000)}
+\`\`\`
+
+REQUIRED CHANGES:
+1. Export a metadata object with title under 60 chars (include "${kwData.primary}"), description under 160 chars with CTA, and openGraph block — example:
+   export const metadata: Metadata = { title: '...', description: '...', openGraph: { title: '...', description: '...' } };
+2. Ensure there is a visible <h1> tag as the first semantic heading — if one exists in a child component, add one before it in the page JSX; never duplicate
+3. Add this Organization schema inside the JSX return (before the closing tag):
+   <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({
+     "@context": "https://schema.org",
+     "@type": "Organization",
+     "name": "Autodun",
+     "url": "https://autodun.com",
+     "description": "Free UK vehicle tools — MOT history, EV charging checker, mileage verification",
+     "founder": { "@type": "Person", "name": "Kamran Gul" },
+     "dateModified": "${today}"
+   })}} />
+4. Add at least 3 internal navigation links to /blog, /about, /contact if not already present
+5. Add a short intro paragraph (80+ words) about Autodun's free UK vehicle tools if the page has thin/no body text
+
+RULES:
+- Output ONLY valid TypeScript/TSX — no markdown fences, no explanations, no extra comments
+- Keep ALL existing imports; add \`import type { Metadata } from 'next';\` if not already imported
+- Do NOT change any existing classNames, layout, or visual design
+- Do NOT invent phone numbers, addresses, or company registration numbers
+- Output the complete rewritten file starting with the first import line`;
+
+      console.log('[site-audit/fix] streaming Next.js page rewrite...');
+      const rewriteStream = anthropic.messages.stream({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 12000,
+        messages: [{ role: 'user', content: rewritePrompt }],
+      });
+
+      let rewrittenCode = '';
+      for await (const chunk of rewriteStream) {
+        if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+          rewrittenCode += chunk.delta.text;
+        }
+      }
+      rewrittenCode = rewrittenCode.replace(/^```[a-z]*\n?/gm, '').replace(/```\s*$/gm, '').trim();
+
+      const { content: checkedCode, log: factCheckLog } = factCheckContent(rewrittenCode);
+      console.log('[site-audit/fix] rewrite fact-check:', factCheckLog);
+
+      const avgWordsRewrite = competitors.length > 0
+        ? Math.round(competitors.reduce((s, c) => s + c.wordCount, 0) / competitors.length)
+        : 1200;
+
+      let commitUrlRewrite: string | null = null;
+      let githubFilePathRewrite: string | null = null;
+      const deployHookConfiguredRewrite = !!process.env.VERCEL_DEPLOY_HOOK_AUTODUN;
+      let redeployTriggeredRewrite = false;
+
+      const pushResult = await pushToGithub(
+        githubRepo, githubToken, githubBranch, filePath, checkedCode,
+        `seo: fix ${filePath} — H1, schema, meta for "${kwData.primary}" via SEORANKO`
+      );
+      if (pushResult) {
+        commitUrlRewrite = pushResult.commitUrl;
+        githubFilePathRewrite = pushResult.filePath;
+        console.log('[site-audit/fix] pushed rewritten page to:', filePath);
+        redeployTriggeredRewrite = await triggerVercelRedeploy();
+      }
+
+      const { fixedIssues: fi, scoreGain: sg, simulatedScore: ss } = computeFixedIssues(inputIssues, false, true);
+      const sbf = pageScoreInput;
+      const saf = ss != null ? ss : Math.min(100, sbf + sg);
+
+      updateFixedPage(url, fi, sbf, saf).catch(e =>
+        console.error('[site-audit/fix] background DB update (fixExistingNextjs) failed:', e)
+      );
+
+      return NextResponse.json({
+        success: true,
+        componentCode: checkedCode,
+        keyword: kwData.primary,
+        lowKdKeywords: kwData.keywords,
+        competitorsAnalysed: competitors.length,
+        avgCompetitorWords: avgWordsRewrite,
+        brief,
+        corrections: [],
+        factCheckStatus: 'passed' as const,
+        isNewPage: false,
+        commitUrl: commitUrlRewrite,
+        githubFilePath: githubFilePathRewrite,
+        redeployTriggered: redeployTriggeredRewrite,
+        deployHookConfigured: deployHookConfiguredRewrite,
         fixedIssues: fi,
         scoreGain: sg,
         simulatedScore: ss,
