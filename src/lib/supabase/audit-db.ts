@@ -51,37 +51,50 @@ export async function upsertAuditResults(
   results: any[]
 ): Promise<void> {
   const supabase = getClient();
-  const rows: Partial<AuditRow>[] = results.map(r => ({
-    domain,
-    page_url: r.url,
-    score: r.score,
-    grade: gradeLabel(r.score),
-    word_count: r.wordCount,
-    issues: r.issues ?? [],
-    opportunities: r.opportunities ?? [],
-    ai_analysis: r.aiAnalysis ?? null,
-    fixed_issues: [],
-    score_before_fix: null,
-    score_after_fix: null,
-    status: 'audited' as const,
-    http_status: r.httpStatus ?? 0,
-    title: r.title ?? '',
-    meta_description: r.metaDescription ?? '',
-    h1: r.h1 ?? '',
-    has_schema: r.hasSchema ?? false,
-    has_faq: r.hasFaq ?? false,
-    last_audited_at: new Date().toISOString(),
-  }));
 
-  const { error } = await supabase
-    .from('site_audit_results')
-    .upsert(rows, { onConflict: 'domain,page_url', ignoreDuplicates: false });
+  for (const r of results) {
+    // Check if this page already has fixed status — preserve fix data if so
+    const { data: existing } = await supabase
+      .from('site_audit_results')
+      .select('status, fixed_issues, score_after_fix, score_before_fix')
+      .eq('domain', domain)
+      .eq('page_url', r.url)
+      .single();
 
-  if (error) {
-    console.error('[audit-db] upsertAuditResults error:', error.message);
-  } else {
-    console.log(`[audit-db] saved ${rows.length} rows for domain: ${domain}`);
+    const isFixed = existing?.status === 'fixed';
+
+    const row: Partial<AuditRow> = {
+      domain,
+      page_url:         r.url,
+      score:            isFixed ? existing.score_after_fix : r.score,
+      grade:            gradeLabel(isFixed ? existing.score_after_fix : r.score),
+      word_count:       r.wordCount,
+      issues:           isFixed ? [] : (r.issues ?? []),
+      opportunities:    r.opportunities ?? [],
+      ai_analysis:      r.aiAnalysis ?? null,
+      fixed_issues:     isFixed ? existing.fixed_issues : [],
+      score_before_fix: isFixed ? existing.score_before_fix : null,
+      score_after_fix:  isFixed ? existing.score_after_fix : null,
+      status:           isFixed ? 'fixed' : 'audited',
+      http_status:      r.httpStatus ?? 0,
+      title:            r.title ?? '',
+      meta_description: r.metaDescription ?? '',
+      h1:               r.h1 ?? '',
+      has_schema:       r.hasSchema ?? false,
+      has_faq:          r.hasFaq ?? false,
+      last_audited_at:  new Date().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from('site_audit_results')
+      .upsert(row, { onConflict: 'domain,page_url', ignoreDuplicates: false });
+
+    if (error) {
+      console.error('[audit-db] upsertAuditResults error for', r.url, ':', error.message);
+    }
   }
+
+  console.log(`[audit-db] upserted ${results.length} rows for domain: ${domain}`);
 }
 
 // ── Load cached audit results, merging score_after_fix overrides ─────────────
