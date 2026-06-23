@@ -128,6 +128,9 @@ export default function SiteAuditPage() {
       if (r.url !== page.url) return r;
 
       if (data.simulatedScore != null) {
+        const estimatedWords = data.avgCompetitorWords
+          ? Math.max(data.avgCompetitorWords, 1200)
+          : Math.max(r.wordCount, 1500);
         return {
           ...r,
           score: data.simulatedScore,
@@ -137,7 +140,7 @@ export default function SiteAuditPage() {
           hasSchema: true,
           hasFaq: true,
           httpStatus: 200,
-          wordCount: Math.max(r.wordCount, 1500),
+          wordCount: estimatedWords,
           title: r.title || data.keyword || 'New page',
           fixedIssues: data.fixedIssues,
           status: 'fixed',
@@ -630,6 +633,63 @@ export default function SiteAuditPage() {
   function scoreColor(s: number) { return s >= 70 ? '#16A34A' : s >= 50 ? '#EF9F27' : '#DC2626'; }
   function gradeLabel(s: number) { return s >= 80 ? 'A' : s >= 70 ? 'B' : s >= 50 ? 'C' : s >= 30 ? 'D' : 'F'; }
 
+  function getFixInstruction(message: string): string {
+    if (message.startsWith('Missing title tag')) return 'Add a <title> tag in <head> — 50-60 characters, lead with your target keyword';
+    if (message.startsWith('Missing H1')) return 'Add a single <h1> at the top of your content — include your primary keyword naturally';
+    if (message.startsWith('Missing meta description')) return 'Add <meta name="description"> — 140-160 chars, include keyword and a clear call to action';
+    if (message.startsWith('No structured data')) return 'Add Article + FAQPage JSON-LD in a <script type="application/ld+json"> tag';
+    if (message.startsWith('Thin content') || message.startsWith('Low word count')) return 'Expand to 800-1500+ words covering subtopics, FAQs, and related questions';
+    if (message.startsWith('No internal links')) return 'Add 3-5 internal links to related pages using descriptive anchor text';
+    if (message.startsWith('Missing Open Graph')) return 'Add og:title, og:description, og:image in <head> for social sharing previews';
+    if (message.startsWith('No images')) return 'Add 2-3 relevant images with descriptive alt text — use WebP format';
+    if (message.startsWith('Noindex')) return 'Remove noindex tag — check your CMS SEO settings and X-Robots-Tag headers';
+    if (message.startsWith('Missing viewport')) return 'Add <meta name="viewport" content="width=device-width, initial-scale=1"> to <head>';
+    if (message.startsWith('No canonical')) return 'Add <link rel="canonical" href="https://yourdomain.com/this-page"> to <head>';
+    if (message.startsWith('Title too long')) return 'Shorten title to under 60 characters — remove filler words, keep the keyword';
+    if (message.startsWith('Title too short')) return 'Expand title to 50-60 characters — add primary keyword and key benefit';
+    if (message.startsWith('Meta description too long')) return 'Shorten to under 160 characters — cut from the end, keep keyword and CTA';
+    if (message.startsWith('Meta description too short')) return 'Expand to 140-160 characters — describe the page benefit and include the keyword';
+    if (message.startsWith('Multiple H1')) return 'Keep only one <h1> per page — change additional H1s to <h2>';
+    if (message.startsWith('No H2')) return 'Add 4-5 H2 headings to structure content into clear, scannable sections';
+    if (message.startsWith('No external links')) return 'Add 2-3 outbound links to authoritative sources (gov.uk, NHS, official bodies)';
+    if (message.startsWith('No official source')) return 'Cite 2+ official sources — link to gov.uk, NHS, or recognised industry authorities';
+    if (message.startsWith('Slow server')) return 'Improve server response — use edge hosting, enable caching, optimise database calls';
+    if (message.startsWith('Duplicate title')) return 'Write a unique title for this page — no two pages should share identical titles';
+    if (message.startsWith('Duplicate meta')) return 'Write a unique meta description for this specific page';
+    if (message.startsWith('FAQ content') || message.startsWith('Long-form content lacks')) return 'Add FAQPage JSON-LD with 4-6 Q&A pairs targeting People Also Ask results';
+    if (message.startsWith('Page not found')) return 'Create this route — use the "Create This Page" button to generate a full Next.js component';
+    return 'Review and resolve this issue to improve your SEO score';
+  }
+
+  function handleMarkIssueFixed(pageUrl: string, issue: any) {
+    if (!results?.results) return;
+    const updatedPages = results.results.map((r: any) => {
+      if (r.url !== pageUrl) return r;
+      const remaining = r.issues.filter((i: any) => i.message !== issue.message);
+      const newScore = Math.min(100, r.score + (issue.deduction || 0));
+      return {
+        ...r,
+        score: newScore,
+        issues: remaining,
+        scoreBeforeFix: r.scoreBeforeFix ?? r.score,
+        scoreAfterFix: newScore,
+        fixedIssues: [...(r.fixedIssues || []), 'manual'],
+        status: 'fixed',
+      };
+    });
+    const avg = Math.round(updatedPages.reduce((a: number, b: any) => a + b.score, 0) / updatedPages.length);
+    setResults({
+      ...results,
+      results: updatedPages,
+      summary: {
+        ...results.summary,
+        avgScore: avg,
+        criticalIssues: updatedPages.filter((r: any) => r.score < 30).length,
+        pagesNeedingAttention: updatedPages.filter((r: any) => r.score < 70).length,
+      },
+    });
+  }
+
   const activePlatform = PLATFORMS.find(p => p.id === selectedPlatform);
 
   // ── RENDER ─────────────────────────────────────────────────────────────────
@@ -1006,7 +1066,7 @@ export default function SiteAuditPage() {
                       </td>
                       <td style={{ padding: '12px 16px', borderBottom: '1px solid #F5F4F1', verticalAlign: 'top' as const }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                          {page.httpStatus === 404 ? (
+                          {page.httpStatus === 404 && !isFixed ? (
                             <button
                               onClick={e => { e.stopPropagation(); handleCreatePage(page); }}
                               style={{ fontSize: '11px', fontWeight: 700, padding: '6px 12px', background: '#1D4ED8', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
@@ -1050,62 +1110,94 @@ export default function SiteAuditPage() {
                     rows.push(
                       <tr key={`${page.url}-detail`}>
                         <td colSpan={5} style={{ padding: '16px 20px', background: '#FAFAF8', borderBottom: '1px solid #E8E8E4' }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                            <div>
-                              <div style={{ fontSize: '11px', fontWeight: 700, color: '#0F0F0F', textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '10px' }}>
-                                Issues ({page.issues.length})
-                              </div>
-                              {page.issues.length === 0 ? (
-                                <div style={{ fontSize: '12px', color: '#16A34A' }}>✓ No issues found</div>
-                              ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                  {catOrder.filter(cat => grouped[cat]?.length > 0).map(cat => {
-                                    const meta = catMeta[cat];
-                                    return (
-                                      <div key={cat}>
-                                        <div style={{ fontSize: '10px', fontWeight: 700, color: meta.color, textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '4px' }}>
-                                          {meta.icon} {meta.label}
-                                        </div>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                                          {grouped[cat].map((issue: any, j: number) => (
-                                            <div key={j} style={{ fontSize: '11px', color: '#0F0F0F', display: 'flex', gap: '6px', alignItems: 'flex-start' }}>
-                                              <span style={{ color: issue.severity === 'critical' ? '#DC2626' : issue.severity === 'warning' ? '#EF9F27' : '#3B82F6', flexShrink: 0, fontSize: '10px' }}>
-                                                {issue.severity === 'critical' ? '⛔' : issue.severity === 'warning' ? '⚠️' : '💡'}
-                                              </span>
-                                              <span style={{ flex: 1 }}>{issue.message}</span>
-                                              {issue.deduction > 0 && (
-                                                <span style={{ fontSize: '10px', fontWeight: 700, color: issue.severity === 'critical' ? '#DC2626' : issue.severity === 'warning' ? '#EF9F27' : '#3B82F6', flexShrink: 0, whiteSpace: 'nowrap' as const }}>
-                                                  -{issue.deduction}
-                                                </span>
-                                              )}
-                                            </div>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                            <div>
-                              <div style={{ fontSize: '11px', fontWeight: 700, color: '#16A34A', textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '8px' }}>Quick Wins</div>
-                              {(page.aiAnalysis?.quickWins?.length > 0 ? page.aiAnalysis.quickWins : page.opportunities).length === 0
-                                ? <div style={{ fontSize: '12px', color: '#9B9B9B' }}>No quick wins</div>
-                                : <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                    {(page.aiAnalysis?.quickWins?.length > 0 ? page.aiAnalysis.quickWins : page.opportunities).map((win: string, j: number) => (
-                                      <div key={j} style={{ fontSize: '12px', color: '#0F0F0F', display: 'flex', gap: '6px' }}>
-                                        <span style={{ color: '#16A34A', flexShrink: 0 }}>→</span>{win}
-                                      </div>
-                                    ))}
+                          {(() => {
+                            const hasIssues = page.issues.length > 0;
+                            const quickWins = page.aiAnalysis?.quickWins?.length > 0 ? page.aiAnalysis.quickWins : page.opportunities;
+                            const showQuickWins = hasIssues && quickWins.length > 0;
+                            return (
+                              <div style={{ display: 'grid', gridTemplateColumns: showQuickWins ? '1fr 1fr' : '1fr', gap: '20px' }}>
+                                <div>
+                                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#0F0F0F', textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '10px' }}>
+                                    Issues ({page.issues.length})
                                   </div>
-                              }
-                              {page.metaDescription && (
-                                <div style={{ marginTop: '12px', fontSize: '11px', color: '#6B6B6B', borderTop: '1px solid #E8E8E4', paddingTop: '10px' }}>
-                                  <strong>Meta:</strong> {page.metaDescription}
+                                  {!hasIssues ? (
+                                    <div style={{ fontSize: '12px', color: '#16A34A' }}>✓ No issues found</div>
+                                  ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                      {catOrder.filter(cat => grouped[cat]?.length > 0).map(cat => {
+                                        const meta = catMeta[cat];
+                                        return (
+                                          <div key={cat}>
+                                            <div style={{ fontSize: '10px', fontWeight: 700, color: meta.color, textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '6px' }}>
+                                              {meta.icon} {meta.label}
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                              {grouped[cat].map((issue: any, j: number) => {
+                                                const sevColor = issue.severity === 'critical' ? '#DC2626' : issue.severity === 'warning' ? '#D97706' : '#2563EB';
+                                                const sevBg = issue.severity === 'critical' ? '#FEF2F2' : issue.severity === 'warning' ? '#FFFBEB' : '#EFF6FF';
+                                                const sevBorder = issue.severity === 'critical' ? '#FECACA' : issue.severity === 'warning' ? '#FDE68A' : '#BFDBFE';
+                                                const sevLabel = issue.severity === 'critical' ? 'CRITICAL' : issue.severity === 'warning' ? 'WARNING' : 'NOTICE';
+                                                const sevPts = issue.deduction > 0 ? `-${issue.deduction}pts` : '';
+                                                const fixInstr = getFixInstruction(issue.message);
+                                                return (
+                                                  <div key={j} style={{ background: '#fff', border: '1px solid #E8E8E4', borderRadius: '8px', padding: '10px 12px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: fixInstr ? '4px' : '6px' }}>
+                                                      <span style={{
+                                                        fontSize: '9px', fontWeight: 700, padding: '2px 6px', borderRadius: '20px',
+                                                        background: sevBg, color: sevColor, border: `1px solid ${sevBorder}`,
+                                                        whiteSpace: 'nowrap' as const, flexShrink: 0,
+                                                      }}>
+                                                        {sevLabel}{sevPts ? ` ${sevPts}` : ''}
+                                                      </span>
+                                                      <span style={{ fontSize: '12px', color: '#0F0F0F', fontWeight: 500 }}>{issue.message}</span>
+                                                    </div>
+                                                    {fixInstr && (
+                                                      <div style={{ fontSize: '11px', color: '#6B6B6B', marginBottom: '8px', paddingLeft: '2px' }}>
+                                                        💡 {fixInstr}
+                                                      </div>
+                                                    )}
+                                                    <label
+                                                      onClick={e => e.stopPropagation()}
+                                                      style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '11px', color: '#6B6B6B' }}
+                                                    >
+                                                      <input
+                                                        type="checkbox"
+                                                        onClick={e => e.stopPropagation()}
+                                                        onChange={e => { if (e.target.checked) handleMarkIssueFixed(page.url, issue); }}
+                                                        style={{ width: '13px', height: '13px', accentColor: '#16A34A', cursor: 'pointer' }}
+                                                      />
+                                                      Mark as Fixed Manually
+                                                    </label>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
                                 </div>
-                              )}
-                            </div>
-                          </div>
+                                {showQuickWins && (
+                                  <div>
+                                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#16A34A', textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '8px' }}>Quick Wins</div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                      {quickWins.map((win: string, j: number) => (
+                                        <div key={j} style={{ fontSize: '12px', color: '#0F0F0F', display: 'flex', gap: '6px' }}>
+                                          <span style={{ color: '#16A34A', flexShrink: 0 }}>→</span>{win}
+                                        </div>
+                                      ))}
+                                    </div>
+                                    {page.metaDescription && (
+                                      <div style={{ marginTop: '12px', fontSize: '11px', color: '#6B6B6B', borderTop: '1px solid #E8E8E4', paddingTop: '10px' }}>
+                                        <strong>Meta:</strong> {page.metaDescription}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </td>
                       </tr>
                     );
