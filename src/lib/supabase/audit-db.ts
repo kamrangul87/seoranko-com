@@ -36,15 +36,6 @@ function gradeLabel(s: number) {
   return s >= 80 ? 'A' : s >= 70 ? 'B' : s >= 50 ? 'C' : s >= 30 ? 'D' : 'F';
 }
 
-function extractDomain(pageUrl: string): string {
-  try {
-    const u = new URL(pageUrl);
-    return u.hostname.replace(/^www\./, '');
-  } catch {
-    return pageUrl;
-  }
-}
-
 // ── Save audit results to Supabase (upsert by domain + page_url) ────────────
 export async function upsertAuditResults(
   domain: string,
