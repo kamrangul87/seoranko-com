@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 const PLATFORMS = [
   {
@@ -106,6 +106,57 @@ export default function SiteAuditPage() {
 
   // Score simulation (local update after fix)
   const [scoreSimMsg, setScoreSimMsg] = useState<string>('');
+
+  // Last audit timestamp (from Supabase)
+  const [lastAuditedAt, setLastAuditedAt] = useState<string | null>(null);
+
+  // Ref so the auto-load effect only fires once on mount
+  const didAutoLoad = useRef(false);
+
+  // ── Persist domain/market to localStorage ──────────────────────────────────
+  useEffect(() => {
+    if (domain) localStorage.setItem('seoranko_audit_domain', domain);
+  }, [domain]);
+  useEffect(() => {
+    localStorage.setItem('seoranko_audit_market', market);
+  }, [market]);
+
+  // ── On mount: restore last domain and auto-load from Supabase ─────────────
+  useEffect(() => {
+    if (didAutoLoad.current) return;
+    didAutoLoad.current = true;
+
+    const savedDomain = localStorage.getItem('seoranko_audit_domain') || '';
+    const savedMarket = localStorage.getItem('seoranko_audit_market') || 'United Kingdom';
+    if (!savedDomain) return;
+
+    setDomain(savedDomain);
+    setMarket(savedMarket);
+    setStage('audit');
+    setLoading(true);
+    setProgress(30);
+    setProgressLabel(`Loading saved results for ${savedDomain}...`);
+
+    fetch('/api/site-audit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain: savedDomain, market: savedMarket, mode: 'cached' }),
+    })
+      .then(res => res.json())
+      .then((data: any) => {
+        if (data.success && data.results?.length > 0) {
+          setProgress(100);
+          setProgressLabel('Loaded!');
+          setDiscoverySource(data.discoverySource || '');
+          setDiscoveryError(data.discoveryError || '');
+          setResults(data);
+          if (data.lastAuditedAt) setLastAuditedAt(data.lastAuditedAt);
+          setStage('results');
+        }
+      })
+      .catch(() => { /* no saved data — stay on audit stage */ })
+      .finally(() => setLoading(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function simulateScoreUpdate(page: any, data: any) {
     if (!results?.results || !data.fixedIssues?.length) return;
@@ -378,6 +429,7 @@ export default function SiteAuditPage() {
       setDiscoverySource(data.discoverySource || '');
       setDiscoveryError(data.discoveryError || '');
       setResults(data);
+      if (data.lastAuditedAt) setLastAuditedAt(data.lastAuditedAt);
       setStage('results');
     } catch (err: any) {
       clearInterval(interval);
@@ -883,10 +935,19 @@ export default function SiteAuditPage() {
 
           <button
             style={{ width: '100%', padding: '12px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', marginTop: '16px', opacity: loading ? 0.6 : 1 }}
-            onClick={() => handleAudit()} disabled={loading}
+            onClick={() => handleAudit('smart')} disabled={loading}
           >
-            {loading ? '⏳ Auditing...' : mode === 'domain' ? '🔍 Discover & Audit All Pages' : '🔍 Audit These Pages'}
+            {loading ? '⏳ Auditing...' : mode === 'domain' ? '🔄 Run Fresh Audit' : '🔍 Audit These Pages'}
           </button>
+
+          {mode === 'domain' && (
+            <button
+              style={{ width: '100%', padding: '10px', background: '#F5F4F1', color: '#0F0F0F', border: '1px solid #E8E8E4', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: (loading || !domain.trim()) ? 'not-allowed' : 'pointer', marginTop: '8px', opacity: (loading || !domain.trim()) ? 0.4 : 1 }}
+              onClick={() => handleAudit('cached')} disabled={loading || !domain.trim()}
+            >
+              📂 Load Saved Results
+            </button>
+          )}
 
           {loading && (
             <div style={{ marginTop: '16px' }}>
@@ -902,6 +963,20 @@ export default function SiteAuditPage() {
       {/* ── STAGE 3: Results ── */}
       {stage === 'results' && results && (
         <>
+          {results.fromCache && lastAuditedAt && (
+            <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', padding: '10px 14px', marginBottom: '10px', fontSize: '13px', color: '#15803D', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' as const }}>
+              <span>💾 <strong>Loaded from last audit</strong> — {new Date(lastAuditedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}. Run Fresh Audit to re-scrape.</span>
+              {mode === 'domain' && (
+                <button
+                  onClick={() => handleAudit('smart')}
+                  style={{ fontSize: '11px', fontWeight: 700, padding: '5px 12px', background: '#fff', color: '#15803D', border: '1px solid #BBF7D0', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
+                >
+                  🔄 Run Fresh Audit
+                </button>
+              )}
+            </div>
+          )}
+
           {discoverySource && (
             <div style={{ background: results.fromCache ? '#F0FDF4' : '#EFF6FF', border: `1px solid ${results.fromCache ? '#BBF7D0' : '#BFDBFE'}`, borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '13px', color: results.fromCache ? '#16A34A' : '#1D4ED8', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' as const }}>
               <span>{results.fromCache ? '💾' : '🗺️'} <strong>Discovery:</strong> {discoverySource}</span>

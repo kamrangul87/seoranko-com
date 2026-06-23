@@ -628,9 +628,15 @@ export async function POST(req: NextRequest) {
         const results = rows.map(rowToResult).sort((a, b) => a.score - b.score);
         const scores = results.map(r => r.score);
         const avgScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+        const lastAuditedAt = rows
+          .map(r => r.last_audited_at)
+          .filter(Boolean)
+          .sort()
+          .pop() ?? null;
         return NextResponse.json({
           success: true,
           fromCache: true,
+          lastAuditedAt,
           discoverySource: `Loaded ${rows.length} pages from database`,
           discoveryError: '',
           summary: {
