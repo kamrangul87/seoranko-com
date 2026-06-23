@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { upsertAuditResults, getAuditResults } from '@/lib/supabase/audit-db';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 3 });
 export const maxDuration = 300;
@@ -560,10 +561,89 @@ Return ONLY valid JSON array (no markdown, no extra text):
 
 // ── MAIN HANDLER ──────────────────────────────────────────────────────────────
 
+function gradeLabel(s: number) {
+  return s >= 80 ? 'A' : s >= 70 ? 'B' : s >= 50 ? 'C' : s >= 30 ? 'D' : 'F';
+}
+
+// Convert a stored AuditRow back into the shape the UI expects,
+// applying score_after_fix and fixed_issues if present.
+function rowToResult(row: any) {
+  const displayScore = row.score_after_fix != null ? row.score_after_fix : row.score;
+  return {
+    url: row.page_url,
+    title: row.title,
+    metaDescription: row.meta_description,
+    h1: row.h1,
+    wordCount: row.word_count,
+    hasSchema: row.has_schema,
+    hasFaq: row.has_faq,
+    httpStatus: row.http_status,
+    score: displayScore,
+    scoreOriginal: row.score,
+    scoreBeforeFix: row.score_before_fix,
+    scoreAfterFix: row.score_after_fix,
+    grade: gradeLabel(displayScore),
+    issues: row.score_after_fix != null
+      ? (row.issues ?? []).filter((iss: any) => !(row.fixed_issues ?? []).includes(issueToKey(iss.message)))
+      : (row.issues ?? []),
+    opportunities: row.opportunities ?? [],
+    aiAnalysis: row.ai_analysis,
+    fixedIssues: row.fixed_issues ?? [],
+    status: row.status ?? 'audited',
+    lastFixedAt: row.last_fixed_at,
+  };
+}
+
+const ISSUE_KEY_MAP: Record<string, string> = {
+  'Missing title tag': 'missing_title',
+  'Missing H1': 'missing_h1',
+  'Missing meta description': 'missing_meta_description',
+  'No structured data': 'no_schema',
+  'Thin content:': 'thin_content',
+  'Low word count:': 'thin_content',
+  'No internal links': 'no_internal_links',
+  'Missing Open Graph': 'missing_og_tags',
+  'Page not found (404)': 'page_not_found',
+};
+function issueToKey(message: string): string {
+  for (const [prefix, key] of Object.entries(ISSUE_KEY_MAP)) {
+    if (message.startsWith(prefix)) return key;
+  }
+  return '';
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { urls, domain, market = 'United Kingdom' } = body;
+    const { urls, domain, market = 'United Kingdom', mode } = body;
+
+    // ── CACHED MODE: load from Supabase instead of re-scraping ──────────────
+    if (mode === 'cached' && domain) {
+      const cleanDomain = domain.replace(/^https?:\/\//, '').replace(/\/$/, '').replace(/^www\./, '');
+      const { rows, found } = await getAuditResults(cleanDomain);
+      if (found && rows.length > 0) {
+        const results = rows.map(rowToResult).sort((a, b) => a.score - b.score);
+        const scores = results.map(r => r.score);
+        const avgScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+        return NextResponse.json({
+          success: true,
+          fromCache: true,
+          discoverySource: `Loaded ${rows.length} pages from database`,
+          discoveryError: '',
+          summary: {
+            totalPages: rows.length,
+            audited: results.length,
+            avgScore,
+            criticalIssues: results.filter(r => r.issues.some((i: any) => i.severity === 'critical')).length,
+            pagesNeedingAttention: results.filter(r => r.score < 70).length,
+            pagesWithSchema: results.filter(r => r.hasSchema).length,
+            pagesWithoutH1: results.filter(r => !r.h1).length,
+          },
+          results,
+        });
+      }
+      // Fall through to fresh audit if nothing in DB
+    }
 
     let urlList: string[] = [];
     let discoverySource = '';
@@ -661,8 +741,19 @@ export async function POST(req: NextRequest) {
     const scores = results.map(r => r.score);
     const avgScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
 
+    // Save to Supabase in background (don't await — don't block response)
+    const cleanDomain = domain
+      ? domain.replace(/^https?:\/\//, '').replace(/\/$/, '').replace(/^www\./, '')
+      : (() => { try { return new URL(results[0]?.url ?? '').hostname.replace(/^www\./, ''); } catch { return ''; } })();
+    if (cleanDomain) {
+      upsertAuditResults(cleanDomain, results).catch(e =>
+        console.error('[site-audit] background upsert failed:', e)
+      );
+    }
+
     return NextResponse.json({
       success: true,
+      fromCache: false,
       discoverySource,
       discoveryError,
       summary: {

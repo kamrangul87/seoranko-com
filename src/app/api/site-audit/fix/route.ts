@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { buildMasterPrompt, validateAndCorrect, getInternalLinks } from '@/lib/article-master';
+import { updateFixedPage } from '@/lib/supabase/audit-db';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
 export const maxDuration = 300;
@@ -455,6 +456,7 @@ export async function POST(req: NextRequest) {
     const fallbackH2s: string[] = Array.isArray(body.fallbackH2s) ? body.fallbackH2s : [];
     const inputIssues: Array<{ severity: string; category: string; message: string; deduction: number }> =
       Array.isArray(body.issues) ? body.issues : [];
+    const pageScoreInput: number = typeof body.pageScore === 'number' ? body.pageScore : 0;
 
     const githubRepo: string = body.githubRepo || '';
     const githubToken: string = body.githubToken || '';
@@ -704,6 +706,13 @@ Write the complete component now. Output TSX only.`;
       }
 
       const { fixedIssues: fi, scoreGain: sg, simulatedScore: ss } = computeFixedIssues(inputIssues, true, true);
+      const sbf = pageScoreInput || 30;
+      const saf = ss ?? Math.min(100, sbf + sg);
+
+      // Persist to Supabase
+      updateFixedPage(url, fi, sbf, saf).catch(e =>
+        console.error('[site-audit/fix] background DB update (createNextjs) failed:', e)
+      );
 
       return NextResponse.json({
         success: true,
@@ -723,6 +732,8 @@ Write the complete component now. Output TSX only.`;
         fixedIssues: fi,
         scoreGain: sg,
         simulatedScore: ss,
+        scoreBeforeFix: sbf,
+        scoreAfterFix: saf,
       });
     }
 
@@ -845,6 +856,15 @@ Write the fully improved, humanised article now. Make it rank #1 for "${kwData.p
     }
 
     const { fixedIssues, scoreGain, simulatedScore } = computeFixedIssues(inputIssues, is404, false);
+    const scoreBeforeFix = pageScoreInput || (is404 ? 30 : 0);
+    const scoreAfterFix = simulatedScore != null ? simulatedScore : Math.min(100, scoreBeforeFix + scoreGain);
+
+    // Persist fix to Supabase in background
+    if (fixedIssues.length > 0) {
+      updateFixedPage(url, fixedIssues, scoreBeforeFix, scoreAfterFix).catch(e =>
+        console.error('[site-audit/fix] background DB update failed:', e)
+      );
+    }
 
     return NextResponse.json({
       success: true,
@@ -864,6 +884,8 @@ Write the fully improved, humanised article now. Make it rank #1 for "${kwData.p
       fixedIssues,
       scoreGain,
       simulatedScore,
+      scoreBeforeFix,
+      scoreAfterFix,
     });
 
   } catch (error: any) {

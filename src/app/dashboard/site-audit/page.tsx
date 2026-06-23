@@ -128,20 +128,22 @@ export default function SiteAuditPage() {
       if (r.url !== page.url) return r;
 
       if (data.simulatedScore != null) {
-        // 404/new page: use simulated score, clear all issues
         return {
           ...r,
           score: data.simulatedScore,
+          scoreBeforeFix: data.scoreBeforeFix ?? r.score,
+          scoreAfterFix: data.simulatedScore,
           issues: [],
           hasSchema: true,
           hasFaq: true,
           httpStatus: 200,
           wordCount: Math.max(r.wordCount, 1500),
           title: r.title || data.keyword || 'New page',
+          fixedIssues: data.fixedIssues,
+          status: 'fixed',
         };
       }
 
-      // Existing page: remove resolved issues, add back their deductions
       const remainingIssues = r.issues.filter((iss: any) =>
         !patternsToRemove.some(pat => iss.message.startsWith(pat))
       );
@@ -149,8 +151,12 @@ export default function SiteAuditPage() {
       return {
         ...r,
         score: newScore,
+        scoreBeforeFix: data.scoreBeforeFix ?? r.score,
+        scoreAfterFix: data.scoreAfterFix ?? newScore,
         issues: remainingIssues,
         hasSchema: data.fixedIssues.includes('no_schema') ? true : r.hasSchema,
+        fixedIssues: data.fixedIssues,
+        status: 'fixed',
       };
     });
 
@@ -299,7 +305,7 @@ export default function SiteAuditPage() {
   }
 
   // ── Stage 2: Run audit ─────────────────────────────────────────────────────
-  async function handleAudit() {
+  async function handleAudit(forceFresh = false) {
     if (mode === 'domain' && !domain.trim()) { setError('Please enter a domain'); return; }
     if (mode === 'manual') {
       const list = urls.split('\n').map(u => u.trim()).filter(Boolean);
@@ -312,16 +318,27 @@ export default function SiteAuditPage() {
     setResults(null);
     setDiscoverySource('');
     setDiscoveryError('');
+    setScoreSimMsg('');
     setProgress(5);
-    setProgressLabel(mode === 'domain' ? `Discovering pages on ${domain}...` : 'Starting audit...');
+    setProgressLabel(
+      !forceFresh && mode === 'domain'
+        ? `Loading cached results for ${domain}...`
+        : mode === 'domain' ? `Discovering pages on ${domain}...` : 'Starting audit...'
+    );
 
-    const stages = [
-      { pct: 20, label: 'Reading sitemap.xml...' },
-      { pct: 40, label: 'Fetching page content...' },
-      { pct: 60, label: 'Analysing EEAT signals...' },
-      { pct: 75, label: 'Detecting target keywords...' },
-      { pct: 88, label: 'Building audit report...' },
-    ];
+    const stages = !forceFresh && mode === 'domain'
+      ? [
+          { pct: 40, label: 'Loading from database...' },
+          { pct: 80, label: 'Applying fix overrides...' },
+          { pct: 95, label: 'Building report...' },
+        ]
+      : [
+          { pct: 20, label: 'Reading sitemap.xml...' },
+          { pct: 40, label: 'Fetching page content...' },
+          { pct: 60, label: 'Analysing EEAT signals...' },
+          { pct: 75, label: 'Detecting target keywords...' },
+          { pct: 88, label: 'Building audit report...' },
+        ];
     let si = 0;
     const interval = setInterval(() => {
       if (si < stages.length) { setProgress(stages[si].pct); setProgressLabel(stages[si].label); si++; }
@@ -329,7 +346,7 @@ export default function SiteAuditPage() {
 
     try {
       const payload = mode === 'domain'
-        ? { domain: domain.trim(), market }
+        ? { domain: domain.trim(), market, ...(!forceFresh ? { mode: 'cached' } : {}) }
         : { urls: urls.split('\n').map((u: string) => u.trim()).filter(Boolean), market };
 
       const res = await fetch('/api/site-audit', {
@@ -795,7 +812,7 @@ export default function SiteAuditPage() {
 
           <button
             style={{ width: '100%', padding: '12px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', marginTop: '16px', opacity: loading ? 0.6 : 1 }}
-            onClick={handleAudit} disabled={loading}
+            onClick={() => handleAudit()} disabled={loading}
           >
             {loading ? '⏳ Auditing...' : mode === 'domain' ? '🔍 Discover & Audit All Pages' : '🔍 Audit These Pages'}
           </button>
@@ -815,8 +832,16 @@ export default function SiteAuditPage() {
       {stage === 'results' && results && (
         <>
           {discoverySource && (
-            <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '13px', color: '#1D4ED8' }}>
-              🗺️ <strong>Discovery:</strong> {discoverySource}
+            <div style={{ background: results.fromCache ? '#F0FDF4' : '#EFF6FF', border: `1px solid ${results.fromCache ? '#BBF7D0' : '#BFDBFE'}`, borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '13px', color: results.fromCache ? '#16A34A' : '#1D4ED8', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+              <span>{results.fromCache ? '💾' : '🗺️'} <strong>Discovery:</strong> {discoverySource}</span>
+              {results.fromCache && mode === 'domain' && (
+                <button
+                  onClick={() => { setStage('audit'); handleAudit(true); }}
+                  style={{ fontSize: '11px', fontWeight: 700, padding: '5px 12px', background: '#fff', color: '#16A34A', border: '1px solid #BBF7D0', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
+                >
+                  🔄 Re-scrape Live Site
+                </button>
+              )}
             </div>
           )}
           {discoveryError && (
@@ -902,16 +927,26 @@ export default function SiteAuditPage() {
                   const criticals = page.issues.filter((i: any) => i.severity === 'critical').length;
                   const warnings = page.issues.filter((i: any) => i.severity === 'warning').length;
                   const notices = page.issues.filter((i: any) => i.severity === 'notice').length;
+                  const isFixed = page.status === 'fixed' || (page.fixedIssues?.length > 0);
+                  const scoreGainDisplay = isFixed && page.scoreBeforeFix != null && page.scoreAfterFix != null
+                    ? page.scoreAfterFix - page.scoreBeforeFix : null;
 
                   const rows = [
                     <tr
                       key={page.url}
-                      style={{ cursor: 'pointer', background: isExpanded ? '#FAFAF8' : '#fff' }}
+                      style={{ cursor: 'pointer', background: isExpanded ? '#FAFAF8' : isFixed ? '#F0FDF4' : '#fff' }}
                       onClick={() => setExpandedUrl(isExpanded ? null : page.url)}
                     >
                       <td style={{ padding: '12px 16px', fontSize: '13px', color: '#0F0F0F', borderBottom: '1px solid #F5F4F1', verticalAlign: 'top' as const, maxWidth: '280px' }}>
-                        <div style={{ fontWeight: 600, fontSize: '12px', wordBreak: 'break-all', marginBottom: '2px' }}>
-                          {shortUrl.length > 60 ? shortUrl.slice(0, 60) + '...' : shortUrl}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                          <span style={{ fontWeight: 600, fontSize: '12px', wordBreak: 'break-all' }}>
+                            {shortUrl.length > 55 ? shortUrl.slice(0, 55) + '...' : shortUrl}
+                          </span>
+                          {isFixed && (
+                            <span style={{ background: '#BBF7D0', color: '#15803D', fontSize: '9px', fontWeight: 700, padding: '1px 6px', borderRadius: '20px', flexShrink: 0 }}>
+                              ✅ Fixed
+                            </span>
+                          )}
                         </div>
                         {page.title
                           ? <div style={{ fontSize: '11px', color: '#6B6B6B' }}>{page.title.slice(0, 60)}{page.title.length > 60 ? '...' : ''}</div>
@@ -934,6 +969,11 @@ export default function SiteAuditPage() {
                             {gradeLabel(page.score)}
                           </div>
                           <div style={{ fontSize: '10px', color: '#9B9B9B' }}>{page.score}/100</div>
+                          {scoreGainDisplay != null && scoreGainDisplay > 0 && (
+                            <div style={{ fontSize: '9px', color: '#16A34A', fontWeight: 700 }}>
+                              {page.scoreBeforeFix} → {page.scoreAfterFix} (+{scoreGainDisplay})
+                            </div>
+                          )}
                         </div>
                       </td>
                       <td style={{ padding: '12px 16px', borderBottom: '1px solid #F5F4F1', verticalAlign: 'top' as const, fontWeight: 600, fontSize: '13px', color: page.wordCount < 600 ? '#DC2626' : '#16A34A' }}>
@@ -976,9 +1016,9 @@ export default function SiteAuditPage() {
                           ) : (
                             <button
                               onClick={e => { e.stopPropagation(); handleFixPage(page); }}
-                              style={{ fontSize: '11px', fontWeight: 700, padding: '6px 12px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
+                              style={{ fontSize: '11px', fontWeight: 700, padding: '6px 12px', background: isFixed ? '#6B7280' : '#FF6B2C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
                             >
-                              🔧 Fix This Page
+                              {isFixed ? '🔁 Re-fix' : '🔧 Fix This Page'}
                             </button>
                           )}
                           <button
