@@ -308,7 +308,7 @@ export default function SiteAuditPage() {
   }
 
   // ── Stage 2: Run audit ─────────────────────────────────────────────────────
-  async function handleAudit(forceFresh = false) {
+  async function handleAudit(auditMode: 'smart' | 'cached' | 'fresh' = 'smart') {
     if (mode === 'domain' && !domain.trim()) { setError('Please enter a domain'); return; }
     if (mode === 'manual') {
       const list = urls.split('\n').map(u => u.trim()).filter(Boolean);
@@ -324,20 +324,30 @@ export default function SiteAuditPage() {
     setScoreSimMsg('');
     setProgress(5);
     setProgressLabel(
-      !forceFresh && mode === 'domain'
+      auditMode === 'cached'
         ? `Loading cached results for ${domain}...`
+        : auditMode === 'fresh'
+        ? `Rescraping all pages on ${domain}...`
         : mode === 'domain' ? `Discovering pages on ${domain}...` : 'Starting audit...'
     );
 
-    const stages = !forceFresh && mode === 'domain'
+    const stages = auditMode === 'cached'
       ? [
           { pct: 40, label: 'Loading from database...' },
           { pct: 80, label: 'Applying fix overrides...' },
           { pct: 95, label: 'Building report...' },
         ]
+      : auditMode === 'fresh'
+      ? [
+          { pct: 15, label: 'Reading sitemap.xml...' },
+          { pct: 35, label: 'Fetching all pages fresh...' },
+          { pct: 55, label: 'Analysing SEO signals...' },
+          { pct: 72, label: 'Detecting target keywords...' },
+          { pct: 88, label: 'Building audit report...' },
+        ]
       : [
           { pct: 20, label: 'Reading sitemap.xml...' },
-          { pct: 40, label: 'Fetching page content...' },
+          { pct: 40, label: 'Fetching non-fixed pages...' },
           { pct: 60, label: 'Analysing EEAT signals...' },
           { pct: 75, label: 'Detecting target keywords...' },
           { pct: 88, label: 'Building audit report...' },
@@ -349,7 +359,7 @@ export default function SiteAuditPage() {
 
     try {
       const payload = mode === 'domain'
-        ? { domain: domain.trim(), market, ...(!forceFresh ? { mode: 'cached' } : {}) }
+        ? { domain: domain.trim(), market, mode: auditMode }
         : { urls: urls.split('\n').map((u: string) => u.trim()).filter(Boolean), market };
 
       const res = await fetch('/api/site-audit', {
@@ -893,15 +903,27 @@ export default function SiteAuditPage() {
       {stage === 'results' && results && (
         <>
           {discoverySource && (
-            <div style={{ background: results.fromCache ? '#F0FDF4' : '#EFF6FF', border: `1px solid ${results.fromCache ? '#BBF7D0' : '#BFDBFE'}`, borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '13px', color: results.fromCache ? '#16A34A' : '#1D4ED8', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+            <div style={{ background: results.fromCache ? '#F0FDF4' : '#EFF6FF', border: `1px solid ${results.fromCache ? '#BBF7D0' : '#BFDBFE'}`, borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '13px', color: results.fromCache ? '#16A34A' : '#1D4ED8', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' as const }}>
               <span>{results.fromCache ? '💾' : '🗺️'} <strong>Discovery:</strong> {discoverySource}</span>
-              {results.fromCache && mode === 'domain' && (
-                <button
-                  onClick={() => { setStage('audit'); handleAudit(true); }}
-                  style={{ fontSize: '11px', fontWeight: 700, padding: '5px 12px', background: '#fff', color: '#16A34A', border: '1px solid #BBF7D0', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
-                >
-                  🔄 Re-scrape Live Site
-                </button>
+              {mode === 'domain' && (
+                <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                  <button
+                    onClick={() => handleAudit('cached')}
+                    style={{ fontSize: '11px', fontWeight: 700, padding: '5px 12px', background: '#fff', color: '#1D4ED8', border: '1px solid #BFDBFE', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
+                  >
+                    💾 Refresh Status
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (window.confirm('Re-audit All will re-scrape every page from the live site and reset all fix history in the database. This cannot be undone. Continue?')) {
+                        handleAudit('fresh');
+                      }
+                    }}
+                    style={{ fontSize: '11px', fontWeight: 700, padding: '5px 12px', background: '#fff', color: '#DC2626', border: '1px solid #FECACA', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
+                  >
+                    🔄 Re-audit All
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -1410,7 +1432,7 @@ export default function SiteAuditPage() {
                       </button>
 
                       <button
-                        onClick={() => { setShowFixPanel(false); setStage('audit'); handleAudit(); }}
+                        onClick={() => { setShowFixPanel(false); handleAudit('cached'); setStage('results'); }}
                         style={{ width: '100%', padding: '10px', background: '#16A34A', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 700, marginTop: '8px' }}
                       >
                         🔄 Re-run Audit — Check Updated Score
@@ -1526,7 +1548,7 @@ export default function SiteAuditPage() {
                       {/* Re-audit button — shown after a successful publish */}
                       {publishSuccess && !publishSuccess.includes('❌') && (
                         <button
-                          onClick={() => { setShowFixPanel(false); setStage('audit'); handleAudit(); }}
+                          onClick={() => { setShowFixPanel(false); handleAudit('cached'); setStage('results'); }}
                           style={{ width: '100%', padding: '11px', background: '#16A34A', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 700, marginTop: '10px' }}
                         >
                           🔄 Re-run Audit — Check Updated Score

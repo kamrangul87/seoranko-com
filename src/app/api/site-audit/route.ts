@@ -617,9 +617,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { urls, domain, market = 'United Kingdom', mode } = body;
 
-    // ── CACHED MODE: load from Supabase instead of re-scraping ──────────────
+    const cleanDomain = domain
+      ? domain.replace(/^https?:\/\//, '').replace(/\/$/, '').replace(/^www\./, '')
+      : '';
+
+    // ── CACHED MODE: pure DB load, no scraping (Refresh Status button) ──────
     if (mode === 'cached' && domain) {
-      const cleanDomain = domain.replace(/^https?:\/\//, '').replace(/\/$/, '').replace(/^www\./, '');
       const { rows, found } = await getAuditResults(cleanDomain);
       if (found && rows.length > 0) {
         const results = rows.map(rowToResult).sort((a, b) => a.score - b.score);
@@ -682,7 +685,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No URLs found to audit' }, { status: 400 });
     }
 
-    const auditUrls = urlList.slice(0, 20);
+    // ── SMART MODE: load fixed pages from DB and skip re-scraping them ───────
+    // mode='fresh' bypasses this (Re-audit All button)
+    const fixedPageMap: Map<string, any> = new Map();
+    if (mode !== 'fresh' && cleanDomain) {
+      const { rows: existingRows } = await getAuditResults(cleanDomain);
+      existingRows.filter((r: any) => r.status === 'fixed').forEach((r: any) => {
+        fixedPageMap.set(r.page_url, r);
+      });
+      if (fixedPageMap.size > 0) {
+        console.log(`[site-audit] smart mode: preserving ${fixedPageMap.size} fixed page(s), skipping re-scrape`);
+      }
+    }
+
+    // Exclude fixed pages from scraping
+    const auditUrls = urlList.slice(0, 20).filter(u => !fixedPageMap.has(u));
 
     // Fetch page signals in parallel batches of 5
     const pageSignals: PageSignals[] = [];
@@ -700,8 +717,8 @@ export async function POST(req: NextRequest) {
       console.error('[site-audit] AI analysis failed:', err);
     }
 
-    // Score all pages — pass full list for duplicate detection
-    const results = pageSignals
+    // Score freshly scraped pages
+    const freshResults = pageSignals
       .map(page => {
         const { score, issues, opportunities } = scorePage(page, pageSignals);
         const ai = aiData.find(r => r.url === page.url);
@@ -738,34 +755,41 @@ export async function POST(req: NextRequest) {
       })
       .sort((a, b) => a.score - b.score);
 
-    const scores = results.map(r => r.score);
-    const avgScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+    // Merge freshly scraped results with preserved fixed pages (smart mode)
+    const fixedResults = Array.from(fixedPageMap.values()).map(rowToResult);
+    const allResults = [...freshResults, ...fixedResults].sort((a, b) => a.score - b.score);
 
-    // Save to Supabase in background (don't await — don't block response)
-    const cleanDomain = domain
-      ? domain.replace(/^https?:\/\//, '').replace(/\/$/, '').replace(/^www\./, '')
-      : (() => { try { return new URL(results[0]?.url ?? '').hostname.replace(/^www\./, ''); } catch { return ''; } })();
-    if (cleanDomain) {
-      upsertAuditResults(cleanDomain, results).catch(e =>
+    const scores = allResults.map(r => r.score);
+    const avgScore = scores.length > 0
+      ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+      : 0;
+
+    // Only upsert freshly scraped pages — never overwrite fixed page rows
+    if (cleanDomain && freshResults.length > 0) {
+      upsertAuditResults(cleanDomain, freshResults).catch(e =>
         console.error('[site-audit] background upsert failed:', e)
       );
     }
 
+    const preservedNote = fixedPageMap.size > 0
+      ? ` · ${fixedPageMap.size} fixed page${fixedPageMap.size !== 1 ? 's' : ''} preserved`
+      : '';
+
     return NextResponse.json({
       success: true,
       fromCache: false,
-      discoverySource,
+      discoverySource: discoverySource + preservedNote,
       discoveryError,
       summary: {
         totalPages: urlList.length,
-        audited: results.length,
+        audited: allResults.length,
         avgScore,
-        criticalIssues: results.filter(r => r.issues.some((i: AuditIssue) => i.severity === 'critical')).length,
-        pagesNeedingAttention: results.filter(r => r.score < 70).length,
-        pagesWithSchema: results.filter(r => r.hasSchema).length,
-        pagesWithoutH1: results.filter(r => !r.h1).length,
+        criticalIssues: allResults.filter(r => r.issues.some((i: AuditIssue) => i.severity === 'critical')).length,
+        pagesNeedingAttention: allResults.filter(r => r.score < 70).length,
+        pagesWithSchema: allResults.filter(r => r.hasSchema).length,
+        pagesWithoutH1: allResults.filter(r => !r.h1).length,
       },
-      results,
+      results: allResults,
     });
 
   } catch (error: any) {
