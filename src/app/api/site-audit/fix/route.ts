@@ -495,6 +495,10 @@ export async function POST(req: NextRequest) {
     const keyword: string = body.keyword || body.detectedKeyword || '';
     if (!url) return NextResponse.json({ error: 'url is required' }, { status: 400 });
 
+    const cleanDomain = (() => {
+      try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
+    })();
+
     const fallbackTitle: string = body.fallbackTitle || '';
     const fallbackH1: string = body.fallbackH1 || '';
     const fallbackMetaDescription: string = body.fallbackMetaDescription || '';
@@ -755,10 +759,12 @@ Write the complete component now. Output TSX only.`;
       const sbf = pageScoreInput || 30;
       const saf = ss ?? Math.min(100, sbf + sg);
 
-      // Persist to Supabase
-      updateFixedPage(url, fi, sbf, saf).catch(e =>
-        console.error('[site-audit/fix] background DB update (createNextjs) failed:', e)
-      );
+      // Persist fix to Supabase
+      try {
+        await updateFixedPage(cleanDomain, url, fi, sbf, saf);
+      } catch (e) {
+        console.error('[site-audit/fix] DB update (createNextjs) failed:', e);
+      }
 
       return NextResponse.json({
         success: true,
@@ -881,9 +887,11 @@ RULES:
       const sbf = pageScoreInput;
       const saf = ss != null ? ss : Math.min(100, sbf + sg);
 
-      updateFixedPage(url, fi, sbf, saf).catch(e =>
-        console.error('[site-audit/fix] background DB update (fixExistingNextjs) failed:', e)
-      );
+      try {
+        await updateFixedPage(cleanDomain, url, fi, sbf, saf);
+      } catch (e) {
+        console.error('[site-audit/fix] DB update (fixExistingNextjs) failed:', e);
+      }
 
       return NextResponse.json({
         success: true,
@@ -1030,11 +1038,13 @@ Write the fully improved, humanised article now. Make it rank #1 for "${kwData.p
     const scoreBeforeFix = pageScoreInput || (is404 ? 30 : 0);
     const scoreAfterFix = simulatedScore != null ? simulatedScore : Math.min(100, scoreBeforeFix + scoreGain);
 
-    // Persist fix to Supabase in background
+    // Persist fix to Supabase
     if (fixedIssues.length > 0) {
-      updateFixedPage(url, fixedIssues, scoreBeforeFix, scoreAfterFix).catch(e =>
-        console.error('[site-audit/fix] background DB update failed:', e)
-      );
+      try {
+        await updateFixedPage(cleanDomain, url, fixedIssues, scoreBeforeFix, scoreAfterFix);
+      } catch (e) {
+        console.error('[site-audit/fix] DB update failed:', e);
+      }
     }
 
     return NextResponse.json({

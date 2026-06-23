@@ -117,22 +117,23 @@ export async function getAuditResults(domain: string): Promise<{
 
 // ── Update a page row after a fix ────────────────────────────────────────────
 export async function updateFixedPage(
+  domain: string,
   pageUrl: string,
   fixedIssues: string[],
   scoreBeforeFix: number,
   scoreAfterFix: number
 ): Promise<void> {
   const supabase = getClient();
-  const domain = extractDomain(pageUrl);
+
+  console.log(`[audit-db] updateFixedPage — domain=${domain} url=${pageUrl} score=${scoreBeforeFix}→${scoreAfterFix} fixes=[${fixedIssues.join(',')}]`);
 
   const { error } = await supabase
     .from('site_audit_results')
     .update({
-      fixed_issues: fixedIssues,
-      score_before_fix: scoreBeforeFix,
-      score_after_fix: scoreAfterFix,
-      grade: gradeLabel(scoreAfterFix),
       status: 'fixed',
+      score_after_fix: scoreAfterFix,
+      score_before_fix: scoreBeforeFix,
+      fixed_issues: fixedIssues,
       last_fixed_at: new Date().toISOString(),
     })
     .eq('domain', domain)
@@ -141,6 +142,6 @@ export async function updateFixedPage(
   if (error) {
     console.error('[audit-db] updateFixedPage error:', error.message);
   } else {
-    console.log(`[audit-db] updated fixed row for: ${pageUrl} → score ${scoreBeforeFix} → ${scoreAfterFix}`);
+    console.log(`[audit-db] ✓ status=fixed saved for ${pageUrl}`);
   }
 }
