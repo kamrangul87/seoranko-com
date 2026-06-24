@@ -2,7 +2,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { buildMasterPrompt, validateAndCorrect, getInternalLinks } from '@/lib/article-master';
-import { updateFixedPage, normalizeUrl, normalizeDomain } from '@/lib/supabase/audit-db';
+import { updateFixedPage, updateScrapedPage, normalizeUrl, normalizeDomain } from '@/lib/supabase/audit-db';
+import { fetchPageSignals, scorePage } from '@/lib/site-audit/scorer';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
 export const maxDuration = 300;
@@ -487,6 +488,59 @@ async function callWithRetry<T>(fn: () => Promise<T>, retries: number = 3, delay
   throw new Error('Max retries exceeded');
 }
 
+// ── Re-scrape helpers ─────────────────────────────────────────────────────
+
+// Returns true if any key issue that was "fixed" is still present on the live page,
+// meaning the deployment hasn't propagated yet.
+function isLiveSiteStale(fixedIssueKeys: string[], freshIssues: any[]): boolean {
+  const STALE_PATTERNS: Record<string, string[]> = {
+    missing_title:            ['Missing title tag'],
+    missing_h1:               ['Missing H1'],
+    missing_meta_description: ['Missing meta description'],
+    no_schema:                ['No structured data'],
+    page_not_found:           ['Page not found'],
+    no_internal_links:        ['No internal links'],
+  };
+  return fixedIssueKeys.some(key => {
+    const patterns = STALE_PATTERNS[key];
+    if (!patterns) return false;
+    return freshIssues.some((iss: any) => patterns.some((p: string) => iss.message?.startsWith(p)));
+  });
+}
+
+// Wait 3 s, re-fetch live page, update Supabase with fresh reality.
+// If the live site hasn't deployed the fix yet, skips the DB overwrite and
+// returns liveSiteStale: true so the caller can include it in the response.
+async function rescrapeAndUpdate(
+  url: string,
+  cleanDomain: string,
+  fixedIssueKeys: string[],
+): Promise<{ liveSiteStale: boolean }> {
+  try {
+    await new Promise(r => setTimeout(r, 3000));
+    console.log('[site-audit/fix] re-scraping live page:', url);
+    const freshSignals = await fetchPageSignals(url);
+    const { score: freshScore, issues: freshIssues } = scorePage(freshSignals, [freshSignals]);
+    const stale = isLiveSiteStale(fixedIssueKeys, freshIssues);
+    if (stale) {
+      console.log('[site-audit/fix] live site is stale — skipping DB overwrite');
+    } else {
+      await updateScrapedPage(cleanDomain, url, {
+        score:        freshScore,
+        scoreAfterFix: freshScore,
+        issues:       freshIssues,
+        wordCount:    freshSignals.wordCount,
+        hasSchema:    freshSignals.hasSchema,
+        hasFaq:       freshSignals.hasFaq,
+      });
+    }
+    return { liveSiteStale: stale };
+  } catch (e) {
+    console.error('[site-audit/fix] re-scrape failed:', e);
+    return { liveSiteStale: false };
+  }
+}
+
 // ── MAIN HANDLER ──────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
@@ -766,6 +820,9 @@ Write the complete component now. Output TSX only.`;
         console.error('[site-audit/fix] DB update (createNextjs) failed:', e);
       }
 
+      // Re-scrape live page — update DB with real current state and detect stale deployment
+      const { liveSiteStale: createStale } = await rescrapeAndUpdate(url, cleanDomain, fi);
+
       return NextResponse.json({
         success: true,
         componentCode,
@@ -786,6 +843,10 @@ Write the complete component now. Output TSX only.`;
         simulatedScore: ss,
         scoreBeforeFix: sbf,
         scoreAfterFix: saf,
+        liveSiteStale: createStale,
+        liveSiteStaleMessage: createStale
+          ? 'Fix pushed to GitHub but live site still shows old content — your hosting needs to redeploy before changes appear here'
+          : undefined,
       });
     }
 
@@ -893,6 +954,9 @@ RULES:
         console.error('[site-audit/fix] DB update (fixExistingNextjs) failed:', e);
       }
 
+      // Re-scrape live page — update DB with real current state and detect stale deployment
+      const { liveSiteStale: rewriteStale } = await rescrapeAndUpdate(url, cleanDomain, fi);
+
       return NextResponse.json({
         success: true,
         componentCode: checkedCode,
@@ -913,6 +977,10 @@ RULES:
         simulatedScore: ss,
         scoreBeforeFix: sbf,
         scoreAfterFix: saf,
+        liveSiteStale: rewriteStale,
+        liveSiteStaleMessage: rewriteStale
+          ? 'Fix pushed to GitHub but live site still shows old content — your hosting needs to redeploy before changes appear here'
+          : undefined,
       });
     }
 
@@ -1047,6 +1115,13 @@ Write the fully improved, humanised article now. Make it rank #1 for "${kwData.p
       }
     }
 
+    // Re-scrape live page only when we pushed to GitHub (so deployment may have run)
+    let liveSiteStale = false;
+    if (commitUrl) {
+      const { liveSiteStale: htmlStale } = await rescrapeAndUpdate(url, cleanDomain, fixedIssues);
+      liveSiteStale = htmlStale;
+    }
+
     return NextResponse.json({
       success: true,
       improvedArticle: finalArticle,
@@ -1067,6 +1142,10 @@ Write the fully improved, humanised article now. Make it rank #1 for "${kwData.p
       simulatedScore,
       scoreBeforeFix,
       scoreAfterFix,
+      liveSiteStale,
+      liveSiteStaleMessage: liveSiteStale
+        ? 'Fix pushed to GitHub but live site still shows old content — your hosting needs to redeploy before changes appear here'
+        : undefined,
     });
 
   } catch (error: any) {

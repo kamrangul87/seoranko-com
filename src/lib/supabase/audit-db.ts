@@ -159,6 +159,46 @@ export async function updateFixedPage(
   if (error) {
     console.error('[audit-db] updateFixedPage error:', error.message);
   } else {
-    console.log(`[audit-db] ✓ status=fixed saved for ${pageUrl}`);
+    console.log(`[audit-db] ✓ status=fixed saved for ${normUrl}`);
+  }
+}
+
+// ── Overwrite a row's live-scraped fields after re-verification ───────────────
+export async function updateScrapedPage(
+  domain: string,
+  pageUrl: string,
+  fresh: {
+    score: number;
+    scoreAfterFix: number;
+    issues: any[];
+    wordCount: number;
+    hasSchema: boolean;
+    hasFaq: boolean;
+  }
+): Promise<void> {
+  const supabase = getClient();
+  const normDomain = normalizeDomain(domain);
+  const normUrl = normalizeUrl(pageUrl);
+
+  console.log(`[audit-db] updateScrapedPage — domain=${normDomain} url=${normUrl} freshScore=${fresh.score}`);
+
+  const { error } = await supabase
+    .from('site_audit_results')
+    .update({
+      score:           fresh.score,
+      score_after_fix: fresh.scoreAfterFix,
+      issues:          fresh.issues,
+      word_count:      fresh.wordCount,
+      has_schema:      fresh.hasSchema,
+      has_faq:         fresh.hasFaq,
+      last_audited_at: new Date().toISOString(),
+    })
+    .eq('domain', normDomain)
+    .eq('page_url', normUrl);
+
+  if (error) {
+    console.error('[audit-db] updateScrapedPage error:', error.message);
+  } else {
+    console.log(`[audit-db] ✓ live scrape saved for ${normUrl}`);
   }
 }
