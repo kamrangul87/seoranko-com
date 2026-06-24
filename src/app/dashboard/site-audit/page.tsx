@@ -110,6 +110,12 @@ export default function SiteAuditPage() {
   // Expanded categories note — shown after a fresh/smart audit where new categories may lower the score
   const [showExpandedNote, setShowExpandedNote] = useState(false);
 
+  // Quick Fix via SEORANKO script
+  const [quickFixOpen, setQuickFixOpen] = useState<{ pageUrl: string; issueMsg: string } | null>(null);
+  const [quickFixValue, setQuickFixValue] = useState('');
+  const [quickFixSaving, setQuickFixSaving] = useState(false);
+  const [quickFixSaved, setQuickFixSaved] = useState<Set<string>>(new Set());
+
   // Last audit timestamp (from Supabase)
   const [lastAuditedAt, setLastAuditedAt] = useState<string | null>(null);
 
@@ -758,6 +764,35 @@ export default function SiteAuditPage() {
     });
   }
 
+  function issueFixType(msg: string): string | null {
+    if (msg.startsWith('Missing title') || msg.startsWith('Title too')) return 'meta_title';
+    if (msg.startsWith('Missing meta description') || msg.startsWith('Meta description too')) return 'meta_description';
+    if (msg.startsWith('Missing H1')) return 'h1';
+    if (msg.startsWith('No canonical')) return 'canonical';
+    if (msg.startsWith('Missing Open Graph')) return 'og_title';
+    return null;
+  }
+
+  async function handleQuickFix(pageUrl: string, issueMsg: string, fixType: string, value: string) {
+    if (!domain || !value.trim()) return;
+    setQuickFixSaving(true);
+    try {
+      const siteId = domain.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0].toLowerCase();
+      const res = await fetch('/api/fixes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ site_id: siteId, page_url: pageUrl, fix_type: fixType, new_value: value.trim() }),
+      });
+      if (res.ok) {
+        setQuickFixSaved(prev => { const s = new Set(prev); s.add(`${pageUrl}::${fixType}`); return s; });
+        setQuickFixOpen(null);
+        setQuickFixValue('');
+      }
+    } catch { /* silent */ } finally {
+      setQuickFixSaving(false);
+    }
+  }
+
   const activePlatform = PLATFORMS.find(p => p.id === selectedPlatform);
 
   // ── RENDER ─────────────────────────────────────────────────────────────────
@@ -1042,6 +1077,22 @@ export default function SiteAuditPage() {
             })()}
           </div>
 
+          {/* Install SEORANKO Script banner */}
+          <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: '10px', padding: '14px 18px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' as const }}>
+            <div style={{ flex: 1, minWidth: '200px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#C2410C' }}>⚡ Apply fixes to any site — no GitHub needed</div>
+              <div style={{ fontSize: '11px', color: '#92400E', marginTop: '2px' }}>
+                Paste one script tag on your WordPress, Shopify, Wix, or custom site. Fixes apply in real-time without a deploy.
+              </div>
+            </div>
+            <a
+              href="/dashboard/install"
+              style={{ padding: '8px 16px', background: '#C2410C', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' as const, textDecoration: 'none' }}
+            >
+              Get Install Snippet →
+            </a>
+          </div>
+
           {/* Generate Sitemap */}
           <div style={{ background: '#fff', border: '1px solid #E8E8E4', borderRadius: '10px', padding: '14px 18px', marginBottom: '16px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
             <div style={{ flex: 1, minWidth: '200px' }}>
@@ -1300,6 +1351,56 @@ export default function SiteAuditPage() {
                                                         💡 {fixInstr}
                                                       </div>
                                                     )}
+                                                    {(() => {
+                                                      const fixType = issueFixType(issue.message);
+                                                      if (!fixType) return null;
+                                                      const savedKey = `${page.url}::${fixType}`;
+                                                      const isOpen = quickFixOpen?.pageUrl === page.url && quickFixOpen?.issueMsg === issue.message;
+                                                      const isSaved = quickFixSaved.has(savedKey);
+                                                      if (isSaved) {
+                                                        return (
+                                                          <div style={{ fontSize: '11px', color: '#16A34A', fontWeight: 600, marginBottom: '6px' }}>
+                                                            ✅ Fix applied via SEORANKO script
+                                                          </div>
+                                                        );
+                                                      }
+                                                      if (isOpen) {
+                                                        return (
+                                                          <div onClick={e => e.stopPropagation()} style={{ marginBottom: '8px', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                                            <input
+                                                              autoFocus
+                                                              type="text"
+                                                              value={quickFixValue}
+                                                              onChange={e => setQuickFixValue(e.target.value)}
+                                                              onKeyDown={e => { if (e.key === 'Enter') handleQuickFix(page.url, issue.message, fixType, quickFixValue); if (e.key === 'Escape') { setQuickFixOpen(null); setQuickFixValue(''); } }}
+                                                              placeholder={`New ${fixType.replace(/_/g, ' ')}…`}
+                                                              style={{ flex: 1, fontSize: '11px', padding: '5px 8px', border: '1px solid #E8E8E4', borderRadius: '6px', outline: 'none' }}
+                                                            />
+                                                            <button
+                                                              onClick={() => handleQuickFix(page.url, issue.message, fixType, quickFixValue)}
+                                                              disabled={quickFixSaving || !quickFixValue.trim()}
+                                                              style={{ fontSize: '11px', fontWeight: 600, padding: '5px 10px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
+                                                            >
+                                                              {quickFixSaving ? '…' : 'Apply'}
+                                                            </button>
+                                                            <button
+                                                              onClick={() => { setQuickFixOpen(null); setQuickFixValue(''); }}
+                                                              style={{ fontSize: '11px', padding: '5px 8px', background: '#F5F4F1', color: '#6B6B6B', border: '1px solid #E8E8E4', borderRadius: '6px', cursor: 'pointer' }}
+                                                            >
+                                                              Cancel
+                                                            </button>
+                                                          </div>
+                                                        );
+                                                      }
+                                                      return (
+                                                        <button
+                                                          onClick={e => { e.stopPropagation(); setQuickFixOpen({ pageUrl: page.url, issueMsg: issue.message }); setQuickFixValue(''); }}
+                                                          style={{ fontSize: '10px', fontWeight: 600, padding: '3px 8px', background: '#FFF7ED', color: '#C2410C', border: '1px solid #FED7AA', borderRadius: '4px', cursor: 'pointer', marginBottom: '6px', display: 'inline-block' }}
+                                                        >
+                                                          ⚡ Quick Fix via Script
+                                                        </button>
+                                                      );
+                                                    })()}
                                                     <label
                                                       onClick={e => e.stopPropagation()}
                                                       style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '11px', color: '#6B6B6B' }}
