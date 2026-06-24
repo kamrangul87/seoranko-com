@@ -115,6 +115,8 @@ export default function SiteAuditPage() {
   const [quickFixValue, setQuickFixValue] = useState('');
   const [quickFixSaving, setQuickFixSaving] = useState(false);
   const [quickFixSaved, setQuickFixSaved] = useState<Set<string>>(new Set());
+  // null = not yet checked, true = script installed + verified, false = not verified
+  const [siteVerified, setSiteVerified] = useState<boolean | null>(null);
 
   // Last audit timestamp (from Supabase)
   const [lastAuditedAt, setLastAuditedAt] = useState<string | null>(null);
@@ -442,6 +444,12 @@ export default function SiteAuditPage() {
       if (data.lastAuditedAt) setLastAuditedAt(data.lastAuditedAt);
       if (auditMode !== 'cached') setShowExpandedNote(true);
       setStage('results');
+      // Check script installation status for the Quick Fix gate
+      const siteIdForCheck = domain.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0].toLowerCase();
+      fetch(`/api/sites?domain=${encodeURIComponent(siteIdForCheck)}`)
+        .then(r => r.json())
+        .then(d => setSiteVerified(d.verified === true))
+        .catch(() => setSiteVerified(false));
     } catch (err: any) {
       clearInterval(interval);
       setError(err.message);
@@ -1357,47 +1365,69 @@ export default function SiteAuditPage() {
                                                       const savedKey = `${page.url}::${fixType}`;
                                                       const isOpen = quickFixOpen?.pageUrl === page.url && quickFixOpen?.issueMsg === issue.message;
                                                       const isSaved = quickFixSaved.has(savedKey);
+
+                                                      // Saved — show confirmation
                                                       if (isSaved) {
                                                         return (
                                                           <div style={{ fontSize: '11px', color: '#16A34A', fontWeight: 600, marginBottom: '6px' }}>
-                                                            ✅ Fix applied via SEORANKO script
+                                                            ✅ Fix live within 60 seconds
                                                           </div>
                                                         );
                                                       }
+
+                                                      // Script not installed — prompt to install
+                                                      if (siteVerified === false) {
+                                                        return (
+                                                          <a
+                                                            href="/dashboard/install"
+                                                            onClick={e => e.stopPropagation()}
+                                                            style={{ fontSize: '10px', fontWeight: 600, padding: '3px 8px', background: '#F5F4F1', color: '#6B6B6B', border: '1px solid #E8E8E4', borderRadius: '4px', cursor: 'pointer', marginBottom: '6px', display: 'inline-block', textDecoration: 'none' }}
+                                                          >
+                                                            ⚡ Install script to apply fix instantly →
+                                                          </a>
+                                                        );
+                                                      }
+
+                                                      // Input open — show inline editor
                                                       if (isOpen) {
                                                         return (
-                                                          <div onClick={e => e.stopPropagation()} style={{ marginBottom: '8px', display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                                            <input
-                                                              autoFocus
-                                                              type="text"
-                                                              value={quickFixValue}
-                                                              onChange={e => setQuickFixValue(e.target.value)}
-                                                              onKeyDown={e => { if (e.key === 'Enter') handleQuickFix(page.url, issue.message, fixType, quickFixValue); if (e.key === 'Escape') { setQuickFixOpen(null); setQuickFixValue(''); } }}
-                                                              placeholder={`New ${fixType.replace(/_/g, ' ')}…`}
-                                                              style={{ flex: 1, fontSize: '11px', padding: '5px 8px', border: '1px solid #E8E8E4', borderRadius: '6px', outline: 'none' }}
-                                                            />
-                                                            <button
-                                                              onClick={() => handleQuickFix(page.url, issue.message, fixType, quickFixValue)}
-                                                              disabled={quickFixSaving || !quickFixValue.trim()}
-                                                              style={{ fontSize: '11px', fontWeight: 600, padding: '5px 10px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
-                                                            >
-                                                              {quickFixSaving ? '…' : 'Apply'}
-                                                            </button>
-                                                            <button
-                                                              onClick={() => { setQuickFixOpen(null); setQuickFixValue(''); }}
-                                                              style={{ fontSize: '11px', padding: '5px 8px', background: '#F5F4F1', color: '#6B6B6B', border: '1px solid #E8E8E4', borderRadius: '6px', cursor: 'pointer' }}
-                                                            >
-                                                              Cancel
-                                                            </button>
+                                                          <div onClick={e => e.stopPropagation()} style={{ marginBottom: '8px' }}>
+                                                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '4px' }}>
+                                                              <input
+                                                                autoFocus
+                                                                type="text"
+                                                                value={quickFixValue}
+                                                                onChange={e => setQuickFixValue(e.target.value)}
+                                                                onKeyDown={e => { if (e.key === 'Enter') handleQuickFix(page.url, issue.message, fixType, quickFixValue); if (e.key === 'Escape') { setQuickFixOpen(null); setQuickFixValue(''); } }}
+                                                                placeholder={`New ${fixType.replace(/_/g, ' ')}…`}
+                                                                style={{ flex: 1, fontSize: '11px', padding: '5px 8px', border: '1px solid #E8E8E4', borderRadius: '6px', outline: 'none' }}
+                                                              />
+                                                              <button
+                                                                onClick={() => handleQuickFix(page.url, issue.message, fixType, quickFixValue)}
+                                                                disabled={quickFixSaving || !quickFixValue.trim()}
+                                                                style={{ fontSize: '11px', fontWeight: 600, padding: '5px 10px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
+                                                              >
+                                                                {quickFixSaving ? '…' : 'Apply Fix'}
+                                                              </button>
+                                                              <button
+                                                                onClick={() => { setQuickFixOpen(null); setQuickFixValue(''); }}
+                                                                style={{ fontSize: '11px', padding: '5px 8px', background: '#F5F4F1', color: '#6B6B6B', border: '1px solid #E8E8E4', borderRadius: '6px', cursor: 'pointer' }}
+                                                              >
+                                                                Cancel
+                                                              </button>
+                                                            </div>
+                                                            <div style={{ fontSize: '10px', color: '#9B9B9B' }}>Fix live within 60 seconds via SEORANKO script</div>
                                                           </div>
                                                         );
                                                       }
+
+                                                      // Default — show Apply Fix button (verified or still loading)
                                                       return (
                                                         <button
                                                           onClick={e => { e.stopPropagation(); setQuickFixOpen({ pageUrl: page.url, issueMsg: issue.message }); setQuickFixValue(''); }}
                                                           style={{ fontSize: '10px', fontWeight: 600, padding: '3px 8px', background: '#FFF7ED', color: '#C2410C', border: '1px solid #FED7AA', borderRadius: '4px', cursor: 'pointer', marginBottom: '6px', display: 'inline-block' }}
                                                         >
-                                                          ⚡ Quick Fix via Script
+                                                          ⚡ Apply Fix
                                                         </button>
                                                       );
                                                     })()}
