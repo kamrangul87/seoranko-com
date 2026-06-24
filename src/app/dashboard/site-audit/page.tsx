@@ -1009,7 +1009,7 @@ export default function SiteAuditPage() {
           )}
 
           {/* Summary stats */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px', marginBottom: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '10px', marginBottom: '20px' }}>
             {[
               { label: 'Avg Score', value: results.summary.avgScore, color: scoreColor(results.summary.avgScore), sub: gradeLabel(results.summary.avgScore) },
               { label: 'Pages Audited', value: results.summary.audited, color: '#0F0F0F', sub: '' },
@@ -1022,6 +1022,19 @@ export default function SiteAuditPage() {
                 <div style={{ fontSize: '11px', color: '#9B9B9B', marginTop: '2px', textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>{stat.label}</div>
               </div>
             ))}
+            {/* AI Ready card */}
+            {(() => {
+              const pagesAiReady = results.results.filter((r: any) =>
+                r.issues.filter((i: any) => i.category === 'ai').length === 0
+              ).length;
+              const total = results.results.length;
+              return (
+                <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: '10px', padding: '14px 16px', minWidth: '120px', textAlign: 'center' as const }}>
+                  <div style={{ fontSize: '22px', fontWeight: 800, color: '#EA580C' }}>{pagesAiReady}/{total}</div>
+                  <div style={{ fontSize: '11px', color: '#9A3412', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginTop: '4px' }}>AI READY</div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Generate Sitemap */}
@@ -1085,6 +1098,9 @@ export default function SiteAuditPage() {
                   const criticals = page.issues.filter((i: any) => i.severity === 'critical').length;
                   const warnings = page.issues.filter((i: any) => i.severity === 'warning').length;
                   const notices = page.issues.filter((i: any) => i.severity === 'notice').length;
+                  const securityCount = page.issues.filter((i: any) => i.category === 'security').length;
+                  const speedCount = page.issues.filter((i: any) => i.category === 'speed').length;
+                  const aiCount = page.issues.filter((i: any) => i.category === 'ai').length;
                   const isFixed = page.status === 'fixed' || (page.fixedIssues?.length > 0);
                   const scoreGainDisplay = isFixed && page.scoreBeforeFix != null && page.scoreAfterFix != null
                     ? page.scoreAfterFix - page.scoreBeforeFix : null;
@@ -1160,6 +1176,15 @@ export default function SiteAuditPage() {
                           {page.hasFaq && (
                             <span style={{ fontSize: '10px', color: '#16A34A' }}>✓ FAQ</span>
                           )}
+                          {securityCount > 0 && (
+                            <span style={{ fontSize: '10px', color: '#6D28D9' }}>🔒 {securityCount}</span>
+                          )}
+                          {speedCount > 0 && (
+                            <span style={{ fontSize: '10px', color: '#2563EB' }}>⚡ {speedCount}</span>
+                          )}
+                          {aiCount > 0 && (
+                            <span style={{ fontSize: '10px', color: '#EA580C' }}>🤖 {aiCount}</span>
+                          )}
                         </div>
                       </td>
                       <td style={{ padding: '12px 16px', borderBottom: '1px solid #F5F4F1', verticalAlign: 'top' as const }}>
@@ -1191,13 +1216,19 @@ export default function SiteAuditPage() {
                   ];
 
                   if (isExpanded) {
-                    const catOrder = ['crawlability', 'onpage', 'technical', 'content', 'schema'] as const;
+                    const catOrder = ['crawlability', 'onpage', 'technical', 'content', 'schema', 'security', 'speed', 'ai', 'links', 'mobile', 'depth'] as const;
                     const catMeta: Record<string, { icon: string; label: string; color: string }> = {
-                      crawlability: { icon: '🕷️', label: 'Crawlability & Indexing', color: '#7C3AED' },
-                      onpage:       { icon: '📝', label: 'On-Page SEO',             color: '#DC2626' },
-                      technical:    { icon: '⚙️', label: 'Technical',               color: '#1D4ED8' },
-                      content:      { icon: '📄', label: 'Content Quality',         color: '#92400E' },
-                      schema:       { icon: '🔷', label: 'Schema & Structured Data', color: '#0F766E' },
+                      crawlability: { icon: '🕷️', label: 'Crawlability & Indexing',   color: '#7C3AED' },
+                      onpage:       { icon: '📝', label: 'On-Page SEO',               color: '#DC2626' },
+                      technical:    { icon: '⚙️', label: 'Technical',                 color: '#1D4ED8' },
+                      content:      { icon: '📄', label: 'Content Quality',           color: '#92400E' },
+                      schema:       { icon: '🔷', label: 'Schema & Structured Data',  color: '#0F766E' },
+                      security:     { icon: '🔒', label: 'Security & Trust',          color: '#6D28D9' },
+                      speed:        { icon: '⚡', label: 'Page Speed',                color: '#2563EB' },
+                      ai:           { icon: '🤖', label: 'AI Search Visibility',      color: '#EA580C' },
+                      links:        { icon: '🔗', label: 'Link Health',               color: '#0D9488' },
+                      mobile:       { icon: '📱', label: 'Mobile & UX',               color: '#DB2777' },
+                      depth:        { icon: '📊', label: 'Content Depth',             color: '#B45309' },
                     };
                     const grouped: Record<string, any[]> = {};
                     for (const issue of page.issues) {

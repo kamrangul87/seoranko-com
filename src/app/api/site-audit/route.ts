@@ -141,7 +141,7 @@ async function checkCommonPaths(baseUrl: string): Promise<string[]> {
 
 interface AuditIssue {
   severity: 'critical' | 'warning' | 'notice';
-  category: 'crawlability' | 'onpage' | 'technical' | 'content' | 'schema';
+  category: 'crawlability' | 'onpage' | 'technical' | 'content' | 'schema' | 'security' | 'speed' | 'ai' | 'links' | 'mobile' | 'depth';
   message: string;
   deduction: number;
 }
@@ -179,6 +179,29 @@ interface PageSignals {
   images: number;
   hasFaq: boolean;
   hasInternalLinks: boolean;
+  // Security headers
+  hasHsts: boolean;
+  hasXFrameOptions: boolean;
+  hasXContentTypeOptions: boolean;
+  hasCSP: boolean;
+  isCompressed: boolean;
+  // Speed
+  renderBlockingScripts: number;
+  imagesWithoutLazy: number;
+  imagesWithoutDimensions: number;
+  // Mobile/UX
+  hasLangAttribute: boolean;
+  // Content depth
+  paragraphCount: number;
+  avgSentenceLength: number;
+  hasHeadingHierarchyIssue: boolean;
+  // AI / schema
+  hasSpeakableSchema: boolean;
+  hasPersonSchema: boolean;
+  hasHowToSchema: boolean;
+  hasQAStructure: boolean;
+  // Link health
+  poorAnchorTextCount: number;
   fetchError?: string;
 }
 
@@ -193,6 +216,12 @@ function emptyPage(url: string, extra: Partial<PageSignals> = {}): PageSignals {
     hasSchema: false, hasArticleSchema: false, hasFaqSchema: false,
     hasBreadcrumbSchema: false, hasOrgSchema: false,
     images: 0, hasFaq: false, hasInternalLinks: false,
+    hasHsts: false, hasXFrameOptions: false, hasXContentTypeOptions: false, hasCSP: false, isCompressed: false,
+    renderBlockingScripts: 0, imagesWithoutLazy: 0, imagesWithoutDimensions: 0,
+    hasLangAttribute: false,
+    paragraphCount: 0, avgSentenceLength: 0, hasHeadingHierarchyIssue: false,
+    hasSpeakableSchema: false, hasPersonSchema: false, hasHowToSchema: false, hasQAStructure: false,
+    poorAnchorTextCount: 0,
     ...extra,
   };
 }
@@ -210,6 +239,13 @@ async function fetchPageSignals(url: string): Promise<PageSignals> {
 
     const xRobotsTag = res.headers.get('x-robots-tag') || '';
     const xRobotsNoindex = /noindex/i.test(xRobotsTag);
+
+    // Security & compression headers
+    const hasHsts = !!res.headers.get('strict-transport-security');
+    const hasXFrameOptions = !!res.headers.get('x-frame-options');
+    const hasXContentTypeOptions = !!res.headers.get('x-content-type-options');
+    const hasCSP = !!res.headers.get('content-security-policy');
+    const isCompressed = /gzip|br|deflate/i.test(res.headers.get('content-encoding') || '');
 
     const html = await res.text();
     const htmlSizeKb = Math.round(Buffer.byteLength(html, 'utf8') / 1024);
@@ -237,6 +273,32 @@ async function fetchPageSignals(url: string): Promise<PageSignals> {
 
     const h2Matches = Array.from(html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi));
     const h2s = h2Matches.map(m => m[1].replace(/<[^>]+>/g, '').trim()).filter(Boolean).slice(0, 20);
+
+    // Render-blocking scripts in <head>
+    const headSection = html.match(/<head[\s\S]*?<\/head>/i)?.[0] || '';
+    const headScriptTags = Array.from(headSection.matchAll(/<script\b([^>]*)>/gi));
+    const renderBlockingScripts = headScriptTags.filter(m => !/\basync\b|\bdefer\b/i.test(m[1])).length;
+
+    // Images without lazy loading / dimensions
+    const imgTagsRaw = Array.from(html.matchAll(/<img\s[^>]*/gi));
+    const imagesWithoutLazy = imgTagsRaw.filter(m => !/\bloading\s*=\s*["']?lazy/i.test(m[0])).length;
+    const imagesWithoutDimensions = imgTagsRaw.filter(m =>
+      !/\bwidth\s*=\s*["']?\d/i.test(m[0]) || !/\bheight\s*=\s*["']?\d/i.test(m[0])
+    ).length;
+
+    // Language attribute on <html>
+    const hasLangAttribute = /<html[^>]+\slang\s*=/i.test(html);
+
+    // Schema: speakable, person, howto
+    const hasSpeakableSchema = /"@type"\s*:\s*"SpeakableSpecification"/i.test(html);
+    const hasPersonSchema = /"@type"\s*:\s*"Person"/i.test(html);
+    const hasHowToSchema = /"@type"\s*:\s*"HowTo"/i.test(html);
+
+    // Q&A structure: any H2 ending with '?'
+    const hasQAStructure = h2Matches.some(m => m[1].replace(/<[^>]+>/g, '').trim().endsWith('?'));
+
+    // Paragraph count (rough)
+    const paragraphCount = (html.match(/<p[\s>]/gi) || []).length;
 
     const imgMatches = Array.from(html.matchAll(/<img\s[^>]*/gi));
     const images = imgMatches.length;
@@ -283,6 +345,21 @@ async function fetchPageSignals(url: string): Promise<PageSignals> {
       .trim();
     const wordCount = text.split(/\s+/).filter(Boolean).length;
 
+    // Average sentence length (analyse first 5000 chars of text)
+    const sentenceList = text.slice(0, 5000).match(/[^.!?]+[.!?]+/g) || [];
+    const avgSentenceLength = sentenceList.length > 5
+      ? Math.round(sentenceList.reduce((s, sent) => s + sent.trim().split(/\s+/).length, 0) / sentenceList.length)
+      : 0;
+
+    // Heading hierarchy: H3 used without H2
+    const h3Count = (html.match(/<h3\b/gi) || []).length;
+    const hasHeadingHierarchyIssue = h3Count > 0 && h2s.length === 0;
+
+    // Poor anchor text (generic link text)
+    const anchorTextMatches = Array.from(html.matchAll(/<a[^>]*>([^<]*)<\/a>/gi));
+    const poorAnchorRe = /^\s*$|^(click here|read more|here|learn more|this|link|more|see more|view more)\s*$/i;
+    const poorAnchorTextCount = anchorTextMatches.filter(m => poorAnchorRe.test(m[1])).length;
+
     return {
       url, fetchTimeMs, httpStatus, htmlSizeKb,
       noindex, xRobotsNoindex, hasCanonical, canonicalUrl,
@@ -291,6 +368,12 @@ async function fetchPageSignals(url: string): Promise<PageSignals> {
       wordCount, internalLinks, externalLinks, hasOfficialSources,
       hasSchema, hasArticleSchema, hasFaqSchema, hasBreadcrumbSchema, hasOrgSchema,
       images, hasFaq, hasInternalLinks,
+      hasHsts, hasXFrameOptions, hasXContentTypeOptions, hasCSP, isCompressed,
+      renderBlockingScripts, imagesWithoutLazy, imagesWithoutDimensions,
+      hasLangAttribute,
+      paragraphCount, avgSentenceLength, hasHeadingHierarchyIssue,
+      hasSpeakableSchema, hasPersonSchema, hasHowToSchema, hasQAStructure,
+      poorAnchorTextCount,
     };
   } catch (err: any) {
     return emptyPage(url, { fetchTimeMs: Date.now() - startTime, fetchError: err.message?.slice(0, 100) });
@@ -431,36 +514,7 @@ function scorePage(page: PageSignals, allPages: PageSignals[]): {
   }
 
   // ── TECHNICAL ────────────────────────────────────────────────────────────
-  if (!page.hasViewport) {
-    warn('technical', 'Missing viewport meta tag — Google uses mobile-first indexing');
-    opportunities.push('Add <meta name="viewport" content="width=device-width, initial-scale=1">');
-  }
-
-  if (page.fetchTimeMs > 3000) {
-    warn('technical', `Slow server response: ${(page.fetchTimeMs / 1000).toFixed(1)}s — page speed is a ranking factor`);
-    opportunities.push('Improve server response time — target under 1 second');
-  } else if (page.fetchTimeMs > 1500) {
-    note('technical', `Server response: ${(page.fetchTimeMs / 1000).toFixed(1)}s — room for improvement`);
-    opportunities.push('Optimise server response time to improve Core Web Vitals');
-  }
-
-  if (page.htmlSizeKb > 100) {
-    note('technical', `Large HTML document (${page.htmlSizeKb}KB) — consider moving inline assets to external files`);
-    opportunities.push('Move inline CSS/JS to external files to reduce HTML document size');
-  }
-
-  if (!page.hasOgTitle || !page.hasOgDescription) {
-    warn('technical', 'Missing Open Graph tags — poor appearance when shared on social media');
-    opportunities.push('Add og:title, og:description and og:image meta tags');
-  } else if (!page.hasOgImage) {
-    note('technical', 'Missing og:image — social share previews will show no image');
-    opportunities.push('Add <meta property="og:image"> with a 1200×630px image URL');
-  }
-
-  if (!page.hasTwitterCard) {
-    note('technical', 'No Twitter Card tags — no rich preview on X/Twitter');
-    opportunities.push('Add <meta name="twitter:card" content="summary_large_image">');
-  }
+  // (viewport, fetch time, html size, OG tags, twitter card have moved to speed/mobile categories)
 
   // ── CONTENT ──────────────────────────────────────────────────────────────
   if (page.wordCount < 150) {
@@ -472,16 +526,6 @@ function scorePage(page: PageSignals, allPages: PageSignals[]): {
   } else if (page.wordCount < 800) {
     note('content', `${page.wordCount} words — top-ranking pages for competitive keywords average 1,500+`);
     opportunities.push('Consider expanding to 1,200+ words to beat competitors');
-  }
-
-  if (page.internalLinks < 2) {
-    warn('content', 'No internal links — weak site architecture and no link equity flow');
-    opportunities.push('Add 3-5 internal links to related pages with descriptive anchor text');
-  }
-
-  if (page.externalLinks === 0 && page.wordCount > 300) {
-    note('content', 'No external links — missed opportunity to cite authoritative sources');
-    opportunities.push('Add 2-3 outbound links to authoritative sources');
   }
 
   if (!page.hasOfficialSources && page.wordCount > 300) {
@@ -511,6 +555,113 @@ function scorePage(page: PageSignals, allPages: PageSignals[]): {
       note('schema', 'No BreadcrumbList schema — missing breadcrumb in SERPs');
       opportunities.push('Add BreadcrumbList schema to show site navigation in Google results');
     }
+  }
+
+  // ── SECURITY ─────────────────────────────────────────────────────────────
+  if (page.isHttps) {
+    if (!page.hasHsts) {
+      score -= 15; issues.push({ severity: 'critical', category: 'security', message: 'No HSTS header — site vulnerable to downgrade attacks', deduction: 15 });
+    }
+  }
+  if (!page.hasXFrameOptions) {
+    score -= 5; issues.push({ severity: 'warning', category: 'security', message: 'No X-Frame-Options header — clickjacking protection missing', deduction: 5 });
+  }
+  if (!page.hasXContentTypeOptions) {
+    score -= 5; issues.push({ severity: 'warning', category: 'security', message: 'Missing X-Content-Type-Options header — browsers may sniff MIME types', deduction: 5 });
+  }
+  if (!page.hasCSP) {
+    score -= 2; issues.push({ severity: 'notice', category: 'security', message: 'No Content-Security-Policy header — adds XSS protection layer', deduction: 2 });
+  }
+
+  // ── PAGE SPEED ────────────────────────────────────────────────────────────
+  if (page.fetchTimeMs > 2000) {
+    score -= 15; issues.push({ severity: 'critical', category: 'speed', message: `Very slow TTFB: ${(page.fetchTimeMs / 1000).toFixed(1)}s — users and Google both penalise this`, deduction: 15 });
+  } else if (page.fetchTimeMs > 800) {
+    score -= 5; issues.push({ severity: 'warning', category: 'speed', message: `Slow server response: ${(page.fetchTimeMs / 1000).toFixed(1)}s — target under 800ms`, deduction: 5 });
+  }
+  if (page.htmlSizeKb > 200) {
+    score -= 15; issues.push({ severity: 'critical', category: 'speed', message: `Extremely large page (${page.htmlSizeKb}KB) — significant speed impact`, deduction: 15 });
+  } else if (page.htmlSizeKb > 100) {
+    score -= 5; issues.push({ severity: 'warning', category: 'speed', message: `Large page size (${page.htmlSizeKb}KB) — compress and minify HTML`, deduction: 5 });
+  }
+  if (page.renderBlockingScripts >= 3) {
+    score -= 15; issues.push({ severity: 'critical', category: 'speed', message: `${page.renderBlockingScripts} render-blocking scripts in <head> — seriously impacts load speed`, deduction: 15 });
+  } else if (page.renderBlockingScripts >= 1) {
+    score -= 5; issues.push({ severity: 'warning', category: 'speed', message: `${page.renderBlockingScripts} render-blocking script${page.renderBlockingScripts > 1 ? 's' : ''} slow page display`, deduction: 5 });
+  }
+  if (page.images > 0 && page.imagesWithoutLazy > 0) {
+    score -= 5; issues.push({ severity: 'warning', category: 'speed', message: `${page.imagesWithoutLazy} image${page.imagesWithoutLazy !== 1 ? 's' : ''} not lazy loaded — slows initial page render`, deduction: 5 });
+  }
+  if (!page.hasViewport) {
+    score -= 15; issues.push({ severity: 'critical', category: 'speed', message: 'No viewport meta tag — site broken on mobile and demoted by Google', deduction: 15 });
+  }
+  if (!page.isCompressed) {
+    score -= 5; issues.push({ severity: 'warning', category: 'speed', message: 'No GZIP/Brotli compression — enable to reduce transfer size', deduction: 5 });
+  }
+
+  // ── AI SEARCH VISIBILITY ──────────────────────────────────────────────────
+  if (!page.hasFaqSchema) {
+    score -= 5; issues.push({ severity: 'warning', category: 'ai', message: 'Missing FAQ schema — reduces chance of AI Overview and People Also Ask inclusion', deduction: 5 });
+  }
+  if (!page.hasArticleSchema && page.wordCount > 300) {
+    score -= 5; issues.push({ severity: 'warning', category: 'ai', message: 'Missing Article schema with datePublished — AI models deprioritise undated content', deduction: 5 });
+  }
+  if (!page.hasPersonSchema) {
+    score -= 5; issues.push({ severity: 'warning', category: 'ai', message: 'No author schema (Person) — EEAT signal missing for AI citations', deduction: 5 });
+  }
+  if (!page.hasQAStructure && page.wordCount > 200) {
+    score -= 2; issues.push({ severity: 'notice', category: 'ai', message: 'No Q&A heading structure — AI models prefer pages that directly answer questions', deduction: 2 });
+  }
+  if (!page.hasSpeakableSchema) {
+    score -= 2; issues.push({ severity: 'notice', category: 'ai', message: 'No speakable schema — missed opportunity for voice search and AI audio responses', deduction: 2 });
+  }
+  if (!page.hasBreadcrumbSchema) {
+    score -= 2; issues.push({ severity: 'notice', category: 'ai', message: 'Missing breadcrumb schema — reduces site structure clarity for AI crawlers', deduction: 2 });
+  }
+  const isHowToPage = /how[-\s]?to/i.test(`${page.url} ${page.title} ${page.h1}`);
+  if (isHowToPage && !page.hasHowToSchema) {
+    score -= 2; issues.push({ severity: 'notice', category: 'ai', message: 'HowTo page without HowTo schema — AI search engines prioritise structured how-to answers', deduction: 2 });
+  }
+
+  // ── LINK HEALTH ───────────────────────────────────────────────────────────
+  if (page.internalLinks === 0) {
+    score -= 15; issues.push({ severity: 'critical', category: 'links', message: 'No internal links — page is orphaned, Google cannot distribute authority', deduction: 15 });
+  } else if (page.internalLinks <= 2) {
+    score -= 5; issues.push({ severity: 'warning', category: 'links', message: `Only ${page.internalLinks} internal link${page.internalLinks !== 1 ? 's' : ''} — add more to improve crawlability`, deduction: 5 });
+  }
+  if (page.externalLinks === 0 && page.wordCount > 300) {
+    score -= 5; issues.push({ severity: 'warning', category: 'links', message: 'No outbound links — citing sources builds EEAT trust', deduction: 5 });
+  }
+  if (page.poorAnchorTextCount > 0) {
+    score -= 5; issues.push({ severity: 'warning', category: 'links', message: `${page.poorAnchorTextCount} link${page.poorAnchorTextCount !== 1 ? 's' : ''} with generic anchor text — use descriptive keywords`, deduction: 5 });
+  }
+
+  // ── MOBILE & UX ───────────────────────────────────────────────────────────
+  if (page.imagesWithoutDimensions > 0 && page.images > 0) {
+    score -= 5; issues.push({ severity: 'warning', category: 'mobile', message: `${page.imagesWithoutDimensions} image${page.imagesWithoutDimensions !== 1 ? 's' : ''} missing width/height — causes layout shift (CLS)`, deduction: 5 });
+  }
+  if (!page.hasOgImage) {
+    score -= 5; issues.push({ severity: 'warning', category: 'mobile', message: 'No og:image — poor appearance when shared on social media', deduction: 5 });
+  }
+  if (!page.hasOgTitle || !page.hasOgDescription) {
+    score -= 5; issues.push({ severity: 'warning', category: 'mobile', message: 'Open Graph tags missing — pages look broken when shared on social media', deduction: 5 });
+  }
+  if (!page.hasTwitterCard) {
+    score -= 2; issues.push({ severity: 'notice', category: 'mobile', message: 'No Twitter Card tags — no rich preview on X/Twitter', deduction: 2 });
+  }
+  if (!page.hasLangAttribute) {
+    score -= 2; issues.push({ severity: 'notice', category: 'mobile', message: 'No lang attribute on <html> — search engines uncertain about target language', deduction: 2 });
+  }
+
+  // ── CONTENT DEPTH ─────────────────────────────────────────────────────────
+  if (page.avgSentenceLength > 20 && page.wordCount > 200) {
+    score -= 2; issues.push({ severity: 'notice', category: 'depth', message: `Long sentences (avg ${page.avgSentenceLength} words) — aim for under 20 words per sentence`, deduction: 2 });
+  }
+  if (page.hasHeadingHierarchyIssue) {
+    score -= 5; issues.push({ severity: 'warning', category: 'depth', message: 'Broken heading hierarchy — H3 used without H2, use H1 → H2 → H3 in order', deduction: 5 });
+  }
+  if (page.paragraphCount < 3 && page.wordCount > 150) {
+    score -= 5; issues.push({ severity: 'warning', category: 'depth', message: 'Very little paragraph structure — thin content formatting ranks poorly', deduction: 5 });
   }
 
   return { score: Math.max(0, score), issues, opportunities };
