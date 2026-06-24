@@ -2,7 +2,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// CORS headers — GET is called cross-origin from user sites
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -13,82 +12,87 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS });
 }
 
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const siteId = searchParams.get('site_id')?.trim().toLowerCase().replace(/^www\./, '');
-  const rawUrl = searchParams.get('url')?.trim();
-
-  if (!siteId) {
-    return NextResponse.json({ error: 'site_id is required' }, { status: 400, headers: CORS });
-  }
-
-  // Normalize the requested URL the same way fixes are stored
-  let pageUrl = rawUrl || '';
+function normUrl(raw: string): string {
   try {
-    const u = new URL(pageUrl.startsWith('http') ? pageUrl : 'https://' + pageUrl);
+    const u = new URL(raw.startsWith('http') ? raw : 'https://' + raw);
     u.protocol = 'https:';
     u.hostname = u.hostname.replace(/^www\./, '').toLowerCase();
     let path = u.pathname;
     if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
-    pageUrl = `https://${u.hostname}${path}`;
+    return `https://${u.hostname}${path}`;
   } catch {
-    pageUrl = pageUrl.toLowerCase().replace(/\/$/, '');
+    return raw.toLowerCase().replace(/\/$/, '');
   }
+}
 
-  const supabase = createClient(
+function normSite(raw: string): string {
+  return raw.trim().toLowerCase().replace(/^www\./, '');
+}
+
+function db() {
+  return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }
   );
+}
 
-  const { data, error } = await supabase
-    .from('seo_fixes')
-    .select('fix_type, selector, old_value, new_value')
-    .eq('site_id', siteId)
-    .eq('page_url', pageUrl)
-    .eq('enabled', true);
+// ── GET /api/fixes?site_id=&url= — called by seoranko.js from user sites ─────
+export async function GET(req: NextRequest) {
+  const sp = new URL(req.url).searchParams;
+  const siteId = sp.get('site_id');
+  const rawUrl = sp.get('url') || '';
 
-  if (error) {
-    console.error('[/api/fixes] Supabase error:', error.message);
+  if (!siteId) {
     return NextResponse.json({ fixes: [] }, { headers: CORS });
   }
 
-  return NextResponse.json(
-    { fixes: data ?? [] },
-    { headers: { ...CORS, 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300' } }
-  );
+  try {
+    const { data, error } = await db()
+      .from('seo_fixes')
+      .select('fix_type, selector, new_value')
+      .eq('site_id', normSite(siteId))
+      .eq('page_url', normUrl(rawUrl))
+      .eq('enabled', true);
+
+    if (error) throw error;
+
+    return NextResponse.json(
+      { fixes: data ?? [] },
+      { headers: { ...CORS, 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300' } }
+    );
+  } catch {
+    return NextResponse.json({ fixes: [] }, { headers: CORS });
+  }
 }
 
+// ── POST /api/fixes — called from the SEORANKO dashboard to write a fix ───────
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { site_id, page_url, fix_type, selector, old_value, new_value } = body;
 
     if (!site_id || !page_url || !fix_type || !new_value) {
-      return NextResponse.json({ error: 'site_id, page_url, fix_type, new_value are required' }, { status: 400, headers: CORS });
+      return NextResponse.json(
+        { error: 'site_id, page_url, fix_type, new_value are required' },
+        { status: 400, headers: CORS }
+      );
     }
 
-    const normSiteId = site_id.trim().toLowerCase().replace(/^www\./, '');
-    let normUrl = page_url.trim();
-    try {
-      const u = new URL(normUrl.startsWith('http') ? normUrl : 'https://' + normUrl);
-      u.protocol = 'https:';
-      u.hostname = u.hostname.replace(/^www\./, '').toLowerCase();
-      let path = u.pathname;
-      if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
-      normUrl = `https://${u.hostname}${path}`;
-    } catch { /* keep as-is */ }
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { auth: { persistSession: false } }
-    );
-
-    const { data, error } = await supabase
+    const now = new Date().toISOString();
+    const { data, error } = await db()
       .from('seo_fixes')
       .upsert(
-        { site_id: normSiteId, page_url: normUrl, fix_type, selector: selector || null, old_value: old_value || null, new_value, enabled: true },
+        {
+          site_id: normSite(site_id),
+          page_url: normUrl(page_url),
+          fix_type,
+          selector: selector || null,
+          old_value: old_value || null,
+          new_value,
+          enabled: true,
+          updated_at: now,
+        },
         { onConflict: 'site_id,page_url,fix_type', ignoreDuplicates: false }
       )
       .select('id')

@@ -1,17 +1,14 @@
 /**
- * SEORANKO — Universal SEO Fix Injection Script
- * Paste one <script> tag to apply SEO fixes to any site in real-time.
- * Fails silently — never breaks your page.
- *
- * Usage:
- *   <script src="https://seoranko.com/seoranko.js" data-site-id="yourdomain.com" async></script>
+ * SEORANKO — Universal SEO Fix Injection Script v1.1
+ * <script src="https://seoranko.com/seoranko.js" data-site-id="yourdomain.com" async></script>
+ * Fails silently — never breaks the host site.
  */
 (function () {
   'use strict';
 
   var script = document.currentScript || (function () {
-    var scripts = document.getElementsByTagName('script');
-    return scripts[scripts.length - 1];
+    var all = document.getElementsByTagName('script');
+    return all[all.length - 1];
   })();
 
   var siteId = script && script.getAttribute('data-site-id');
@@ -19,149 +16,103 @@
 
   var apiBase = (script.getAttribute('data-api') || 'https://seoranko.com') + '/api/fixes';
 
-  // Normalize current URL to match stored format (no www, no trailing slash, https)
-  function getCanonicalUrl() {
+  // Normalize current page URL to match stored canonical form
+  function pageUrl() {
     try {
-      var u = new URL(window.location.href);
+      var u = new URL(location.href);
       u.protocol = 'https:';
       u.hostname = u.hostname.replace(/^www\./, '');
       u.hash = '';
       u.search = '';
-      var path = u.pathname;
-      if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
-      return 'https://' + u.hostname + path;
-    } catch (e) {
-      return window.location.href;
-    }
+      var p = u.pathname;
+      if (p.length > 1 && p.slice(-1) === '/') p = p.slice(0, -1);
+      return 'https://' + u.hostname + p;
+    } catch (e) { return location.href; }
   }
 
-  function applyFixes(fixes) {
-    if (!fixes || !fixes.length) return;
-
-    fixes.forEach(function (fix) {
-      try {
-        applyOneFix(fix);
-      } catch (e) {
-        // Silently ignore per-fix errors
-      }
-    });
-  }
-
-  function applyOneFix(fix) {
-    var type = fix.fix_type;
-    var value = fix.new_value;
-    if (!type || !value) return;
-
-    if (type === 'meta_title') {
-      document.title = value;
-      var titleEl = document.querySelector('title');
-      if (titleEl) {
-        titleEl.textContent = value;
-      } else {
-        var t = document.createElement('title');
-        t.textContent = value;
-        document.head.appendChild(t);
-      }
-    }
-
-    else if (type === 'meta_description') {
-      var meta = document.querySelector('meta[name="description"]');
-      if (meta) {
-        meta.setAttribute('content', value);
-      } else {
-        var m = document.createElement('meta');
-        m.setAttribute('name', 'description');
-        m.setAttribute('content', value);
-        document.head.appendChild(m);
-      }
-    }
-
-    else if (type === 'h1') {
-      var h1 = document.querySelector('h1');
-      if (h1) {
-        h1.textContent = value;
-      } else {
-        var newH1 = document.createElement('h1');
-        newH1.textContent = value;
-        var body = document.querySelector('body');
-        if (body) body.insertBefore(newH1, body.firstChild);
-      }
-    }
-
-    else if (type === 'og_title') {
-      setMeta('property', 'og:title', value);
-    }
-
-    else if (type === 'og_image') {
-      setMeta('property', 'og:image', value);
-    }
-
-    else if (type === 'canonical') {
-      var existing = document.querySelector('link[rel="canonical"]');
-      if (existing) {
-        existing.setAttribute('href', value);
-      } else {
-        var link = document.createElement('link');
-        link.setAttribute('rel', 'canonical');
-        link.setAttribute('href', value);
-        document.head.appendChild(link);
-      }
-    }
-
-    else if (type === 'schema') {
-      var jsonLd = document.createElement('script');
-      jsonLd.type = 'application/ld+json';
-      jsonLd.textContent = value;
-      document.head.appendChild(jsonLd);
-    }
-
-    else if (type === 'alt_text' && fix.selector) {
-      var imgs = document.querySelectorAll(fix.selector);
-      imgs.forEach(function (img) {
-        if (!img.getAttribute('alt')) img.setAttribute('alt', value);
-      });
-    }
-  }
-
-  function setMeta(attr, attrValue, content) {
-    var sel = 'meta[' + attr + '="' + attrValue + '"]';
-    var el = document.querySelector(sel);
+  // Set or create a <meta> by attribute + value
+  function setMeta(attr, attrVal, content) {
+    var el = document.querySelector('meta[' + attr + '="' + attrVal + '"]');
     if (el) {
       el.setAttribute('content', content);
     } else {
       var m = document.createElement('meta');
-      m.setAttribute(attr, attrValue);
+      m.setAttribute(attr, attrVal);
       m.setAttribute('content', content);
       document.head.appendChild(m);
     }
   }
 
-  function fetchAndApply() {
-    var url = getCanonicalUrl();
-    var endpoint = apiBase + '?site_id=' + encodeURIComponent(siteId) + '&url=' + encodeURIComponent(url);
+  // Apply one fix object to the DOM
+  function applyOne(fix) {
+    var t = fix.fix_type, v = fix.new_value;
+    if (!t || !v) return;
 
-    // Use XHR for broadest browser support (script may run in old environments)
+    if (t === 'meta_title') {
+      document.title = v;
+      var title = document.querySelector('title');
+      if (title) { title.textContent = v; }
+      else { var nt = document.createElement('title'); nt.textContent = v; document.head.appendChild(nt); }
+    }
+
+    else if (t === 'meta_description')  { setMeta('name', 'description', v); }
+    else if (t === 'og_title')          { setMeta('property', 'og:title', v); }
+    else if (t === 'og_description')    { setMeta('property', 'og:description', v); }
+    else if (t === 'og_image')          { setMeta('property', 'og:image', v); }
+    else if (t === 'twitter_title')     { setMeta('name', 'twitter:title', v); }
+    else if (t === 'twitter_description') { setMeta('name', 'twitter:description', v); }
+    else if (t === 'twitter_image')     { setMeta('name', 'twitter:image', v); }
+    else if (t === 'viewport')          { setMeta('name', 'viewport', v); }
+
+    else if (t === 'canonical') {
+      var cl = document.querySelector('link[rel="canonical"]');
+      if (cl) { cl.setAttribute('href', v); }
+      else { var nl = document.createElement('link'); nl.rel = 'canonical'; nl.href = v; document.head.appendChild(nl); }
+    }
+
+    else if (t === 'h1') {
+      var h = document.querySelector('h1');
+      if (h) { h.textContent = v; }
+      else { var nh = document.createElement('h1'); nh.textContent = v; if (document.body) document.body.insertBefore(nh, document.body.firstChild); }
+    }
+
+    else if (t === 'schema') {
+      var s = document.createElement('script');
+      s.type = 'application/ld+json';
+      s.textContent = v;
+      document.head.appendChild(s);
+    }
+
+    else if (t === 'alt_text' && fix.selector) {
+      var imgs = document.querySelectorAll(fix.selector);
+      for (var i = 0; i < imgs.length; i++) {
+        if (!imgs[i].getAttribute('alt')) imgs[i].setAttribute('alt', v);
+      }
+    }
+  }
+
+  function applyFixes(fixes) {
+    for (var i = 0; i < fixes.length; i++) {
+      try { applyOne(fixes[i]); } catch (e) { /* silent */ }
+    }
+  }
+
+  function run() {
+    var url = pageUrl();
+    var endpoint = apiBase + '?site_id=' + encodeURIComponent(siteId) + '&url=' + encodeURIComponent(url);
     var xhr = new XMLHttpRequest();
     xhr.open('GET', endpoint, true);
     xhr.timeout = 5000;
     xhr.onload = function () {
       if (xhr.status === 200) {
-        try {
-          var data = JSON.parse(xhr.responseText);
-          applyFixes(data.fixes);
-        } catch (e) { /* silent */ }
+        try { applyFixes(JSON.parse(xhr.responseText).fixes || []); } catch (e) { /* silent */ }
       }
     };
-    xhr.onerror = function () { /* silent */ };
-    xhr.ontimeout = function () { /* silent */ };
+    xhr.onerror = xhr.ontimeout = function () { /* silent */ };
     xhr.send();
   }
 
-  // Run as early as possible — before DOMContentLoaded if head is available,
-  // otherwise as soon as DOM is ready
-  if (document.head) {
-    fetchAndApply();
-  } else {
-    document.addEventListener('DOMContentLoaded', fetchAndApply);
-  }
+  // Fire as early as possible — head is already parsed when async scripts run
+  if (document.head) { run(); }
+  else { document.addEventListener('DOMContentLoaded', run); }
 })();
