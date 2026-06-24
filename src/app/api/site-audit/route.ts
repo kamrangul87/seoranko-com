@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { upsertAuditResults, getAuditResults } from '@/lib/supabase/audit-db';
+import { upsertAuditResults, getAuditResults, normalizeUrl, normalizeDomain } from '@/lib/supabase/audit-db';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 3 });
 export const maxDuration = 300;
@@ -768,9 +768,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { urls, domain, market = 'United Kingdom', mode } = body;
 
-    const cleanDomain = domain
-      ? domain.replace(/^https?:\/\//, '').replace(/\/$/, '').replace(/^www\./, '')
-      : '';
+    const cleanDomain = domain ? normalizeDomain(domain) : '';
 
     // ── CACHED MODE: pure DB load, no scraping (Refresh Status button) ──────
     if (mode === 'cached' && domain) {
@@ -833,9 +831,9 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      urlList = Array.from(new Set(urlList)).slice(0, 50);
+      urlList = Array.from(new Set(urlList.map(normalizeUrl))).slice(0, 50);
     } else if (urls && Array.isArray(urls)) {
-      urlList = urls.slice(0, 20).map((u: string) => u.trim()).filter(Boolean);
+      urlList = urls.slice(0, 20).map((u: string) => normalizeUrl(u.trim())).filter(Boolean);
     }
 
     if (urlList.length === 0) {
@@ -848,7 +846,7 @@ export async function POST(req: NextRequest) {
     if (mode !== 'fresh' && cleanDomain) {
       const { rows: existingRows } = await getAuditResults(cleanDomain);
       existingRows.filter((r: any) => r.status === 'fixed').forEach((r: any) => {
-        fixedPageMap.set(r.page_url, r);
+        fixedPageMap.set(normalizeUrl(r.page_url), r);
       });
       if (fixedPageMap.size > 0) {
         console.log(`[site-audit] smart mode: preserving ${fixedPageMap.size} fixed page(s), skipping re-scrape`);

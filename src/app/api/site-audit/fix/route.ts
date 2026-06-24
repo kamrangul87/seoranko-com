@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { buildMasterPrompt, validateAndCorrect, getInternalLinks } from '@/lib/article-master';
-import { updateFixedPage } from '@/lib/supabase/audit-db';
+import { updateFixedPage, normalizeUrl, normalizeDomain } from '@/lib/supabase/audit-db';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
 export const maxDuration = 300;
@@ -491,13 +491,13 @@ async function callWithRetry<T>(fn: () => Promise<T>, retries: number = 3, delay
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { url, market = 'United Kingdom' } = body;
+    const rawUrl: string = body.url;
+    const { market = 'United Kingdom' } = body;
     const keyword: string = body.keyword || body.detectedKeyword || '';
-    if (!url) return NextResponse.json({ error: 'url is required' }, { status: 400 });
+    if (!rawUrl) return NextResponse.json({ error: 'url is required' }, { status: 400 });
 
-    const cleanDomain = (() => {
-      try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
-    })();
+    const url = normalizeUrl(rawUrl);
+    const cleanDomain = normalizeDomain(rawUrl);
 
     const fallbackTitle: string = body.fallbackTitle || '';
     const fallbackH1: string = body.fallbackH1 || '';
