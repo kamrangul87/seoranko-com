@@ -107,6 +107,9 @@ export default function SiteAuditPage() {
   // Score simulation (local update after fix)
   const [scoreSimMsg, setScoreSimMsg] = useState<string>('');
 
+  // Expanded categories note — shown after a fresh/smart audit where new categories may lower the score
+  const [showExpandedNote, setShowExpandedNote] = useState(false);
+
   // Last audit timestamp (from Supabase)
   const [lastAuditedAt, setLastAuditedAt] = useState<string | null>(null);
 
@@ -373,6 +376,7 @@ export default function SiteAuditPage() {
     setDiscoverySource('');
     setDiscoveryError('');
     setScoreSimMsg('');
+    setShowExpandedNote(false);
     setProgress(5);
     setProgressLabel(
       auditMode === 'cached'
@@ -430,6 +434,7 @@ export default function SiteAuditPage() {
       setDiscoveryError(data.discoveryError || '');
       setResults(data);
       if (data.lastAuditedAt) setLastAuditedAt(data.lastAuditedAt);
+      if (auditMode !== 'cached') setShowExpandedNote(true);
       setStage('results');
     } catch (err: any) {
       clearInterval(interval);
@@ -1070,6 +1075,16 @@ export default function SiteAuditPage() {
           {sitemapXml && !sitemapMsg.includes('❌') && !sitemapMsg.includes('✅ Pushed') && (
             <div style={{ background: '#F5F4F1', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', maxHeight: '120px', overflowY: 'auto', fontSize: '11px', color: '#6B6B6B', fontFamily: 'monospace' }}>
               {sitemapXml.slice(0, 600)}...
+            </div>
+          )}
+
+          {/* Expanded categories note — shown after a fresh/smart audit */}
+          {showExpandedNote && (
+            <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '10px', padding: '10px 16px', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+              <div style={{ fontSize: '12px', color: '#1D4ED8' }}>
+                Score recalculated with expanded checks (now auditing 6 categories: Security, Speed, AI Visibility, Links, Mobile, Content)
+              </div>
+              <button onClick={() => setShowExpandedNote(false)} style={{ background: 'none', border: 'none', color: '#1D4ED8', fontSize: '18px', cursor: 'pointer', flexShrink: 0, lineHeight: 1 }}>×</button>
             </div>
           )}
 

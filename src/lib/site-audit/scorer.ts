@@ -91,7 +91,7 @@ export async function fetchPageSignals(url: string): Promise<PageSignals> {
   const startTime = Date.now();
   try {
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEOBot/1.0)' },
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEORANKO-Audit/1.0)' },
       signal: AbortSignal.timeout(8000),
     });
     const fetchTimeMs = Date.now() - startTime;

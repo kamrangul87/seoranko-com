@@ -511,11 +511,13 @@ function isLiveSiteStale(fixedIssueKeys: string[], freshIssues: any[]): boolean 
 // Wait 3 s, re-fetch live page, update Supabase with fresh reality.
 // If the live site hasn't deployed the fix yet, skips the DB overwrite and
 // returns liveSiteStale: true so the caller can include it in the response.
+// If the fetch itself fails (CORS, timeout, blocked), returns fetchFailed: true
+// so the caller can show a softer "scan unavailable" message instead of an error.
 async function rescrapeAndUpdate(
   url: string,
   cleanDomain: string,
   fixedIssueKeys: string[],
-): Promise<{ liveSiteStale: boolean }> {
+): Promise<{ liveSiteStale: boolean; fetchFailed: boolean }> {
   try {
     await new Promise(r => setTimeout(r, 3000));
     console.log('[site-audit/fix] re-scraping live page:', url);
@@ -534,10 +536,10 @@ async function rescrapeAndUpdate(
         hasFaq:       freshSignals.hasFaq,
       });
     }
-    return { liveSiteStale: stale };
+    return { liveSiteStale: stale, fetchFailed: false };
   } catch (e) {
-    console.error('[site-audit/fix] re-scrape failed:', e);
-    return { liveSiteStale: false };
+    console.error('[site-audit/fix] re-scrape failed (keeping existing audit data):', e);
+    return { liveSiteStale: true, fetchFailed: true };
   }
 }
 
@@ -821,7 +823,7 @@ Write the complete component now. Output TSX only.`;
       }
 
       // Re-scrape live page — update DB with real current state and detect stale deployment
-      const { liveSiteStale: createStale } = await rescrapeAndUpdate(url, cleanDomain, fi);
+      const { liveSiteStale: createStale, fetchFailed: createFetchFailed } = await rescrapeAndUpdate(url, cleanDomain, fi);
 
       return NextResponse.json({
         success: true,
@@ -845,7 +847,9 @@ Write the complete component now. Output TSX only.`;
         scoreAfterFix: saf,
         liveSiteStale: createStale,
         liveSiteStaleMessage: createStale
-          ? 'Fix pushed to GitHub but live site still shows old content — your hosting needs to redeploy before changes appear here'
+          ? createFetchFailed
+            ? 'Fix pushed to GitHub. Live site re-scan unavailable right now — issues shown are from the last successful scan.'
+            : 'Fix pushed to GitHub but live site still shows old content — your hosting needs to redeploy before changes appear here'
           : undefined,
       });
     }
@@ -955,7 +959,7 @@ RULES:
       }
 
       // Re-scrape live page — update DB with real current state and detect stale deployment
-      const { liveSiteStale: rewriteStale } = await rescrapeAndUpdate(url, cleanDomain, fi);
+      const { liveSiteStale: rewriteStale, fetchFailed: rewriteFetchFailed } = await rescrapeAndUpdate(url, cleanDomain, fi);
 
       return NextResponse.json({
         success: true,
@@ -979,7 +983,9 @@ RULES:
         scoreAfterFix: saf,
         liveSiteStale: rewriteStale,
         liveSiteStaleMessage: rewriteStale
-          ? 'Fix pushed to GitHub but live site still shows old content — your hosting needs to redeploy before changes appear here'
+          ? rewriteFetchFailed
+            ? 'Fix pushed to GitHub. Live site re-scan unavailable right now — issues shown are from the last successful scan.'
+            : 'Fix pushed to GitHub but live site still shows old content — your hosting needs to redeploy before changes appear here'
           : undefined,
       });
     }
@@ -1117,9 +1123,11 @@ Write the fully improved, humanised article now. Make it rank #1 for "${kwData.p
 
     // Re-scrape live page only when we pushed to GitHub (so deployment may have run)
     let liveSiteStale = false;
+    let liveSiteFetchFailed = false;
     if (commitUrl) {
-      const { liveSiteStale: htmlStale } = await rescrapeAndUpdate(url, cleanDomain, fixedIssues);
+      const { liveSiteStale: htmlStale, fetchFailed: htmlFetchFailed } = await rescrapeAndUpdate(url, cleanDomain, fixedIssues);
       liveSiteStale = htmlStale;
+      liveSiteFetchFailed = htmlFetchFailed;
     }
 
     return NextResponse.json({
@@ -1144,7 +1152,9 @@ Write the fully improved, humanised article now. Make it rank #1 for "${kwData.p
       scoreAfterFix,
       liveSiteStale,
       liveSiteStaleMessage: liveSiteStale
-        ? 'Fix pushed to GitHub but live site still shows old content — your hosting needs to redeploy before changes appear here'
+        ? liveSiteFetchFailed
+          ? 'Fix pushed to GitHub. Live site re-scan unavailable right now — issues shown are from the last successful scan.'
+          : 'Fix pushed to GitHub but live site still shows old content — your hosting needs to redeploy before changes appear here'
         : undefined,
     });
 
