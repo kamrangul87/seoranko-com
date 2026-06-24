@@ -111,7 +111,7 @@ export default function InstallPage() {
   const [siteId, setSiteId] = useState('');
   const [copied, setCopied] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [verifyResult, setVerifyResult] = useState<'found' | 'not_found' | null>(null);
+  const [verifyResult, setVerifyResult] = useState<'verified' | 'script_not_found' | 'wrong_site_id' | 'site_unreachable' | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [detected, setDetected] = useState<Detected | null>(null);
   const [showAllPlatforms, setShowAllPlatforms] = useState(false);
@@ -187,9 +187,9 @@ export default function InstallPage() {
     try {
       const res = await fetch(`/api/verify-install?domain=${encodeURIComponent(siteId)}`);
       const data = await res.json();
-      setVerifyResult(data.found ? 'found' : 'not_found');
+      setVerifyResult(data.verified ? 'verified' : (data.reason ?? 'script_not_found'));
     } catch {
-      setVerifyResult('not_found');
+      setVerifyResult('site_unreachable');
     } finally {
       setVerifying(false);
     }
@@ -457,14 +457,24 @@ export default function InstallPage() {
         >
           {verifying ? 'Checking...' : 'Verify Installation'}
         </button>
-        {verifyResult === 'found' && (
+        {verifyResult === 'verified' && (
           <div style={{ marginTop: '12px', padding: '10px 14px', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', fontSize: '13px', color: '#16A34A', fontWeight: 600 }}>
-            ✅ Script detected — SEO fixes are live on {siteId}!
+            ✅ Script detected with correct site ID — SEO fixes are live on {siteId}!
           </div>
         )}
-        {verifyResult === 'not_found' && (
+        {verifyResult === 'wrong_site_id' && (
           <div style={{ marginTop: '12px', padding: '10px 14px', background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: '8px', fontSize: '13px', color: '#C2410C' }}>
-            ⚠️ Script not detected yet. Make sure you saved/deployed your changes, then try again.
+            ⚠️ Found seoranko.js but the <code>data-site-id</code> does not match <strong>{siteId}</strong>. Update the script tag with the correct site ID.
+          </div>
+        )}
+        {verifyResult === 'script_not_found' && (
+          <div style={{ marginTop: '12px', padding: '10px 14px', background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: '8px', fontSize: '13px', color: '#C2410C' }}>
+            ⚠️ Script not detected. Make sure you saved and deployed your changes, then try again.
+          </div>
+        )}
+        {verifyResult === 'site_unreachable' && (
+          <div style={{ marginTop: '12px', padding: '10px 14px', background: '#F5F4F1', border: '1px solid #E8E8E4', borderRadius: '8px', fontSize: '13px', color: '#6B6B6B' }}>
+            Could not reach {siteId} — check the domain is correct and publicly accessible.
           </div>
         )}
       </div>
