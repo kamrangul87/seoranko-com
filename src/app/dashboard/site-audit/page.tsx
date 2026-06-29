@@ -115,10 +115,8 @@ export default function SiteAuditPage() {
   const [showExpandedNote, setShowExpandedNote] = useState(false);
 
   // Quick Fix via SEORANKO script
-  const [quickFixOpen, setQuickFixOpen] = useState<{ pageUrl: string; issueMsg: string } | null>(null);
-  const [quickFixValue, setQuickFixValue] = useState('');
-  const [quickFixSaving, setQuickFixSaving] = useState(false);
   const [quickFixSaved, setQuickFixSaved] = useState<Set<string>>(new Set());
+  const [applyingFixKey, setApplyingFixKey] = useState<string | null>(null);
   // null = not yet checked, true = script installed + verified, false = not verified
   const [siteVerified, setSiteVerified] = useState<boolean | null>(null);
 
@@ -760,34 +758,6 @@ export default function SiteAuditPage() {
   function scoreColor(s: number) { return s >= 70 ? '#16A34A' : s >= 50 ? '#EF9F27' : '#DC2626'; }
   function gradeLabel(s: number) { return s >= 80 ? 'A' : s >= 70 ? 'B' : s >= 50 ? 'C' : s >= 30 ? 'D' : 'F'; }
 
-  function getFixInstruction(message: string): string {
-    if (message.startsWith('Missing title tag')) return 'Add a <title> tag in <head> — 50-60 characters, lead with your target keyword';
-    if (message.startsWith('Missing H1')) return 'Add a single <h1> at the top of your content — include your primary keyword naturally';
-    if (message.startsWith('Missing meta description')) return 'Add <meta name="description"> — 140-160 chars, include keyword and a clear call to action';
-    if (message.startsWith('No structured data')) return 'Add Article + FAQPage JSON-LD in a <script type="application/ld+json"> tag';
-    if (message.startsWith('Thin content') || message.startsWith('Low word count')) return 'Expand to 800-1500+ words covering subtopics, FAQs, and related questions';
-    if (message.startsWith('No internal links')) return 'Add 3-5 internal links to related pages using descriptive anchor text';
-    if (message.startsWith('Missing Open Graph')) return 'Add og:title, og:description, og:image in <head> for social sharing previews';
-    if (message.startsWith('No images')) return 'Add 2-3 relevant images with descriptive alt text — use WebP format';
-    if (message.startsWith('Noindex')) return 'Remove noindex tag — check your CMS SEO settings and X-Robots-Tag headers';
-    if (message.startsWith('Missing viewport')) return 'Add <meta name="viewport" content="width=device-width, initial-scale=1"> to <head>';
-    if (message.startsWith('No canonical')) return 'Add <link rel="canonical" href="https://yourdomain.com/this-page"> to <head>';
-    if (message.startsWith('Title too long')) return 'Shorten title to under 60 characters — remove filler words, keep the keyword';
-    if (message.startsWith('Title too short')) return 'Expand title to 50-60 characters — add primary keyword and key benefit';
-    if (message.startsWith('Meta description too long')) return 'Shorten to under 160 characters — cut from the end, keep keyword and CTA';
-    if (message.startsWith('Meta description too short')) return 'Expand to 140-160 characters — describe the page benefit and include the keyword';
-    if (message.startsWith('Multiple H1')) return 'Keep only one <h1> per page — change additional H1s to <h2>';
-    if (message.startsWith('No H2')) return 'Add 4-5 H2 headings to structure content into clear, scannable sections';
-    if (message.startsWith('No external links')) return 'Add 2-3 outbound links to authoritative sources (gov.uk, NHS, official bodies)';
-    if (message.startsWith('No official source')) return 'Cite 2+ official sources — link to gov.uk, NHS, or recognised industry authorities';
-    if (message.startsWith('Slow server')) return 'Improve server response — use edge hosting, enable caching, optimise database calls';
-    if (message.startsWith('Duplicate title')) return 'Write a unique title for this page — no two pages should share identical titles';
-    if (message.startsWith('Duplicate meta')) return 'Write a unique meta description for this specific page';
-    if (message.startsWith('FAQ content') || message.startsWith('Long-form content lacks')) return 'Add FAQPage JSON-LD with 4-6 Q&A pairs targeting People Also Ask results';
-    if (message.startsWith('Page not found')) return 'Create this route — use the "Create This Page" button to generate a full Next.js component';
-    return 'Review and resolve this issue to improve your SEO score';
-  }
-
   function handleMarkIssueFixed(pageUrl: string, issue: any) {
     if (!results?.results) return;
     const updatedPages = results.results.map((r: any) => {
@@ -817,33 +787,40 @@ export default function SiteAuditPage() {
     });
   }
 
-  function issueFixType(msg: string): string | null {
-    if (msg.startsWith('Missing title') || msg.startsWith('Title too')) return 'meta_title';
-    if (msg.startsWith('Missing meta description') || msg.startsWith('Meta description too')) return 'meta_description';
-    if (msg.startsWith('Missing H1')) return 'h1';
-    if (msg.startsWith('No canonical')) return 'canonical';
-    if (msg.startsWith('Missing Open Graph')) return 'og_title';
-    return null;
-  }
-
-  async function handleQuickFix(pageUrl: string, issueMsg: string, fixType: string, value: string) {
-    if (!domain || !value.trim()) return;
-    setQuickFixSaving(true);
+  async function handleApplyFix(pageUrl: string, issue: any) {
+    if (!domain || !issue.fix_value) return;
+    const siteId = domain.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0].toLowerCase();
+    const key = `${pageUrl}::${issue.fix_type}`;
+    setApplyingFixKey(key);
     try {
-      const siteId = domain.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0].toLowerCase();
-      const res = await fetch('/api/fixes', {
+      const res = await fetch('/api/site-audit/apply-fix', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ site_id: siteId, page_url: pageUrl, fix_type: fixType, new_value: value.trim() }),
+        body: JSON.stringify({
+          site_id: siteId,
+          page_url: pageUrl,
+          fix_type: issue.fix_type,
+          fix_value: issue.fix_value,
+          old_value: issue.current_value ?? '',
+        }),
       });
       if (res.ok) {
-        setQuickFixSaved(prev => { const s = new Set(prev); s.add(`${pageUrl}::${fixType}`); return s; });
-        setQuickFixOpen(null);
-        setQuickFixValue('');
+        setQuickFixSaved(prev => { const s = new Set(prev); s.add(key); return s; });
+        // Optimistically remove the deduction from score
+        handleMarkIssueFixed(pageUrl, issue);
       }
     } catch { /* silent */ } finally {
-      setQuickFixSaving(false);
+      setApplyingFixKey(null);
     }
+  }
+
+  function handleCopyFixCode(issue: any) {
+    const code = issue.fix_value || issue.message;
+    navigator.clipboard.writeText(code).catch(() => {});
+    // Show brief feedback via quickFixSaved re-use (use a copy-specific key)
+    const key = `copy::${issue.message.slice(0, 30)}`;
+    setQuickFixSaved(prev => { const s = new Set(prev); s.add(key); return s; });
+    setTimeout(() => setQuickFixSaved(prev => { const s = new Set(prev); s.delete(key); return s; }), 2000);
   }
 
   const activePlatform = PLATFORMS.find(p => p.id === selectedPlatform);
@@ -1442,10 +1419,18 @@ export default function SiteAuditPage() {
                                                 const sevBorder = issue.severity === 'critical' ? '#FECACA' : issue.severity === 'warning' ? '#FDE68A' : '#BFDBFE';
                                                 const sevLabel = issue.severity === 'critical' ? 'CRITICAL' : issue.severity === 'warning' ? 'WARNING' : 'NOTICE';
                                                 const sevPts = issue.deduction > 0 ? `-${issue.deduction}pts` : '';
-                                                const fixInstr = getFixInstruction(issue.message);
+                                                const effortIcon = issue.effort === '2min' ? '⚡' : issue.effort === '30min' ? '🔧' : issue.effort === '1hour' ? '🛠️' : null;
+                                                const effortColor = issue.effort === '2min' ? '#16A34A' : issue.effort === '30min' ? '#D97706' : '#6B7280';
+                                                const fixKey = issue.fix_type ? `${page.url}::${issue.fix_type}` : '';
+                                                const isApplied = fixKey ? quickFixSaved.has(fixKey) : false;
+                                                const isApplying = applyingFixKey === fixKey;
+                                                const copyKey = `copy::${issue.message.slice(0, 30)}`;
+                                                const isCopied = quickFixSaved.has(copyKey);
+
                                                 return (
                                                   <div key={j} style={{ background: '#fff', border: '1px solid #E8E8E4', borderRadius: '8px', padding: '10px 12px' }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: fixInstr ? '4px' : '6px' }}>
+                                                    {/* Header row: severity badge + message + effort badge */}
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' as const, marginBottom: '6px' }}>
                                                       <span style={{
                                                         fontSize: '9px', fontWeight: 700, padding: '2px 6px', borderRadius: '20px',
                                                         background: sevBg, color: sevColor, border: `1px solid ${sevBorder}`,
@@ -1453,85 +1438,76 @@ export default function SiteAuditPage() {
                                                       }}>
                                                         {sevLabel}{sevPts ? ` ${sevPts}` : ''}
                                                       </span>
-                                                      <span style={{ fontSize: '12px', color: '#0F0F0F', fontWeight: 500 }}>{issue.message}</span>
+                                                      <span style={{ fontSize: '12px', color: '#0F0F0F', fontWeight: 500, flex: 1 }}>{issue.message}</span>
+                                                      {effortIcon && (
+                                                        <span style={{ fontSize: '9px', fontWeight: 700, color: effortColor, whiteSpace: 'nowrap' as const, flexShrink: 0 }}>
+                                                          {effortIcon} {issue.effort} fix
+                                                        </span>
+                                                      )}
                                                     </div>
-                                                    {fixInstr && (
-                                                      <div style={{ fontSize: '11px', color: '#6B6B6B', marginBottom: '8px', paddingLeft: '2px' }}>
-                                                        💡 {fixInstr}
+
+                                                    {/* Fix preview: current value (red) → fix value (green) */}
+                                                    {(issue.current_value !== undefined || issue.fix_value) && !isApplied && (
+                                                      <div style={{ marginBottom: '8px', fontSize: '11px' }}>
+                                                        {issue.current_value !== undefined && issue.current_value !== '' && (
+                                                          <div style={{ color: '#DC2626', marginBottom: '2px' }}>
+                                                            <span style={{ fontWeight: 600 }}>Currently: </span>
+                                                            <span style={{ fontFamily: 'monospace', background: '#FEF2F2', padding: '1px 4px', borderRadius: '3px' }}>
+                                                              {issue.current_value.length > 80 ? issue.current_value.slice(0, 80) + '...' : issue.current_value}
+                                                            </span>
+                                                          </div>
+                                                        )}
+                                                        {issue.fix_value && (
+                                                          <div style={{ color: '#16A34A' }}>
+                                                            <span style={{ fontWeight: 600 }}>Will become: </span>
+                                                            <span style={{ fontFamily: 'monospace', background: '#F0FDF4', padding: '1px 4px', borderRadius: '3px' }}>
+                                                              {issue.fix_value.length > 80 ? issue.fix_value.slice(0, 80) + '...' : issue.fix_value}
+                                                            </span>
+                                                          </div>
+                                                        )}
                                                       </div>
                                                     )}
-                                                    {(() => {
-                                                      const fixType = issueFixType(issue.message);
-                                                      if (!fixType) return null;
-                                                      const savedKey = `${page.url}::${fixType}`;
-                                                      const isOpen = quickFixOpen?.pageUrl === page.url && quickFixOpen?.issueMsg === issue.message;
-                                                      const isSaved = quickFixSaved.has(savedKey);
 
-                                                      // Saved — show confirmation
-                                                      if (isSaved) {
-                                                        return (
-                                                          <div style={{ fontSize: '11px', color: '#16A34A', fontWeight: 600, marginBottom: '6px' }}>
-                                                            ✅ Fix live within 60 seconds
-                                                          </div>
-                                                        );
-                                                      }
+                                                    {/* Applied confirmation */}
+                                                    {isApplied && (
+                                                      <div style={{ fontSize: '11px', color: '#16A34A', fontWeight: 600, marginBottom: '8px' }}>
+                                                        ✅ Fix applied — live on your site within 60 seconds via SEORANKO script
+                                                      </div>
+                                                    )}
 
-                                                      // Script not installed — prompt to install
-                                                      if (siteVerified === false) {
-                                                        return (
-                                                          <a
-                                                            href="/dashboard/install"
-                                                            onClick={e => e.stopPropagation()}
-                                                            style={{ fontSize: '10px', fontWeight: 600, padding: '3px 8px', background: '#F5F4F1', color: '#6B6B6B', border: '1px solid #E8E8E4', borderRadius: '4px', cursor: 'pointer', marginBottom: '6px', display: 'inline-block', textDecoration: 'none' }}
+                                                    {/* Action buttons */}
+                                                    {!isApplied && (
+                                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' as const }}>
+                                                        {issue.auto_fixable && issue.fix_value ? (
+                                                          siteVerified === false ? (
+                                                            <a
+                                                              href="/dashboard/install"
+                                                              onClick={e => e.stopPropagation()}
+                                                              style={{ fontSize: '10px', fontWeight: 600, padding: '4px 10px', background: '#F5F4F1', color: '#6B6B6B', border: '1px solid #E8E8E4', borderRadius: '4px', cursor: 'pointer', textDecoration: 'none' }}
+                                                            >
+                                                              ⚡ Install script to apply instantly →
+                                                            </a>
+                                                          ) : (
+                                                            <button
+                                                              onClick={e => { e.stopPropagation(); handleApplyFix(page.url, issue); }}
+                                                              disabled={isApplying}
+                                                              style={{ fontSize: '11px', fontWeight: 700, padding: '5px 12px', background: isApplying ? '#D1FAE5' : '#16A34A', color: '#fff', border: 'none', borderRadius: '6px', cursor: isApplying ? 'default' : 'pointer', whiteSpace: 'nowrap' as const }}
+                                                            >
+                                                              {isApplying ? '⏳ Applying...' : '⚡ Apply Fix Now'}
+                                                            </button>
+                                                          )
+                                                        ) : issue.fix_value ? (
+                                                          <button
+                                                            onClick={e => { e.stopPropagation(); handleCopyFixCode(issue); }}
+                                                            style={{ fontSize: '11px', fontWeight: 600, padding: '5px 12px', background: isCopied ? '#F0FDF4' : '#F5F4F1', color: isCopied ? '#16A34A' : '#374151', border: `1px solid ${isCopied ? '#BBF7D0' : '#E8E8E4'}`, borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
                                                           >
-                                                            ⚡ Install script to apply fix instantly →
-                                                          </a>
-                                                        );
-                                                      }
+                                                            {isCopied ? '✅ Copied!' : '📋 Copy Fix Code'}
+                                                          </button>
+                                                        ) : null}
+                                                      </div>
+                                                    )}
 
-                                                      // Input open — show inline editor
-                                                      if (isOpen) {
-                                                        return (
-                                                          <div onClick={e => e.stopPropagation()} style={{ marginBottom: '8px' }}>
-                                                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '4px' }}>
-                                                              <input
-                                                                autoFocus
-                                                                type="text"
-                                                                value={quickFixValue}
-                                                                onChange={e => setQuickFixValue(e.target.value)}
-                                                                onKeyDown={e => { if (e.key === 'Enter') handleQuickFix(page.url, issue.message, fixType, quickFixValue); if (e.key === 'Escape') { setQuickFixOpen(null); setQuickFixValue(''); } }}
-                                                                placeholder={`New ${fixType.replace(/_/g, ' ')}…`}
-                                                                style={{ flex: 1, fontSize: '11px', padding: '5px 8px', border: '1px solid #E8E8E4', borderRadius: '6px', outline: 'none' }}
-                                                              />
-                                                              <button
-                                                                onClick={() => handleQuickFix(page.url, issue.message, fixType, quickFixValue)}
-                                                                disabled={quickFixSaving || !quickFixValue.trim()}
-                                                                style={{ fontSize: '11px', fontWeight: 600, padding: '5px 10px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap' as const }}
-                                                              >
-                                                                {quickFixSaving ? '…' : 'Apply Fix'}
-                                                              </button>
-                                                              <button
-                                                                onClick={() => { setQuickFixOpen(null); setQuickFixValue(''); }}
-                                                                style={{ fontSize: '11px', padding: '5px 8px', background: '#F5F4F1', color: '#6B6B6B', border: '1px solid #E8E8E4', borderRadius: '6px', cursor: 'pointer' }}
-                                                              >
-                                                                Cancel
-                                                              </button>
-                                                            </div>
-                                                            <div style={{ fontSize: '10px', color: '#9B9B9B' }}>Fix live within 60 seconds via SEORANKO script</div>
-                                                          </div>
-                                                        );
-                                                      }
-
-                                                      // Default — show Apply Fix button (verified or still loading)
-                                                      return (
-                                                        <button
-                                                          onClick={e => { e.stopPropagation(); setQuickFixOpen({ pageUrl: page.url, issueMsg: issue.message }); setQuickFixValue(''); }}
-                                                          style={{ fontSize: '10px', fontWeight: 600, padding: '3px 8px', background: '#FFF7ED', color: '#C2410C', border: '1px solid #FED7AA', borderRadius: '4px', cursor: 'pointer', marginBottom: '6px', display: 'inline-block' }}
-                                                        >
-                                                          ⚡ Apply Fix
-                                                        </button>
-                                                      );
-                                                    })()}
+                                                    {/* Mark as Fixed manually */}
                                                     <label
                                                       onClick={e => e.stopPropagation()}
                                                       style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '11px', color: '#6B6B6B' }}

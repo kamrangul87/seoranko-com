@@ -5,6 +5,12 @@ export interface AuditIssue {
   category: 'crawlability' | 'onpage' | 'technical' | 'content' | 'schema' | 'security' | 'speed' | 'ai' | 'links' | 'mobile' | 'depth';
   message: string;
   deduction: number;
+  fix_type?: string;
+  current_value?: string;
+  fix_value?: string;
+  fix_preview?: string;
+  effort?: '2min' | '30min' | '1hour';
+  auto_fixable?: boolean;
 }
 
 export interface PageSignals {
@@ -323,6 +329,199 @@ export async function fetchPageSignals(url: string): Promise<PageSignals> {
   } catch (err: any) {
     return emptyPage(url, { fetchTimeMs: Date.now() - startTime, fetchError: err.message?.slice(0, 100) });
   }
+}
+
+function attachFixes(issues: AuditIssue[], page: PageSignals): AuditIssue[] {
+  const domain = (() => {
+    try { return new URL(page.url).hostname.replace(/^www\./, ''); } catch { return ''; }
+  })();
+
+  // Smart fix values derived from page signals
+  const fixedTitle = (() => {
+    if (!page.title) return page.h1?.slice(0, 55) || domain;
+    // Trim to 55 chars at a word boundary
+    const words = page.title.replace(/\s*[\|—\-]\s*.{10,}$/, '').trim().split(' ');
+    let out = '';
+    for (const w of words) {
+      if ((out + ' ' + w).trim().length <= 55) out = (out + ' ' + w).trim();
+      else break;
+    }
+    return out || page.title.slice(0, 55);
+  })();
+
+  const generatedMeta = (() => {
+    const base = page.h1 || page.title || domain;
+    return `${base.slice(0, 80)} — comprehensive guide covering everything you need to know. Read now.`.slice(0, 140);
+  })();
+
+  const fixedMeta = (() => {
+    if (!page.metaDescription) return generatedMeta;
+    if (page.metaDescription.length > 160) return page.metaDescription.slice(0, 157) + '...';
+    if (page.metaDescription.length < 70) {
+      const expanded = page.metaDescription + ' ' + (page.h1 || domain);
+      return expanded.slice(0, 140);
+    }
+    return page.metaDescription;
+  })();
+
+  const h1Derived = page.title
+    ? page.title.replace(/\s*[\|—\-]\s*.{5,}$/, '').trim().slice(0, 70)
+    : (page.h2s?.[0] || domain);
+
+  const canonicalFixed = page.url
+    .replace(/^http:\/\//, 'https://')
+    .replace(/\/\/www\./, '//')
+    .replace(/\/$/, '');
+
+  const minimalSchema = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: page.title || page.h1 || domain,
+    url: page.url,
+    datePublished: new Date().toISOString().slice(0, 10),
+    dateModified: new Date().toISOString().slice(0, 10),
+    author: { '@type': 'Person', name: 'Author' },
+    publisher: { '@type': 'Organization', name: domain },
+  }, null, 2);
+
+  return issues.map(issue => {
+    const msg = issue.message;
+    let fix_type: string | undefined;
+    let current_value: string | undefined;
+    let fix_value: string | undefined;
+    let fix_preview: string | undefined;
+    let effort: '2min' | '30min' | '1hour';
+    let auto_fixable = false;
+
+    // ── Title issues ──────────────────────────────────────────────────────────
+    if (msg.startsWith('Missing title tag')) {
+      fix_type = 'meta_title'; effort = '2min'; auto_fixable = true;
+      current_value = ''; fix_value = h1Derived || domain;
+      fix_preview = `Set title to "${fix_value}"`;
+    } else if (msg.startsWith('Title too long')) {
+      fix_type = 'meta_title'; effort = '2min'; auto_fixable = true;
+      current_value = page.title;
+      fix_value = fixedTitle;
+      fix_preview = `Change from "${page.title.slice(0, 35)}..." to "${fixedTitle}"`;
+    } else if (msg.startsWith('Title too short')) {
+      fix_type = 'meta_title'; effort = '2min'; auto_fixable = true;
+      current_value = page.title;
+      fix_value = (page.title + (page.h2s?.[0] ? ` — ${page.h2s[0].slice(0, 20)}` : '')).slice(0, 60);
+      fix_preview = `Expand to "${fix_value}"`;
+    }
+    // ── Meta description issues ───────────────────────────────────────────────
+    else if (msg.startsWith('Missing meta description')) {
+      fix_type = 'meta_description'; effort = '2min'; auto_fixable = true;
+      current_value = ''; fix_value = generatedMeta;
+      fix_preview = `Add: "${generatedMeta.slice(0, 60)}..."`;
+    } else if (msg.startsWith('Meta description too long')) {
+      fix_type = 'meta_description'; effort = '2min'; auto_fixable = true;
+      current_value = page.metaDescription;
+      fix_value = page.metaDescription.slice(0, 157) + '...';
+      fix_preview = `Trim to "${fix_value.slice(0, 50)}..."`;
+    } else if (msg.startsWith('Meta description too short')) {
+      fix_type = 'meta_description'; effort = '2min'; auto_fixable = true;
+      current_value = page.metaDescription;
+      fix_value = fixedMeta;
+      fix_preview = `Expand to "${fixedMeta.slice(0, 60)}..."`;
+    }
+    // ── Canonical ─────────────────────────────────────────────────────────────
+    else if (msg.startsWith('No canonical tag')) {
+      fix_type = 'canonical'; effort = '2min'; auto_fixable = true;
+      current_value = ''; fix_value = canonicalFixed;
+      fix_preview = `Add canonical: "${canonicalFixed}"`;
+    } else if (msg.startsWith('Canonical points off-site')) {
+      fix_type = 'canonical'; effort = '2min'; auto_fixable = true;
+      current_value = page.canonicalUrl;
+      fix_value = canonicalFixed;
+      fix_preview = `Change canonical to "${canonicalFixed}"`;
+    }
+    // ── H1 ───────────────────────────────────────────────────────────────────
+    else if (msg.startsWith('Missing H1')) {
+      fix_type = 'h1'; effort = '30min'; auto_fixable = true;
+      current_value = ''; fix_value = h1Derived;
+      fix_preview = `Add H1: "${h1Derived}"`;
+    } else if (msg.startsWith('Multiple H1')) {
+      fix_type = 'h1'; effort = '30min'; auto_fixable = false;
+      effort = '30min';
+    }
+    // ── Open Graph ───────────────────────────────────────────────────────────
+    else if (msg.includes('Open Graph')) {
+      fix_type = 'og_title'; effort = '2min'; auto_fixable = true;
+      current_value = ''; fix_value = fixedTitle || page.title;
+      fix_preview = `Add og:title="${fix_value}" and og:description`;
+    } else if (msg.includes('og:image')) {
+      fix_type = 'og_image'; effort = '2min'; auto_fixable = false;
+    }
+    // ── Twitter ───────────────────────────────────────────────────────────────
+    else if (msg.includes('Twitter Card')) {
+      effort = '2min'; auto_fixable = false;
+    }
+    // ── Schema ───────────────────────────────────────────────────────────────
+    else if (msg.startsWith('No structured data')) {
+      fix_type = 'schema'; effort = '30min'; auto_fixable = true;
+      current_value = ''; fix_value = minimalSchema;
+      fix_preview = 'Add Article JSON-LD schema with datePublished and author';
+    } else if (msg.includes('BreadcrumbList schema') || msg.includes('breadcrumb')) {
+      effort = '30min'; auto_fixable = false;
+    } else if (msg.includes('FAQPage schema') || msg.startsWith('FAQ content')) {
+      effort = '30min'; auto_fixable = false;
+    }
+    // ── Technical / speed ────────────────────────────────────────────────────
+    else if (msg.includes('viewport')) {
+      effort = '2min'; auto_fixable = false;
+    } else if (msg.includes('lang attribute')) {
+      effort = '2min'; auto_fixable = false;
+    } else if (msg.includes('noindex') || msg.includes('Noindex') || msg.includes('X-Robots-Tag')) {
+      effort = '2min'; auto_fixable = false;
+    } else if (msg.includes('HSTS') || msg.includes('X-Frame') || msg.includes('X-Content-Type') || msg.includes('Content-Security-Policy')) {
+      effort = '1hour'; auto_fixable = false;
+    } else if (msg.includes('render-blocking') || msg.includes('GZIP') || msg.includes('Brotli')) {
+      effort = '1hour'; auto_fixable = false;
+    } else if (msg.includes('slow') || msg.includes('TTFB') || msg.includes('page size') || msg.includes('large page') || msg.includes('Large page')) {
+      effort = '1hour'; auto_fixable = false;
+    } else if (msg.includes('lazy loaded') || msg.includes('width/height') || msg.includes('layout shift')) {
+      effort = '1hour'; auto_fixable = false;
+    }
+    // ── Content ───────────────────────────────────────────────────────────────
+    else if (msg.startsWith('Thin content') || msg.startsWith('Low word count')) {
+      effort = '1hour'; auto_fixable = false;
+    } else if (msg.includes('No images') || msg.includes('images missing')) {
+      effort = '1hour'; auto_fixable = false;
+    } else if (msg.includes('official source') || msg.includes('EEAT')) {
+      effort = '1hour'; auto_fixable = false;
+    }
+    // ── Links ────────────────────────────────────────────────────────────────
+    else if (msg.includes('internal link') || msg.includes('outbound link') || msg.includes('anchor text')) {
+      effort = '30min'; auto_fixable = false;
+    }
+    // ── AI / GEO issues ──────────────────────────────────────────────────────
+    else if (msg.includes('blocked in robots.txt')) {
+      effort = '30min'; auto_fixable = false;
+    } else if (msg.includes('llms.txt')) {
+      effort = '2min'; auto_fixable = false;
+    } else if (msg.includes('Article schema') || msg.includes('dateModified') || msg.includes('author byline') || msg.includes('Person schema')) {
+      effort = '30min'; auto_fixable = false;
+    } else if (msg.includes('answer-length') || msg.includes('fact density') || msg.includes('question heading')) {
+      effort = '1hour'; auto_fixable = false;
+    } else if (msg.includes('Deprecated schema')) {
+      effort = '30min'; auto_fixable = false;
+    }
+    // ── Default ───────────────────────────────────────────────────────────────
+    else {
+      effort = '30min'; auto_fixable = false;
+    }
+
+    return {
+      ...issue,
+      ...(fix_type !== undefined ? { fix_type } : {}),
+      ...(current_value !== undefined ? { current_value } : {}),
+      ...(fix_value !== undefined ? { fix_value } : {}),
+      ...(fix_preview !== undefined ? { fix_preview } : {}),
+      effort,
+      auto_fixable,
+    };
+  });
 }
 
 export function scorePage(
@@ -727,7 +926,7 @@ export function scorePage(
     score: Math.max(0, searchScore),
     searchScore: Math.max(0, searchScore),
     aiScore: Math.max(0, aiScore),
-    issues,
+    issues: attachFixes(issues, page),
     opportunities,
   };
 }
