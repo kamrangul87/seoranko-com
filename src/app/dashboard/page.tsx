@@ -121,6 +121,15 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    id: "humanize",
+    label: "Humanize",
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+      </svg>
+    ),
+  },
+  {
     id: "improve",
     label: "Improve Article",
     href: "/dashboard/improve",
@@ -336,6 +345,21 @@ export default function DashboardPage() {
   const [images, setImages] = useState<ImagePrompt[]>([]);
   const [imagesLoading, setImagesLoading] = useState(false);
   const [imageError, setImageError] = useState("");
+
+  // Humanize state
+  const [humanizeInput, setHumanizeInput] = useState('');
+  const [humanizeKeyword, setHumanizeKeyword] = useState('');
+  const [humanizeLevel, setHumanizeLevel] = useState<'light' | 'medium' | 'aggressive'>('medium');
+  const [humanizeLoading, setHumanizeLoading] = useState(false);
+  const [humanizeError, setHumanizeError] = useState('');
+  const [humanizeResult, setHumanizeResult] = useState<{
+    humanizedHtml: string;
+    humanScore: number;
+    passesDetection: boolean;
+    seoPreserved: { linksPreserved: boolean; keywordInFirstParagraph: boolean; statsPreserved: boolean; schemaPreserved: boolean; };
+    bannedWordsRemoved: string[];
+  } | null>(null);
+  const [humanizeCopied, setHumanizeCopied] = useState(false);
 
   const visibleKeywords = keywords.filter((k) =>
     k.volume >= minVolume &&
@@ -651,6 +675,9 @@ export default function DashboardPage() {
       let articleSearchScore: number | undefined;
       let articleAiScore: number | undefined;
       let articleLlmsTxtEntry: string | undefined;
+      let articleHumanScore: number | undefined;
+      let articlePassesDetection: boolean | undefined;
+      let articleBannedWords: string[] | undefined;
       const scoresMatch = fullArticle.match(/\n<!-- SEORANKO_SCORES:(\{[\s\S]*?\}) -->[\s]*$/);
       if (scoresMatch) {
         try {
@@ -658,8 +685,19 @@ export default function DashboardPage() {
           articleSearchScore = parsed.searchScore;
           articleAiScore = parsed.aiScore;
           articleLlmsTxtEntry = parsed.llmsTxtEntry;
+          articleHumanScore = parsed.humanScore;
+          articlePassesDetection = parsed.passesDetection;
+          articleBannedWords = parsed.bannedWordsRemoved;
         } catch { /* keep undefined */ }
         fullArticle = fullArticle.replace(/\n<!-- SEORANKO_SCORES:\{[\s\S]*?\} -->[\s]*$/, '');
+      }
+
+      // Prefer humanized version if present
+      const humanizedMatch = fullArticle.match(/\n<!--SEORANKO_HUMANIZED_START-->\n([\s\S]*?)\n<!--SEORANKO_HUMANIZED_END-->/);
+      if (humanizedMatch) {
+        fullArticle = humanizedMatch[1].trim();
+      } else {
+        fullArticle = fullArticle.replace(/<!--SEORANKO_HUMANIZED_[^>]*-->/g, '').trim();
       }
 
       setArticle({
@@ -674,6 +712,9 @@ export default function DashboardPage() {
         searchScore: articleSearchScore,
         aiScore: articleAiScore,
         llmsTxtEntry: articleLlmsTxtEntry,
+        humanScore: articleHumanScore,
+        passesDetection: articlePassesDetection,
+        bannedWordsRemoved: articleBannedWords,
       });
 
       refreshUserProfile();
@@ -763,13 +804,20 @@ export default function DashboardPage() {
         }
       }
 
-      // Extract enriched article if enrichment ran, otherwise use base article
+      // Extract humanized > enriched > base article (in order of preference)
+      const humanizedMatchComp = fullArticle.match(
+        /<!--SEORANKO_HUMANIZED_START-->\n([\s\S]*?)\n<!--SEORANKO_HUMANIZED_END-->/
+      );
       const enrichedMatch = fullArticle.match(
         /<!--SEORANKO_ENRICHED_START-->\n([\s\S]*?)\n<!--SEORANKO_ENRICHED_END-->/
       );
-      const finalArticle = enrichedMatch
-        ? enrichedMatch[1]
-        : fullArticle.split('<!--SEORANKO_ENRICHING-->')[0];
+      const humanScoreMatch = fullArticle.match(/<!--SEORANKO_HUMAN_SCORE:(\d+)-->/);
+      const competitorHumanScore = humanScoreMatch ? parseInt(humanScoreMatch[1], 10) : undefined;
+      const finalArticle = humanizedMatchComp
+        ? humanizedMatchComp[1].trim()
+        : enrichedMatch
+          ? enrichedMatch[1]
+          : fullArticle.split('<!--SEORANKO_ENRICHING-->')[0];
 
       const doneBar = document.getElementById('article-progress-bar');
       const donePct = document.getElementById('article-progress-pct');
@@ -787,6 +835,8 @@ export default function DashboardPage() {
         readabilityScore: 0,
         keywordDensity: 0,
         improvements: [],
+        humanScore: competitorHumanScore,
+        passesDetection: competitorHumanScore != null ? competitorHumanScore >= 72 : undefined,
       });
 
       refreshUserProfile();
@@ -819,6 +869,30 @@ export default function DashboardPage() {
       setImageError(e instanceof Error ? e.message : "Image generation failed");
     } finally {
       setImagesLoading(false);
+    }
+  }
+
+  // ── Humanize ─────────────────────────────────────────────────────────────
+  async function handleHumanize() {
+    const html = humanizeInput.trim() || article?.article || '';
+    if (!html) return;
+    setHumanizeLoading(true);
+    setHumanizeError('');
+    setHumanizeResult(null);
+    try {
+      const res = await fetch('/api/humanize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html, keyword: humanizeKeyword || seedKeyword, level: humanizeLevel }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Humanization failed');
+      setHumanizeResult(data);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      setHumanizeError(err.message || 'Humanization failed');
+    } finally {
+      setHumanizeLoading(false);
     }
   }
 
@@ -1731,6 +1805,9 @@ export default function DashboardPage() {
                       {article.aiScore != null && (
                         <ScoreRing score={article.aiScore} label="AI Visibility" color="#EA580C" />
                       )}
+                      {article.humanScore != null && (
+                        <ScoreRing score={article.humanScore} label="Human Score" color="#7C3AED" />
+                      )}
                     </div>
                     <div className="mt-4 pt-4 border-t border-[#E8E8E4] space-y-3">
                       <div className="flex justify-between items-center">
@@ -1755,6 +1832,16 @@ export default function DashboardPage() {
                   {article.searchScore != null && article.aiScore != null && article.aiScore >= 70 && (
                     <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '12px', color: '#15803D' }}>
                       ✅ <strong>Search SEO: {article.searchScore}/100 · AI Visibility: {article.aiScore}/100</strong> — article is AI-ready
+                    </div>
+                  )}
+                  {article.humanScore != null && (
+                    <div style={{ background: article.passesDetection ? '#F5F3FF' : '#FFF7ED', border: `1px solid ${article.passesDetection ? '#DDD6FE' : '#FED7AA'}`, borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '12px', color: article.passesDetection ? '#5B21B6' : '#92400E' }}>
+                      {article.passesDetection ? '✅' : '⚠️'} <strong>Human Score: {article.humanScore}/100</strong> — {article.passesDetection ? 'Passes AI detection' : 'May trigger AI detection'}
+                      {article.bannedWordsRemoved && article.bannedWordsRemoved.length > 0 && (
+                        <div style={{ marginTop: '4px', fontSize: '11px', opacity: 0.8 }}>
+                          {article.bannedWordsRemoved.length} AI phrases removed
+                        </div>
+                      )}
                     </div>
                   )}
                   {article.llmsTxtEntry && (
@@ -1793,6 +1880,196 @@ export default function DashboardPage() {
                       </ul>
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── HUMANIZE view ── */}
+        {activeNav === "humanize" && (
+          <div className="max-w-4xl mx-auto px-8 py-8">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h1 className="text-2xl font-bold mb-1">Humanize Article</h1>
+                <p className="text-[#6B6B6B] text-sm">Remove AI patterns and score for human detection. Preserves all SEO signals.</p>
+              </div>
+            </div>
+
+            <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-6 mb-6">
+              <div className="flex items-center gap-4 mb-4 flex-wrap">
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-xs font-semibold text-[#374151] mb-1.5">Humanization Level</label>
+                  <div className="flex gap-2">
+                    {(['light', 'medium', 'aggressive'] as const).map(lvl => (
+                      <button
+                        key={lvl}
+                        onClick={() => setHumanizeLevel(lvl)}
+                        className={`px-3 py-1.5 rounded-[6px] text-xs font-semibold capitalize transition-colors ${humanizeLevel === lvl ? 'bg-[#7C3AED] text-white' : 'bg-[#F5F4F1] text-[#374151] hover:bg-[#E8E8E4]'}`}
+                      >
+                        {lvl === 'light' ? '⚡ Light' : lvl === 'medium' ? '🔧 Medium' : '🔥 Aggressive'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="w-48">
+                  <label className="block text-xs font-semibold text-[#374151] mb-1.5">Primary Keyword</label>
+                  <input
+                    type="text"
+                    value={humanizeKeyword}
+                    onChange={e => setHumanizeKeyword(e.target.value)}
+                    placeholder={seedKeyword || 'optional'}
+                    className="w-full px-3 py-1.5 text-sm border border-[#E8E8E4] rounded-[6px] outline-none focus:border-[#7C3AED]"
+                  />
+                </div>
+              </div>
+
+              <label className="block text-xs font-semibold text-[#374151] mb-1.5">Article HTML</label>
+              <textarea
+                value={humanizeInput || (article?.article ?? '')}
+                onChange={e => setHumanizeInput(e.target.value)}
+                placeholder="Paste HTML article here, or generate an article first..."
+                className="w-full h-48 px-3 py-2.5 text-sm border border-[#E8E8E4] rounded-[8px] outline-none focus:border-[#7C3AED] resize-none font-mono"
+              />
+
+              <div className="flex items-center gap-3 mt-4">
+                <button
+                  onClick={handleHumanize}
+                  disabled={humanizeLoading || (!humanizeInput.trim() && !article?.article)}
+                  className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white font-semibold text-sm px-6 py-2.5 rounded-[8px] transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  {humanizeLoading && (
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  )}
+                  {humanizeLoading
+                    ? humanizeLevel === 'light' ? 'Lightly humanizing…' : humanizeLevel === 'medium' ? 'Humanizing…' : 'Aggressively humanizing…'
+                    : '✍️ Humanize Article'}
+                </button>
+                {article && !humanizeInput && (
+                  <span className="text-xs text-[#6B6B6B]">Using current article</span>
+                )}
+              </div>
+
+              {humanizeError && (
+                <div className="mt-3 text-sm text-[#ef4444]">{humanizeError}</div>
+              )}
+            </div>
+
+            {humanizeLoading && (
+              <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-8 text-center">
+                <div className="text-3xl mb-4">✍️</div>
+                <p className="text-[#6B6B6B] text-sm mb-1">
+                  {humanizeLevel === 'light' ? 'Running quick humanization pass…' : humanizeLevel === 'medium' ? 'Rewriting with Claude Sonnet…' : 'Deep rewriting for maximum humanization…'}
+                </p>
+                <div className="flex gap-2 justify-center mt-4 text-xs text-[#9b9b9b]">
+                  <span>Layer 1: removing AI phrases</span>
+                  <span>→</span>
+                  <span>Layer 2: extracting SEO signals</span>
+                  <span>→</span>
+                  <span>Layer 3: rewriting</span>
+                  <span>→</span>
+                  <span>Layer 4: re-injecting SEO</span>
+                  <span>→</span>
+                  <span>Layer 5: scoring</span>
+                </div>
+              </div>
+            )}
+
+            {humanizeResult && !humanizeLoading && (
+              <div className="space-y-5">
+                {/* Score row */}
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                  <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-4 text-center">
+                    <div className={`text-3xl font-black ${humanizeResult.humanScore >= 72 ? 'text-[#7C3AED]' : humanizeResult.humanScore >= 50 ? 'text-[#F59E0B]' : 'text-[#ef4444]'}`}>
+                      {humanizeResult.humanScore}
+                    </div>
+                    <div className="text-xs text-[#6B6B6B] mt-1">Human Score /100</div>
+                  </div>
+                  <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-4 text-center">
+                    <div className={`text-2xl font-bold ${humanizeResult.passesDetection ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
+                      {humanizeResult.passesDetection ? 'Yes' : 'No'}
+                    </div>
+                    <div className="text-xs text-[#6B6B6B] mt-1">Passes AI Detection</div>
+                  </div>
+                  <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-4 text-center">
+                    <div className="text-2xl font-bold text-[#0F0F0F]">{humanizeResult.bannedWordsRemoved.length}</div>
+                    <div className="text-xs text-[#6B6B6B] mt-1">AI Phrases Found</div>
+                  </div>
+                  <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-4 text-center">
+                    <div className="text-2xl font-bold text-[#0F0F0F]">
+                      {[humanizeResult.seoPreserved.linksPreserved, humanizeResult.seoPreserved.keywordInFirstParagraph, humanizeResult.seoPreserved.statsPreserved, humanizeResult.seoPreserved.schemaPreserved].filter(Boolean).length}/4
+                    </div>
+                    <div className="text-xs text-[#6B6B6B] mt-1">SEO Signals Preserved</div>
+                  </div>
+                </div>
+
+                {/* SEO checklist + banned words */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-4">
+                    <p className="text-xs font-semibold text-[#6B6B6B] uppercase tracking-wide mb-3">SEO Preservation</p>
+                    <div className="space-y-2">
+                      {[
+                        { label: 'Links preserved', ok: humanizeResult.seoPreserved.linksPreserved },
+                        { label: 'Keyword in first paragraph', ok: humanizeResult.seoPreserved.keywordInFirstParagraph },
+                        { label: 'Stats & numbers preserved', ok: humanizeResult.seoPreserved.statsPreserved },
+                        { label: 'Schema markup preserved', ok: humanizeResult.seoPreserved.schemaPreserved },
+                      ].map(({ label, ok }) => (
+                        <div key={label} className="flex items-center gap-2 text-sm">
+                          <span className={ok ? 'text-[#22c55e]' : 'text-[#ef4444]'}>{ok ? '✅' : '⚠️'}</span>
+                          <span className={ok ? 'text-[#0F0F0F]' : 'text-[#6B6B6B]'}>{label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {humanizeResult.bannedWordsRemoved.length > 0 && (
+                    <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-4">
+                      <p className="text-xs font-semibold text-[#6B6B6B] uppercase tracking-wide mb-3">AI Phrases Detected</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {humanizeResult.bannedWordsRemoved.map(word => (
+                          <span key={word} className="bg-[#FEE2E2] text-[#DC2626] text-xs px-2 py-0.5 rounded-[4px] font-medium">
+                            {word}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Copy buttons */}
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(humanizeResult.humanizedHtml).then(() => {
+                        setHumanizeCopied(true);
+                        setTimeout(() => setHumanizeCopied(false), 2000);
+                      }).catch(() => {});
+                    }}
+                    className="flex-1 py-2.5 bg-[#7C3AED] hover:bg-[#6D28D9] text-white font-semibold text-sm rounded-[8px] transition-colors"
+                  >
+                    {humanizeCopied ? '✅ Copied!' : '📋 Copy HTML'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      const plain = humanizeResult.humanizedHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                      navigator.clipboard.writeText(plain).catch(() => {});
+                    }}
+                    className="flex-1 py-2.5 bg-[#F5F4F1] hover:bg-[#E8E8E4] text-[#374151] font-semibold text-sm rounded-[8px] transition-colors"
+                  >
+                    📄 Copy Plain Text
+                  </button>
+                </div>
+
+                {/* Humanized HTML preview */}
+                <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-6">
+                  <p className="text-xs font-semibold text-[#6B6B6B] uppercase tracking-wide mb-4">Humanized Article</p>
+                  <div
+                    dangerouslySetInnerHTML={{ __html: humanizeResult.humanizedHtml }}
+                    style={{ lineHeight: '1.8', fontSize: '15px', color: '#0F0F0F' }}
+                    className="article-rendered"
+                  />
                 </div>
               </div>
             )}

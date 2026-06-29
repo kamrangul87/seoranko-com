@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedFacts } from '@/lib/article-master';
+import { humanizeArticle } from '@/lib/humanizer';
 
 export const maxDuration = 300;
 
@@ -210,8 +211,24 @@ Do not write generic angles. Be specific and surprising.`
           const articleUrl = `/${keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
           const llmsTxtEntry = generateLlmsTxtEntry(fullArticle, keyword, articleUrl);
 
+          // Humanize the article — runs after stream so user sees generation in real-time
+          let humanScore: number | undefined;
+          let bannedWordsRemoved: string[] = [];
+          let passesDetection = false;
+          try {
+            const humanized = await humanizeArticle(fullArticle, { level: 'medium', primaryKeyword: keyword });
+            humanScore = humanized.humanScore;
+            bannedWordsRemoved = humanized.bannedWordsRemoved;
+            passesDetection = humanized.passesDetection;
+            controller.enqueue(encoder.encode(
+              `\n<!--SEORANKO_HUMANIZED_START-->\n${humanized.humanizedHtml}\n<!--SEORANKO_HUMANIZED_END-->`
+            ));
+          } catch (err) {
+            console.warn('[article-v2] humanization failed, continuing without:', err);
+          }
+
           // Append score metadata as a parseable HTML comment — client strips this
-          const scoreMeta = JSON.stringify({ searchScore, aiScore, llmsTxtEntry });
+          const scoreMeta = JSON.stringify({ searchScore, aiScore, llmsTxtEntry, humanScore, bannedWordsRemoved, passesDetection });
           controller.enqueue(encoder.encode(`\n<!-- SEORANKO_SCORES:${scoreMeta} -->`));
 
           controller.close();

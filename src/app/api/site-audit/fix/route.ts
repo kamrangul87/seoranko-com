@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { buildMasterPrompt, validateAndCorrect, getInternalLinks } from '@/lib/article-master';
 import { updateFixedPage, updateScrapedPage, normalizeUrl, normalizeDomain } from '@/lib/supabase/audit-db';
 import { fetchPageSignals, scorePage } from '@/lib/site-audit/scorer';
+import { humanizeArticle } from '@/lib/humanizer';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
 export const maxDuration = 300;
@@ -1068,8 +1069,20 @@ Write the fully improved, humanised article now. Make it rank #1 for "${kwData.p
     );
 
     // STEP 7.5 — Fact-check: strip fake phone numbers, addresses, emails, reg numbers
-    const { content: finalArticle, status: factCheckStatus, log: factCheckLog } = factCheckContent(validatedArticle);
+    const { content: factCheckedArticle, status: factCheckStatus, log: factCheckLog } = factCheckContent(validatedArticle);
     console.log('[site-audit/fix] fact-check:', factCheckLog);
+
+    // STEP 7.6 — Light humanization pass
+    let finalArticle = factCheckedArticle;
+    let humanScore: number | undefined;
+    try {
+      const humanized = await humanizeArticle(factCheckedArticle, { level: 'light', primaryKeyword: kwData.primary });
+      finalArticle = humanized.humanizedHtml;
+      humanScore = humanized.humanScore;
+      console.log('[site-audit/fix] human score:', humanScore);
+    } catch (err) {
+      console.warn('[site-audit/fix] humanization failed, using fact-checked article:', err);
+    }
 
     // STEP 8 — Push to GitHub for 404 pages (HTML + markdown developer guide)
     let commitUrl: string | null = null;
@@ -1133,6 +1146,7 @@ Write the fully improved, humanised article now. Make it rank #1 for "${kwData.p
     return NextResponse.json({
       success: true,
       improvedArticle: finalArticle,
+      humanScore,
       keyword: kwData.primary,
       lowKdKeywords: kwData.keywords,
       competitorsAnalysed: competitors.length,

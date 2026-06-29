@@ -7,6 +7,7 @@ import {
   generateUniqueAngle,
 } from '@/lib/competitor';
 import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedFacts } from '@/lib/article-master';
+import { humanizeArticle } from '@/lib/humanizer';
 
 export const maxDuration = 300;
 
@@ -183,36 +184,52 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // ── STEP 7: Post-write fact enrichment + validation ───────────────
+          // ── STEP 7: Post-write fact enrichment + validation + humanization ──
           if (validCompetitors.length > 0 && fullArticle.length > 200) {
-            // Signal to client that enrichment is starting
             controller.enqueue(encoder.encode('\n<!--SEORANKO_ENRICHING-->'));
 
-            const enriched = await enrichArticleWithMissingFacts(
-              fullArticle,
-              keyword,
-              validCompetitors,
-            );
-
+            const enriched = await enrichArticleWithMissingFacts(fullArticle, keyword, validCompetitors);
             const { article: validatedArticle, corrections } = await validateAndCorrect(enriched, keyword, market, liveFacts);
             if (corrections.length > 0) {
               console.log('[article-competitor] validation corrections:', corrections);
             }
 
-            // Send enriched article — client replaces base article with this
             controller.enqueue(encoder.encode(
               `\n<!--SEORANKO_ENRICHED_START-->\n${validatedArticle}\n<!--SEORANKO_ENRICHED_END-->`
             ));
+
+            // Humanize after enrichment
+            try {
+              const humanized = await humanizeArticle(validatedArticle, { level: 'medium', primaryKeyword: keyword });
+              controller.enqueue(encoder.encode(
+                `\n<!--SEORANKO_HUMANIZED_START-->\n${humanized.humanizedHtml}\n<!--SEORANKO_HUMANIZED_END-->`
+              ));
+              controller.enqueue(encoder.encode(
+                `\n<!--SEORANKO_HUMAN_SCORE:${humanized.humanScore}-->`
+              ));
+            } catch (err) {
+              console.warn('[article-competitor] humanization failed:', err);
+            }
           } else if (fullArticle.length > 200) {
-            // No competitors fetched — still validate; the client only replaces
-            // the article when the ENRICHED markers arrive, so only send them
-            // when a correction actually changed something
             const { article: validatedArticle, corrections } = await validateAndCorrect(fullArticle, keyword, market, liveFacts);
             if (corrections.length > 0) {
               console.log('[article-competitor] validation corrections:', corrections);
               controller.enqueue(encoder.encode(
                 `\n<!--SEORANKO_ENRICHING-->\n<!--SEORANKO_ENRICHED_START-->\n${validatedArticle}\n<!--SEORANKO_ENRICHED_END-->`
               ));
+            }
+
+            // Humanize base article
+            try {
+              const humanized = await humanizeArticle(validatedArticle || fullArticle, { level: 'medium', primaryKeyword: keyword });
+              controller.enqueue(encoder.encode(
+                `\n<!--SEORANKO_HUMANIZED_START-->\n${humanized.humanizedHtml}\n<!--SEORANKO_HUMANIZED_END-->`
+              ));
+              controller.enqueue(encoder.encode(
+                `\n<!--SEORANKO_HUMAN_SCORE:${humanized.humanScore}-->`
+              ));
+            } catch (err) {
+              console.warn('[article-competitor] humanization (base) failed:', err);
             }
           }
 

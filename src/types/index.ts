@@ -128,6 +128,9 @@ export interface ArticleOutput {
   searchScore?: number;
   aiScore?: number;
   llmsTxtEntry?: string;
+  humanScore?: number;
+  passesDetection?: boolean;
+  bannedWordsRemoved?: string[];
 }
 
 export interface ArticleResponse {

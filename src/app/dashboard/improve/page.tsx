@@ -100,12 +100,18 @@ export default function ImproveArticlePage() {
 
       const meta = JSON.parse(metaMatch[1]);
       const statsMatch = fullText.match(/<!--SEORANKO_STATS_START-->([\s\S]*?)<!--SEORANKO_STATS_END-->/);
+
+      // Prefer humanized version if available
+      const humanizedMatch = fullText.match(/<!--SEORANKO_HUMANIZED_START-->\n([\s\S]*?)\n<!--SEORANKO_HUMANIZED_END-->/);
+
       const articleStart = fullText.indexOf('<!--SEORANKO_META_END-->') + '<!--SEORANKO_META_END-->'.length;
       const articleEnd = statsMatch ? fullText.indexOf('<!--SEORANKO_STATS_START-->') : fullText.length;
-      const improvedArticle = fullText
+      const rawArticle = fullText
         .slice(articleStart, articleEnd)
         .replace(/<!--SEORANKO_STAGE:\w+-->/g, '')
+        .replace(/<!--SEORANKO_HUMANIZED_START-->[\s\S]*?<!--SEORANKO_HUMANIZED_END-->/g, '')
         .trim();
+      const improvedArticle = humanizedMatch ? humanizedMatch[1].trim() : rawArticle;
 
       if (!improvedArticle) {
         setError('The rewrite did not complete — please try again');

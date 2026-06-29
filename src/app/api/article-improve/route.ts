@@ -7,6 +7,7 @@ import {
   generateUniqueAngle,
 } from '@/lib/competitor';
 import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedFacts } from '@/lib/article-master';
+import { humanizeArticle } from '@/lib/humanizer';
 
 // Fluid compute (default on Vercel) allows up to 300s on Hobby. The full
 // pipeline (audit + scraping + NLP + angle + 6000-token generation) needs
@@ -213,6 +214,16 @@ Return ONLY valid JSON no markdown:
           console.log('[article-improve] validation corrections:', corrections);
         }
 
+        // Humanize the validated article
+        let humanScore: number | undefined;
+        try {
+          const humanized = await humanizeArticle(validatedArticle, { level: 'medium', primaryKeyword: targetKeyword });
+          humanScore = humanized.humanScore;
+          send(`<!--SEORANKO_HUMANIZED_START-->\n${humanized.humanizedHtml}\n<!--SEORANKO_HUMANIZED_END-->`);
+        } catch (err) {
+          console.warn('[article-improve] humanization failed, continuing without:', err);
+        }
+
         // Calculate new word count and score
         const newWordCount = validatedArticle.replace(/<[^>]*>/g, '').trim().split(/\s+/).filter(Boolean).length;
         const newEeatScore = Math.min(95, (audit.eeat_score || 0) + 55 + (nlpData.contentGaps.length * 3));
@@ -232,6 +243,7 @@ Return ONLY valid JSON no markdown:
           JSON.stringify({
             improvements,
             factsFixed: corrections,
+            humanScore,
             stats: {
               originalWordCount: audit.word_count || 0,
               newWordCount,
