@@ -307,7 +307,6 @@ export default function SiteAuditPage() {
       '',
       '## Important Pages',
       ...pages.slice(0, 30).map((r: any) => {
-        const path = r.url.replace(/^https?:\/\/[^/]+/, '') || '/';
         const desc = r.metaDescription ? r.metaDescription.slice(0, 100) : r.title;
         return `- [${r.title}](${r.url}): ${desc}`;
       }),
@@ -1419,8 +1418,6 @@ export default function SiteAuditPage() {
                             const hasIssues = page.issues.length > 0;
                             const quickWins = page.aiAnalysis?.quickWins?.length > 0 ? page.aiAnalysis.quickWins : page.opportunities;
                             const showQuickWins = hasIssues && quickWins.length > 0;
-                            const aiIssues = page.issues.filter((i: any) => i.category === 'ai');
-                            const searchIssues = page.issues.filter((i: any) => i.category !== 'ai');
                             return (
                               <div style={{ display: 'grid', gridTemplateColumns: showQuickWins ? '1fr 1fr' : '1fr', gap: '20px' }}>
                                 <div>
