@@ -291,6 +291,8 @@ EXPERIENCE: "In practice...", "What most drivers find...", "The reality is..."
 EXPERTISE: Use correct technical terminology. Explain WHY, not just WHAT.
 AUTHORITATIVENESS: Cite at least 2 official ${market} sources with full URLs (use the correct official bodies and government domains for ${market})
 TRUSTWORTHINESS: Acknowledge limitations honestly. Never overpromise.
+AUTHOR IDENTITY: Include a visible byline "Written by Kamran Gul, Founder of Autodun" near the top of every article (directly after the H1 and dateline). Include Person JSON-LD schema with name, jobTitle, and worksFor fields.
+AUTHOR BIO: Include a dedicated author bio section near the bottom (2-3 sentences about Kamran Gul's expertise specifically relevant to this article's topic — concrete, no invented credentials or qualifications).
 
 ════════════════════════════════
 SECTION 3 — GOOGLE HELPFUL CONTENT (MANDATORY)
@@ -337,6 +339,34 @@ KEYWORD PLACEMENT: Primary keyword in H1, first 100 words, at least 2 H2s, concl
 SECONDARY KEYWORDS: each used at least once naturally in body text
 HEADING HIERARCHY: Exactly one H1. 6-8 H2 sections minimum. H3 subsections where needed.
 INTERNAL LINKS: Use links specified above. Descriptive anchor text only. Max 3 links.
+AI CRAWLERS: Add this meta tag at the top of every generated HTML article (as the second line, right after the META comment):
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
+This instructs Google, ChatGPT, and Perplexity to use the full content for AI snippets.
+
+════════════════════════════════
+SECTION 6.5 — AI CITATION OPTIMISATION (MANDATORY)
+════════════════════════════════
+These instructions ensure every article gets cited by AI search engines.
+
+For ChatGPT citation:
+- Include the brand/domain name (Autodun) naturally in the first 100 words
+- Keep dateModified = today's date in Article schema
+- Use clear, confident declarative statements ("X works by...", "The rule is...", not "X may work by...")
+
+For Perplexity citation:
+- FAQPage schema must be present with at least 4 questions
+- Every paragraph must stay tightly on topic — no tangents
+- Include outbound links to authoritative sources (gov.uk, official bodies, peer-reviewed sources where available)
+
+For Google AI Overviews:
+- Answer the primary question directly within the first 200 words (inverted pyramid)
+- Same on-page SEO signals as classic Search (title, H1, meta description)
+- Never add noindex
+
+For Claude/Anthropic citation:
+- Every paragraph must contain at least one verifiable fact (number, statistic, date, or named source)
+- Use clear structural hierarchy (H1 → H2 → H3) — never skip levels
+- Include authoritative citations with full source names (not just "sources say")
 
 ════════════════════════════════
 SECTION 7 — COMPLETE ARTICLE STRUCTURE
@@ -344,54 +374,71 @@ SECTION 7 — COMPLETE ARTICLE STRUCTURE
 Output in this EXACT order:
 
 LINE 1: <!-- META: [145-155 chars — include primary keyword and a clear benefit] -->
+LINE 2: <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
 
 <h1>[Title: primary keyword near start, compelling, ${currentYear} where natural, under 60 chars]</h1>
 
-<p>[Introduction: 100 words. Open with surprising fact or bold statement. State what article covers. Include primary keyword in first 100 words.]</p>
+<p class="article-dateline"><em>Last updated: ${currentMonth} ${currentYear} · Fact-checked: ${currentMonth} ${currentYear}</em></p>
+<p class="article-byline">Written by <strong>Kamran Gul</strong>, Founder of Autodun.</p>
+
+<p>[Introduction: 110 words. Open with surprising fact or bold statement. State what article covers. Include primary keyword AND the brand/site name naturally in first 100 words. Answer the primary question directly within the first 200 words (inverted pyramid for Google AI Overviews).]</p>
+
+PASSAGE CITABILITY — apply to every H2 section below:
+• Phrase every H2 and H3 as a direct question where possible (e.g. "How does X work?" not "How X Works")
+• Each H2 section must include at least one paragraph of 134-167 words that can stand alone as a complete answer — this is what AI engines extract and cite
+• The article must contain at least 5 sentences with specific facts: numbers, statistics, percentages, dates, or named authoritative sources
 
 [EXACTLY 5 H2 BODY SECTIONS — 150 words each maximum]
-<h2>[Section 1 — first major topic]</h2>
-<p>[150 words max. Concrete, specific, no filler.]</p>
+<h2>[Section 1 phrased as question — e.g. "What Is [topic] and Why Does It Matter in ${currentYear}?"]</h2>
+<p>[130-150 words. Self-contained answer — a reader should understand this without reading anything else. Include at least 1 sentence with a specific fact, statistic, or authoritative source.]</p>
 
-<h2>[Section 2 — second major topic with secondary keyword]</h2>
-<p>[150 words max. Include internal link naturally here if relevant.]</p>
+<h2>[Section 2 phrased as question — e.g. "How Does [topic] Actually Work?"]</h2>
+<p>[130-150 words. Include internal link naturally here if relevant.]</p>
 
-<h2>[Section 3 — third major topic]</h2>
-<p>[150 words max.]</p>
+<h2>[Section 3 phrased as question — e.g. "When Do You Need to [topic]?"]</h2>
+<p>[130-150 words.]</p>
 
-<h2>[Section 4 — unique gap / what competitors missed]</h2>
-<p>[150 words max. This is your competitive advantage.]</p>
+<h2>[Section 4 phrased as question — the gap competitors miss]</h2>
+<p>[130-150 words. This is your competitive advantage — include a concrete, specific fact nobody else mentions.]</p>
 
-<h2>[Section 5 — practical application / common mistakes]</h2>
-<p>[150 words max.]</p>
+<h2>[Section 5 phrased as question — e.g. "What Are the Most Common Mistakes With [topic]?"]</h2>
+<p>[130-150 words.]</p>
 ${uniqueDataSection ? uniqueDataSection : ''}
 
-<h2>What the Official Guidance Says</h2>
-<p>[100 words. Reference 2 official ${market} sources with full URLs.]</p>
+<h2>What Do Official Sources Say About This?</h2>
+<p>[100 words. Reference 2 official ${market} sources with full URLs. Use format: "According to [Source] at [URL]..."]</p>
 
 <h2>Frequently Asked Questions</h2>
-<h3>[Question 1]</h3><p>[80 words — conversational, accurate]</p>
-<h3>[Question 2]</h3><p>[80 words]</p>
-<h3>[Question 3]</h3><p>[80 words]</p>
-<h3>[Question 4]</h3><p>[80 words]</p>
+<p><em>Note: FAQPage schema no longer generates Google rich results (deprecated May 2026) but retains strong AI citation value for ChatGPT, Perplexity, and Claude — always include it.</em></p>
+<div class="faq-item"><h3>[Conversational question 1 — exactly as a user would type it, ends with question mark?]</h3><p>[60-100 words — complete, self-contained answer. No "see above" or "as mentioned". A user should get the full answer from this alone.]</p></div>
+<div class="faq-item"><h3>[Question 2?]</h3><p>[60-100 words]</p></div>
+<div class="faq-item"><h3>[Question 3?]</h3><p>[60-100 words]</p></div>
+<div class="faq-item"><h3>[Question 4?]</h3><p>[60-100 words]</p></div>
 
 <h2>The Bottom Line</h2>
 <p>[80 words. Practical summary. 2 action steps. One internal link naturally.]</p>
 
-<div class="expert-review" style="background:#F5F4F1;border-left:3px solid #FF6B2C;padding:16px 20px;border-radius:0 8px 8px 0;margin-top:32px;">
-<p style="margin:0;font-size:13px;color:#6B6B6B;"><strong style="color:#0F0F0F;">Editorial note:</strong> This article was researched using official sources. All regulatory claims reflect ${market} rules as of ${currentMonth} ${currentYear}. Always verify with the relevant official ${market} body before acting. Autodun is not a government service.</p>
+<div class="author-bio" style="background:#F0F4FF;border-left:3px solid #1D4ED8;padding:16px 20px;border-radius:0 8px 8px 0;margin-top:24px;">
+<p style="margin:0;font-size:13px;color:#0F0F0F;"><strong>About the Author</strong><br><strong>Kamran Gul</strong> is the Founder of Autodun, an independent vehicle intelligence platform based in the United Kingdom. [2-3 sentences describing Kamran's direct expertise relevant to THIS specific article's topic — be concrete and specific, never invent qualifications or credentials.]</p>
+</div>
+
+<div class="expert-review" style="background:#F5F4F1;border-left:3px solid #FF6B2C;padding:16px 20px;border-radius:0 8px 8px 0;margin-top:16px;">
+<p style="margin:0;font-size:13px;color:#6B6B6B;"><strong style="color:#0F0F0F;">Editorial note:</strong> This article was researched using official sources. All regulatory claims reflect ${market} rules as of ${currentMonth} ${currentYear}. Fact-checked: ${currentMonth} ${currentYear}. Always verify with the relevant official ${market} body before acting. Autodun is not a government service.</p>
 </div>
 
 <p class="article-meta"><em>Last updated: ${currentMonth} ${currentYear}. Always verify regulatory details with the official ${market} sources cited above.</em></p>
-<p class="article-author">Written by <strong>Kamran Gul</strong>, Founder of Autodun.</p>
 
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"Article","headline":"[exact H1 title]","author":{"@type":"Person","name":"Kamran Gul"},"publisher":{"@type":"Organization","name":"Autodun","url":"https://autodun.com"},"dateModified":"${isoDate}","inLanguage":"${inLanguage}"}
+{"@context":"https://schema.org","@type":"Article","headline":"[exact H1 title]","author":{"@type":"Person","name":"Kamran Gul","jobTitle":"Founder","worksFor":{"@type":"Organization","name":"Autodun"}},"publisher":{"@type":"Organization","name":"Autodun","url":"https://autodun.com"},"datePublished":"${isoDate}","dateModified":"${isoDate}","inLanguage":"${inLanguage}"}
+</script>
+
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Person","name":"Kamran Gul","jobTitle":"Founder","worksFor":{"@type":"Organization","name":"Autodun","url":"https://autodun.com"},"url":"https://autodun.com"}
 </script>
 
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"FAQPage","mainEntity":[
-{"@type":"Question","name":"[Q1]","acceptedAnswer":{"@type":"Answer","text":"[A1]"}},
+{"@type":"Question","name":"[Q1 — exact conversational phrasing]","acceptedAnswer":{"@type":"Answer","text":"[A1 — 60-100 words, complete self-contained answer]"}},
 {"@type":"Question","name":"[Q2]","acceptedAnswer":{"@type":"Answer","text":"[A2]"}},
 {"@type":"Question","name":"[Q3]","acceptedAnswer":{"@type":"Answer","text":"[A3]"}},
 {"@type":"Question","name":"[Q4]","acceptedAnswer":{"@type":"Answer","text":"[A4]"}}
@@ -402,23 +449,26 @@ ${uniqueDataSection ? uniqueDataSection : ''}
 SECTION 8 — ABSOLUTE COMPLETION RULE
 ════════════════════════════════
 Token budget per section — DO NOT EXCEED:
-- Introduction: 100 words
+- Introduction: 110 words
 - Each of 5 H2 body sections: 150 words
-- Official Guidance: 100 words
+- Official Sources: 100 words
 - FAQ: 4 × 80 words = 320 words
 - Bottom Line: 80 words
-- Total target: 1,250 words maximum
+- Author bio: 80 words
+- Total target: 1,340 words maximum
 
 IF APPROACHING TOKEN LIMIT AT ANY POINT:
 1. Finish the current sentence immediately
 2. Close any open HTML tag
 3. Jump directly to The Bottom Line
 4. Write Bottom Line (80 words)
-5. Write expert-review div
-6. Write footer metadata
-7. Write Article JSON-LD schema
-8. Write FAQ JSON-LD schema
-9. STOP
+5. Write author bio div
+6. Write expert-review div
+7. Write footer metadata
+8. Write Article JSON-LD schema
+9. Write Person JSON-LD schema
+10. Write FAQ JSON-LD schema
+11. STOP
 
 A complete 1,000-word article beats a truncated 2,000-word one every time.
 NEVER stop mid-sentence. NEVER stop mid-tag. NEVER omit The Bottom Line.

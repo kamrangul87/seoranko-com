@@ -10,6 +10,83 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRet
 // eat the Sonnet input-token budget the main article generation needs.
 const FAST_MODEL = 'claude-haiku-4-5-20251001';
 
+function scoreHtmlLocally(html: string, keyword: string): { searchScore: number; aiScore: number } {
+  let search = 100;
+  let ai = 100;
+
+  // Search signals
+  if (!/<h1/i.test(html)) search -= 15;
+  if (!/<h2/i.test(html)) search -= 5;
+  const metaMatch = html.match(/<!-- META:\s*([^-]+?)\s*-->/i);
+  const metaLen = metaMatch ? metaMatch[1].trim().length : 0;
+  if (metaLen < 70) search -= 10;
+  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  if (wordCount < 400) search -= 15;
+  else if (wordCount < 700) search -= 5;
+  if (!/"@type"\s*:\s*"Article"/i.test(html) && !/"@type"\s*:\s*"BlogPosting"/i.test(html)) search -= 10;
+  if (!/application\/ld\+json/i.test(html)) search -= 10;
+
+  // AI signals
+  // dateModified in schema
+  if (!/"dateModified"/i.test(html)) ai -= 10;
+  if (!/"datePublished"/i.test(html)) ai -= 5;
+
+  // Author byline
+  const hasAuthor = /Written by|class=["'][^"']*byline|name=["']author/i.test(html) || /"author"\s*:\s*\{/i.test(html);
+  if (!hasAuthor) ai -= 10;
+
+  // Person schema
+  if (!/"@type"\s*:\s*"Person"/i.test(html)) ai -= 5;
+
+  // Author bio section
+  if (!/author-bio|About the Author/i.test(html)) ai -= 5;
+
+  // FAQ schema
+  if (!/"@type"\s*:\s*"FAQPage"/i.test(html)) ai -= 5;
+
+  // Question headings (h2/h3 ending with ?)
+  const headings = Array.from(html.matchAll(/<h[2-3][^>]*>([\s\S]*?)<\/h[2-3]>/gi));
+  const questionHeadings = headings.filter(m => m[1].replace(/<[^>]+>/g, '').trim().endsWith('?')).length;
+  if (questionHeadings < 2) ai -= 5;
+
+  // Answer blocks 134-167 words
+  const pTags = Array.from(html.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi));
+  const answerBlocks = pTags.filter(m => {
+    const wc = m[1].replace(/<[^>]+>/g, ' ').trim().split(/\s+/).filter(Boolean).length;
+    return wc >= 134 && wc <= 167;
+  }).length;
+  if (answerBlocks < 2) ai -= 5;
+
+  // Fact density
+  const sentences = text.slice(0, 8000).match(/[^.!?]+[.!?]+/g) || [];
+  const factSentences = sentences.filter(s => /\d+%|\$\d+|£\d+|\b\d{2,}\b|\d+,\d+/.test(s)).length;
+  const factDensity = sentences.length > 5 ? Math.round((factSentences / sentences.length) * 100) : 0;
+  if (factDensity < 15) ai -= 5;
+
+  // Deprecated schemas (HowTo) — deduct only if HowTo found
+  if (/"@type"\s*:\s*"HowTo"/i.test(html) && !keyword.toLowerCase().includes('how')) ai -= 5;
+
+  // AI meta robots tag
+  if (!/max-snippet:-1/i.test(html)) ai -= 3;
+
+  return {
+    searchScore: Math.max(0, Math.min(100, search)),
+    aiScore: Math.max(0, Math.min(100, ai)),
+  };
+}
+
+function generateLlmsTxtEntry(html: string, keyword: string, url: string): string {
+  const isoDate = new Date().toISOString().split('T')[0];
+  const titleMatch = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+  const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : keyword;
+  const metaMatch = html.match(/<!-- META:\s*([^-]+?)\s*-->/i);
+  const summary = metaMatch ? metaMatch[1].trim().slice(0, 160) : `Article about ${keyword}`;
+  const h2Matches = Array.from(html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi));
+  const topics = h2Matches.map(m => m[1].replace(/<[^>]+>/g, '').trim()).filter(Boolean).slice(0, 6).join(', ');
+  return `\n# ${title}\n> ${summary}\nURL: ${url || '/'}\nTopics: ${topics || keyword}\nLast-Updated: ${isoDate}\n`;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -122,13 +199,20 @@ Do not write generic angles. Be specific and surprising.`
             }
           }
 
-          // The article has already streamed to the client raw, so corrections
-          // can only be logged here — the master prompt bakes in the correct
-          // author and dates, so these should be no-ops
+          // Validate and correct the article
           const { corrections } = await validateAndCorrect(fullArticle, keyword, market, liveFacts);
           if (corrections.length > 0) {
             console.log('[article-v2] validation corrections:', corrections);
           }
+
+          // Score the article and generate llms.txt entry
+          const { searchScore, aiScore } = scoreHtmlLocally(fullArticle, keyword);
+          const articleUrl = `/${keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+          const llmsTxtEntry = generateLlmsTxtEntry(fullArticle, keyword, articleUrl);
+
+          // Append score metadata as a parseable HTML comment — client strips this
+          const scoreMeta = JSON.stringify({ searchScore, aiScore, llmsTxtEntry });
+          controller.enqueue(encoder.encode(`\n<!-- SEORANKO_SCORES:${scoreMeta} -->`));
 
           controller.close();
         } catch (err) {

@@ -125,6 +125,9 @@ export interface ArticleOutput {
   readabilityScore: number;
   keywordDensity: string | number;
   improvements: string[];
+  searchScore?: number;
+  aiScore?: number;
+  llmsTxtEntry?: string;
 }
 
 export interface ArticleResponse {

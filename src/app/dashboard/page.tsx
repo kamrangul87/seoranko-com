@@ -647,6 +647,21 @@ export default function DashboardPage() {
       if (donePct) donePct.textContent = '100%';
       if (doneLabel) doneLabel.textContent = 'Article complete ✓';
 
+      // Parse score metadata appended by route as HTML comment
+      let articleSearchScore: number | undefined;
+      let articleAiScore: number | undefined;
+      let articleLlmsTxtEntry: string | undefined;
+      const scoresMatch = fullArticle.match(/\n<!-- SEORANKO_SCORES:(\{[\s\S]*?\}) -->[\s]*$/);
+      if (scoresMatch) {
+        try {
+          const parsed = JSON.parse(scoresMatch[1]);
+          articleSearchScore = parsed.searchScore;
+          articleAiScore = parsed.aiScore;
+          articleLlmsTxtEntry = parsed.llmsTxtEntry;
+        } catch { /* keep undefined */ }
+        fullArticle = fullArticle.replace(/\n<!-- SEORANKO_SCORES:\{[\s\S]*?\} -->[\s]*$/, '');
+      }
+
       setArticle({
         seoTitle: kw,
         metaDescription: '',
@@ -656,6 +671,9 @@ export default function DashboardPage() {
         readabilityScore: 0,
         keywordDensity: 0,
         improvements: [],
+        searchScore: articleSearchScore,
+        aiScore: articleAiScore,
+        llmsTxtEntry: articleLlmsTxtEntry,
       });
 
       refreshUserProfile();
@@ -1707,6 +1725,12 @@ export default function DashboardPage() {
                     <div className="grid grid-cols-2 gap-4">
                       <ScoreRing score={article.eeaScore} label="EEAT" color="#f59e0b" />
                       <ScoreRing score={article.readabilityScore} label="Readability" color="#22c55e" />
+                      {article.searchScore != null && (
+                        <ScoreRing score={article.searchScore} label="Search SEO" color="#1D4ED8" />
+                      )}
+                      {article.aiScore != null && (
+                        <ScoreRing score={article.aiScore} label="AI Visibility" color="#EA580C" />
+                      )}
                     </div>
                     <div className="mt-4 pt-4 border-t border-[#E8E8E4] space-y-3">
                       <div className="flex justify-between items-center">
@@ -1722,6 +1746,23 @@ export default function DashboardPage() {
                     </div>
                   </div>
 
+                  {article.aiScore != null && article.aiScore < 70 && (
+                    <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: '8px', padding: '12px 16px', marginBottom: '12px', fontSize: '13px', color: '#92400E' }}>
+                      <strong>⚠️ AI Visibility score: {article.aiScore}/100</strong> — below the 70-point threshold.
+                      {article.aiScore < 50 && ' Consider adding more question-format headings and 134-167 word answer blocks.'}
+                    </div>
+                  )}
+                  {article.searchScore != null && article.aiScore != null && article.aiScore >= 70 && (
+                    <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '12px', color: '#15803D' }}>
+                      ✅ <strong>Search SEO: {article.searchScore}/100 · AI Visibility: {article.aiScore}/100</strong> — article is AI-ready
+                    </div>
+                  )}
+                  {article.llmsTxtEntry && (
+                    <div style={{ background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '11px' }}>
+                      <div style={{ fontWeight: 700, color: '#6D28D9', marginBottom: '4px' }}>🤖 Suggested llms.txt entry for this article:</div>
+                      <pre style={{ margin: 0, color: '#4C1D95', fontFamily: 'monospace', whiteSpace: 'pre-wrap' as const, fontSize: '10px' }}>{article.llmsTxtEntry}</pre>
+                    </div>
+                  )}
                   {article.improvements.length > 0 && (
                     <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-4">
                       <p className="text-xs text-[#6B6B6B] uppercase tracking-wide font-medium mb-3">Improvements</p>
