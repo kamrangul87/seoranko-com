@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SEORANKO Auto-Fix</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #fff;
+      color: #0f0f0f;
+      width: 320px;
+      min-height: 200px;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: #00d48a;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .header-logo {
+      width: 28px;
+      height: 28px;
+      background: #fff;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 11px;
+      color: #00d48a;
+      letter-spacing: -0.5px;
+      flex-shrink: 0;
+    }
+    .header-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .header-sub {
+      font-size: 10px;
+      color: rgba(255,255,255,0.8);
+    }
+
+    /* ── Body ── */
+    .body {
+      padding: 16px;
+    }
+
+    /* ── Connect state ── */
+    #connect-view h2 {
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: #0f0f0f;
+    }
+    #connect-view p {
+      font-size: 12px;
+      color: #6b6b6b;
+      margin-bottom: 14px;
+      line-height: 1.5;
+    }
+    .input-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 5px;
+      display: block;
+    }
+    .site-input {
+      width: 100%;
+      padding: 8px 10px;
+      font-size: 13px;
+      border: 1.5px solid #e8e8e4;
+      border-radius: 8px;
+      outline: none;
+      transition: border-color 0.15s;
+      font-family: inherit;
+    }
+    .site-input:focus { border-color: #00d48a; }
+    .btn-connect {
+      margin-top: 10px;
+      width: 100%;
+      padding: 10px;
+      background: #00d48a;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s;
+      font-family: inherit;
+    }
+    .btn-connect:hover { background: #00b87a; }
+    .btn-connect:disabled { background: #a0e4ce; cursor: default; }
+    .connect-help {
+      margin-top: 12px;
+      font-size: 11px;
+      color: #9b9b9b;
+      text-align: center;
+    }
+    .connect-help a { color: #00d48a; text-decoration: none; }
+    .connect-help a:hover { text-decoration: underline; }
+    #connect-error {
+      margin-top: 8px;
+      font-size: 11px;
+      color: #dc2626;
+      display: none;
+    }
+
+    /* ── Connected state ── */
+    #connected-view { display: none; }
+    .connected-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 14px;
+    }
+    .connected-badge .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #16a34a;
+      flex-shrink: 0;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .connected-domain {
+      font-size: 12px;
+      font-weight: 700;
+      color: #16a34a;
+    }
+    .connected-sub {
+      font-size: 10px;
+      color: #6b6b6b;
+    }
+
+    /* ── Fix count card ── */
+    .fix-card {
+      background: #fafaf8;
+      border: 1px solid #e8e8e4;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .fix-count {
+      font-size: 28px;
+      font-weight: 900;
+      color: #00d48a;
+      line-height: 1;
+    }
+    .fix-count-label {
+      font-size: 11px;
+      color: #6b6b6b;
+      margin-top: 2px;
+    }
+    .fix-count-none {
+      font-size: 12px;
+      color: #6b6b6b;
+      margin-top: 4px;
+    }
+
+    /* ── Fix list ── */
+    .fix-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 12px;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+    .fix-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      color: #374151;
+      background: #f9fafb;
+      border-radius: 6px;
+      padding: 6px 8px;
+    }
+    .fix-type-badge {
+      font-size: 9px;
+      font-weight: 700;
+      background: #00d48a22;
+      color: #00a870;
+      border-radius: 4px;
+      padding: 2px 5px;
+      flex-shrink: 0;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .fix-value {
+      color: #6b6b6b;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+
+    /* ── CTA buttons ── */
+    .btn-link {
+      display: block;
+      width: 100%;
+      text-align: center;
+      padding: 9px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      margin-bottom: 6px;
+      transition: background 0.15s;
+      font-family: inherit;
+      border: none;
+    }
+    .btn-primary {
+      background: #00d48a;
+      color: #fff;
+    }
+    .btn-primary:hover { background: #00b87a; }
+    .btn-secondary {
+      background: #f5f4f1;
+      color: #374151;
+    }
+    .btn-secondary:hover { background: #e8e8e4; }
+
+    .disconnect-row {
+      text-align: center;
+      margin-top: 10px;
+    }
+    .btn-disconnect {
+      background: none;
+      border: none;
+      font-size: 11px;
+      color: #9b9b9b;
+      cursor: pointer;
+      font-family: inherit;
+      text-decoration: underline;
+    }
+    .btn-disconnect:hover { color: #dc2626; }
+
+    /* ── Loading ── */
+    #loading-view { text-align: center; padding: 24px 0; font-size: 12px; color: #6b6b6b; }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-logo">SR</div>
+    <div>
+      <div class="header-title">SEORANKO Auto-Fix</div>
+      <div class="header-sub">Live SEO fixes for your site</div>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <!-- Loading -->
+    <div id="loading-view">
+      <div style="margin-bottom:6px">⏳</div>
+      Checking fixes…
+    </div>
+
+    <!-- NOT CONNECTED -->
+    <div id="connect-view" style="display:none">
+      <h2>Connect your site</h2>
+      <p>Enter your SEORANKO Site ID to start applying fixes automatically.</p>
+      <label class="input-label" for="site-id-input">Your Site ID (e.g. yourdomain.com)</label>
+      <input
+        type="text"
+        id="site-id-input"
+        class="site-input"
+        placeholder="yourdomain.com"
+        autocomplete="off"
+        spellcheck="false"
+      >
+      <div id="connect-error"></div>
+      <button class="btn-connect" id="btn-connect">Connect</button>
+      <p class="connect-help">
+        Get your Site ID at <a href="https://seoranko.com/dashboard/site-audit" target="_blank">seoranko.com</a>
+      </p>
+    </div>
+
+    <!-- CONNECTED -->
+    <div id="connected-view">
+      <div class="connected-badge">
+        <div class="dot"></div>
+        <div>
+          <div class="connected-domain" id="connected-domain-label">example.com</div>
+          <div class="connected-sub">Connected to SEORANKO</div>
+        </div>
+      </div>
+
+      <!-- Fix count for current page -->
+      <div class="fix-card">
+        <div id="fix-count-display">
+          <div class="fix-count" id="fix-count-num">—</div>
+          <div class="fix-count-label" id="fix-count-label">Loading fixes for this page…</div>
+        </div>
+      </div>
+
+      <!-- Fix list -->
+      <div class="fix-list" id="fix-list" style="display:none"></div>
+
+      <!-- CTAs -->
+      <a href="https://seoranko.com/dashboard/site-audit" target="_blank" class="btn-link btn-primary">View full audit →</a>
+      <a href="https://seoranko.com/dashboard/install" target="_blank" class="btn-link btn-secondary">Make fixes permanent →</a>
+
+      <div class="disconnect-row">
+        <button class="btn-disconnect" id="btn-disconnect">Disconnect</button>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
