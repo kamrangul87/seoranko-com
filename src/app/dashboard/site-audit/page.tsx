@@ -1447,21 +1447,21 @@ export default function SiteAuditPage() {
                                                     </div>
 
                                                     {/* Fix preview: current value (red) → fix value (green) */}
-                                                    {(issue.current_value !== undefined || issue.fix_value) && !isApplied && (
+                                                    {(issue.current_value != null || issue.fix_value) && !isApplied && (
                                                       <div style={{ marginBottom: '8px', fontSize: '11px' }}>
-                                                        {issue.current_value !== undefined && issue.current_value !== '' && (
+                                                        {issue.current_value != null && issue.current_value !== '' && (
                                                           <div style={{ color: '#DC2626', marginBottom: '2px' }}>
                                                             <span style={{ fontWeight: 600 }}>Currently: </span>
                                                             <span style={{ fontFamily: 'monospace', background: '#FEF2F2', padding: '1px 4px', borderRadius: '3px' }}>
-                                                              {issue.current_value.length > 80 ? issue.current_value.slice(0, 80) + '...' : issue.current_value}
+                                                              {String(issue.current_value).length > 80 ? String(issue.current_value).slice(0, 80) + '...' : String(issue.current_value)}
                                                             </span>
                                                           </div>
                                                         )}
-                                                        {issue.fix_value && (
+                                                        {issue.fix_value != null && (
                                                           <div style={{ color: '#16A34A' }}>
                                                             <span style={{ fontWeight: 600 }}>Will become: </span>
                                                             <span style={{ fontFamily: 'monospace', background: '#F0FDF4', padding: '1px 4px', borderRadius: '3px' }}>
-                                                              {issue.fix_value.length > 80 ? issue.fix_value.slice(0, 80) + '...' : issue.fix_value}
+                                                              {String(issue.fix_value).length > 80 ? String(issue.fix_value).slice(0, 80) + '...' : String(issue.fix_value)}
                                                             </span>
                                                           </div>
                                                         )}

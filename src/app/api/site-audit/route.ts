@@ -10,6 +10,13 @@ const FAST_MODEL = 'claude-haiku-4-5-20251001';
 
 // ── STEP A: Discover all URLs from a domain via sitemap ───────────────────────
 
+function parseSitemapUrls(xml: string): string[] {
+  // Handle both <loc> and CDATA-wrapped locs; strip HTML entities
+  return Array.from(xml.matchAll(/<loc>(?:<!\[CDATA\[)?\s*([^<\]]+?)\s*(?:\]\]>)?<\/loc>/gi))
+    .map(m => m[1].trim().replace(/&amp;/g, '&').replace(/&#x2F;/g, '/'))
+    .filter(u => u.startsWith('http'));
+}
+
 async function discoverUrlsFromDomain(domain: string): Promise<{
   urls: string[];
   source: string;
@@ -32,74 +39,94 @@ async function discoverUrlsFromDomain(domain: string): Promise<{
       const res = await fetch(sitemapUrl, {
         headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEOBot/1.0)' },
         signal: AbortSignal.timeout(8000),
+        redirect: 'follow',
       });
-      if (!res.ok) continue;
+      if (!res.ok) {
+        console.log(`[sitemap] ${sitemapUrl} → ${res.status}`);
+        continue;
+      }
       const xml = await res.text();
+      console.log(`[sitemap] ${sitemapUrl} → 200, ${xml.length} chars`);
 
       if (xml.includes('<sitemapindex')) {
-        const childUrls = Array.from(xml.matchAll(/<loc>\s*([^<]+)\s*<\/loc>/gi))
-          .map(m => m[1].trim()).filter(u => u.includes('sitemap'));
+        const childLocs = parseSitemapUrls(xml).filter(u => u.includes('sitemap'));
         const allUrls: string[] = [];
-        for (const childUrl of childUrls.slice(0, 5)) {
+        await Promise.all(childLocs.slice(0, 5).map(async childUrl => {
           try {
-            const childRes = await fetch(childUrl, { signal: AbortSignal.timeout(5000) });
-            if (!childRes.ok) continue;
+            const childRes = await fetch(childUrl, {
+              headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEOBot/1.0)' },
+              signal: AbortSignal.timeout(6000),
+            });
+            if (!childRes.ok) return;
             const childXml = await childRes.text();
-            const found = Array.from(childXml.matchAll(/<loc>\s*([^<]+)\s*<\/loc>/gi))
-              .map(m => m[1].trim()).filter(u => !u.includes('sitemap') && u.startsWith('http'));
+            const found = parseSitemapUrls(childXml).filter(u => !u.includes('sitemap'));
+            console.log(`[sitemap] child ${childUrl} → ${found.length} URLs`);
             allUrls.push(...found);
-          } catch { /* skip */ }
-        }
+          } catch (e) { console.log(`[sitemap] child fetch error: ${e}`); }
+        }));
         if (allUrls.length > 0) {
           const deduped = Array.from(new Set(allUrls)).slice(0, 50);
-          return { urls: deduped, source: `Sitemap index: ${sitemapUrl} (${allUrls.length} URLs found)` };
+          return { urls: deduped, source: `Sitemap index: ${sitemapUrl} (${deduped.length} URLs)` };
         }
         continue;
       }
 
-      const urls = Array.from(xml.matchAll(/<loc>\s*([^<]+)\s*<\/loc>/gi))
-        .map(m => m[1].trim()).filter(u => u.startsWith('http') && !u.includes('sitemap'));
+      const urls = parseSitemapUrls(xml).filter(u => !u.includes('sitemap'));
+      console.log(`[sitemap] ${sitemapUrl} → ${urls.length} page URLs`);
       if (urls.length > 0) {
         const deduped = Array.from(new Set(urls)).slice(0, 50);
-        return { urls: deduped, source: `${sitemapUrl} (${urls.length} URLs found)` };
+        return { urls: deduped, source: `${sitemapUrl} (${deduped.length} URLs)` };
       }
-    } catch { /* try next */ }
+    } catch (e) { console.log(`[sitemap] fetch error for ${sitemapUrl}: ${e}`); }
   }
 
+  // Try robots.txt for a Sitemap: directive
   try {
-    const robotsRes = await fetch(`${baseUrl}/robots.txt`, { signal: AbortSignal.timeout(5000) });
+    const robotsRes = await fetch(`${baseUrl}/robots.txt`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEOBot/1.0)' },
+      signal: AbortSignal.timeout(5000),
+    });
     if (robotsRes.ok) {
       const robots = await robotsRes.text();
-      const sitemapMatch = robots.match(/Sitemap:\s*(.+)/i);
+      const sitemapMatch = robots.match(/^Sitemap:\s*(.+)/im);
       if (sitemapMatch?.[1]) {
         const sitemapFromRobots = sitemapMatch[1].trim();
-        const res = await fetch(sitemapFromRobots, { signal: AbortSignal.timeout(5000) });
+        console.log(`[sitemap] robots.txt → ${sitemapFromRobots}`);
+        const res = await fetch(sitemapFromRobots, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEOBot/1.0)' },
+          signal: AbortSignal.timeout(6000),
+        });
         if (res.ok) {
           const xml = await res.text();
-          const urls = Array.from(xml.matchAll(/<loc>\s*([^<]+)\s*<\/loc>/gi))
-            .map(m => m[1].trim()).filter(u => u.startsWith('http') && !u.includes('sitemap'));
+          const urls = parseSitemapUrls(xml).filter(u => !u.includes('sitemap'));
+          console.log(`[sitemap] robots.txt sitemap → ${urls.length} URLs`);
           if (urls.length > 0) {
             const deduped = Array.from(new Set(urls)).slice(0, 50);
-            return { urls: deduped, source: `robots.txt → ${sitemapFromRobots} (${urls.length} URLs found)` };
+            return { urls: deduped, source: `robots.txt → ${sitemapFromRobots} (${deduped.length} URLs)` };
           }
         }
       }
     }
-  } catch { /* skip */ }
+  } catch (e) { console.log(`[sitemap] robots.txt error: ${e}`); }
 
+  console.log(`[sitemap] No sitemap found for ${baseUrl} — will crawl homepage`);
   return {
     urls: [baseUrl],
-    source: 'No sitemap found — auditing homepage only',
-    error: 'No sitemap.xml found. Only the homepage was audited.',
+    source: 'No sitemap found — crawling homepage for links',
+    error: 'No sitemap.xml found. Homepage crawled for internal links.',
   };
 }
 
 // Crawl homepage HTML for internal links
 async function crawlHomepageForLinks(baseUrl: string): Promise<string[]> {
   try {
+    let baseDomain = '';
+    try { baseDomain = new URL(baseUrl).hostname.replace(/^www\./, ''); } catch { /* skip */ }
+
     const res = await fetch(baseUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEOBot/1.0)' },
       signal: AbortSignal.timeout(8000),
+      redirect: 'follow',
     });
     if (!res.ok) return [];
     const html = await res.text();
@@ -108,13 +135,24 @@ async function crawlHomepageForLinks(baseUrl: string): Promise<string[]> {
       .map(m => m[1].trim())
       .filter(href => href && !href.startsWith('mailto:') && !href.startsWith('tel:') && !href.startsWith('javascript:'))
       .map(href => {
-        if (href.startsWith('http')) return href.startsWith(baseUrl) ? href : null;
+        if (href.startsWith('http')) {
+          // Accept links on same domain (with or without www)
+          try {
+            const linkHost = new URL(href).hostname.replace(/^www\./, '');
+            return linkHost === baseDomain ? href : null;
+          } catch { return null; }
+        }
         if (href.startsWith('/')) return `${baseUrl}${href}`;
         return null;
       })
       .filter((u): u is string => Boolean(u))
       .filter(u => !u.match(/\.(jpg|jpeg|png|gif|svg|css|js|ico|woff|woff2|ttf|pdf|zip|xml)\b/i))
-      .filter(u => u !== baseUrl && u !== `${baseUrl}/`);
+      .filter(u => {
+        try {
+          const p = new URL(u).pathname;
+          return p !== '/' && p !== '';
+        } catch { return false; }
+      });
     return Array.from(new Set(urls)).slice(0, 40);
   } catch {
     return [];
@@ -356,11 +394,12 @@ export async function POST(req: NextRequest) {
       // Fetch domain-level signals in parallel with URL augmentation
       const [augmentResult, ds] = await Promise.all([
         (async () => {
-          if (urlList.length < 15) {
+          if (urlList.length < 20) {
             const [crawledUrls, commonPathUrls] = await Promise.all([
               crawlHomepageForLinks(baseUrl),
               checkCommonPaths(baseUrl),
             ]);
+            console.log(`[crawl] crawlHomepageForLinks → ${crawledUrls.length} URLs, commonPaths → ${commonPathUrls.length} URLs`);
             return Array.from(new Set([...crawledUrls, ...commonPathUrls]));
           }
           return [] as string[];
