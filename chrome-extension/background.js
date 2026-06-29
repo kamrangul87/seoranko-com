@@ -2,7 +2,7 @@
 // Caches fixes per domain with a 5-minute TTL so content scripts
 // don't hammer the API on every navigation.
 
-const API_BASE = 'https://seoranko.com/api/fixes';
+const API_BASE = 'https://autodun-ev-finders-projects.vercel.app/api/fixes';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 // In-memory cache (lives for the service worker session)

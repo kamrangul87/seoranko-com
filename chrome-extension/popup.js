@@ -126,7 +126,7 @@ $('btn-connect').addEventListener('click', async () => {
 
   // Quick validation: try to fetch fixes for this site
   try {
-    const res = await fetch(`https://seoranko.com/api/fixes?site_id=${encodeURIComponent(siteId)}&url=https://${siteId}/`);
+    const res = await fetch(`https://autodun-ev-finders-projects.vercel.app/api/fixes?site_id=${encodeURIComponent(siteId)}&url=https://${siteId}/`);
     if (!res.ok) throw new Error('API unreachable');
   } catch {
     // Non-fatal: save anyway, user might not have any fixes yet
