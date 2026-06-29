@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { upsertAuditResults, getAuditResults, normalizeUrl, normalizeDomain } from '@/lib/supabase/audit-db';
-import { AuditIssue, PageSignals, fetchPageSignals, scorePage } from '@/lib/site-audit/scorer';
+import { AuditIssue, PageSignals, DomainSignals, fetchPageSignals, scorePage } from '@/lib/site-audit/scorer';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 3 });
 export const maxDuration = 300;
@@ -138,6 +138,66 @@ async function checkCommonPaths(baseUrl: string): Promise<string[]> {
   return found;
 }
 
+// ── STEP C: Domain-level signals (robots.txt + llms.txt) ──────────────────────
+
+const AI_CRAWLERS = ['GPTBot', 'OAI-SearchBot', 'ClaudeBot', 'PerplexityBot', 'GoogleExtendedBot', 'anthropic-ai'];
+
+function isAiCrawlerBlocked(robotsTxt: string, botName: string): boolean {
+  const lines = robotsTxt.split(/\r?\n/);
+  let inBotSection = false;
+  let inWildcardSection = false;
+  let botBlocked = false;
+  let wildcardBlocked = false;
+  const botLower = botName.toLowerCase();
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      // blank lines reset section tracking
+      if (inBotSection || inWildcardSection) {
+        inBotSection = false;
+        inWildcardSection = false;
+      }
+      continue;
+    }
+    const lower = trimmed.toLowerCase();
+    if (lower.startsWith('user-agent:')) {
+      const agent = trimmed.slice(11).trim().toLowerCase();
+      inBotSection = agent === botLower;
+      inWildcardSection = agent === '*';
+      continue;
+    }
+    if (lower.startsWith('disallow:')) {
+      const path = trimmed.slice(9).trim();
+      if (path === '/') {
+        if (inBotSection) botBlocked = true;
+        if (inWildcardSection) wildcardBlocked = true;
+      }
+    }
+    if (lower.startsWith('allow:')) {
+      const path = trimmed.slice(6).trim();
+      if ((path === '/' || path === '') && inBotSection) botBlocked = false;
+    }
+  }
+  return botBlocked || wildcardBlocked;
+}
+
+async function fetchDomainSignals(baseUrl: string): Promise<DomainSignals> {
+  const [robotsTxt, llmsOk] = await Promise.all([
+    fetch(`${baseUrl}/robots.txt`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEORANKO-Audit/1.0)' },
+      signal: AbortSignal.timeout(5000),
+    }).then(r => r.ok ? r.text() : '').catch(() => ''),
+    fetch(`${baseUrl}/llms.txt`, {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(5000),
+    }).then(r => r.ok).catch(() => false),
+  ]);
+
+  const blockedAiCrawlers = AI_CRAWLERS.filter(bot => isAiCrawlerBlocked(robotsTxt, bot));
+  return { blockedAiCrawlers, hasLlmsTxt: llmsOk };
+}
+
 // ── STEP D: AI — keyword detection + quick wins ────────────────────────────────
 
 async function aiAnalysePages(pages: PageSignals[], market: string): Promise<Array<{
@@ -156,15 +216,15 @@ Meta: ${p.metaDescription?.slice(0, 80) || 'MISSING'}`
 
   const response = await anthropic.messages.create({
     model: FAST_MODEL,
-    max_tokens: 2000,
+    max_tokens: 2500,
     messages: [{
       role: 'user',
-      content: `You are a senior SEO consultant. For each page, detect the primary target keyword and list 3 specific quick wins that would immediately improve rankings for the ${market} market.
+      content: `You are a senior SEO and AI-search (GEO/AEO) consultant. For each page, detect the primary target keyword and list 4 specific quick wins for the ${market} market. Include one tip per AI engine: ChatGPT, Perplexity, Google AI Overviews, and Claude. Prefix each with the engine name in square brackets.
 
 ${summary}
 
 Return ONLY valid JSON array (no markdown, no extra text):
-[{"url":"exact url","detectedKeyword":"primary keyword","quickWins":["quick win 1","quick win 2","quick win 3"]}]`,
+[{"url":"exact url","detectedKeyword":"primary keyword","quickWins":["[ChatGPT] tip","[Perplexity] tip","[Google AIO] tip","[Claude] tip"]}]`,
     }],
   });
 
@@ -201,10 +261,13 @@ function rowToResult(row: any) {
     hasFaq: row.has_faq,
     httpStatus: row.http_status,
     score: displayScore,
+    searchScore: displayScore,
+    aiScore: null as number | null,
     scoreOriginal: row.score,
     scoreBeforeFix: row.score_before_fix,
     scoreAfterFix: row.score_after_fix,
     grade: gradeLabel(displayScore),
+    aiGrade: null as string | null,
     issues: row.score_after_fix != null
       ? (row.issues ?? []).filter((iss: any) => !(row.fixed_issues ?? []).includes(issueToKey(iss.message)))
       : (row.issues ?? []),
@@ -267,6 +330,7 @@ export async function POST(req: NextRequest) {
             pagesNeedingAttention: results.filter(r => r.score < 70).length,
             pagesWithSchema: results.filter(r => r.hasSchema).length,
             pagesWithoutH1: results.filter(r => !r.h1).length,
+            aiReadyPages: results.filter(r => (r.aiScore ?? 0) >= 70).length,
           },
           results,
         });
@@ -278,6 +342,8 @@ export async function POST(req: NextRequest) {
     let discoverySource = '';
     let discoveryError = '';
 
+    let domainSignals: DomainSignals = { blockedAiCrawlers: [], hasLlmsTxt: false };
+
     if (domain) {
       const discovery = await discoverUrlsFromDomain(domain);
       urlList = discovery.urls;
@@ -287,15 +353,26 @@ export async function POST(req: NextRequest) {
       const base = domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
       const baseUrl = `https://${base}`;
 
-      // If sitemap found fewer than 15 pages, augment with crawl + common paths
-      if (urlList.length < 15) {
-        const [crawledUrls, commonPathUrls] = await Promise.all([
-          crawlHomepageForLinks(baseUrl),
-          checkCommonPaths(baseUrl),
-        ]);
-        const allExtra = Array.from(new Set([...crawledUrls, ...commonPathUrls]));
+      // Fetch domain-level signals in parallel with URL augmentation
+      const [augmentResult, ds] = await Promise.all([
+        (async () => {
+          if (urlList.length < 15) {
+            const [crawledUrls, commonPathUrls] = await Promise.all([
+              crawlHomepageForLinks(baseUrl),
+              checkCommonPaths(baseUrl),
+            ]);
+            return Array.from(new Set([...crawledUrls, ...commonPathUrls]));
+          }
+          return [] as string[];
+        })(),
+        fetchDomainSignals(baseUrl),
+      ]);
+
+      domainSignals = ds;
+
+      if (augmentResult.length > 0) {
         const existingSet = new Set(urlList);
-        const newUrls = allExtra.filter(u => !existingSet.has(u));
+        const newUrls = augmentResult.filter((u: string) => !existingSet.has(u));
         if (newUrls.length > 0) {
           urlList = [...urlList, ...newUrls];
           discoverySource += ` + ${newUrls.length} page${newUrls.length !== 1 ? 's' : ''} via crawl`;
@@ -346,7 +423,7 @@ export async function POST(req: NextRequest) {
     // Score freshly scraped pages
     const freshResults = pageSignals
       .map(page => {
-        const { score, issues, opportunities } = scorePage(page, pageSignals);
+        const { score, searchScore, aiScore, issues, opportunities } = scorePage(page, pageSignals, domainSignals);
         const ai = aiData.find(r => r.url === page.url);
         return {
           url: page.url,
@@ -373,6 +450,10 @@ export async function POST(req: NextRequest) {
           isHttps: page.isHttps,
           httpStatus: page.httpStatus,
           score,
+          searchScore,
+          aiScore,
+          grade: gradeLabel(score),
+          aiGrade: gradeLabel(aiScore),
           issues,
           opportunities,
           aiAnalysis: ai ? { detectedKeyword: ai.detectedKeyword, quickWins: ai.quickWins } : undefined,
@@ -406,6 +487,7 @@ export async function POST(req: NextRequest) {
       fromCache: false,
       discoverySource: discoverySource + preservedNote,
       discoveryError,
+      domainSignals,
       summary: {
         totalPages: urlList.length,
         audited: allResults.length,
@@ -414,6 +496,7 @@ export async function POST(req: NextRequest) {
         pagesNeedingAttention: allResults.filter(r => r.score < 70).length,
         pagesWithSchema: allResults.filter(r => r.hasSchema).length,
         pagesWithoutH1: allResults.filter(r => !r.h1).length,
+        aiReadyPages: allResults.filter(r => (r.aiScore ?? 0) >= 70).length,
       },
       results: allResults,
     });

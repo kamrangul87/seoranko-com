@@ -63,7 +63,20 @@ export interface PageSignals {
   hasQAStructure: boolean;
   // Link health
   poorAnchorTextCount: number;
+  // AI citability signals
+  answerBlockCount: number;
+  questionHeadingCount: number;
+  factDensityScore: number;
+  dateModifiedAge: number | null;
+  hasAuthorByline: boolean;
+  hasAuthorBio: boolean;
+  deprecatedSchemas: string[];
   fetchError?: string;
+}
+
+export interface DomainSignals {
+  blockedAiCrawlers: string[];
+  hasLlmsTxt: boolean;
 }
 
 function emptyPage(url: string, extra: Partial<PageSignals> = {}): PageSignals {
@@ -83,6 +96,8 @@ function emptyPage(url: string, extra: Partial<PageSignals> = {}): PageSignals {
     paragraphCount: 0, avgSentenceLength: 0, hasHeadingHierarchyIssue: false,
     hasSpeakableSchema: false, hasPersonSchema: false, hasHowToSchema: false, hasQAStructure: false,
     poorAnchorTextCount: 0,
+    answerBlockCount: 0, questionHeadingCount: 0, factDensityScore: 0,
+    dateModifiedAge: null, hasAuthorByline: false, hasAuthorBio: false, deprecatedSchemas: [],
     ...extra,
   };
 }
@@ -166,7 +181,7 @@ export async function fetchPageSignals(url: string): Promise<PageSignals> {
     const imagesWithoutAlt = imgMatches.filter(m => !/alt=["'][^"']+["']/.test(m[0])).length;
 
     const hasSchema = html.includes('application/ld+json');
-    const hasArticleSchema = /"@type"\s*:\s*"Article"/i.test(html);
+    const hasArticleSchema = /"@type"\s*:\s*"Article"/i.test(html) || /"@type"\s*:\s*"BlogPosting"/i.test(html) || /"@type"\s*:\s*"NewsArticle"/i.test(html);
     const hasFaqSchema = /"@type"\s*:\s*"FAQPage"/i.test(html);
     const hasBreadcrumbSchema = /"@type"\s*:\s*"BreadcrumbList"/i.test(html);
     const hasOrgSchema = /"@type"\s*:\s*"Organization"/i.test(html);
@@ -221,6 +236,73 @@ export async function fetchPageSignals(url: string): Promise<PageSignals> {
     const poorAnchorRe = /^\s*$|^(click here|read more|here|learn more|this|link|more|see more|view more)\s*$/i;
     const poorAnchorTextCount = anchorTextMatches.filter(m => poorAnchorRe.test(m[1])).length;
 
+    // ── AI CITABILITY SIGNALS ─────────────────────────────────────────────────
+
+    // Answer blocks: <p> tags with 134-167 words
+    const pTags = Array.from(html.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi));
+    let answerBlockCount = 0;
+    for (const pm of pTags) {
+      const pText = pm[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const wc = pText.split(/\s+/).filter(Boolean).length;
+      if (wc >= 134 && wc <= 167) answerBlockCount++;
+    }
+
+    // Question headings (h1-h6 ending with ?)
+    const allHeadings = Array.from(html.matchAll(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi));
+    const questionHeadingCount = allHeadings.filter(m =>
+      m[1].replace(/<[^>]+>/g, '').trim().endsWith('?')
+    ).length;
+
+    // Fact density — % of sentences containing numbers/stats
+    const sentencesAll = text.slice(0, 8000).match(/[^.!?]+[.!?]+/g) || [];
+    const sentencesWithFacts = sentencesAll.filter(s =>
+      /\d+%|\$\d+|£\d+|€\d+|\b\d{2,}\b|\d+,\d+/.test(s)
+    );
+    const factDensityScore = sentencesAll.length > 5
+      ? Math.round((sentencesWithFacts.length / sentencesAll.length) * 100)
+      : 0;
+
+    // DateModified age from JSON-LD Article/BlogPosting/NewsArticle
+    let dateModifiedAge: number | null = null;
+    const jsonLdBlocks = Array.from(html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi));
+    outer: for (const block of jsonLdBlocks) {
+      try {
+        const obj = JSON.parse(block[1]);
+        const items = Array.isArray(obj['@graph']) ? obj['@graph'] : [obj];
+        for (const item of items) {
+          if (['Article', 'BlogPosting', 'NewsArticle', 'WebPage'].includes(item['@type'])) {
+            const ds = item.dateModified || item.datePublished;
+            if (ds) {
+              const d = new Date(ds);
+              if (!isNaN(d.getTime())) {
+                dateModifiedAge = Math.floor((Date.now() - d.getTime()) / 86400000);
+                break outer;
+              }
+            }
+          }
+        }
+      } catch { /* skip */ }
+    }
+
+    // Author byline signals
+    const hasAuthorByline =
+      /name=["']author["'][^>]*content=["'][^"']+["']/i.test(html) ||
+      /content=["'][^"']+["'][^>]*name=["']author["']/i.test(html) ||
+      /class=["'][^"']*\b(?:byline|author-?name|post-?author|entry-?author)\b[^"']*["']/i.test(html) ||
+      /rel=["']author["']/i.test(html) ||
+      /"author"\s*:\s*\{/i.test(html) ||
+      /"author"\s*:\s*"[^"]+"/i.test(html);
+
+    const hasAuthorBio =
+      /about the author/i.test(html) ||
+      /class=["'][^"']*\b(?:author-?bio|author-?description|author-?box|author-?card|author-?info)\b[^"']*["']/i.test(html);
+
+    // Deprecated schema types (as of 2026)
+    const DEPRECATED_TYPES = ['HowTo', 'FAQPage', 'SpecialAnnouncement', 'ClaimReview'];
+    const deprecatedSchemas = DEPRECATED_TYPES.filter(t =>
+      new RegExp(`"@type"\\s*:\\s*"${t}"`, 'i').test(html)
+    );
+
     return {
       url, fetchTimeMs, httpStatus, htmlSizeKb,
       noindex, xRobotsNoindex, hasCanonical, canonicalUrl,
@@ -235,14 +317,22 @@ export async function fetchPageSignals(url: string): Promise<PageSignals> {
       paragraphCount, avgSentenceLength, hasHeadingHierarchyIssue,
       hasSpeakableSchema, hasPersonSchema, hasHowToSchema, hasQAStructure,
       poorAnchorTextCount,
+      answerBlockCount, questionHeadingCount, factDensityScore,
+      dateModifiedAge, hasAuthorByline, hasAuthorBio, deprecatedSchemas,
     };
   } catch (err: any) {
     return emptyPage(url, { fetchTimeMs: Date.now() - startTime, fetchError: err.message?.slice(0, 100) });
   }
 }
 
-export function scorePage(page: PageSignals, allPages: PageSignals[]): {
+export function scorePage(
+  page: PageSignals,
+  allPages: PageSignals[],
+  domainSignals: DomainSignals = { blockedAiCrawlers: [], hasLlmsTxt: false }
+): {
   score: number;
+  searchScore: number;
+  aiScore: number;
   issues: AuditIssue[];
   opportunities: string[];
 } {
@@ -250,6 +340,8 @@ export function scorePage(page: PageSignals, allPages: PageSignals[]): {
     const is404 = page.httpStatus === 404;
     return {
       score: is404 ? 30 : 20,
+      searchScore: is404 ? 30 : 20,
+      aiScore: is404 ? 20 : 10,
       issues: [{
         severity: 'critical' as const,
         category: 'crawlability' as const,
@@ -269,35 +361,54 @@ export function scorePage(page: PageSignals, allPages: PageSignals[]): {
     };
   }
 
-  let score = 100;
+  let searchScore = 100;
+  let aiScore = 100;
   const issues: AuditIssue[] = [];
   const opportunities: string[] = [];
 
-  const crit = (category: AuditIssue['category'], message: string) => {
-    score -= 15; issues.push({ severity: 'critical', category, message, deduction: 15 });
+  // Search-score deductions
+  const sCrit = (category: AuditIssue['category'], message: string, ded = 15) => {
+    searchScore = Math.max(0, searchScore - ded);
+    issues.push({ severity: 'critical', category, message, deduction: ded });
   };
-  const warn = (category: AuditIssue['category'], message: string) => {
-    score -= 5; issues.push({ severity: 'warning', category, message, deduction: 5 });
+  const sWarn = (category: AuditIssue['category'], message: string, ded = 5) => {
+    searchScore = Math.max(0, searchScore - ded);
+    issues.push({ severity: 'warning', category, message, deduction: ded });
   };
-  const note = (category: AuditIssue['category'], message: string) => {
-    score -= 2; issues.push({ severity: 'notice', category, message, deduction: 2 });
+  const sNote = (category: AuditIssue['category'], message: string, ded = 2) => {
+    searchScore = Math.max(0, searchScore - ded);
+    issues.push({ severity: 'notice', category, message, deduction: ded });
+  };
+
+  // AI-score deductions
+  const aCrit = (message: string, ded = 15) => {
+    aiScore = Math.max(0, aiScore - ded);
+    issues.push({ severity: 'critical', category: 'ai', message, deduction: ded });
+  };
+  const aWarn = (message: string, ded = 5) => {
+    aiScore = Math.max(0, aiScore - ded);
+    issues.push({ severity: 'warning', category: 'ai', message, deduction: ded });
+  };
+  const aNote = (message: string, ded = 2) => {
+    aiScore = Math.max(0, aiScore - ded);
+    issues.push({ severity: 'notice', category: 'ai', message, deduction: ded });
   };
 
   // ── CRAWLABILITY ─────────────────────────────────────────────────────────
   if (page.noindex) {
-    crit('crawlability', 'Noindex meta tag — page is blocked from Google\'s index');
+    sCrit('crawlability', 'Noindex meta tag — page is blocked from Google\'s index');
     opportunities.push('Remove noindex if this page should rank');
   }
   if (page.xRobotsNoindex) {
-    crit('crawlability', 'X-Robots-Tag: noindex in HTTP headers — Google cannot index this page');
+    sCrit('crawlability', 'X-Robots-Tag: noindex in HTTP headers — Google cannot index this page');
     opportunities.push('Remove X-Robots-Tag noindex from server headers');
   }
   if (!page.isHttps) {
-    crit('crawlability', 'Served over HTTP — Google demotes non-HTTPS pages');
+    sCrit('crawlability', 'Served over HTTP — Google demotes non-HTTPS pages');
     opportunities.push('Migrate to HTTPS — required for ranking and security');
   }
   if (!page.hasCanonical) {
-    warn('crawlability', 'No canonical tag — Google may consolidate wrong URL variants');
+    sWarn('crawlability', 'No canonical tag — Google may consolidate wrong URL variants');
     opportunities.push('Add <link rel="canonical"> pointing to the preferred URL');
   } else if (page.canonicalUrl) {
     let canonHost = '';
@@ -305,223 +416,318 @@ export function scorePage(page: PageSignals, allPages: PageSignals[]): {
     let pageHost = '';
     try { pageHost = new URL(page.url).hostname; } catch { /* skip */ }
     if (canonHost && pageHost && canonHost !== pageHost) {
-      warn('crawlability', `Canonical points off-site to ${page.canonicalUrl.slice(0, 60)}`);
+      sWarn('crawlability', `Canonical points off-site to ${page.canonicalUrl.slice(0, 60)}`);
       opportunities.push('Verify canonical URL is correct — currently points to a different domain');
     }
   }
 
   // ── ON-PAGE SEO ──────────────────────────────────────────────────────────
   if (!page.title) {
-    crit('onpage', 'Missing title tag — fundamental SEO requirement');
+    sCrit('onpage', 'Missing title tag — fundamental SEO requirement');
     opportunities.push('Add a keyword-rich title tag under 60 characters');
   } else {
     const tl = page.title.length;
     if (tl < 30) {
-      warn('onpage', `Title too short (${tl} chars) — add more context and keyword`);
+      sWarn('onpage', `Title too short (${tl} chars) — add more context and keyword`);
       opportunities.push('Expand title to 50-60 characters with your primary keyword');
     } else if (tl > 60) {
-      warn('onpage', `Title too long (${tl} chars) — will be truncated in Google results`);
+      sWarn('onpage', `Title too long (${tl} chars) — will be truncated in Google results`);
       opportunities.push('Shorten title to under 60 characters');
     }
   }
 
   if (!page.metaDescription) {
-    crit('onpage', 'Missing meta description — reduces click-through rate from search results');
+    sCrit('onpage', 'Missing meta description — reduces click-through rate from search results');
     opportunities.push('Write a compelling meta description of 140-160 characters');
   } else {
     const ml = page.metaDescription.length;
     if (ml < 70) {
-      warn('onpage', `Meta description too short (${ml} chars)`);
+      sWarn('onpage', `Meta description too short (${ml} chars)`);
       opportunities.push('Expand meta description to 140-160 characters with keyword and CTA');
     } else if (ml > 160) {
-      warn('onpage', `Meta description too long (${ml} chars) — will be truncated`);
+      sWarn('onpage', `Meta description too long (${ml} chars) — will be truncated`);
       opportunities.push('Shorten meta description to under 160 characters');
     }
   }
 
   if (!page.h1) {
-    crit('onpage', 'Missing H1 — critical for keyword targeting');
+    sCrit('onpage', 'Missing H1 — critical for keyword targeting');
     opportunities.push('Add a descriptive H1 tag that includes your target keyword');
   } else if (page.h1Count > 1) {
-    warn('onpage', `Multiple H1 tags (${page.h1Count}) — confuses Google's understanding of the primary topic`);
+    sWarn('onpage', `Multiple H1 tags (${page.h1Count}) — confuses Google's understanding of the primary topic`);
     opportunities.push('Keep only one H1 per page — use H2s for sub-sections');
   }
 
   if (page.h2s.length === 0 && page.wordCount > 200) {
-    warn('onpage', 'No H2 headings — poor content structure for SEO');
+    sWarn('onpage', 'No H2 headings — poor content structure for SEO');
     opportunities.push('Add at least 4-5 H2 headings to structure your content');
   } else if (page.h2s.length < 3 && page.wordCount > 600) {
-    note('onpage', `Only ${page.h2s.length} H2 heading${page.h2s.length !== 1 ? 's' : ''} for a ${page.wordCount}-word page`);
+    sNote('onpage', `Only ${page.h2s.length} H2 heading${page.h2s.length !== 1 ? 's' : ''} for a ${page.wordCount}-word page`);
     opportunities.push('Add more H2 sections for comprehensive topic coverage');
   }
 
   if (page.imagesWithoutAlt > 0) {
-    warn('onpage', `${page.imagesWithoutAlt} image${page.imagesWithoutAlt !== 1 ? 's' : ''} missing alt text`);
+    sWarn('onpage', `${page.imagesWithoutAlt} image${page.imagesWithoutAlt !== 1 ? 's' : ''} missing alt text`);
     opportunities.push('Add descriptive alt text to all images for accessibility and image SEO');
   }
 
   // Duplicate title/meta detection
   const dupTitles = allPages.filter(p => p.url !== page.url && p.title && p.title === page.title);
   if (dupTitles.length > 0) {
-    warn('onpage', `Duplicate title — identical to ${dupTitles.length} other page${dupTitles.length > 1 ? 's' : ''}`);
+    sWarn('onpage', `Duplicate title — identical to ${dupTitles.length} other page${dupTitles.length > 1 ? 's' : ''}`);
     opportunities.push('Write a unique title for every page');
   }
   const dupMetas = allPages.filter(p => p.url !== page.url && p.metaDescription && p.metaDescription === page.metaDescription);
   if (dupMetas.length > 0) {
-    warn('onpage', `Duplicate meta description — identical to ${dupMetas.length} other page${dupMetas.length > 1 ? 's' : ''}`);
+    sWarn('onpage', `Duplicate meta description — identical to ${dupMetas.length} other page${dupMetas.length > 1 ? 's' : ''}`);
     opportunities.push('Write a unique meta description for every page');
   }
 
-  // ── TECHNICAL ────────────────────────────────────────────────────────────
-  // (viewport, fetch time, html size, OG tags, twitter card have moved to speed/mobile categories)
-
   // ── CONTENT ──────────────────────────────────────────────────────────────
   if (page.wordCount < 150) {
-    crit('content', `Thin content: only ${page.wordCount} words — Google actively demotes thin pages`);
+    sCrit('content', `Thin content: only ${page.wordCount} words — Google actively demotes thin pages`);
     opportunities.push('Expand this page to at least 800 words of substantive content');
   } else if (page.wordCount < 300) {
-    warn('content', `Low word count: ${page.wordCount} words — below minimum for competitive ranking`);
+    sWarn('content', `Low word count: ${page.wordCount} words — below minimum for competitive ranking`);
     opportunities.push('Expand content to at least 800 words with comprehensive coverage');
   } else if (page.wordCount < 800) {
-    note('content', `${page.wordCount} words — top-ranking pages for competitive keywords average 1,500+`);
+    sNote('content', `${page.wordCount} words — top-ranking pages for competitive keywords average 1,500+`);
     opportunities.push('Consider expanding to 1,200+ words to beat competitors');
   }
 
   if (!page.hasOfficialSources && page.wordCount > 300) {
-    warn('content', 'No official source citations — weak EEAT trust signals');
+    sWarn('content', 'No official source citations — weak EEAT trust signals');
     opportunities.push('Cite at least 2 official sources (gov.uk, NHS, authoritative bodies)');
   }
 
   if (page.images === 0 && page.wordCount > 300) {
-    warn('content', 'No images — reduces engagement and visual search visibility');
+    sWarn('content', 'No images — reduces engagement and visual search visibility');
     opportunities.push('Add 2-3 relevant images with descriptive alt text');
   }
 
   // ── SCHEMA ───────────────────────────────────────────────────────────────
   if (!page.hasSchema) {
-    crit('schema', 'No structured data — missing rich result eligibility');
+    sCrit('schema', 'No structured data — missing rich result eligibility');
     opportunities.push('Add Article and FAQ JSON-LD schema to unlock rich snippets');
   } else {
-    if (!page.hasFaqSchema && page.hasFaq) {
-      note('schema', 'FAQ content found but no FAQPage schema — missing People Also Ask opportunity');
-      opportunities.push('Add FAQPage JSON-LD schema to target People Also Ask');
-    }
-    if (!page.hasArticleSchema && page.wordCount > 500) {
-      note('schema', 'Long-form content lacks Article schema');
-      opportunities.push('Add Article JSON-LD with author, datePublished, dateModified');
-    }
     if (!page.hasBreadcrumbSchema) {
-      note('schema', 'No BreadcrumbList schema — missing breadcrumb in SERPs');
+      sNote('schema', 'No BreadcrumbList schema — missing breadcrumb in SERPs');
       opportunities.push('Add BreadcrumbList schema to show site navigation in Google results');
     }
   }
 
   // ── SECURITY ─────────────────────────────────────────────────────────────
-  if (page.isHttps) {
-    if (!page.hasHsts) {
-      score -= 15; issues.push({ severity: 'critical', category: 'security', message: 'No HSTS header — site vulnerable to downgrade attacks', deduction: 15 });
-    }
+  if (page.isHttps && !page.hasHsts) {
+    searchScore = Math.max(0, searchScore - 15);
+    issues.push({ severity: 'critical', category: 'security', message: 'No HSTS header — site vulnerable to downgrade attacks', deduction: 15 });
   }
   if (!page.hasXFrameOptions) {
-    score -= 5; issues.push({ severity: 'warning', category: 'security', message: 'No X-Frame-Options header — clickjacking protection missing', deduction: 5 });
+    searchScore = Math.max(0, searchScore - 5);
+    issues.push({ severity: 'warning', category: 'security', message: 'No X-Frame-Options header — clickjacking protection missing', deduction: 5 });
   }
   if (!page.hasXContentTypeOptions) {
-    score -= 5; issues.push({ severity: 'warning', category: 'security', message: 'Missing X-Content-Type-Options header — browsers may sniff MIME types', deduction: 5 });
+    searchScore = Math.max(0, searchScore - 5);
+    issues.push({ severity: 'warning', category: 'security', message: 'Missing X-Content-Type-Options header — browsers may sniff MIME types', deduction: 5 });
   }
   if (!page.hasCSP) {
-    score -= 2; issues.push({ severity: 'notice', category: 'security', message: 'No Content-Security-Policy header — adds XSS protection layer', deduction: 2 });
+    searchScore = Math.max(0, searchScore - 2);
+    issues.push({ severity: 'notice', category: 'security', message: 'No Content-Security-Policy header — adds XSS protection layer', deduction: 2 });
   }
 
   // ── PAGE SPEED ────────────────────────────────────────────────────────────
   if (page.fetchTimeMs > 2000) {
-    score -= 15; issues.push({ severity: 'critical', category: 'speed', message: `Very slow TTFB: ${(page.fetchTimeMs / 1000).toFixed(1)}s — users and Google both penalise this`, deduction: 15 });
+    searchScore = Math.max(0, searchScore - 15);
+    issues.push({ severity: 'critical', category: 'speed', message: `Very slow TTFB: ${(page.fetchTimeMs / 1000).toFixed(1)}s — users and Google both penalise this`, deduction: 15 });
   } else if (page.fetchTimeMs > 800) {
-    score -= 5; issues.push({ severity: 'warning', category: 'speed', message: `Slow server response: ${(page.fetchTimeMs / 1000).toFixed(1)}s — target under 800ms`, deduction: 5 });
+    searchScore = Math.max(0, searchScore - 5);
+    issues.push({ severity: 'warning', category: 'speed', message: `Slow server response: ${(page.fetchTimeMs / 1000).toFixed(1)}s — target under 800ms`, deduction: 5 });
   }
   if (page.htmlSizeKb > 200) {
-    score -= 15; issues.push({ severity: 'critical', category: 'speed', message: `Extremely large page (${page.htmlSizeKb}KB) — significant speed impact`, deduction: 15 });
+    searchScore = Math.max(0, searchScore - 15);
+    issues.push({ severity: 'critical', category: 'speed', message: `Extremely large page (${page.htmlSizeKb}KB) — significant speed impact`, deduction: 15 });
   } else if (page.htmlSizeKb > 100) {
-    score -= 5; issues.push({ severity: 'warning', category: 'speed', message: `Large page size (${page.htmlSizeKb}KB) — compress and minify HTML`, deduction: 5 });
+    searchScore = Math.max(0, searchScore - 5);
+    issues.push({ severity: 'warning', category: 'speed', message: `Large page size (${page.htmlSizeKb}KB) — compress and minify HTML`, deduction: 5 });
   }
   if (page.renderBlockingScripts >= 3) {
-    score -= 15; issues.push({ severity: 'critical', category: 'speed', message: `${page.renderBlockingScripts} render-blocking scripts in <head> — seriously impacts load speed`, deduction: 15 });
+    searchScore = Math.max(0, searchScore - 15);
+    issues.push({ severity: 'critical', category: 'speed', message: `${page.renderBlockingScripts} render-blocking scripts in <head> — seriously impacts load speed`, deduction: 15 });
   } else if (page.renderBlockingScripts >= 1) {
-    score -= 5; issues.push({ severity: 'warning', category: 'speed', message: `${page.renderBlockingScripts} render-blocking script${page.renderBlockingScripts > 1 ? 's' : ''} slow page display`, deduction: 5 });
+    searchScore = Math.max(0, searchScore - 5);
+    issues.push({ severity: 'warning', category: 'speed', message: `${page.renderBlockingScripts} render-blocking script${page.renderBlockingScripts > 1 ? 's' : ''} slow page display`, deduction: 5 });
   }
   if (page.images > 0 && page.imagesWithoutLazy > 0) {
-    score -= 5; issues.push({ severity: 'warning', category: 'speed', message: `${page.imagesWithoutLazy} image${page.imagesWithoutLazy !== 1 ? 's' : ''} not lazy loaded — slows initial page render`, deduction: 5 });
+    searchScore = Math.max(0, searchScore - 5);
+    issues.push({ severity: 'warning', category: 'speed', message: `${page.imagesWithoutLazy} image${page.imagesWithoutLazy !== 1 ? 's' : ''} not lazy loaded — slows initial page render`, deduction: 5 });
   }
   if (!page.hasViewport) {
-    score -= 15; issues.push({ severity: 'critical', category: 'speed', message: 'No viewport meta tag — site broken on mobile and demoted by Google', deduction: 15 });
+    searchScore = Math.max(0, searchScore - 15);
+    issues.push({ severity: 'critical', category: 'speed', message: 'No viewport meta tag — site broken on mobile and demoted by Google', deduction: 15 });
   }
   if (!page.isCompressed) {
-    score -= 5; issues.push({ severity: 'warning', category: 'speed', message: 'No GZIP/Brotli compression — enable to reduce transfer size', deduction: 5 });
-  }
-
-  // ── AI SEARCH VISIBILITY ──────────────────────────────────────────────────
-  if (!page.hasFaqSchema) {
-    score -= 5; issues.push({ severity: 'warning', category: 'ai', message: 'Missing FAQ schema — reduces chance of AI Overview and People Also Ask inclusion', deduction: 5 });
-  }
-  if (!page.hasArticleSchema && page.wordCount > 300) {
-    score -= 5; issues.push({ severity: 'warning', category: 'ai', message: 'Missing Article schema with datePublished — AI models deprioritise undated content', deduction: 5 });
-  }
-  if (!page.hasPersonSchema) {
-    score -= 5; issues.push({ severity: 'warning', category: 'ai', message: 'No author schema (Person) — EEAT signal missing for AI citations', deduction: 5 });
-  }
-  if (!page.hasQAStructure && page.wordCount > 200) {
-    score -= 2; issues.push({ severity: 'notice', category: 'ai', message: 'No Q&A heading structure — AI models prefer pages that directly answer questions', deduction: 2 });
-  }
-  if (!page.hasSpeakableSchema) {
-    score -= 2; issues.push({ severity: 'notice', category: 'ai', message: 'No speakable schema — missed opportunity for voice search and AI audio responses', deduction: 2 });
-  }
-  if (!page.hasBreadcrumbSchema) {
-    score -= 2; issues.push({ severity: 'notice', category: 'ai', message: 'Missing breadcrumb schema — reduces site structure clarity for AI crawlers', deduction: 2 });
-  }
-  const isHowToPage = /how[-\s]?to/i.test(`${page.url} ${page.title} ${page.h1}`);
-  if (isHowToPage && !page.hasHowToSchema) {
-    score -= 2; issues.push({ severity: 'notice', category: 'ai', message: 'HowTo page without HowTo schema — AI search engines prioritise structured how-to answers', deduction: 2 });
+    searchScore = Math.max(0, searchScore - 5);
+    issues.push({ severity: 'warning', category: 'speed', message: 'No GZIP/Brotli compression — enable to reduce transfer size', deduction: 5 });
   }
 
   // ── LINK HEALTH ───────────────────────────────────────────────────────────
   if (page.internalLinks === 0) {
-    score -= 15; issues.push({ severity: 'critical', category: 'links', message: 'No internal links — page is orphaned, Google cannot distribute authority', deduction: 15 });
+    sCrit('links', 'No internal links — page is orphaned, Google cannot distribute authority');
   } else if (page.internalLinks <= 2) {
-    score -= 5; issues.push({ severity: 'warning', category: 'links', message: `Only ${page.internalLinks} internal link${page.internalLinks !== 1 ? 's' : ''} — add more to improve crawlability`, deduction: 5 });
+    sWarn('links', `Only ${page.internalLinks} internal link${page.internalLinks !== 1 ? 's' : ''} — add more to improve crawlability`);
   }
   if (page.externalLinks === 0 && page.wordCount > 300) {
-    score -= 5; issues.push({ severity: 'warning', category: 'links', message: 'No outbound links — citing sources builds EEAT trust', deduction: 5 });
+    sWarn('links', 'No outbound links — citing sources builds EEAT trust');
   }
   if (page.poorAnchorTextCount > 0) {
-    score -= 5; issues.push({ severity: 'warning', category: 'links', message: `${page.poorAnchorTextCount} link${page.poorAnchorTextCount !== 1 ? 's' : ''} with generic anchor text — use descriptive keywords`, deduction: 5 });
+    sWarn('links', `${page.poorAnchorTextCount} link${page.poorAnchorTextCount !== 1 ? 's' : ''} with generic anchor text — use descriptive keywords`);
   }
 
   // ── MOBILE & UX ───────────────────────────────────────────────────────────
   if (page.imagesWithoutDimensions > 0 && page.images > 0) {
-    score -= 5; issues.push({ severity: 'warning', category: 'mobile', message: `${page.imagesWithoutDimensions} image${page.imagesWithoutDimensions !== 1 ? 's' : ''} missing width/height — causes layout shift (CLS)`, deduction: 5 });
+    searchScore = Math.max(0, searchScore - 5);
+    issues.push({ severity: 'warning', category: 'mobile', message: `${page.imagesWithoutDimensions} image${page.imagesWithoutDimensions !== 1 ? 's' : ''} missing width/height — causes layout shift (CLS)`, deduction: 5 });
   }
   if (!page.hasOgImage) {
-    score -= 5; issues.push({ severity: 'warning', category: 'mobile', message: 'No og:image — poor appearance when shared on social media', deduction: 5 });
+    searchScore = Math.max(0, searchScore - 5);
+    issues.push({ severity: 'warning', category: 'mobile', message: 'No og:image — poor appearance when shared on social media', deduction: 5 });
   }
   if (!page.hasOgTitle || !page.hasOgDescription) {
-    score -= 5; issues.push({ severity: 'warning', category: 'mobile', message: 'Open Graph tags missing — pages look broken when shared on social media', deduction: 5 });
+    searchScore = Math.max(0, searchScore - 5);
+    issues.push({ severity: 'warning', category: 'mobile', message: 'Open Graph tags missing — pages look broken when shared on social media', deduction: 5 });
   }
   if (!page.hasTwitterCard) {
-    score -= 2; issues.push({ severity: 'notice', category: 'mobile', message: 'No Twitter Card tags — no rich preview on X/Twitter', deduction: 2 });
+    searchScore = Math.max(0, searchScore - 2);
+    issues.push({ severity: 'notice', category: 'mobile', message: 'No Twitter Card tags — no rich preview on X/Twitter', deduction: 2 });
   }
   if (!page.hasLangAttribute) {
-    score -= 2; issues.push({ severity: 'notice', category: 'mobile', message: 'No lang attribute on <html> — search engines uncertain about target language', deduction: 2 });
+    searchScore = Math.max(0, searchScore - 2);
+    issues.push({ severity: 'notice', category: 'mobile', message: 'No lang attribute on <html> — search engines uncertain about target language', deduction: 2 });
   }
 
   // ── CONTENT DEPTH ─────────────────────────────────────────────────────────
   if (page.avgSentenceLength > 20 && page.wordCount > 200) {
-    score -= 2; issues.push({ severity: 'notice', category: 'depth', message: `Long sentences (avg ${page.avgSentenceLength} words) — aim for under 20 words per sentence`, deduction: 2 });
+    sNote('depth', `Long sentences (avg ${page.avgSentenceLength} words) — aim for under 20 words per sentence`);
   }
   if (page.hasHeadingHierarchyIssue) {
-    score -= 5; issues.push({ severity: 'warning', category: 'depth', message: 'Broken heading hierarchy — H3 used without H2, use H1 → H2 → H3 in order', deduction: 5 });
+    sWarn('depth', 'Broken heading hierarchy — H3 used without H2, use H1 → H2 → H3 in order');
   }
   if (page.paragraphCount < 3 && page.wordCount > 150) {
-    score -= 5; issues.push({ severity: 'warning', category: 'depth', message: 'Very little paragraph structure — thin content formatting ranks poorly', deduction: 5 });
+    sWarn('depth', 'Very little paragraph structure — thin content formatting ranks poorly');
   }
 
-  return { score: Math.max(0, score), issues, opportunities };
+  // ── AI SEARCH VISIBILITY ──────────────────────────────────────────────────
+
+  // 1. AI crawler access (robots.txt)
+  for (const bot of domainSignals.blockedAiCrawlers) {
+    aCrit(`${bot} blocked in robots.txt — AI engine cannot crawl or cite this site`, 15);
+    opportunities.push(`Remove Disallow: / for ${bot} in robots.txt to allow AI citation`);
+  }
+
+  // 2. llms.txt
+  if (!domainSignals.hasLlmsTxt) {
+    aNote('No llms.txt file — AI models lack a structured content guide for this site', 5);
+    opportunities.push('Create /llms.txt with site overview and key content sections (use the Generate button)');
+  }
+
+  // 3. Article schema with dateModified (content freshness for AI)
+  if (!page.hasArticleSchema && page.wordCount > 300) {
+    aWarn('Missing Article schema with dateModified — AI models deprioritise undated or unstructured content', 10);
+    opportunities.push('Add Article JSON-LD with author, datePublished, dateModified fields');
+  } else if (page.hasArticleSchema && page.dateModifiedAge !== null) {
+    if (page.dateModifiedAge > 90) {
+      aWarn(`Content not updated in ${page.dateModifiedAge} days — AI engines prioritise fresh content`, 10);
+      opportunities.push('Update dateModified in your Article schema and refresh the content');
+    } else if (page.dateModifiedAge > 30) {
+      aNote(`Content updated ${page.dateModifiedAge} days ago — aim for updates within 30 days`, 5);
+      opportunities.push('Refresh article content and update dateModified in schema');
+    }
+  } else if (page.hasArticleSchema && page.dateModifiedAge === null) {
+    aNote('Article schema missing dateModified — AI models prefer explicitly dated content', 3);
+    opportunities.push('Add dateModified to your Article JSON-LD schema');
+  }
+
+  // 4. Passage citability — answer blocks
+  if (page.wordCount > 300 && page.answerBlockCount < 2) {
+    aWarn(`Only ${page.answerBlockCount} answer-length passage${page.answerBlockCount !== 1 ? 's' : ''} (134-167 words) — AI engines extract citable passages from this range`, 5);
+    opportunities.push('Write 2+ focused paragraphs of 134-167 words that directly answer user questions');
+  }
+
+  // 5. Passage citability — question headings
+  if (page.wordCount > 300 && page.questionHeadingCount < 2) {
+    aWarn(`Only ${page.questionHeadingCount} question heading${page.questionHeadingCount !== 1 ? 's' : ''} (ending with ?) — AI engines prefer Q&A structure`, 5);
+    opportunities.push('Add 2+ headings phrased as questions (e.g. "How does X work?") to improve AI citation');
+  }
+
+  // 6. Fact density
+  if (page.wordCount > 300 && page.factDensityScore < 20) {
+    aWarn(`Low fact density (${page.factDensityScore}% of sentences contain data) — AI engines favour evidence-based content`, 5);
+    opportunities.push('Add statistics, percentages, and specific numbers to strengthen factual credibility');
+  }
+
+  // 7. E-E-A-T: Author byline
+  if (!page.hasAuthorByline && page.wordCount > 300) {
+    aWarn('No author byline detected — E-E-A-T signal missing for AI citation ranking', 10);
+    opportunities.push('Add a visible author name with <meta name="author"> and a Person schema block');
+  }
+
+  // 8. E-E-A-T: Author bio
+  if (page.hasAuthorByline && !page.hasAuthorBio) {
+    aNote('Author credited but no bio section found — add credentials to strengthen E-E-A-T', 3);
+    opportunities.push('Add an "About the Author" section with qualifications and expertise');
+  }
+
+  // 9. Person schema
+  if (!page.hasPersonSchema && page.wordCount > 300) {
+    aWarn('No Person schema — AI systems cannot verify author expertise (E-E-A-T)', 5);
+    opportunities.push('Add Person JSON-LD schema with author name, jobTitle, and sameAs links');
+  }
+
+  // 10. Deprecated schema warnings
+  for (const schemaType of page.deprecatedSchemas) {
+    const deprecationNote = schemaType === 'HowTo'
+      ? 'HowTo rich results removed Sept 2023'
+      : schemaType === 'FAQPage'
+      ? 'FAQPage rich results removed May 2026'
+      : `${schemaType} deprecated`;
+    aWarn(`Deprecated schema type "${schemaType}" (${deprecationNote}) — may signal outdated SEO practices to AI crawlers`, 5);
+    opportunities.push(`Remove or replace ${schemaType} schema — use Article + Q&A headings instead`);
+  }
+
+  // 11. FAQ schema
+  if (!page.hasFaqSchema && page.hasFaq) {
+    aNote('FAQ content found but no FAQPage schema — missing structured Q&A signal for AI', 3);
+    opportunities.push('Add FAQPage JSON-LD schema to target People Also Ask and AI answer boxes');
+  }
+
+  // 12. Q&A heading structure
+  if (!page.hasQAStructure && page.wordCount > 200) {
+    aNote('No Q&A heading structure — AI models prefer pages that directly answer questions', 2);
+    opportunities.push('Add H2/H3 headings phrased as questions to improve AI overview inclusion');
+  }
+
+  // 13. Speakable schema
+  if (!page.hasSpeakableSchema) {
+    aNote('No speakable schema — missed opportunity for voice search and AI audio responses', 2);
+    opportunities.push('Add SpeakableSpecification schema to key answer paragraphs');
+  }
+
+  // 14. Breadcrumb schema for AI context
+  if (!page.hasBreadcrumbSchema) {
+    aNote('Missing breadcrumb schema — reduces site structure clarity for AI crawlers', 2);
+  }
+
+  // 15. HowTo page schema (deprecated, warn if still present is handled above, flag if missing old way)
+  const isHowToPage = /how[-\s]?to/i.test(`${page.url} ${page.title} ${page.h1}`);
+  if (isHowToPage && !page.hasHowToSchema && !page.deprecatedSchemas.includes('HowTo')) {
+    aNote('How-to page — use numbered steps in content and Article schema instead of deprecated HowTo schema', 2);
+    opportunities.push('Structure how-to content as numbered steps within Article schema (HowTo rich results removed Sept 2023)');
+  }
+
+  return {
+    score: Math.max(0, searchScore),
+    searchScore: Math.max(0, searchScore),
+    aiScore: Math.max(0, aiScore),
+    issues,
+    opportunities,
+  };
 }

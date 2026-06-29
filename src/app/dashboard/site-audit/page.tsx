@@ -104,6 +104,10 @@ export default function SiteAuditPage() {
   const [generatingSitemap, setGeneratingSitemap] = useState(false);
   const [sitemapMsg, setSitemapMsg] = useState('');
 
+  // Generate llms.txt state
+  const [llmsTxtContent, setLlmsTxtContent] = useState<string | null>(null);
+  const [llmsTxtMsg, setLlmsTxtMsg] = useState('');
+
   // Score simulation (local update after fix)
   const [scoreSimMsg, setScoreSimMsg] = useState<string>('');
 
@@ -283,6 +287,48 @@ export default function SiteAuditPage() {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'sitemap.xml';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function handleGenerateLlmsTxt() {
+    if (!results?.results) return;
+    setLlmsTxtMsg('');
+    const siteName = domain.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0] || 'This Site';
+    const pages = results.results.filter((r: any) => r.httpStatus !== 404 && r.title);
+    const topics = Array.from(new Set(
+      pages.flatMap((r: any) => (r.h2s || []).slice(0, 3))
+    )).slice(0, 20);
+
+    const txt = [
+      `# ${siteName}`,
+      '',
+      `> ${siteName} covers ${pages.slice(0, 3).map((r: any) => r.aiAnalysis?.detectedKeyword || r.title?.split(' ').slice(0, 3).join(' ')).filter(Boolean).join(', ')}.`,
+      '',
+      '## Important Pages',
+      ...pages.slice(0, 30).map((r: any) => {
+        const path = r.url.replace(/^https?:\/\/[^/]+/, '') || '/';
+        const desc = r.metaDescription ? r.metaDescription.slice(0, 100) : r.title;
+        return `- [${r.title}](${r.url}): ${desc}`;
+      }),
+      '',
+      '## Topics Covered',
+      ...(topics as string[]).map((t: string) => `- ${t}`),
+      '',
+      `## Contact`,
+      `- Homepage: https://${siteName}`,
+    ].join('\n');
+
+    setLlmsTxtContent(txt);
+    setLlmsTxtMsg(`Generated llms.txt for ${pages.length} pages`);
+  }
+
+  function downloadLlmsTxt() {
+    if (!llmsTxtContent) return;
+    const blob = new Blob([llmsTxtContent], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'llms.txt';
     a.click();
     URL.revokeObjectURL(a.href);
   }
@@ -1059,7 +1105,7 @@ export default function SiteAuditPage() {
           {/* Summary stats */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '10px', marginBottom: '20px' }}>
             {[
-              { label: 'Avg Score', value: results.summary.avgScore, color: scoreColor(results.summary.avgScore), sub: gradeLabel(results.summary.avgScore) },
+              { label: 'Avg Search', value: results.summary.avgScore, color: scoreColor(results.summary.avgScore), sub: gradeLabel(results.summary.avgScore) },
               { label: 'Pages Audited', value: results.summary.audited, color: '#0F0F0F', sub: '' },
               { label: 'Critical Pages', value: results.summary.criticalIssues, color: results.summary.criticalIssues > 0 ? '#DC2626' : '#16A34A', sub: '' },
               { label: 'Need Attention', value: results.summary.pagesNeedingAttention, color: results.summary.pagesNeedingAttention > 0 ? '#EF9F27' : '#16A34A', sub: 'score < 70' },
@@ -1072,14 +1118,13 @@ export default function SiteAuditPage() {
             ))}
             {/* AI Ready card */}
             {(() => {
-              const pagesAiReady = results.results.filter((r: any) =>
-                r.issues.filter((i: any) => i.category === 'ai').length === 0
-              ).length;
+              const aiReady = results.summary.aiReadyPages ?? results.results.filter((r: any) => (r.aiScore ?? 0) >= 70).length;
               const total = results.results.length;
               return (
                 <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: '10px', padding: '14px 16px', minWidth: '120px', textAlign: 'center' as const }}>
-                  <div style={{ fontSize: '22px', fontWeight: 800, color: '#EA580C' }}>{pagesAiReady}/{total}</div>
+                  <div style={{ fontSize: '22px', fontWeight: 800, color: '#EA580C' }}>{aiReady}/{total}</div>
                   <div style={{ fontSize: '11px', color: '#9A3412', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginTop: '4px' }}>AI READY</div>
+                  <div style={{ fontSize: '9px', color: '#C2410C', marginTop: '2px' }}>AI score ≥ 70</div>
                 </div>
               );
             })()}
@@ -1134,6 +1179,40 @@ export default function SiteAuditPage() {
           {sitemapXml && !sitemapMsg.includes('❌') && !sitemapMsg.includes('✅ Pushed') && (
             <div style={{ background: '#F5F4F1', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', maxHeight: '120px', overflowY: 'auto', fontSize: '11px', color: '#6B6B6B', fontFamily: 'monospace' }}>
               {sitemapXml.slice(0, 600)}...
+            </div>
+          )}
+
+          {/* Generate llms.txt */}
+          <div style={{ background: '#fff', border: '1px solid #E8E8E4', borderRadius: '10px', padding: '14px 18px', marginBottom: '16px', display: 'flex', alignItems: 'center', flexWrap: 'wrap' as const, gap: '10px' }}>
+            <div style={{ flex: 1, minWidth: '200px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#0F0F0F' }}>🤖 Generate llms.txt</div>
+              <div style={{ fontSize: '11px', color: '#9B9B9B', marginTop: '2px' }}>
+                Create a structured content guide for AI crawlers (ChatGPT, Claude, Perplexity) — boosts AI citation rate
+              </div>
+            </div>
+            <button
+              onClick={handleGenerateLlmsTxt}
+              style={{ padding: '8px 16px', background: '#6D28D9', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' as const }}
+            >
+              🤖 Generate llms.txt
+            </button>
+            {llmsTxtContent && (
+              <button
+                onClick={downloadLlmsTxt}
+                style={{ padding: '8px 16px', background: '#16A34A', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' as const }}
+              >
+                ⬇ Download llms.txt
+              </button>
+            )}
+          </div>
+          {llmsTxtMsg && (
+            <div style={{ background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: '8px', padding: '10px 14px', marginBottom: '8px', fontSize: '12px', color: '#6D28D9' }}>
+              ✓ {llmsTxtMsg} — upload llms.txt to your website root (e.g. https://{domain.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]}/llms.txt)
+            </div>
+          )}
+          {llmsTxtContent && (
+            <div style={{ background: '#F5F4F1', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', maxHeight: '140px', overflowY: 'auto', fontSize: '11px', color: '#6B6B6B', fontFamily: 'monospace', whiteSpace: 'pre' as const }}>
+              {llmsTxtContent.slice(0, 800)}
             </div>
           )}
 
@@ -1207,16 +1286,39 @@ export default function SiteAuditPage() {
                         )}
                       </td>
                       <td style={{ padding: '12px 16px', borderBottom: '1px solid #F5F4F1', verticalAlign: 'top' as const }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
-                          <div style={{
-                            width: '44px', height: '44px', borderRadius: '50%',
-                            border: `3px solid ${scoreColor(page.score)}`,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: '16px', fontWeight: 700, color: scoreColor(page.score),
-                          }}>
-                            {gradeLabel(page.score)}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                          {/* Search score */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <div style={{
+                              width: '32px', height: '32px', borderRadius: '50%', flexShrink: 0,
+                              border: `2px solid ${scoreColor(page.searchScore ?? page.score)}`,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: '13px', fontWeight: 700, color: scoreColor(page.searchScore ?? page.score),
+                            }}>
+                              {gradeLabel(page.searchScore ?? page.score)}
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '9px', color: '#9B9B9B', lineHeight: 1 }}>SEARCH</div>
+                              <div style={{ fontSize: '11px', fontWeight: 700, color: scoreColor(page.searchScore ?? page.score) }}>{page.searchScore ?? page.score}</div>
+                            </div>
                           </div>
-                          <div style={{ fontSize: '10px', color: '#9B9B9B' }}>{page.score}/100</div>
+                          {/* AI score */}
+                          {page.aiScore != null && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                              <div style={{
+                                width: '32px', height: '32px', borderRadius: '50%', flexShrink: 0,
+                                border: `2px solid ${scoreColor(page.aiScore)}`,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: '13px', fontWeight: 700, color: scoreColor(page.aiScore),
+                              }}>
+                                {gradeLabel(page.aiScore)}
+                              </div>
+                              <div>
+                                <div style={{ fontSize: '9px', color: '#EA580C', lineHeight: 1 }}>AI</div>
+                                <div style={{ fontSize: '11px', fontWeight: 700, color: scoreColor(page.aiScore) }}>{page.aiScore}</div>
+                              </div>
+                            </div>
+                          )}
                           {scoreGainDisplay != null && scoreGainDisplay > 0 && (
                             <div style={{ fontSize: '9px', color: '#16A34A', fontWeight: 700 }}>
                               {page.scoreBeforeFix} → {page.scoreAfterFix} (+{scoreGainDisplay})
@@ -1317,6 +1419,8 @@ export default function SiteAuditPage() {
                             const hasIssues = page.issues.length > 0;
                             const quickWins = page.aiAnalysis?.quickWins?.length > 0 ? page.aiAnalysis.quickWins : page.opportunities;
                             const showQuickWins = hasIssues && quickWins.length > 0;
+                            const aiIssues = page.issues.filter((i: any) => i.category === 'ai');
+                            const searchIssues = page.issues.filter((i: any) => i.category !== 'ai');
                             return (
                               <div style={{ display: 'grid', gridTemplateColumns: showQuickWins ? '1fr 1fr' : '1fr', gap: '20px' }}>
                                 <div>
@@ -1457,17 +1561,70 @@ export default function SiteAuditPage() {
                                   <div>
                                     <div style={{ fontSize: '11px', fontWeight: 700, color: '#16A34A', textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '8px' }}>Quick Wins</div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                      {quickWins.map((win: string, j: number) => (
-                                        <div key={j} style={{ fontSize: '12px', color: '#0F0F0F', display: 'flex', gap: '6px' }}>
-                                          <span style={{ color: '#16A34A', flexShrink: 0 }}>→</span>{win}
-                                        </div>
-                                      ))}
+                                      {quickWins.map((win: string, j: number) => {
+                                        const engineMatch = win.match(/^\[(ChatGPT|Perplexity|Google AIO|Claude)\]\s*/);
+                                        const engineColors: Record<string, string> = {
+                                          ChatGPT: '#10A37F', Perplexity: '#6366F1', 'Google AIO': '#1A73E8', Claude: '#D97706',
+                                        };
+                                        const engineColor = engineMatch ? engineColors[engineMatch[1]] || '#16A34A' : '#16A34A';
+                                        const label = engineMatch ? engineMatch[0] : '';
+                                        const text = engineMatch ? win.slice(label.length) : win;
+                                        return (
+                                          <div key={j} style={{ fontSize: '12px', color: '#0F0F0F', display: 'flex', gap: '6px' }}>
+                                            <span style={{ color: engineColor, flexShrink: 0 }}>→</span>
+                                            {label && <span style={{ fontSize: '10px', fontWeight: 700, color: engineColor, background: engineColor + '15', padding: '1px 5px', borderRadius: '4px', flexShrink: 0 }}>{engineMatch![1]}</span>}
+                                            {text}
+                                          </div>
+                                        );
+                                      })}
                                     </div>
                                     {page.metaDescription && (
                                       <div style={{ marginTop: '12px', fontSize: '11px', color: '#6B6B6B', borderTop: '1px solid #E8E8E4', paddingTop: '10px' }}>
                                         <strong>Meta:</strong> {page.metaDescription}
                                       </div>
                                     )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                          {/* AI VISIBILITY section */}
+                          {(() => {
+                            const aiIs = page.issues.filter((i: any) => i.category === 'ai');
+                            if (aiIs.length === 0 && page.aiScore == null) return null;
+                            const aiScoreVal = page.aiScore ?? 0;
+                            return (
+                              <div style={{ marginTop: '16px', borderTop: '1px solid #FED7AA', paddingTop: '14px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#EA580C', textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>
+                                    🤖 AI VISIBILITY
+                                  </div>
+                                  {page.aiScore != null && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', border: `2px solid ${scoreColor(aiScoreVal)}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 700, color: scoreColor(aiScoreVal) }}>
+                                        {gradeLabel(aiScoreVal)}
+                                      </div>
+                                      <span style={{ fontSize: '12px', fontWeight: 700, color: scoreColor(aiScoreVal) }}>{aiScoreVal}/100</span>
+                                      <span style={{ fontSize: '10px', color: '#9B9B9B' }}>AI Score</span>
+                                    </div>
+                                  )}
+                                </div>
+                                {aiIs.length === 0 ? (
+                                  <div style={{ fontSize: '12px', color: '#16A34A' }}>✓ No AI visibility issues found — this page is AI-ready</div>
+                                ) : (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    {aiIs.map((issue: any, j: number) => {
+                                      const sevColor = issue.severity === 'critical' ? '#DC2626' : issue.severity === 'warning' ? '#D97706' : '#6D28D9';
+                                      const sevBg = issue.severity === 'critical' ? '#FEF2F2' : issue.severity === 'warning' ? '#FFFBEB' : '#F5F3FF';
+                                      return (
+                                        <div key={j} style={{ background: sevBg, borderRadius: '6px', padding: '8px 10px', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                          <span style={{ fontSize: '9px', fontWeight: 700, color: sevColor, background: '#fff', padding: '1px 5px', borderRadius: '3px', flexShrink: 0, marginTop: '1px' }}>
+                                            {issue.severity === 'critical' ? 'CRITICAL' : issue.severity === 'warning' ? 'WARN' : 'TIP'} -{issue.deduction}
+                                          </span>
+                                          <span style={{ fontSize: '11px', color: '#0F0F0F' }}>{issue.message}</span>
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                 )}
                               </div>
