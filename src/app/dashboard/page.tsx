@@ -265,6 +265,42 @@ function ScoreRing({ score, label, color }: { score: number; label: string; colo
   );
 }
 
+// ─── Score Cell (ring + optional improve button) ─────────────────────────────
+
+function ScoreCell({
+  score, label, color, scoreType, onImprove, improving, count, canImprove,
+}: {
+  score: number;
+  label: string;
+  color: string;
+  scoreType: string;
+  onImprove: (type: string, score: number) => void;
+  improving: string | null;
+  count: number;
+  canImprove: boolean;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-0.5">
+      <ScoreRing score={score} label={label} color={color} />
+      {canImprove && (
+        <button
+          onClick={() => onImprove(scoreType, score)}
+          disabled={improving !== null}
+          title={count > 0 ? `${count}/3 improvements used` : 'Improve this score with AI'}
+          className="text-[9px] text-[#6B6B6B] hover:text-[#FF6B2C] transition-colors disabled:opacity-40 flex items-center gap-0.5 mt-0.5"
+        >
+          {improving === scoreType ? (
+            <svg className="w-2.5 h-2.5 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          ) : '↻'} Improve{count > 0 ? ` (${count}/3)` : ''}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ─── Intent Badge ────────────────────────────────────────────────────────────
 
 const INTENT_STYLES: Record<string, string> = {
@@ -349,6 +385,12 @@ export default function DashboardPage() {
   const [imageTier, setImageTier] = useState<'free' | 'premium'>('free');
   const [imageStored, setImageStored] = useState(false);
   const [injectedArticleHtml, setInjectedArticleHtml] = useState<string>('');
+  const [imageStats, setImageStats] = useState<{ requested: number; generated: number; failures: string[] } | null>(null);
+
+  // Score improve state
+  const [improveCounts, setImproveCounts] = useState<Record<string, number>>({});
+  const [improvingScore, setImprovingScore] = useState<string | null>(null);
+  const [scoreToast, setScoreToast] = useState<{ message: string; kind: 'success' | 'error' } | null>(null);
 
   // Humanize state
   const [humanizeInput, setHumanizeInput] = useState('');
@@ -618,6 +660,9 @@ export default function DashboardPage() {
     setArticleLoading(true);
     setArticleError('');
     setArticle(null);
+    setImproveCounts({});
+    setImageStats(null);
+    setScoreToast(null);
 
     const finalSecondaryKws = selectedKwsArray.filter((k: string) => k !== kw);
     setLastSecondaryKws(finalSecondaryKws.length > 0 ? finalSecondaryKws : [kw]);
@@ -726,6 +771,7 @@ export default function DashboardPage() {
           const imgData = JSON.parse(imageSetMatchV2[1]);
           setImages(imgData.images || []);
           setImageStored(imgData.stored || false);
+          if (imgData.imageStats) setImageStats(imgData.imageStats);
           if (withImagesMatchV2) setInjectedArticleHtml(withImagesMatchV2[1].trim());
         } catch { /* ignore parse error */ }
       }
@@ -771,6 +817,9 @@ export default function DashboardPage() {
     setIsCompetitorMode(true);
     setArticleError('');
     setArticle(null);
+    setImproveCounts({});
+    setImageStats(null);
+    setScoreToast(null);
 
     const finalSecondaryKws = selectedKwsArray.filter((k: string) => k !== kw);
     setLastSecondaryKws(finalSecondaryKws.length > 0 ? finalSecondaryKws : [kw]);
@@ -863,6 +912,7 @@ export default function DashboardPage() {
           const imgData = JSON.parse(imageSetMatchComp[1]);
           setImages(imgData.images || []);
           setImageStored(imgData.stored || false);
+          if (imgData.imageStats) setImageStats(imgData.imageStats);
           if (withImagesMatchComp) setInjectedArticleHtml(withImagesMatchComp[1].trim());
         } catch { /* ignore */ }
       }
@@ -918,6 +968,65 @@ export default function DashboardPage() {
     } finally {
       setArticleLoading(false);
       setIsCompetitorMode(false);
+    }
+  }
+
+  // ── Score improvement ─────────────────────────────────────────────────────
+  async function handleImproveScore(scoreType: string, currentScore: number) {
+    if (!article) return;
+    if ((improveCounts[scoreType] ?? 0) >= 3) return;
+    setImprovingScore(scoreType);
+    setScoreToast(null);
+    try {
+      const res = await fetch('/api/article-improve-score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          articleHtml: article.article,
+          scoreType,
+          currentScore,
+          primaryKeyword: article.seoTitle,
+          market: country || 'United Kingdom',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Improvement failed');
+      const ns = data.newScores ?? {};
+      setArticle(prev => prev ? {
+        ...prev,
+        article: data.updatedHtml,
+        eeaScore: ns.eeatScore ?? prev.eeaScore,
+        readabilityScore: ns.readabilityScore ?? prev.readabilityScore,
+        keywordDensity: ns.keywordDensity ?? prev.keywordDensity,
+        searchScore: ns.searchScore ?? prev.searchScore,
+        aiScore: ns.aiScore ?? prev.aiScore,
+        humanScore: ns.humanScore != null ? ns.humanScore : prev.humanScore,
+      } : null);
+      setImproveCounts(prev => ({ ...prev, [scoreType]: (prev[scoreType] ?? 0) + 1 }));
+      const label = scoreType === 'eeat' ? 'EEAT' : scoreType === 'readability' ? 'Readability' : scoreType === 'human' ? 'Human Score' : 'Keyword Density';
+      setScoreToast({ message: `${label} improved — ${data.changesSummary}`, kind: 'success' });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      setScoreToast({ message: err.message || 'Improvement failed', kind: 'error' });
+    } finally {
+      setImprovingScore(null);
+      setTimeout(() => setScoreToast(null), 6000);
+    }
+  }
+
+  async function handleImproveAll() {
+    if (!article) return;
+    const targets = [
+      { type: 'eeat', score: article.eeaScore },
+      { type: 'readability', score: article.readabilityScore },
+      ...(article.humanScore != null ? [{ type: 'human', score: article.humanScore }] : []),
+      { type: 'keyword', score: article.keywordDensity },
+    ].filter(({ type, score }) => {
+      if (type === 'keyword') return (score as number) < 0.5 || (score as number) > 3;
+      return (score as number) < 95 && (improveCounts[type] ?? 0) < 3;
+    });
+    for (const { type, score } of targets) {
+      await handleImproveScore(type, score as number);
     }
   }
 
@@ -1953,10 +2062,26 @@ export default function DashboardPage() {
                 {/* Scores sidebar */}
                 <div className="w-56 flex-shrink-0 space-y-4">
                   <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-4">
-                    <p className="text-xs text-[#6B6B6B] uppercase tracking-wide font-medium mb-4">Content Scores</p>
+                    <div className="flex items-center justify-between mb-4">
+                      <p className="text-xs text-[#6B6B6B] uppercase tracking-wide font-medium">Content Scores</p>
+                      {Object.values(improveCounts).some(v => v < 3) && (
+                        <button
+                          onClick={handleImproveAll}
+                          disabled={improvingScore !== null}
+                          className="text-[9px] font-semibold text-[#FF6B2C] hover:text-[#E85A1E] disabled:opacity-40 flex items-center gap-0.5 transition-colors"
+                        >
+                          {improvingScore ? (
+                            <svg className="w-2.5 h-2.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                            </svg>
+                          ) : '↻'} Improve All
+                        </button>
+                      )}
+                    </div>
                     <div className="grid grid-cols-2 gap-4">
-                      <ScoreRing score={article.eeaScore} label="EEAT" color="#f59e0b" />
-                      <ScoreRing score={article.readabilityScore} label="Readability" color="#22c55e" />
+                      <ScoreCell score={article.eeaScore} label="EEAT" color="#f59e0b" scoreType="eeat" onImprove={handleImproveScore} improving={improvingScore} count={improveCounts['eeat'] ?? 0} canImprove={article.eeaScore < 95 && (improveCounts['eeat'] ?? 0) < 3} />
+                      <ScoreCell score={article.readabilityScore} label="Readability" color="#22c55e" scoreType="readability" onImprove={handleImproveScore} improving={improvingScore} count={improveCounts['readability'] ?? 0} canImprove={article.readabilityScore < 95 && (improveCounts['readability'] ?? 0) < 3} />
                       {article.searchScore != null && (
                         <ScoreRing score={article.searchScore} label="Search SEO" color="#1D4ED8" />
                       )}
@@ -1964,12 +2089,17 @@ export default function DashboardPage() {
                         <ScoreRing score={article.aiScore} label="AI Visibility" color="#EA580C" />
                       )}
                       {article.humanScore != null && (
-                        <ScoreRing score={article.humanScore} label="Human Score" color="#7C3AED" />
+                        <ScoreCell score={article.humanScore} label="Human Score" color="#7C3AED" scoreType="human" onImprove={handleImproveScore} improving={improvingScore} count={improveCounts['human'] ?? 0} canImprove={article.humanScore < 95 && (improveCounts['human'] ?? 0) < 3} />
                       )}
                       {article.factSourcingScore != null && (
                         <ScoreRing score={article.factSourcingScore} label="Fact Sourcing" color="#0891b2" />
                       )}
                     </div>
+                    {scoreToast && (
+                      <div className={`mt-3 text-[11px] leading-tight px-2 py-1.5 rounded-[6px] ${scoreToast.kind === 'success' ? 'bg-green-500/10 text-green-700' : 'bg-red-500/10 text-red-700'}`}>
+                        {scoreToast.message}
+                      </div>
+                    )}
                     {article.factPatchedCount != null && article.factPatchedCount > 0 && (
                       <p className="text-xs text-[#0891b2] mt-3 leading-tight">
                         ✅ {article.factPatchedCount} unsourced statistic{article.factPatchedCount === 1 ? '' : 's'} automatically hedged with citations
@@ -1982,13 +2112,37 @@ export default function DashboardPage() {
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-[#6B6B6B] text-xs">Keyword Density</span>
-                        <span className={`text-sm font-semibold ${parseFloat(String(article.keywordDensity)) <= 1.5 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>
-                          {article.keywordDensity}{typeof article.keywordDensity === "number" ? "%" : ""}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-sm font-semibold ${parseFloat(String(article.keywordDensity)) >= 0.5 && parseFloat(String(article.keywordDensity)) <= 3 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>
+                            {article.keywordDensity}{typeof article.keywordDensity === "number" ? "%" : ""}
+                          </span>
+                          {(parseFloat(String(article.keywordDensity)) < 0.5 || parseFloat(String(article.keywordDensity)) > 3) && (improveCounts['keyword'] ?? 0) < 3 && (
+                            <button
+                              onClick={() => handleImproveScore('keyword', parseFloat(String(article.keywordDensity)))}
+                              disabled={improvingScore !== null}
+                              className="text-[9px] text-[#FF6B2C] hover:text-[#E85A1E] disabled:opacity-40 transition-colors"
+                              title="Fix keyword density"
+                            >
+                              ↻
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
 
+                  {imageStats && imageStats.failures.length > 0 && (
+                    <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '12px', color: '#DC2626' }}>
+                      ⚠️ {imageStats.generated} of {imageStats.requested} images generated — {imageStats.failures.length} failed
+                      <button
+                        onClick={handleGenerateImages}
+                        disabled={imagesLoading}
+                        className="block mt-1 text-[11px] underline text-red-700 hover:text-red-900 disabled:opacity-50"
+                      >
+                        {imagesLoading ? 'Regenerating…' : 'Regenerate images'}
+                      </button>
+                    </div>
+                  )}
                   {article.aiScore != null && article.aiScore < 70 && (
                     <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: '8px', padding: '12px 16px', marginBottom: '12px', fontSize: '13px', color: '#92400E' }}>
                       <strong>⚠️ AI Visibility score: {article.aiScore}/100</strong> — below the 70-point threshold.

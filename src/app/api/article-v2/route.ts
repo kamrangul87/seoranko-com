@@ -216,6 +216,7 @@ Do not write generic angles. Be specific and surprising.`
                   stored: [imageSet.hero, ...imageSet.content].some(img => img.url.includes('supabase')),
                   niche: imageSet.niche,
                   styleDescriptor: imageSet.styleDescriptor,
+                  imageStats: imageSet.imageStats,
                 })}<!--SEORANKO_IMAGE_SET_END-->`
               ));
             }

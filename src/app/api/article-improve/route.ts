@@ -223,13 +223,17 @@ Return ONLY valid JSON no markdown:
         let factSourcingScore: number | undefined;
         let factPatchedCount = 0;
         try {
+          // Adaptive image count: same formula as article-v2
+          const improveWordCount = validatedArticle.replace(/<[^>]*>/g, ' ').trim().split(/\s+/).filter(Boolean).length;
+          const improveImageCount = improveWordCount > 2500 ? 5 : improveWordCount > 1500 ? 4 : 3;
+
           const [humanized, imageSet] = await Promise.all([
             humanizeArticle(validatedArticle, { level: 'medium', primaryKeyword: targetKeyword }),
             generateArticleImages({
               topic: validatedArticle.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 400),
               keyword: targetKeyword,
               tier: 'free',
-              count: 3,
+              count: improveImageCount,
             }).catch((err) => {
               console.warn('[article-improve] auto image generation failed:', err?.message);
               return null;
@@ -257,6 +261,7 @@ Return ONLY valid JSON no markdown:
               stored: [imageSet.hero, ...imageSet.content].some(img => img.url.includes('supabase')),
               niche: imageSet.niche,
               styleDescriptor: imageSet.styleDescriptor,
+              imageStats: imageSet.imageStats,
             })}<!--SEORANKO_IMAGE_SET_END-->`);
           }
         } catch (err) {

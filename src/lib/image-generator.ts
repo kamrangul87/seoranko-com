@@ -45,12 +45,19 @@ export interface GeneratedImage {
   prompt: string;
 }
 
+export interface ImageStats {
+  requested: number;
+  generated: number;
+  failures: string[];
+}
+
 export interface ArticleImageSet {
   hero: GeneratedImage;
   content: GeneratedImage[];
   mobile?: GeneratedImage;
   niche: ArticleNiche;
   styleDescriptor: string;
+  imageStats: ImageStats;
 }
 
 export interface ImageFailure {
@@ -143,16 +150,18 @@ async function buildImagePrompts(
 
   const res = await anthropic.messages.create({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 800,
+    // 2000 tokens prevents truncation for 4-5 prompts (~150 tokens each + JSON overhead was
+    // cutting off the JSON array at 800, causing parse failure and hero-only fallback)
+    max_tokens: 2000,
     messages: [{
       role: 'user',
-      content: `Generate ${count} image prompts for a blog article about "${keyword}".
+      content: `Generate exactly ${count} image prompts for a blog article about "${keyword}".
 
 Niche: ${niche}. Topic context: ${topic.slice(0, 200)}
 
 Mandatory visual style — append exactly to EVERY prompt: "${fullStyle}"
 
-Return ONLY valid JSON array, no markdown:
+Return ONLY valid JSON array with exactly ${count} items, no markdown:
 [
   {
     "placement": "hero",
@@ -163,7 +172,7 @@ Return ONLY valid JSON array, no markdown:
 ]
 
 Rules:
-- First item must have placement "hero", rest "content"
+- First item must have placement "hero", remaining ${count - 1} items have placement "content"
 - Each prompt must describe a distinct scene/angle (no repetition)
 - The mandatory visual style must appear verbatim at the end of each prompt
 - No markdown, no explanation`,
@@ -174,14 +183,25 @@ Rules:
   try {
     const parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('empty');
-    return parsed;
+    // Pad to requested count if Haiku returned fewer (truncation recovery)
+    while (parsed.length < count) {
+      const i = parsed.length;
+      parsed.push({
+        placement: 'content',
+        prompt: `${keyword}, additional scene ${i}, ${fullStyle}, no text`,
+        alt: `${keyword} image ${i + 1}`,
+        caption: keyword,
+      });
+    }
+    return parsed as { placement: string; prompt: string; alt: string; caption: string }[];
   } catch {
-    return [{
-      placement: 'hero',
+    // Full fallback: build count prompts manually
+    return Array.from({ length: count }, (_, i) => ({
+      placement: i === 0 ? 'hero' : 'content',
       prompt: `${keyword}, ${fullStyle}, no text`,
-      alt: `${keyword} featured image`,
+      alt: `${keyword} ${i === 0 ? 'featured image' : `image ${i + 1}`}`,
       caption: keyword,
-    }];
+    }));
   }
 }
 
@@ -375,6 +395,8 @@ export async function generateArticleImages(opts: {
   };
   const contentPrompts = prompts.slice(1);
 
+  console.log(`[image-generator] requesting ${count} images (hero + ${count - 1} content) for "${keyword}"`);
+
   // Step 3: Generate all raw images in parallel (hero + all content simultaneously)
   const [heroResult, ...contentResults] = await Promise.all([
     generateWithRetryAndFallback(
@@ -392,6 +414,29 @@ export async function generateArticleImages(opts: {
       )
     ),
   ]);
+
+  // Track which images failed at the generation stage (before Pollinations fallback)
+  const heroFailed = 'failed' in heroResult;
+  const contentFailureReasons: string[] = [];
+  contentResults.forEach((r, i) => {
+    if ('failed' in r) {
+      contentFailureReasons.push(`content image ${i + 1}: ${'reason' in r ? r.reason : 'unknown error'}`);
+    }
+  });
+  const imageStats: ImageStats = {
+    requested: count,
+    generated: count - (heroFailed ? 1 : 0) - contentFailureReasons.length,
+    failures: [
+      ...(heroFailed ? [`hero: ${'reason' in heroResult ? heroResult.reason : 'unknown'}`] : []),
+      ...contentFailureReasons,
+    ],
+  };
+  console.log('[image-generator] stats:', {
+    requested: imageStats.requested,
+    succeeded: imageStats.generated,
+    failed: imageStats.failures.length,
+    failureReasons: imageStats.failures,
+  });
 
   // Step 4: Process hero — resize to hero + mobile in parallel, upload in parallel
   let heroUrl = '';
@@ -495,7 +540,7 @@ export async function generateArticleImages(opts: {
     )
   ).filter((img): img is NonNullable<typeof img> => img !== null) as GeneratedImage[];
 
-  return { hero, content: contentImages, mobile, niche, styleDescriptor };
+  return { hero, content: contentImages, mobile, niche, styleDescriptor, imageStats };
 }
 
 // ── Inject images into article HTML ──────────────────────────────────────────
@@ -550,18 +595,33 @@ export function injectImagesIntoArticle(html: string, imageSet: ArticleImageSet)
     const insertions: { pos: number; figure: string }[] = [];
 
     if (h2Positions.length > 0) {
-      // Distribute images evenly: pick H2 positions at regular intervals
-      const step = Math.max(1, Math.floor(h2Positions.length / (content.length + 1)));
+      // Distribute images evenly: pick one H2 per image, never reusing the same position.
+      // When there are fewer H2s than content images, later images are skipped gracefully.
+      const usedH2Indices = new Set<number>();
       content.forEach((img, i) => {
-        const targetH2Index = Math.min((i + 1) * step - 1, h2Positions.length - 1);
-        // Avoid inserting two images at the same position
-        const pos = h2Positions[targetH2Index];
-        if (pos !== undefined && img.url && !insertions.some(ins => ins.pos === pos)) {
-          const imgAlt = escapeHtmlAttr(img.alt || '');
-          const imgCaption = img.caption ? escapeHtmlAttr(img.caption) : '';
-          insertions.push({
-            pos,
-            figure: `\n<figure class="article-content-image" style="margin:1.5rem 0;">
+        if (!img.url) return;
+        // Target: spread evenly across available H2s
+        const targetIdx = Math.min(
+          Math.floor((i / content.length) * h2Positions.length),
+          h2Positions.length - 1,
+        );
+        // Walk forward to first unused H2
+        let idx = targetIdx;
+        while (idx < h2Positions.length && usedH2Indices.has(idx)) idx++;
+        // If exhausted, walk backward
+        if (idx >= h2Positions.length) {
+          idx = targetIdx - 1;
+          while (idx >= 0 && usedH2Indices.has(idx)) idx--;
+        }
+        if (idx < 0 || idx >= h2Positions.length) return; // no more H2 slots
+
+        usedH2Indices.add(idx);
+        const pos = h2Positions[idx];
+        const imgAlt = escapeHtmlAttr(img.alt || '');
+        const imgCaption = img.caption ? escapeHtmlAttr(img.caption) : '';
+        insertions.push({
+          pos,
+          figure: `\n<figure class="article-content-image" style="margin:1.5rem 0;">
   <img
     src="${img.url}"
     alt="${imgAlt}"
@@ -573,8 +633,7 @@ export function injectImagesIntoArticle(html: string, imageSet: ArticleImageSet)
   />
   ${imgCaption ? `<figcaption style="text-align:center;font-size:0.85rem;color:#6B6B6B;margin-top:0.5rem;">${imgCaption}</figcaption>` : ''}
 </figure>\n`,
-          });
-        }
+        });
       });
     } else if (content[0]?.url) {
       // No H2s — append first content image after the hero area

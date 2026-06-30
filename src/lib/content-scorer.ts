@@ -1,6 +1,10 @@
 // Shared article scoring utilities — imported by all three article routes.
 // Centralised here so logic doesn't drift between article-v2, article-improve, and article-competitor.
 
+import Anthropic from '@anthropic-ai/sdk';
+
+const FAST_MODEL = 'claude-haiku-4-5-20251001';
+
 export function calculateEEATScore(html: string): number {
   let score = 0;
   const text = html.replace(/<[^>]+>/g, ' ');
@@ -168,5 +172,185 @@ export function scoreHtmlLocally(
   return {
     searchScore: Math.max(0, Math.min(100, search)),
     aiScore: Math.max(0, Math.min(100, ai)),
+  };
+}
+
+// ── Score improvement functions ────────────────────────────────────────────────
+
+export async function improveEEAT(
+  html: string,
+  currentScore: number,
+): Promise<{ html: string; score: number; summary: string }> {
+  const text = html.replace(/<[^>]+>/g, ' ');
+  const missingSignals: string[] = [];
+
+  const hasAuthorByline =
+    /Written by|By\s+[A-Z][a-z]+\s+[A-Z]|class=["'][^"']*byline|name=["']author/i.test(html) ||
+    /"author"\s*:\s*\{/i.test(html);
+  const hasAuthorBio = /author-bio|About the Author|About [A-Z][a-z]+/i.test(html);
+  const hasPersonSchema = /"@type"\s*:\s*"Person"/i.test(html);
+  const hasFirstPerson = /\b(I've|I have|in my experience|what I'd|when I|my recommendation|I tested|I found|I use)\b/i.test(text);
+  const hasOfficialSources =
+    /href=["'][^"']*(gov\.uk|\.gov|\.edu|nhs\.uk|who\.int|ons\.gov)[^"']*["']/i.test(html) ||
+    /\b(according to|NHS|DVSA|HMRC|OFGEM|DVLA|ONS|GOV\.UK|BBC|Which\?|official)\b/i.test(text);
+  const hasFreshness = /"dateModified"/i.test(html) || /last.?updated|updated\s+\w+\s+202[456]/i.test(text);
+
+  if (!hasAuthorByline) missingSignals.push('author byline — add "Written by [Expert Name], [Credential]" after the H1');
+  if (!hasAuthorBio) missingSignals.push('author bio section — add <div class="author-bio"> with credentials at end of article');
+  if (!hasPersonSchema) missingSignals.push('Person schema — add "@type":"Person" with name and credentials inside the JSON-LD script block');
+  if (!hasFirstPerson) missingSignals.push('first-person experience language — insert 1-2 sentences like "In my experience..." or "I\'ve found that..."');
+  if (!hasOfficialSources) missingSignals.push('official source citation — add a sentence referencing GOV.UK, NHS, or similar authority with a hyperlink');
+  if (!hasFreshness) missingSignals.push('freshness signal — add "Last updated: [current month and year]" near the top');
+
+  if (missingSignals.length === 0 || currentScore >= 90) {
+    return { html, score: currentScore, summary: 'All EEAT signals already present' };
+  }
+
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+  const res = await anthropic.messages.create({
+    model: FAST_MODEL,
+    max_tokens: 3000,
+    messages: [{
+      role: 'user',
+      content: `You are an SEO expert improving EEAT (Experience, Expertise, Authority, Trust) signals in an article.
+
+Add ONLY the following missing signals to the article HTML below. Do not rewrite existing content.
+
+MISSING SIGNALS TO ADD:
+${missingSignals.map((s, i) => `${i + 1}. ${s}`).join('\n')}
+
+ARTICLE HTML:
+${html.slice(0, 7000)}
+
+Return ONLY the complete updated HTML, no explanation.`,
+    }],
+  });
+
+  const updatedHtml = res.content[0].type === 'text' ? res.content[0].text.trim() : html;
+  const newScore = calculateEEATScore(updatedHtml);
+  const added = missingSignals.slice(0, 3).map(s => s.split(' — ')[0]).join(', ');
+
+  return { html: updatedHtml, score: newScore, summary: `Added: ${added}` };
+}
+
+export async function improveReadability(
+  html: string,
+  currentScore: number,
+): Promise<{ html: string; score: number; summary: string }> {
+  if (currentScore >= 90) {
+    return { html, score: currentScore, summary: 'Readability already excellent' };
+  }
+
+  // Find long paragraphs (> 100 words) — these are the main readability killer
+  const pTags = Array.from(html.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi));
+  const longParas = pTags
+    .map(m => ({ full: m[0], text: m[1].replace(/<[^>]+>/g, ' ').trim() }))
+    .filter(p => p.text.split(/\s+/).filter(Boolean).length > 100)
+    .slice(0, 3);
+
+  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const sentences = text.match(/[^.!?]+[.!?]+/g) || [];
+  const avgSentLen = sentences.length > 3
+    ? sentences.reduce((s, sen) => s + sen.trim().split(/\s+/).length, 0) / sentences.length
+    : 0;
+
+  if (longParas.length === 0 && avgSentLen < 25) {
+    return { html, score: currentScore, summary: 'No long paragraphs or run-on sentences found' };
+  }
+
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+  const issues: string[] = [];
+  if (longParas.length > 0) issues.push(`${longParas.length} paragraphs over 100 words — split each into 2-3 shorter paragraphs`);
+  if (avgSentLen > 25) issues.push(`Average sentence length is ${Math.round(avgSentLen)} words — aim for under 20 words`);
+
+  const res = await anthropic.messages.create({
+    model: FAST_MODEL,
+    max_tokens: 3000,
+    messages: [{
+      role: 'user',
+      content: `Improve the readability of this article HTML by fixing these specific issues:
+
+${issues.join('\n')}
+
+${longParas.length > 0 ? `LONG PARAGRAPHS TO SPLIT:\n${longParas.map(p => p.text.slice(0, 200)).join('\n---\n')}` : ''}
+
+ARTICLE HTML:
+${html.slice(0, 7000)}
+
+Rules:
+- Only fix the readability issues listed above
+- Do not change headings, lists, images, or schema markup
+- Keep all keywords and links intact
+- Return ONLY the complete updated HTML`,
+    }],
+  });
+
+  const updatedHtml = res.content[0].type === 'text' ? res.content[0].text.trim() : html;
+  const newScore = calculateReadabilityScore(updatedHtml);
+
+  return { html: updatedHtml, score: newScore, summary: issues.join('; ') };
+}
+
+export async function improveHumanScore(
+  html: string,
+): Promise<{ html: string; score: number; summary: string }> {
+  // Dynamically import to avoid circular deps if humanizer ever imports scorer
+  const { humanizeArticle } = await import('@/lib/humanizer');
+  const result = await humanizeArticle(html, { level: 'aggressive' });
+
+  return {
+    html: result.humanizedHtml,
+    score: result.humanScore,
+    summary: `Aggressive humanization applied — ${result.bannedWordsRemoved.length} AI phrases removed`,
+  };
+}
+
+export async function improveKeywordDensity(
+  html: string,
+  keyword: string,
+  currentDensity: number,
+): Promise<{ html: string; score: number; summary: string }> {
+  const tooLow = currentDensity < 0.5;
+  const tooHigh = currentDensity > 3;
+
+  if (!tooLow && !tooHigh) {
+    return {
+      html,
+      score: currentDensity,
+      summary: `Keyword density ${currentDensity}% is already within the 0.5–3% target range`,
+    };
+  }
+
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+  const instruction = tooLow
+    ? `The keyword "${keyword}" appears too rarely (${currentDensity}%). Naturally add it to 3-5 more paragraphs (in the opening sentence, a subheading, and the conclusion if possible). Target density: 0.8–1.5%.`
+    : `The keyword "${keyword}" is overused (${currentDensity}%). Replace some exact-match occurrences with natural synonyms or related phrases to bring density below 2.5%.`;
+
+  const res = await anthropic.messages.create({
+    model: FAST_MODEL,
+    max_tokens: 3000,
+    messages: [{
+      role: 'user',
+      content: `${instruction}
+
+ARTICLE HTML:
+${html.slice(0, 7000)}
+
+Rules:
+- Only adjust keyword usage — do not change headings, structure, or other content
+- Maintain natural language — never stuff keywords awkwardly
+- Return ONLY the complete updated HTML`,
+    }],
+  });
+
+  const updatedHtml = res.content[0].type === 'text' ? res.content[0].text.trim() : html;
+  const newDensity = calculateKeywordDensity(updatedHtml, keyword);
+
+  return {
+    html: updatedHtml,
+    score: newDensity,
+    summary: tooLow
+      ? `Density increased from ${currentDensity}% to ${newDensity}%`
+      : `Density reduced from ${currentDensity}% to ${newDensity}%`,
   };
 }

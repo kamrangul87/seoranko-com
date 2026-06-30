@@ -214,13 +214,17 @@ export async function POST(req: NextRequest) {
 
             // Humanize + auto-generate images in parallel after enrichment
             try {
+              // Adaptive image count: same formula as article-v2
+              const enrichedWordCount = validatedArticle.replace(/<[^>]*>/g, ' ').trim().split(/\s+/).filter(Boolean).length;
+              const enrichedImageCount = enrichedWordCount > 2500 ? 5 : enrichedWordCount > 1500 ? 4 : 3;
+
               const [humanized, imageSet] = await Promise.all([
                 humanizeArticle(validatedArticle, { level: 'medium', primaryKeyword: keyword }),
                 generateArticleImages({
                   topic: validatedArticle.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 400),
                   keyword,
                   tier: 'free',
-                  count: 3,
+                  count: enrichedImageCount,
                 }).catch((err) => {
                   console.warn('[article-competitor] auto image generation failed:', err?.message);
                   return null;
@@ -260,6 +264,7 @@ export async function POST(req: NextRequest) {
                     stored: [imageSet.hero, ...imageSet.content].some(img => img.url.includes('supabase')),
                     niche: imageSet.niche,
                     styleDescriptor: imageSet.styleDescriptor,
+                    imageStats: imageSet.imageStats,
                   })}<!--SEORANKO_IMAGE_SET_END-->`
                 ));
               }
@@ -278,13 +283,17 @@ export async function POST(req: NextRequest) {
             // Humanize + auto-generate images in parallel (base article path)
             try {
               const baseArticle = validatedArticle || fullArticle;
+              // Adaptive image count: same formula as article-v2
+              const baseWordCount = baseArticle.replace(/<[^>]*>/g, ' ').trim().split(/\s+/).filter(Boolean).length;
+              const baseImageCount = baseWordCount > 2500 ? 5 : baseWordCount > 1500 ? 4 : 3;
+
               const [humanized, imageSet] = await Promise.all([
                 humanizeArticle(baseArticle, { level: 'medium', primaryKeyword: keyword }),
                 generateArticleImages({
                   topic: baseArticle.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 400),
                   keyword,
                   tier: 'free',
-                  count: 3,
+                  count: baseImageCount,
                 }).catch((err) => {
                   console.warn('[article-competitor] auto image generation failed (base):', err?.message);
                   return null;
@@ -324,6 +333,7 @@ export async function POST(req: NextRequest) {
                     stored: [imageSet.hero, ...imageSet.content].some(img => img.url.includes('supabase')),
                     niche: imageSet.niche,
                     styleDescriptor: imageSet.styleDescriptor,
+                    imageStats: imageSet.imageStats,
                   })}<!--SEORANKO_IMAGE_SET_END-->`
                 ));
               }
