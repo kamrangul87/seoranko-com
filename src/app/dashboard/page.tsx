@@ -345,6 +345,9 @@ export default function DashboardPage() {
   const [images, setImages] = useState<ImagePrompt[]>([]);
   const [imagesLoading, setImagesLoading] = useState(false);
   const [imageError, setImageError] = useState("");
+  const [imageTier, setImageTier] = useState<'free' | 'premium'>('free');
+  const [imageStored, setImageStored] = useState(false);
+  const [injectedArticleHtml, setInjectedArticleHtml] = useState<string>('');
 
   // Humanize state
   const [humanizeInput, setHumanizeInput] = useState('');
@@ -859,11 +862,13 @@ export default function DashboardPage() {
       const res = await fetch("/api/images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ article: article.article, keyword: seedKeyword }),
+        body: JSON.stringify({ article: article.article, keyword: seedKeyword, tier: imageTier, count: 3 }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Image generation failed");
-      setImages(data.images);
+      setImages(data.images || []);
+      setImageStored(data.stored || false);
+      if (data.injectedHtml) setInjectedArticleHtml(data.injectedHtml);
       setActiveNav("images");
     } catch (e) {
       setImageError(e instanceof Error ? e.message : "Image generation failed");
@@ -2079,27 +2084,73 @@ export default function DashboardPage() {
         {/* ── IMAGES view ── */}
         {activeNav === "images" && (
           <div className="max-w-6xl mx-auto px-8 py-8">
-            <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center justify-between mb-6">
               <div>
                 <h1 className="text-2xl font-bold mb-1">Article Images</h1>
-                <p className="text-[#6B6B6B] text-sm">AI-generated image suggestions for your article.</p>
+                <p className="text-[#6B6B6B] text-sm">Blog-standard AI images (WebP, auto-sized, stored to CDN).</p>
               </div>
-              {article && images.length === 0 && (
-                <button
-                  onClick={handleGenerateImages}
-                  disabled={imagesLoading}
-                  className="bg-[#FF6B2C] hover:bg-[#E85A1E] text-[#0a0a0a] font-semibold text-sm px-5 py-2.5 rounded-[8px] transition-colors disabled:opacity-50 flex items-center gap-2"
-                >
-                  {imagesLoading && (
-                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                  )}
-                  {imagesLoading ? "Generating…" : "Generate Images"}
-                </button>
+              {article && (
+                <div className="flex items-center gap-3">
+                  {/* Tier selector */}
+                  <div className="flex bg-[#F5F5F0] rounded-[8px] p-0.5 text-xs font-semibold">
+                    <button
+                      onClick={() => setImageTier('free')}
+                      className={`px-3 py-1.5 rounded-[6px] transition-colors ${imageTier === 'free' ? 'bg-white text-[#0a0a0a] shadow-sm' : 'text-[#6B6B6B] hover:text-[#0a0a0a]'}`}
+                    >
+                      Free
+                    </button>
+                    <button
+                      onClick={() => setImageTier('premium')}
+                      className={`px-3 py-1.5 rounded-[6px] transition-colors ${imageTier === 'premium' ? 'bg-white text-[#0a0a0a] shadow-sm' : 'text-[#6B6B6B] hover:text-[#0a0a0a]'}`}
+                    >
+                      Premium ✦
+                    </button>
+                  </div>
+                  <button
+                    onClick={handleGenerateImages}
+                    disabled={imagesLoading}
+                    className="bg-[#FF6B2C] hover:bg-[#E85A1E] text-[#0a0a0a] font-semibold text-sm px-5 py-2.5 rounded-[8px] transition-colors disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {imagesLoading && (
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                    )}
+                    {imagesLoading ? "Generating…" : images.length > 0 ? "Regenerate" : "Generate Images"}
+                  </button>
+                </div>
               )}
             </div>
+
+            {/* Tier info */}
+            <div className="flex gap-3 mb-6">
+              <div className={`flex-1 border rounded-[8px] p-3 text-xs ${imageTier === 'free' ? 'border-[#FF6B2C] bg-[#FFF8F5]' : 'border-[#E8E8E4] bg-white'}`}>
+                <p className="font-semibold mb-0.5">Free — Pollinations.ai</p>
+                <p className="text-[#6B6B6B]">Flux model · 1200×630 hero · 800×533 content · WebP optimised</p>
+              </div>
+              <div className={`flex-1 border rounded-[8px] p-3 text-xs ${imageTier === 'premium' ? 'border-[#FF6B2C] bg-[#FFF8F5]' : 'border-[#E8E8E4] bg-white'}`}>
+                <p className="font-semibold mb-0.5">Premium — Replicate Flux Schnell</p>
+                <p className="text-[#6B6B6B]">Higher quality · Requires REPLICATE_API_TOKEN env var</p>
+              </div>
+            </div>
+
+            {imageError && (
+              <div className="bg-red-50 border border-red-200 rounded-[8px] p-3 text-sm text-red-700 mb-5">
+                {imageError}
+              </div>
+            )}
+
+            {imagesLoading && (
+              <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-12 text-center mb-6">
+                <svg className="w-8 h-8 animate-spin text-[#FF6B2C] mx-auto mb-3" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <p className="text-sm text-[#6B6B6B]">Generating prompts → fetching images → resizing to WebP → uploading to CDN…</p>
+                <p className="text-xs text-[#6B6B6B] mt-1">This takes ~20–40 seconds</p>
+              </div>
+            )}
 
             {images.length === 0 && !imagesLoading && (
               <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-16 text-center">
@@ -2107,7 +2158,7 @@ export default function DashboardPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
                 <p className="text-[#6B6B6B] mb-4">
-                  {article ? "Generate images for your article" : "Generate an article first"}
+                  {article ? "Generate blog-standard images for your article" : "Generate an article first"}
                 </p>
                 {!article && (
                   <button
@@ -2120,25 +2171,62 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {images.length > 0 && (
-              <div className="grid md:grid-cols-3 gap-5">
-                {images.map((img) => (
-                  <div key={img.id} className="bg-white border border-[#E8E8E4] rounded-[10px] overflow-hidden group">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={img.url}
-                      alt={img.altText}
-                      className="w-full aspect-video object-cover bg-[#FAFAF8]"
-                      loading="lazy"
-                    />
-                    <div className="p-4">
-                      <p className="text-[#6B6B6B] text-[10px] uppercase tracking-wide font-medium mb-1">{img.placement}</p>
-                      <p className="text-sm font-medium mb-2">{img.caption}</p>
-                      <p className="text-[#6B6B6B] text-xs leading-relaxed">Alt: {img.altText}</p>
-                    </div>
+            {images.length > 0 && !imagesLoading && (
+              <>
+                {/* Storage confirmation badge */}
+                {imageStored && (
+                  <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-[8px] px-3 py-2 mb-5 w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Images resized to WebP and stored to Supabase CDN
                   </div>
-                ))}
-              </div>
+                )}
+                {injectedArticleHtml && (
+                  <div className="flex items-center gap-2 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-[8px] px-3 py-2 mb-5 w-fit">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    Hero + content images injected into article HTML with srcset
+                  </div>
+                )}
+
+                <div className="grid md:grid-cols-3 gap-5">
+                  {images.map((img) => (
+                    <div key={img.id} className="bg-white border border-[#E8E8E4] rounded-[10px] overflow-hidden">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={img.url}
+                        alt={img.altText || img.alt || ''}
+                        className="w-full aspect-video object-cover bg-[#FAFAF8]"
+                        loading="lazy"
+                      />
+                      <div className="p-4">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <p className="text-[#6B6B6B] text-[10px] uppercase tracking-wide font-medium">{img.placement}</p>
+                          {img.width && img.height && (
+                            <span className="text-[10px] text-[#6B6B6B] bg-[#F5F5F0] px-1.5 py-0.5 rounded font-mono">
+                              {img.width}×{img.height}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm font-medium mb-2">{img.caption}</p>
+                        <p className="text-[#6B6B6B] text-xs leading-relaxed line-clamp-2">Alt: {img.altText || img.alt}</p>
+                        {img.url && (
+                          <a
+                            href={img.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mt-2 text-[11px] text-[#FF6B2C] hover:underline block truncate"
+                          >
+                            {img.url.includes('supabase') ? 'View on CDN ↗' : 'View image ↗'}
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         )}

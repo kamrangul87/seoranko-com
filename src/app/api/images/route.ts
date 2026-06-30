@@ -1,19 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
-import { callClaude, parseJsonResponse } from "@/lib/anthropic";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createHash } from "crypto";
-import type { ImagePrompt } from "@/types";
+import {
+  generateArticleImages,
+  injectImagesIntoArticle,
+  buildImageMeta,
+  type ImageTier,
+} from "@/lib/image-generator";
+import type { GeneratedImage } from "@/lib/image-generator";
 
-interface RawImagePrompt {
-  id: string;
-  placement: string;
-  altText: string;
-  prompt: string;
-  caption: string;
+export const maxDuration = 120;
+
+// Maintain backward-compat with existing ImagePrompt type
+interface ImageResponse {
+  images: (GeneratedImage & { altText: string })[];
+  hero?: GeneratedImage;
+  content?: GeneratedImage[];
+  mobile?: GeneratedImage;
+  injectedHtml?: string;
+  imageMeta?: string;
+  tier: ImageTier;
+  stored: boolean;
 }
-
-const SYSTEM = `You are a visual content strategist. Based on an article, generate image prompts for stock-photo-style AI image generation. Return ONLY valid JSON array, no markdown.`;
 
 export async function POST(req: NextRequest) {
   try {
@@ -45,39 +54,48 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const { article, keyword } = await req.json();
+    const { article = "", keyword = "", tier = "free", count = 3 } = await req.json();
 
-    if (!article) {
-      return NextResponse.json({ error: "article is required" }, { status: 400 });
+    if (!keyword && !article) {
+      return NextResponse.json({ error: "keyword or article is required" }, { status: 400 });
     }
 
-    const user = `Generate 3 image prompts for an article about "${keyword}".
+    const topic = keyword || article.slice(0, 200);
+    const imageTier = (tier === "premium" ? "premium" : "free") as ImageTier;
 
-Each prompt should be photorealistic, professional, and suitable for a B2B blog.
+    const imageSet = await generateArticleImages({
+      topic,
+      keyword: keyword || topic,
+      tier: imageTier,
+      count: Math.min(Number(count) || 3, 5),
+    });
 
-Return ONLY this JSON array:
-[
-  {
-    "id": "hero",
-    "placement": "Hero image (top of article)",
-    "altText": "descriptive alt text for SEO",
-    "prompt": "photorealistic image prompt for AI generation, detailed, professional",
-    "caption": "Short image caption for the article"
-  }
-]
+    // Inject into article HTML if provided
+    let injectedHtml: string | undefined;
+    let imageMeta: string | undefined;
+    if (article) {
+      injectedHtml = injectImagesIntoArticle(article, imageSet);
+      imageMeta = buildImageMeta(imageSet, keyword);
+    }
 
-Article excerpt (first 800 chars):
-${article.slice(0, 800)}`;
-
-    const raw = await callClaude(SYSTEM, user, 1024);
-    const prompts = parseJsonResponse<RawImagePrompt[]>(raw);
-
-    const images: ImagePrompt[] = prompts.map((p) => ({
-      ...p,
-      url: `https://image.pollinations.ai/prompt/${encodeURIComponent(p.prompt)}?width=1200&height=600&nologo=true`,
+    // Flatten to backward-compatible ImagePrompt shape (altText alias)
+    const allImages = [imageSet.hero, ...imageSet.content].map((img) => ({
+      ...img,
+      altText: img.alt,  // legacy alias
     }));
 
-    return NextResponse.json({ images });
+    const response: ImageResponse = {
+      images: allImages,
+      hero: imageSet.hero,
+      content: imageSet.content,
+      mobile: imageSet.mobile,
+      injectedHtml,
+      imageMeta,
+      tier: imageTier,
+      stored: allImages.some((img) => img.url.includes("supabase")),
+    };
+
+    return NextResponse.json(response);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unexpected error";
     console.error("[images] error:", message);

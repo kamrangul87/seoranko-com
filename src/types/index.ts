@@ -143,17 +143,31 @@ export interface ImagePrompt {
   id: string;
   placement: string;
   altText: string;
+  alt?: string;
   prompt: string;
   caption: string;
   url: string;
+  width?: number;
+  height?: number;
 }
+
+export type ImageTier = 'free' | 'premium';
 
 export interface ImagesRequest {
   article: string;
   keyword: string;
+  tier?: ImageTier;
+  count?: number;
 }
 
 export interface ImagesResponse {
   images: ImagePrompt[];
+  hero?: ImagePrompt;
+  content?: ImagePrompt[];
+  mobile?: ImagePrompt;
+  injectedHtml?: string;
+  imageMeta?: string;
+  tier?: ImageTier;
+  stored?: boolean;
   error?: string;
 }
