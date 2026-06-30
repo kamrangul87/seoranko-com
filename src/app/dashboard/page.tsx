@@ -1326,7 +1326,9 @@ export default function DashboardPage() {
                           <td className="px-4 py-3 text-[#6B6B6B]">£{kw.cpc.toFixed(2)}</td>
                           <td className="px-4 py-3"><IntentBadge intent={kw.intent} /></td>
                           <td className="px-4 py-3">
+                            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                             {(kw as any).aiCitationOpportunity ? (() => {
+                              /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
                               const opp = (kw as any).aiCitationOpportunity;
                               const score = opp.opportunityScore ?? 50;
                               const isHigh = score >= 70;

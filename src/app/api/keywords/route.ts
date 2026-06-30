@@ -291,7 +291,7 @@ export async function POST(request: NextRequest) {
 
     // Check AI citation landscape for top 3 keywords (5s timeout — best-effort)
     const top3 = sorted.slice(0, 3).map(k => k.keyword);
-    let citationMap: Record<string, { opportunityScore: number; dominantCompetitors: string[] }> = {};
+    const citationMap: Record<string, { opportunityScore: number; dominantCompetitors: string[] }> = {};
     try {
       const checks = await Promise.allSettled(
         top3.map(kw => Promise.race([
