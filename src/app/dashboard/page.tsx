@@ -682,6 +682,8 @@ export default function DashboardPage() {
       // Parse score metadata appended by route as HTML comment
       let articleSearchScore: number | undefined;
       let articleAiScore: number | undefined;
+      let articleEeatScore: number | undefined;
+      let articleReadabilityScore: number | undefined;
       let articleLlmsTxtEntry: string | undefined;
       let articleHumanScore: number | undefined;
       let articlePassesDetection: boolean | undefined;
@@ -692,6 +694,8 @@ export default function DashboardPage() {
           const parsed = JSON.parse(scoresMatch[1]);
           articleSearchScore = parsed.searchScore;
           articleAiScore = parsed.aiScore;
+          articleEeatScore = parsed.eeatScore;
+          articleReadabilityScore = parsed.readabilityScore;
           articleLlmsTxtEntry = parsed.llmsTxtEntry;
           articleHumanScore = parsed.humanScore;
           articlePassesDetection = parsed.passesDetection;
@@ -725,8 +729,8 @@ export default function DashboardPage() {
         metaDescription: '',
         article: finalArticleHtml,
         wordCount,
-        eeaScore: 0,
-        readabilityScore: 0,
+        eeaScore: articleEeatScore ?? 0,
+        readabilityScore: articleReadabilityScore ?? 0,
         keywordDensity: 0,
         improvements: [],
         searchScore: articleSearchScore,

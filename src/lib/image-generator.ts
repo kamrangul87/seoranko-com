@@ -405,8 +405,17 @@ export async function generateArticleImages(opts: {
       uploadToStorage(heroWebP, buildStoragePath(keyword, 'hero', siteId)).catch(() => ''),
       uploadToStorage(mobileWebP, buildStoragePath(keyword, 'mobile', siteId)).catch(() => ''),
     ]);
+    // Fallback to Pollinations URL when storage upload fails
+    if (!heroUrl) {
+      heroUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(heroPrompt.prompt)}?width=${BLOG_SIZES.hero.width}&height=${BLOG_SIZES.hero.height}&nologo=true&model=flux`;
+    }
+    if (!mobileUrl) {
+      mobileUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(heroPrompt.prompt)}?width=${BLOG_SIZES.mobile.width}&height=${BLOG_SIZES.mobile.height}&nologo=true&model=flux`;
+    }
   } else {
     console.warn(`[image-generator] hero failed: ${heroResult.reason}`);
+    // Even if generation failed, provide a Pollinations URL so injection works
+    heroUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(heroPrompt.prompt)}?width=${BLOG_SIZES.hero.width}&height=${BLOG_SIZES.hero.height}&nologo=true&model=flux`;
   }
 
   const hero: GeneratedImage = {
@@ -435,9 +444,22 @@ export async function generateArticleImages(opts: {
   const contentImages: GeneratedImage[] = (
     await Promise.all(
       contentResults.map(async (result, i) => {
+        const cp = contentPrompts[i];
+        const fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cp.prompt)}?width=${BLOG_SIZES.content.width}&height=${BLOG_SIZES.content.height}&nologo=true&model=flux`;
+
         if ('failed' in result) {
           console.warn(`[image-generator] content ${i + 1} failed: ${result.reason}`);
-          return null;
+          // Use Pollinations fallback even when generation reported failure
+          return {
+            id: `content-${i + 1}`,
+            url: fallbackUrl,
+            width: BLOG_SIZES.content.width as number,
+            height: BLOG_SIZES.content.height as number,
+            alt: cp.alt,
+            caption: cp.caption,
+            placement: `Content image ${i + 1}`,
+            prompt: cp.prompt,
+          };
         }
         try {
           const webp = await resizeAndOptimize(result.buffer, 'content');
@@ -445,10 +467,9 @@ export async function generateArticleImages(opts: {
             webp,
             buildStoragePath(keyword, `content-${i + 1}`, siteId),
           ).catch(() => '');
-          const cp = contentPrompts[i];
           const img: GeneratedImage = {
             id: `content-${i + 1}`,
-            url,
+            url: url || fallbackUrl,
             width: BLOG_SIZES.content.width as number,
             height: BLOG_SIZES.content.height as number,
             alt: cp.alt,
@@ -459,7 +480,16 @@ export async function generateArticleImages(opts: {
           return img;
         } catch (err) {
           console.warn(`[image-generator] content ${i + 1} resize/upload failed:`, err);
-          return null;
+          return {
+            id: `content-${i + 1}`,
+            url: fallbackUrl,
+            width: BLOG_SIZES.content.width as number,
+            height: BLOG_SIZES.content.height as number,
+            alt: cp.alt,
+            caption: cp.caption,
+            placement: `Content image ${i + 1}`,
+            prompt: cp.prompt,
+          };
         }
       }),
     )
@@ -500,20 +530,29 @@ export function injectImagesIntoArticle(html: string, imageSet: ArticleImageSet)
       : heroFigure + result;
   }
 
-  // Insert content images after 2nd and 4th H2
+  // Insert content images evenly distributed across H2 sections
   if (content.length > 0) {
     const h2Regex = /<\/h2>/gi;
     let match: RegExpExecArray | null;
-    let h2Count = 0;
-    const insertions: { pos: number; figure: string }[] = [];
+    const h2Positions: number[] = [];
 
     while ((match = h2Regex.exec(result)) !== null) {
-      h2Count++;
-      const img = h2Count === 2 ? content[0] : h2Count === 4 ? content[1] : null;
-      if (img?.url) {
-        insertions.push({
-          pos: match.index + match[0].length,
-          figure: `\n<figure class="article-content-image" style="margin:1.5rem 0;">
+      h2Positions.push(match.index + match[0].length);
+    }
+
+    const insertions: { pos: number; figure: string }[] = [];
+
+    if (h2Positions.length > 0) {
+      // Distribute images evenly: pick H2 positions at regular intervals
+      const step = Math.max(1, Math.floor(h2Positions.length / (content.length + 1)));
+      content.forEach((img, i) => {
+        const targetH2Index = Math.min((i + 1) * step - 1, h2Positions.length - 1);
+        // Avoid inserting two images at the same position
+        const pos = h2Positions[targetH2Index];
+        if (pos !== undefined && img.url && !insertions.some(ins => ins.pos === pos)) {
+          insertions.push({
+            pos,
+            figure: `\n<figure class="article-content-image" style="margin:1.5rem 0;">
   <img
     src="${img.url}"
     alt="${img.alt}"
@@ -525,12 +564,27 @@ export function injectImagesIntoArticle(html: string, imageSet: ArticleImageSet)
   />
   ${img.caption ? `<figcaption style="text-align:center;font-size:0.85rem;color:#6B6B6B;margin-top:0.5rem;">${img.caption}</figcaption>` : ''}
 </figure>\n`,
-        });
+          });
+        }
+      });
+    } else if (content[0]?.url) {
+      // No H2s — append first content image after the hero area
+      const bodyStart = result.search(/<p[\s>]/i);
+      if (bodyStart !== -1) {
+        const firstParaEnd = result.indexOf('</p>', bodyStart);
+        if (firstParaEnd !== -1) {
+          insertions.push({
+            pos: firstParaEnd + 4,
+            figure: `\n<figure class="article-content-image" style="margin:1.5rem 0;">
+  <img src="${content[0].url}" alt="${content[0].alt}" width="${content[0].width}" height="${content[0].height}" loading="lazy" decoding="async" style="width:100%;height:auto;border-radius:6px;" />
+  ${content[0].caption ? `<figcaption style="text-align:center;font-size:0.85rem;color:#6B6B6B;margin-top:0.5rem;">${content[0].caption}</figcaption>` : ''}
+</figure>\n`,
+          });
+        }
       }
-      if (h2Count >= 4) break;
     }
 
-    for (const ins of insertions.reverse()) {
+    for (const ins of insertions.sort((a, b) => b.pos - a.pos)) {
       result = result.slice(0, ins.pos) + ins.figure + result.slice(ins.pos);
     }
   }

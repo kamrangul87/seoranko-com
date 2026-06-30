@@ -14,6 +14,84 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRet
 // eat the Sonnet input-token budget the main article generation needs.
 const FAST_MODEL = 'claude-haiku-4-5-20251001';
 
+function calculateEEATScore(html: string): number {
+  let score = 0;
+  const text = html.replace(/<[^>]+>/g, ' ');
+
+  // Author byline present (+20)
+  if (/Written by|By\s+[A-Z][a-z]+\s+[A-Z]|class=["'][^"']*byline|name=["']author/i.test(html) || /"author"\s*:\s*\{/i.test(html)) {
+    score += 20;
+  }
+  // Author bio section (+20)
+  if (/author-bio|About the Author|About [A-Z][a-z]+/i.test(html)) {
+    score += 20;
+  }
+  // Person schema (+15)
+  if (/"@type"\s*:\s*"Person"/i.test(html)) {
+    score += 15;
+  }
+  // First-person experience language (+15)
+  if (/\b(I've|I have|in my experience|what I'd|when I|my recommendation|I tested|I found|I use)\b/i.test(text)) {
+    score += 15;
+  }
+  // Official source citations: gov.uk, .org, .edu links (+15)
+  if (/href=["'][^"']*(gov\.uk|\.gov|\.edu|nhs\.uk|who\.int|ons\.gov)[^"']*["']/i.test(html)) {
+    score += 15;
+  }
+  // dateModified or last-updated within any timeframe signals freshness (+15)
+  if (/"dateModified"/i.test(html) || /last.?updated|updated\s+\w+\s+202[456]/i.test(text)) {
+    score += 15;
+  }
+
+  return Math.min(100, score);
+}
+
+function calculateReadabilityScore(html: string): number {
+  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  let score = 100;
+
+  // Average sentence length (target 15-20 words)
+  const sentences = text.match(/[^.!?]+[.!?]+/g) || [];
+  if (sentences.length > 3) {
+    const avgSentLen = sentences.reduce((s, sen) => s + sen.trim().split(/\s+/).length, 0) / sentences.length;
+    if (avgSentLen > 30) score -= 20;
+    else if (avgSentLen > 25) score -= 12;
+    else if (avgSentLen > 20) score -= 5;
+    else if (avgSentLen < 8) score -= 10;
+  }
+
+  // Paragraphs: penalize walls of text (> 150 words in one <p>)
+  const pTags = Array.from(html.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi));
+  const longParas = pTags.filter(m => m[1].replace(/<[^>]+>/g, ' ').trim().split(/\s+/).filter(Boolean).length > 150).length;
+  if (longParas > 0) score -= Math.min(25, longParas * 8);
+
+  // Heading distribution: H2 every 150-300 words is good
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  const h2Count = (html.match(/<h2[\s>]/gi) || []).length;
+  if (wordCount > 200 && h2Count > 0) {
+    const wordsPerH2 = wordCount / h2Count;
+    if (wordsPerH2 > 500) score -= 15;
+    else if (wordsPerH2 > 350) score -= 8;
+  } else if (wordCount > 400 && h2Count === 0) {
+    score -= 20;
+  }
+
+  // Flesch approximation: penalize avg syllables > 2 per word (complex vocabulary)
+  const words = text.split(/\s+/).filter(Boolean).slice(0, 500);
+  if (words.length > 50) {
+    const totalSyllables = words.reduce((s, w) => {
+      // Simple syllable count: count vowel groups
+      const vowelGroups = w.toLowerCase().match(/[aeiouy]+/g) || [];
+      return s + Math.max(1, vowelGroups.length);
+    }, 0);
+    const avgSyllables = totalSyllables / words.length;
+    if (avgSyllables > 2.5) score -= 15;
+    else if (avgSyllables > 2.0) score -= 8;
+  }
+
+  return Math.max(0, Math.min(100, score));
+}
+
 function scoreHtmlLocally(html: string, keyword: string): { searchScore: number; aiScore: number } {
   let search = 100;
   let ai = 100;
@@ -211,8 +289,14 @@ Do not write generic angles. Be specific and surprising.`
 
           // Score the article and generate llms.txt entry
           const { searchScore, aiScore } = scoreHtmlLocally(fullArticle, keyword);
+          const eeatScore = calculateEEATScore(fullArticle);
+          const readabilityScore = calculateReadabilityScore(fullArticle);
           const articleUrl = `/${keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
           const llmsTxtEntry = generateLlmsTxtEntry(fullArticle, keyword, articleUrl);
+
+          // Adaptive image count based on article word count
+          const articleWordCount = fullArticle.replace(/<[^>]*>/g, ' ').trim().split(/\s+/).filter(Boolean).length;
+          const adaptiveImageCount = articleWordCount > 2500 ? 5 : articleWordCount > 1500 ? 4 : 3;
 
           // Humanize + auto-generate images in parallel (both only need the keyword/article text)
           let humanScore: number | undefined;
@@ -225,7 +309,7 @@ Do not write generic angles. Be specific and surprising.`
                 topic: fullArticle.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 400),
                 keyword,
                 tier: 'free',
-                count: 3,
+                count: adaptiveImageCount,
               }).catch((err) => {
                 console.warn('[article-v2] auto image generation failed:', err?.message);
                 return null;
@@ -259,7 +343,7 @@ Do not write generic angles. Be specific and surprising.`
           }
 
           // Append score metadata as a parseable HTML comment — client strips this
-          const scoreMeta = JSON.stringify({ searchScore, aiScore, llmsTxtEntry, humanScore, bannedWordsRemoved, passesDetection });
+          const scoreMeta = JSON.stringify({ searchScore, aiScore, eeatScore, readabilityScore, llmsTxtEntry, humanScore, bannedWordsRemoved, passesDetection });
           controller.enqueue(encoder.encode(`\n<!-- SEORANKO_SCORES:${scoreMeta} -->`));
 
           controller.close();
