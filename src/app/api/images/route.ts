@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const { article = "", keyword = "", tier = "free", count = 3 } = await req.json();
+    const { article = "", keyword = "", tier = "free", count = 3, siteId } = await req.json();
 
     if (!keyword && !article) {
       return NextResponse.json({ error: "keyword or article is required" }, { status: 400 });
@@ -68,6 +68,7 @@ export async function POST(req: NextRequest) {
       keyword: keyword || topic,
       tier: imageTier,
       count: Math.min(Number(count) || 3, 5),
+      siteId: typeof siteId === 'string' ? siteId : 'shared',
     });
 
     // Inject into article HTML if provided
@@ -84,7 +85,7 @@ export async function POST(req: NextRequest) {
       altText: img.alt,  // legacy alias
     }));
 
-    const response: ImageResponse = {
+    const response: ImageResponse & { niche?: string; styleDescriptor?: string } = {
       images: allImages,
       hero: imageSet.hero,
       content: imageSet.content,
@@ -93,6 +94,8 @@ export async function POST(req: NextRequest) {
       imageMeta,
       tier: imageTier,
       stored: allImages.some((img) => img.url.includes("supabase")),
+      niche: imageSet.niche,
+      styleDescriptor: imageSet.styleDescriptor,
     };
 
     return NextResponse.json(response);
