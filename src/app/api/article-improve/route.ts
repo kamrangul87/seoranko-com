@@ -11,6 +11,7 @@ import { humanizeArticle } from '@/lib/humanizer';
 import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-generator';
 import { recordScoreSnapshot } from '@/lib/drift-tracker';
 import { queueCitationTest } from '@/lib/citation-tester';
+import { checkAndPatchFactSourcing } from '@/lib/fact-checker';
 
 // Fluid compute (default on Vercel) allows up to 300s on Hobby. The full
 // pipeline (audit + scraping + NLP + angle + 6000-token generation) needs
@@ -219,6 +220,8 @@ Return ONLY valid JSON no markdown:
 
         // Humanize + auto-generate images in parallel
         let humanScore: number | undefined;
+        let factSourcingScore: number | undefined;
+        let factPatchedCount = 0;
         try {
           const [humanized, imageSet] = await Promise.all([
             humanizeArticle(validatedArticle, { level: 'medium', primaryKeyword: targetKeyword }),
@@ -233,9 +236,21 @@ Return ONLY valid JSON no markdown:
             }),
           ]);
           humanScore = humanized.humanScore;
-          send(`<!--SEORANKO_HUMANIZED_START-->\n${humanized.humanizedHtml}\n<!--SEORANKO_HUMANIZED_END-->`);
+
+          // Fact-sourcing check + auto-patch
+          let finalHtml = humanized.humanizedHtml;
+          try {
+            const factResult = await checkAndPatchFactSourcing(humanized.humanizedHtml, targetKeyword, market);
+            finalHtml = factResult.article;
+            factSourcingScore = factResult.result.factSourcingScore;
+            factPatchedCount = factResult.result.patchedCount;
+          } catch (factErr) {
+            console.warn('[article-improve] fact-sourcing check failed:', factErr);
+          }
+
+          send(`<!--SEORANKO_HUMANIZED_START-->\n${finalHtml}\n<!--SEORANKO_HUMANIZED_END-->`);
           if (imageSet) {
-            const withImages = injectImagesIntoArticle(humanized.humanizedHtml, imageSet);
+            const withImages = injectImagesIntoArticle(finalHtml, imageSet);
             send(`<!--SEORANKO_WITH_IMAGES_START-->\n${withImages}\n<!--SEORANKO_WITH_IMAGES_END-->`);
             send(`<!--SEORANKO_IMAGE_SET_START-->${JSON.stringify({
               images: [imageSet.hero, ...imageSet.content].map(img => ({ ...img, altText: img.alt })),
@@ -261,6 +276,7 @@ Return ONLY valid JSON no markdown:
         if (!audit.has_official_sources) improvements.push({ type: 'Official sources cited', count: 2 });
         if (nlpData.contentGaps.length > 0) improvements.push({ type: 'Content gaps filled', count: nlpData.contentGaps.length });
         improvements.push({ type: 'Word count increased', count: newWordCount - (audit.word_count || 0) });
+        if (factPatchedCount > 0) improvements.push({ type: 'Unsourced statistics hedged', count: factPatchedCount });
 
         send(
           '<!--SEORANKO_STATS_START-->' +
@@ -268,6 +284,8 @@ Return ONLY valid JSON no markdown:
             improvements,
             factsFixed: corrections,
             humanScore,
+            factSourcingScore,
+            factPatchedCount,
             stats: {
               originalWordCount: audit.word_count || 0,
               newWordCount,

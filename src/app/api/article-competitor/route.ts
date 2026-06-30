@@ -11,6 +11,7 @@ import { humanizeArticle } from '@/lib/humanizer';
 import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-generator';
 import { checkCitationOpportunity, queueCitationTest } from '@/lib/citation-tester';
 import { recordScoreSnapshot } from '@/lib/drift-tracker';
+import { checkAndPatchFactSourcing } from '@/lib/fact-checker';
 
 export const maxDuration = 300;
 
@@ -218,14 +219,30 @@ export async function POST(req: NextRequest) {
                   return null;
                 }),
               ]);
+
+              let finalHtml = humanized.humanizedHtml;
+              let factSourcingScore: number | undefined;
+              let factPatchedCount = 0;
+              try {
+                const factResult = await checkAndPatchFactSourcing(humanized.humanizedHtml, keyword, market);
+                finalHtml = factResult.article;
+                factSourcingScore = factResult.result.factSourcingScore;
+                factPatchedCount = factResult.result.patchedCount;
+              } catch (factErr) {
+                console.warn('[article-competitor] fact-sourcing check failed:', factErr);
+              }
+
               controller.enqueue(encoder.encode(
-                `\n<!--SEORANKO_HUMANIZED_START-->\n${humanized.humanizedHtml}\n<!--SEORANKO_HUMANIZED_END-->`
+                `\n<!--SEORANKO_HUMANIZED_START-->\n${finalHtml}\n<!--SEORANKO_HUMANIZED_END-->`
+              ));
+              controller.enqueue(encoder.encode(
+                `\n<!--SEORANKO_FACT_SOURCING:${JSON.stringify({ factSourcingScore, factPatchedCount })}-->`
               ));
               controller.enqueue(encoder.encode(
                 `\n<!--SEORANKO_HUMAN_SCORE:${humanized.humanScore}-->`
               ));
               if (imageSet) {
-                const withImages = injectImagesIntoArticle(humanized.humanizedHtml, imageSet);
+                const withImages = injectImagesIntoArticle(finalHtml, imageSet);
                 controller.enqueue(encoder.encode(
                   `\n<!--SEORANKO_WITH_IMAGES_START-->\n${withImages}\n<!--SEORANKO_WITH_IMAGES_END-->`
                 ));
@@ -265,14 +282,30 @@ export async function POST(req: NextRequest) {
                   return null;
                 }),
               ]);
+
+              let finalBaseHtml = humanized.humanizedHtml;
+              let baseSourcingScore: number | undefined;
+              let basePatchedCount = 0;
+              try {
+                const factResult = await checkAndPatchFactSourcing(humanized.humanizedHtml, keyword, market);
+                finalBaseHtml = factResult.article;
+                baseSourcingScore = factResult.result.factSourcingScore;
+                basePatchedCount = factResult.result.patchedCount;
+              } catch (factErr) {
+                console.warn('[article-competitor] fact-sourcing check (base) failed:', factErr);
+              }
+
               controller.enqueue(encoder.encode(
-                `\n<!--SEORANKO_HUMANIZED_START-->\n${humanized.humanizedHtml}\n<!--SEORANKO_HUMANIZED_END-->`
+                `\n<!--SEORANKO_HUMANIZED_START-->\n${finalBaseHtml}\n<!--SEORANKO_HUMANIZED_END-->`
+              ));
+              controller.enqueue(encoder.encode(
+                `\n<!--SEORANKO_FACT_SOURCING:${JSON.stringify({ factSourcingScore: baseSourcingScore, factPatchedCount: basePatchedCount })}-->`
               ));
               controller.enqueue(encoder.encode(
                 `\n<!--SEORANKO_HUMAN_SCORE:${humanized.humanScore}-->`
               ));
               if (imageSet) {
-                const withImages = injectImagesIntoArticle(humanized.humanizedHtml, imageSet);
+                const withImages = injectImagesIntoArticle(finalBaseHtml, imageSet);
                 controller.enqueue(encoder.encode(
                   `\n<!--SEORANKO_WITH_IMAGES_START-->\n${withImages}\n<!--SEORANKO_WITH_IMAGES_END-->`
                 ));

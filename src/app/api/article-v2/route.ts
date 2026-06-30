@@ -5,6 +5,7 @@ import { humanizeArticle } from '@/lib/humanizer';
 import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-generator';
 import { recordScoreSnapshot } from '@/lib/drift-tracker';
 import { queueCitationTest } from '@/lib/citation-tester';
+import { checkAndPatchFactSourcing } from '@/lib/fact-checker';
 
 export const maxDuration = 300;
 
@@ -302,6 +303,8 @@ Do not write generic angles. Be specific and surprising.`
           let humanScore: number | undefined;
           let bannedWordsRemoved: string[] = [];
           let passesDetection = false;
+          let factSourcingScore: number | undefined;
+          let factPatchedCount = 0;
           try {
             const [humanized, imageSet] = await Promise.all([
               humanizeArticle(fullArticle, { level: 'medium', primaryKeyword: keyword }),
@@ -320,12 +323,26 @@ Do not write generic angles. Be specific and surprising.`
             bannedWordsRemoved = humanized.bannedWordsRemoved;
             passesDetection = humanized.passesDetection;
 
+            // Fact-sourcing check + auto-patch on humanized HTML
+            let finalHtml = humanized.humanizedHtml;
+            try {
+              const factResult = await checkAndPatchFactSourcing(humanized.humanizedHtml, keyword, market);
+              finalHtml = factResult.article;
+              factSourcingScore = factResult.result.factSourcingScore;
+              factPatchedCount = factResult.result.patchedCount;
+              if (factPatchedCount > 0) {
+                console.log(`[article-v2] fact-sourcing: patched ${factPatchedCount} unsourced claims, score=${factSourcingScore}`);
+              }
+            } catch (factErr) {
+              console.warn('[article-v2] fact-sourcing check failed, continuing:', factErr);
+            }
+
             controller.enqueue(encoder.encode(
-              `\n<!--SEORANKO_HUMANIZED_START-->\n${humanized.humanizedHtml}\n<!--SEORANKO_HUMANIZED_END-->`
+              `\n<!--SEORANKO_HUMANIZED_START-->\n${finalHtml}\n<!--SEORANKO_HUMANIZED_END-->`
             ));
 
             if (imageSet) {
-              const withImages = injectImagesIntoArticle(humanized.humanizedHtml, imageSet);
+              const withImages = injectImagesIntoArticle(finalHtml, imageSet);
               controller.enqueue(encoder.encode(
                 `\n<!--SEORANKO_WITH_IMAGES_START-->\n${withImages}\n<!--SEORANKO_WITH_IMAGES_END-->`
               ));
@@ -343,7 +360,7 @@ Do not write generic angles. Be specific and surprising.`
           }
 
           // Append score metadata as a parseable HTML comment — client strips this
-          const scoreMeta = JSON.stringify({ searchScore, aiScore, eeatScore, readabilityScore, llmsTxtEntry, humanScore, bannedWordsRemoved, passesDetection });
+          const scoreMeta = JSON.stringify({ searchScore, aiScore, eeatScore, readabilityScore, factSourcingScore, factPatchedCount, llmsTxtEntry, humanScore, bannedWordsRemoved, passesDetection });
           controller.enqueue(encoder.encode(`\n<!-- SEORANKO_SCORES:${scoreMeta} -->`));
 
           controller.close();

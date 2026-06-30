@@ -684,6 +684,8 @@ export default function DashboardPage() {
       let articleAiScore: number | undefined;
       let articleEeatScore: number | undefined;
       let articleReadabilityScore: number | undefined;
+      let articleFactSourcingScore: number | undefined;
+      let articleFactPatchedCount: number | undefined;
       let articleLlmsTxtEntry: string | undefined;
       let articleHumanScore: number | undefined;
       let articlePassesDetection: boolean | undefined;
@@ -696,6 +698,8 @@ export default function DashboardPage() {
           articleAiScore = parsed.aiScore;
           articleEeatScore = parsed.eeatScore;
           articleReadabilityScore = parsed.readabilityScore;
+          articleFactSourcingScore = parsed.factSourcingScore;
+          articleFactPatchedCount = parsed.factPatchedCount;
           articleLlmsTxtEntry = parsed.llmsTxtEntry;
           articleHumanScore = parsed.humanScore;
           articlePassesDetection = parsed.passesDetection;
@@ -731,6 +735,8 @@ export default function DashboardPage() {
         wordCount,
         eeaScore: articleEeatScore ?? 0,
         readabilityScore: articleReadabilityScore ?? 0,
+        factSourcingScore: articleFactSourcingScore,
+        factPatchedCount: articleFactPatchedCount,
         keywordDensity: 0,
         improvements: [],
         searchScore: articleSearchScore,
@@ -1935,7 +1941,15 @@ export default function DashboardPage() {
                       {article.humanScore != null && (
                         <ScoreRing score={article.humanScore} label="Human Score" color="#7C3AED" />
                       )}
+                      {article.factSourcingScore != null && (
+                        <ScoreRing score={article.factSourcingScore} label="Fact Sourcing" color="#0891b2" />
+                      )}
                     </div>
+                    {article.factPatchedCount != null && article.factPatchedCount > 0 && (
+                      <p className="text-xs text-[#0891b2] mt-3 leading-tight">
+                        ✅ {article.factPatchedCount} unsourced statistic{article.factPatchedCount === 1 ? '' : 's'} automatically hedged with citations
+                      </p>
+                    )}
                     <div className="mt-4 pt-4 border-t border-[#E8E8E4] space-y-3">
                       <div className="flex justify-between items-center">
                         <span className="text-[#6B6B6B] text-xs">Word Count</span>

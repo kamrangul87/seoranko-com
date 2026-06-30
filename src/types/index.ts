@@ -183,6 +183,8 @@ export interface ArticleOutput {
   humanScore?: number;
   passesDetection?: boolean;
   bannedWordsRemoved?: string[];
+  factSourcingScore?: number;
+  factPatchedCount?: number;
 }
 
 export interface ArticleResponse {
