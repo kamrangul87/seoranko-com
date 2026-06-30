@@ -1,3 +1,55 @@
+// ─── Shared capability types ───────────────────────────────────────────────────
+
+/** Confidence level for any score or recommendation across all tools. */
+export type ConfidenceLevel = 'high' | 'medium' | 'low';
+
+/** Render a confidence badge as a plain string for UI use. */
+export function confidenceDots(level: ConfidenceLevel): string {
+  if (level === 'high')   return '●●●';
+  if (level === 'medium') return '●●○';
+  return '●○○';
+}
+
+/** Confidence label and colour tokens for each level. */
+export const CONFIDENCE_META: Record<ConfidenceLevel, { label: string; color: string; bg: string; border: string }> = {
+  high:   { label: 'HIGH',         color: '#15803D', bg: '#F0FDF4', border: '#BBF7D0' },
+  medium: { label: 'MEDIUM',       color: '#D97706', bg: '#FFFBEB', border: '#FDE68A' },
+  low:    { label: 'EXPERIMENTAL', color: '#9B9B9B', bg: '#F5F4F1', border: '#E8E8E4' },
+};
+
+export interface CitationResult {
+  topic: string;
+  mentioned: boolean;
+  cited: boolean;
+  competitorsCited: string[];
+  responseSnippet: string;
+}
+
+export interface CitationOpportunity {
+  keyword: string;
+  hasStrongCompetition: boolean;
+  dominantCompetitors: string[];
+  opportunityScore: number; // 0–100; higher = easier to win AI citations
+}
+
+export interface EntityPresence {
+  wikipedia: boolean;
+  reddit: boolean;
+  linkedin: boolean;
+  score: number; // 0 | 33 | 66 | 100
+  recommendations: string[];
+}
+
+export interface ScoreDrift {
+  current: number;
+  previous: number | null;
+  change: number;
+  thirtyDaysAgo: number | null;
+  trend: 'improving' | 'declining' | 'stable' | 'new';
+}
+
+// ─── Country / locale types ───────────────────────────────────────────────────
+
 export type Country =
   | "Global" | "UK" | "US" | "AU" | "CA" | "DE" | "FR"
   | "IN" | "AE" | "SA" | "SG" | "ZA" | "PK";

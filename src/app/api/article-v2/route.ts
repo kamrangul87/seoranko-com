@@ -3,6 +3,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedFacts } from '@/lib/article-master';
 import { humanizeArticle } from '@/lib/humanizer';
 import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-generator';
+import { recordScoreSnapshot } from '@/lib/drift-tracker';
+import { queueCitationTest } from '@/lib/citation-tester';
 
 export const maxDuration = 300;
 
@@ -261,6 +263,18 @@ Do not write generic angles. Be specific and surprising.`
           controller.enqueue(encoder.encode(`\n<!-- SEORANKO_SCORES:${scoreMeta} -->`));
 
           controller.close();
+
+          // Fire-and-forget: record score snapshot + queue 7-day citation test
+          const articleSlug = `/${keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+          recordScoreSnapshot({
+            domain: 'generated_articles',
+            page_url: articleSlug,
+            score: searchScore,
+            ai_score: aiScore,
+            source: 'article_v2',
+          }).catch(() => {});
+          queueCitationTest({ domain: '', topic: keyword, daysFromNow: 7, source: 'article_v2' });
+
         } catch (err) {
           controller.error(err);
         }

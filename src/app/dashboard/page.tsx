@@ -316,6 +316,7 @@ export default function DashboardPage() {
   const [kwLoading, setKwLoading] = useState(false);
   const [kwError, setKwError] = useState("");
   const [kwBroaderNotice, setKwBroaderNotice] = useState("");
+  const [kwEntityPresence, setKwEntityPresence] = useState<{ wikipedia: boolean; reddit: boolean; linkedin: boolean; score: number; recommendations: string[] } | null>(null);
   const [selectedKws, setSelectedKws] = useState<Set<string>>(new Set());
   const [minVolume, setMinVolume] = useState(500);
   const [hideNavigational, setHideNavigational] = useState(true);
@@ -388,6 +389,8 @@ export default function DashboardPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to fetch keywords");
       setKeywords(data.keywords);
+      if (data.entityPresence) setKwEntityPresence(data.entityPresence);
+      else setKwEntityPresence(null);
       if (data.broaderKeyword) {
         setKwBroaderNotice(`Showing results for "${data.usedKeyword}" — broader keyword used for more results`);
       }
@@ -1134,6 +1137,44 @@ export default function DashboardPage() {
               )}
             </div>
 
+            {/* Brand Entity Score card — shown when cached data is available */}
+            {kwEntityPresence && (
+              <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-4 mb-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-[#0F0F0F] uppercase tracking-wide">Brand Entity Score</span>
+                    <span style={{ fontFamily: 'monospace', fontSize: '11px', fontWeight: 700, color: '#9B9B9B' }}>●○○</span>
+                    <span className="text-[10px] text-[#9B9B9B]">EXPERIMENTAL</span>
+                  </div>
+                  <span className={`text-sm font-bold ${kwEntityPresence.score >= 66 ? 'text-[#16A34A]' : kwEntityPresence.score >= 33 ? 'text-[#FF6B2C]' : 'text-[#DC2626]'}`}>
+                    {kwEntityPresence.score}/100
+                  </span>
+                </div>
+                <div className="flex gap-3 mb-3">
+                  {([
+                    { label: 'Wikipedia', present: kwEntityPresence.wikipedia },
+                    { label: 'Reddit',    present: kwEntityPresence.reddit },
+                    { label: 'LinkedIn',  present: kwEntityPresence.linkedin },
+                  ] as { label: string; present: boolean }[]).map(({ label, present }) => (
+                    <div key={label} className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-[6px] border ${present ? 'bg-green-500/10 border-green-500/20 text-green-600' : 'bg-[#F5F4F1] border-[#E8E8E4] text-[#9B9B9B]'}`}>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '10px' }}>{present ? '●' : '○'}</span>
+                      {label}
+                    </div>
+                  ))}
+                </div>
+                {kwEntityPresence.recommendations?.length > 0 && (
+                  <ul className="space-y-1">
+                    {kwEntityPresence.recommendations.slice(0, 2).map((r: string, i: number) => (
+                      <li key={i} className="text-xs text-[#6B6B6B] flex items-start gap-1.5">
+                        <span className="text-[#FF6B2C] mt-0.5 flex-shrink-0">→</span>
+                        {r}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
             {/* Keywords table */}
             {keywords.length > 0 && (
               <>
@@ -1250,9 +1291,13 @@ export default function DashboardPage() {
                             }
                           />
                         </th>
-                        {["Keyword", "Volume", "KD", "CPC", "Intent", "Trend", ""].map((col) => (
+                        {["Keyword", "Volume", "KD", "CPC", "Intent", "AI Citation", "Trend", ""].map((col) => (
                           <th key={col} className="text-left text-[#6B6B6B] font-medium text-xs uppercase tracking-wide px-4 py-3">
-                            {col}
+                            {col === "AI Citation" ? (
+                              <span title="AI Citation Opportunity — how easy it is to get cited by AI for this keyword">
+                                {col} ●○○
+                              </span>
+                            ) : col}
                           </th>
                         ))}
                       </tr>
@@ -1280,6 +1325,28 @@ export default function DashboardPage() {
                           <td className="px-4 py-3"><KdBadge kd={kw.kd} /></td>
                           <td className="px-4 py-3 text-[#6B6B6B]">£{kw.cpc.toFixed(2)}</td>
                           <td className="px-4 py-3"><IntentBadge intent={kw.intent} /></td>
+                          <td className="px-4 py-3">
+                            {(kw as any).aiCitationOpportunity ? (() => {
+                              const opp = (kw as any).aiCitationOpportunity;
+                              const score = opp.opportunityScore ?? 50;
+                              const isHigh = score >= 70;
+                              const isMed  = score >= 40 && score < 70;
+                              return (
+                                <span
+                                  title={`Opportunity score: ${score}/100. ${opp.dominantCompetitors?.length > 0 ? 'Competitors cited: ' + opp.dominantCompetitors.slice(0,3).join(', ') : 'No dominant competitors yet.'}`}
+                                  style={{
+                                    fontSize: '9px', fontWeight: 700, padding: '2px 7px', borderRadius: '20px',
+                                    background: isHigh ? '#F0FDF4' : isMed ? '#FFFBEB' : '#FEF2F2',
+                                    color: isHigh ? '#15803D' : isMed ? '#D97706' : '#DC2626',
+                                    border: `1px solid ${isHigh ? '#BBF7D0' : isMed ? '#FDE68A' : '#FECACA'}`,
+                                    whiteSpace: 'nowrap' as const,
+                                  }}
+                                >
+                                  {isHigh ? '●●● WIN' : isMed ? '●●○ MEDIUM' : '●○○ CROWDED'}
+                                </span>
+                              );
+                            })() : <span style={{ color: '#9B9B9B', fontSize: '11px' }}>—</span>}
+                          </td>
                           <td className="px-4 py-3"><Sparkline data={kw.trend} /></td>
                           <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                             <Link

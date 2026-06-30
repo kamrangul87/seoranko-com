@@ -9,6 +9,8 @@ import {
 import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedFacts } from '@/lib/article-master';
 import { humanizeArticle } from '@/lib/humanizer';
 import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-generator';
+import { recordScoreSnapshot } from '@/lib/drift-tracker';
+import { queueCitationTest } from '@/lib/citation-tester';
 
 // Fluid compute (default on Vercel) allows up to 300s on Hobby. The full
 // pipeline (audit + scraping + NLP + angle + 6000-token generation) needs
@@ -279,6 +281,23 @@ Return ONLY valid JSON no markdown:
         );
 
         controller.close();
+
+        // Fire-and-forget: record before/after score snapshots + queue citation test
+        const improveSlug = `/${targetKeyword.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+        recordScoreSnapshot({
+          domain: 'improved_articles',
+          page_url: improveSlug,
+          score: audit.eeat_score ?? 0,
+          source: 'article_improve',
+        }).catch(() => {});
+        recordScoreSnapshot({
+          domain: 'improved_articles',
+          page_url: improveSlug,
+          score: newEeatScore,
+          source: 'article_improve',
+        }).catch(() => {});
+        queueCitationTest({ domain: '', topic: targetKeyword, daysFromNow: 7, source: 'article_improve' });
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (error: any) {
         console.error('[article-improve]', error);

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
+import { getLatestCitationResult } from '@/lib/citation-tester';
+import { recordScoreSnapshot } from '@/lib/drift-tracker';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
 
@@ -363,6 +365,22 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      // Pull latest citation test for this article's domain+keyword (non-blocking)
+      const articleDomain = article.url
+        .replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+      const citationResult = await getLatestCitationResult(articleDomain, article.keyword)
+        .catch(() => null);
+
+      // Record a score snapshot for drift tracking
+      if (position != null) {
+        recordScoreSnapshot({
+          domain: articleDomain,
+          page_url: article.url,
+          score: position != null ? Math.max(0, 100 - position * 2) : 0, // convert rank to score
+          source: 'ranking_agent',
+        }).catch(() => {});
+      }
+
       results.push({
         id: article.id,
         keyword: article.keyword,
@@ -374,6 +392,7 @@ export async function POST(req: NextRequest) {
         analysis,
         competitorUrls,
         deepAnalysis,
+        citationResult,
       });
     }
 

@@ -9,6 +9,8 @@ import {
 import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedFacts } from '@/lib/article-master';
 import { humanizeArticle } from '@/lib/humanizer';
 import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-generator';
+import { checkCitationOpportunity, queueCitationTest } from '@/lib/citation-tester';
+import { recordScoreSnapshot } from '@/lib/drift-tracker';
 
 export const maxDuration = 300;
 
@@ -103,6 +105,9 @@ export async function POST(req: NextRequest) {
 
     const safeWordCount = Math.min(wordCount, 1500);
     const kw = keyword.toLowerCase();
+
+    // ── STEP 0: Citation opportunity check (parallel with competitor fetch) ─────
+    const citationCheckPromise = checkCitationOpportunity(keyword).catch(() => null);
 
     // ── STEP 1: Get top competitor URLs ───────────────────────────────────────
     const competitorUrls = await getTopCompetitorUrls(keyword, market);
@@ -285,7 +290,32 @@ export async function POST(req: NextRequest) {
             }
           }
 
+          // Emit citation opportunity result if ready
+          try {
+            const citationResult = await citationCheckPromise;
+            if (citationResult) {
+              controller.enqueue(encoder.encode(
+                `\n<!--SEORANKO_CITATION_OPPORTUNITY:${JSON.stringify({
+                  topicAlreadyCited: citationResult.hasStrongCompetition,
+                  competitorsCurrentlyCited: citationResult.dominantCompetitors,
+                  opportunityScore: citationResult.opportunityScore,
+                })}-->`
+              ));
+            }
+          } catch { /* non-fatal */ }
+
           controller.close();
+
+          // Fire-and-forget: score snapshot + queue 7-day citation test
+          const slug = `/${keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+          recordScoreSnapshot({
+            domain: 'competitor_articles',
+            page_url: slug,
+            score: 70, // baseline score for newly generated competitor article
+            source: 'article_competitor',
+          }).catch(() => {});
+          queueCitationTest({ domain: '', topic: keyword, daysFromNow: 7, source: 'article_competitor' });
+
         } catch (err) {
           controller.error(err);
         }

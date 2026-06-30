@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { createHash } from "crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import { callClaude, parseJsonResponse } from "@/lib/anthropic";
+import { getCachedEntityPresence } from "@/lib/entity-checker";
 
 const anthropic = new Anthropic();
 
@@ -286,14 +287,19 @@ ${allSignals.slice(0, 8000)}`,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const zeroContentCount = opportunities.filter((o: any) => (o.gapScore ?? 0) >= 80).length;
 
+        // Cache-only entity lookup — no API call, just shows if we already know
+        const entityPresence = await getCachedEntityPresence(niche).catch(() => null);
+
         controller.enqueue(sse({
           done: true,
           opportunities,
+          entityPresence,
           summary: {
             total: opportunities.length,
             avgGapScore: avgGap,
             zeroContentGaps: zeroContentCount,
             sourcesActive: Object.values(status).filter(s => s === "done").length,
+            entityScore: entityPresence?.score ?? null,
           },
           status,
           counts,

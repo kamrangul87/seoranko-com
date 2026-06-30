@@ -24,6 +24,15 @@ interface Summary {
   avgGapScore: number;
   zeroContentGaps: number;
   sourcesActive: number;
+  entityScore: number | null;
+}
+
+interface EntityPresence {
+  wikipedia: boolean;
+  reddit: boolean;
+  linkedin: boolean;
+  score: number;
+  recommendations: string[];
 }
 
 type SourceStatus = "loading" | "done" | "error" | "skipped";
@@ -172,6 +181,7 @@ export default function DiscoveryPage() {
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [entityPresence, setEntityPresence] = useState<EntityPresence | null>(null);
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState<number | null>(null);
 
@@ -193,6 +203,7 @@ export default function DiscoveryPage() {
     setError("");
     setOpportunities([]);
     setSummary(null);
+    setEntityPresence(null);
     setStage("Connecting…");
     setStatus({});
     setCounts({});
@@ -231,6 +242,7 @@ export default function DiscoveryPage() {
             done?: boolean;
             opportunities?: Opportunity[];
             summary?: Summary;
+            entityPresence?: EntityPresence;
           };
           if (data.stage) setStage(data.stage);
           if (data.status) setStatus(data.status);
@@ -239,6 +251,7 @@ export default function DiscoveryPage() {
           if (data.done) {
             setOpportunities(data.opportunities ?? []);
             setSummary(data.summary ?? null);
+            if (data.entityPresence) setEntityPresence(data.entityPresence);
             if (data.counts) setCounts(data.counts);
             setStage("");
           }
@@ -408,7 +421,7 @@ export default function DiscoveryPage() {
 
           {/* Summary */}
           {summary && (
-            <div className="grid grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-4 gap-4 mb-4">
               {[
                 { label: "Opportunities",    value: summary.total },
                 { label: "Avg Gap Score",    value: `${summary.avgGapScore}/100` },
@@ -420,6 +433,44 @@ export default function DiscoveryPage() {
                   <p className="text-xs text-[#6B6B6B] mt-1">{label}</p>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Entity Presence — cached signal, shown when available */}
+          {entityPresence && (
+            <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-4 mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-[#0F0F0F] uppercase tracking-wide">Brand Entity Score</span>
+                  <span className="font-mono text-[11px] font-bold text-[#9B9B9B]">●○○</span>
+                  <span className="text-[10px] text-[#9B9B9B]">EXPERIMENTAL</span>
+                </div>
+                <span className={`text-sm font-bold ${entityPresence.score >= 66 ? 'text-[#16A34A]' : entityPresence.score >= 33 ? 'text-[#FF6B2C]' : 'text-[#DC2626]'}`}>
+                  {entityPresence.score}/100
+                </span>
+              </div>
+              <div className="flex gap-3 mb-3">
+                {[
+                  { label: 'Wikipedia', present: entityPresence.wikipedia },
+                  { label: 'Reddit',    present: entityPresence.reddit },
+                  { label: 'LinkedIn',  present: entityPresence.linkedin },
+                ].map(({ label, present }) => (
+                  <div key={label} className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-[6px] border ${present ? 'bg-green-500/10 border-green-500/20 text-green-600' : 'bg-[#F5F4F1] border-[#E8E8E4] text-[#9B9B9B]'}`}>
+                    <span className={`font-mono font-bold text-[10px]`}>{present ? '●' : '○'}</span>
+                    {label}
+                  </div>
+                ))}
+              </div>
+              {entityPresence.recommendations?.length > 0 && (
+                <ul className="space-y-1">
+                  {entityPresence.recommendations.slice(0, 2).map((r, i) => (
+                    <li key={i} className="text-xs text-[#6B6B6B] flex items-start gap-1.5">
+                      <span className="text-[#FF6B2C] mt-0.5 flex-shrink-0">→</span>
+                      {r}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
 

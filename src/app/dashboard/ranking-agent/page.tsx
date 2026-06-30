@@ -12,6 +12,7 @@ export default function RankingAgentPage() {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState('');
   const [deepAnalyses, setDeepAnalyses] = useState<Record<string, any>>({});
+  const [citationResults, setCitationResults] = useState<Record<string, any>>({});
   const [panelArticleId, setPanelArticleId] = useState<string | null>(null);
   const [panelLoading, setPanelLoading] = useState(false);
   const [autoFixing, setAutoFixing] = useState(false);
@@ -59,6 +60,13 @@ export default function RankingAgentPage() {
       const next = { ...prev };
       for (const r of results) {
         if (r.deepAnalysis) next[r.id] = r.deepAnalysis;
+      }
+      return next;
+    });
+    setCitationResults(prev => {
+      const next = { ...prev };
+      for (const r of results) {
+        if (r.citationResult) next[r.id] = r.citationResult;
       }
       return next;
     });
@@ -349,6 +357,7 @@ export default function RankingAgentPage() {
 
   const panelArticle = panelArticleId ? articles.find(a => a.id === panelArticleId) : null;
   const panelAnalysis = getAnalysisForArticle(panelArticle);
+  const panelCitationResult = panelArticleId ? citationResults[panelArticleId] : null;
   const diagnosisText = panelAnalysis?.diagnosis || '';
   const cleanDiagnosis = diagnosisText
     .replace(/^[`\s]*json\s*/i, '')
@@ -528,8 +537,9 @@ export default function RankingAgentPage() {
                           fontSize: '10px', fontWeight: 700,
                           ...impactBadgeStyle(action), borderRadius: '4px',
                           padding: '2px 6px', flexShrink: 0, marginTop: '2px',
+                          fontFamily: 'monospace',
                         }}>
-                          {action.includes('HIGH') ? 'HIGH' : action.includes('MEDIUM') ? 'MED' : 'LOW'}
+                          {action.includes('HIGH') ? '●●●' : action.includes('MEDIUM') ? '●●○' : '●○○'}
                         </span>
                         <span>{action.replace(/^\d+\.\s*\[IMPACT:\s*(HIGH|MEDIUM|LOW)\]\s*/i, '')}</span>
                       </div>
@@ -571,6 +581,42 @@ export default function RankingAgentPage() {
                       +{panelAnalysis.estimatedPositionsToGain} positions in 30 days if all actions implemented
                     </div>
                   </>
+                )}
+
+                {/* AI Citation Result */}
+                <div style={s.sectionTitle}>🤖 AI Citation
+                  <span style={{ fontFamily: 'monospace', fontSize: '11px', fontWeight: 700, color: '#9B9B9B', marginLeft: '6px' }}>●○○</span>
+                  <span style={{ fontSize: '10px', fontWeight: 400, color: '#9B9B9B', marginLeft: '4px' }}>EXPERIMENTAL</span>
+                </div>
+                {panelCitationResult ? (
+                  <div style={{ background: '#FAFAF8', border: '1px solid #E8E8E4', borderRadius: '8px', padding: '12px', fontSize: '12px' }}>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                      <span style={{
+                        fontFamily: 'monospace', fontWeight: 700, fontSize: '11px', padding: '2px 8px', borderRadius: '4px',
+                        ...(panelCitationResult.cited
+                          ? { background: '#F0FDF4', color: '#16A34A', border: '1px solid #BBF7D0' }
+                          : panelCitationResult.mentioned
+                            ? { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' }
+                            : { background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA' })
+                      }}>
+                        {panelCitationResult.cited ? '●●● CITED' : panelCitationResult.mentioned ? '●●○ MENTIONED' : '●○○ NOT CITED'}
+                      </span>
+                    </div>
+                    {panelCitationResult.responseSnippet && (
+                      <div style={{ color: '#6B6B6B', lineHeight: 1.5, marginBottom: '6px' }}>
+                        &ldquo;{panelCitationResult.responseSnippet.slice(0, 200)}{panelCitationResult.responseSnippet.length > 200 ? '…' : ''}&rdquo;
+                      </div>
+                    )}
+                    {panelCitationResult.competitorsCited?.length > 0 && (
+                      <div style={{ color: '#9B9B9B' }}>
+                        Competitors cited instead: {panelCitationResult.competitorsCited.slice(0, 3).join(', ')}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ background: '#FAFAF8', border: '1px solid #E8E8E4', borderRadius: '8px', padding: '10px 12px', fontSize: '12px', color: '#9B9B9B' }}>
+                    Run Check Now to see AI citation status for this article&apos;s domain.
+                  </div>
                 )}
 
                 <div style={s.autoFixBox}>

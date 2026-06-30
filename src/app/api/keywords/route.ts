@@ -3,6 +3,8 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { createHash } from 'crypto'
 import { callClaude } from '@/lib/anthropic'
+import { checkCitationOpportunity } from '@/lib/citation-tester'
+import { getCachedEntityPresence } from '@/lib/entity-checker'
 
 // Per-plan limits. Free = daily; Starter/Pro = monthly; Agency/Master = unlimited.
 const PLAN_LIMITS: Record<string, { keywords: number; period: 'day' | 'month' | 'unlimited' }> = {
@@ -287,9 +289,41 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Check AI citation landscape for top 3 keywords (5s timeout — best-effort)
+    const top3 = sorted.slice(0, 3).map(k => k.keyword);
+    let citationMap: Record<string, { opportunityScore: number; dominantCompetitors: string[] }> = {};
+    try {
+      const checks = await Promise.allSettled(
+        top3.map(kw => Promise.race([
+          checkCitationOpportunity(kw),
+          new Promise<null>(res => setTimeout(() => res(null), 5000)),
+        ]))
+      );
+      checks.forEach((result, i) => {
+        const kw = top3[i];
+        if (result.status === 'fulfilled' && result.value) {
+          const v = result.value;
+          if (v && typeof v === 'object' && 'opportunityScore' in v) {
+            citationMap[kw] = { opportunityScore: v.opportunityScore, dominantCompetitors: v.dominantCompetitors };
+          }
+        }
+      });
+    } catch { /* non-fatal */ }
+
+    const keywordsWithCitation = sorted.map(k => ({
+      ...k,
+      ...(citationMap[k.keyword]
+        ? { aiCitationOpportunity: citationMap[k.keyword] }
+        : {}),
+    }));
+
+    // Cache-only entity lookup for the seed keyword (no extra API cost)
+    const entityPresence = await getCachedEntityPresence(keyword).catch(() => null);
+
     return NextResponse.json({
-      keywords: sorted,
+      keywords: keywordsWithCitation,
       master: isMaster,
+      entityPresence,
       ...(broaderKeyword ? { broaderKeyword, usedKeyword } : {}),
     })
 
