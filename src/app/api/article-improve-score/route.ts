@@ -20,7 +20,6 @@ export async function POST(req: NextRequest) {
       scoreType = '',
       currentScore = 0,
       primaryKeyword = '',
-      market = 'United Kingdom',
     } = body;
 
     if (!articleHtml || !scoreType) {
