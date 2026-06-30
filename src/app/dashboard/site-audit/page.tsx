@@ -123,6 +123,17 @@ export default function SiteAuditPage() {
   // Last audit timestamp (from Supabase)
   const [lastAuditedAt, setLastAuditedAt] = useState<string | null>(null);
 
+  // AI Citation Test
+  const [citationOpen, setCitationOpen] = useState(false);
+  const [citationTopics, setCitationTopics] = useState('');
+  const [citationResults, setCitationResults] = useState<any>(null);
+  const [citationLoading, setCitationLoading] = useState(false);
+  const [citationMsg, setCitationMsg] = useState('');
+
+  // Drift trend (page_url → drift info)
+  const [driftData, setDriftData] = useState<Record<string, any>>({});
+  const [driftLoaded, setDriftLoaded] = useState(false);
+
   // Ref so the auto-load effect only fires once on mount
   const didAutoLoad = useRef(false);
 
@@ -165,11 +176,52 @@ export default function SiteAuditPage() {
           setResults(data);
           if (data.lastAuditedAt) setLastAuditedAt(data.lastAuditedAt);
           setStage('results');
+          loadDriftData(savedDomain);
         }
       })
       .catch(() => { /* no saved data — stay on audit stage */ })
       .finally(() => setLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadDriftData(domainStr: string) {
+    if (!domainStr) return;
+    try {
+      const res = await fetch(`/api/site-audit/drift?domain=${encodeURIComponent(domainStr)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.pages?.length > 0) {
+        const map: Record<string, any> = {};
+        for (const p of data.pages) map[p.page_url] = p;
+        setDriftData(map);
+        setDriftLoaded(true);
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  async function handleCitationTest() {
+    if (!domain || !citationTopics.trim()) return;
+    const topics = citationTopics.split('\n').map((t: string) => t.trim()).filter(Boolean).slice(0, 5);
+    if (topics.length === 0) return;
+    const brandName = domain.replace(/^https?:\/\//, '').replace(/^www\./, '').split('.')[0];
+    setCitationLoading(true);
+    setCitationMsg('');
+    setCitationResults(null);
+    try {
+      const res = await fetch('/api/site-audit/citations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ domain, brandName, topics }),
+      });
+      const data = await res.json();
+      if (data.error) { setCitationMsg('❌ ' + data.error); return; }
+      setCitationResults(data);
+      setCitationMsg(`Tested ${data.summary.topicsTested} topics — ${data.summary.mentionRate}% mention rate, ${data.summary.citationRate}% citation rate`);
+    } catch (err: any) {
+      setCitationMsg('❌ ' + err.message);
+    } finally {
+      setCitationLoading(false);
+    }
+  }
 
   function simulateScoreUpdate(page: any, data: any) {
     if (!results?.results || !data.fixedIssues?.length) return;
@@ -487,6 +539,7 @@ export default function SiteAuditPage() {
       if (data.lastAuditedAt) setLastAuditedAt(data.lastAuditedAt);
       if (auditMode !== 'cached') setShowExpandedNote(true);
       setStage('results');
+      loadDriftData(domain);
       // Check script installation status for the Quick Fix gate
       const siteIdForCheck = domain.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0].toLowerCase();
       fetch(`/api/sites?domain=${encodeURIComponent(siteIdForCheck)}`)
@@ -1202,7 +1255,91 @@ export default function SiteAuditPage() {
             </div>
           )}
 
+          {/* AI Citation Test panel */}
+          <div style={{ background: '#fff', border: '1px solid #E8E8E4', borderRadius: '10px', padding: '14px 18px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' as const }}>
+              <div style={{ flex: 1, minWidth: '200px' }}>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#0F0F0F' }}>🎯 AI Citation Test</div>
+                <div style={{ fontSize: '11px', color: '#9B9B9B', marginTop: '2px' }}>
+                  Ask Claude with live web search if it mentions your brand for specific topics — tests real AI citation visibility
+                </div>
+              </div>
+              <button
+                onClick={() => setCitationOpen(o => !o)}
+                style={{ padding: '7px 14px', background: '#F5F4F1', color: '#0F0F0F', border: '1px solid #E8E8E4', borderRadius: '8px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' as const }}
+              >
+                {citationOpen ? 'Hide ▲' : 'Test Citation ▼'}
+              </button>
+            </div>
+
+            {citationOpen ? (
+              <div style={{ marginTop: '14px' }}>
+                {/* Topic input */}
+                <div style={{ marginBottom: '10px' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 600, color: '#6B6B6B', textTransform: 'uppercase' as const, letterSpacing: '0.4px', display: 'block', marginBottom: '4px' }}>
+                    Test topics (one per line, max 5)
+                  </label>
+                  <textarea
+                    value={citationTopics}
+                    onChange={e => setCitationTopics(e.target.value)}
+                    placeholder={'best SEO audit tools\nAI content writing software\nsite audit for small business'}
+                    rows={3}
+                    style={{ width: '100%', fontSize: '12px', padding: '8px 10px', border: '1px solid #E8E8E4', borderRadius: '8px', fontFamily: 'monospace', resize: 'vertical' as const, boxSizing: 'border-box' as const, color: '#0F0F0F', background: '#FAFAF8' }}
+                  />
+                </div>
+                <button
+                  onClick={handleCitationTest}
+                  disabled={citationLoading || !citationTopics.trim()}
+                  style={{ padding: '8px 18px', background: '#6D28D9', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, cursor: (citationLoading || !citationTopics.trim()) ? 'not-allowed' : 'pointer', opacity: (citationLoading || !citationTopics.trim()) ? 0.6 : 1 }}
+                >
+                  {citationLoading ? '⏳ Testing...' : '🎯 Run Citation Test'}
+                </button>
+
+                {citationMsg && (
+                  <div style={{ marginTop: '10px', fontSize: '12px', color: citationMsg.includes('❌') ? '#DC2626' : '#16A34A', fontWeight: 600 }}>
+                    {citationMsg}
+                  </div>
+                )}
+
+                {citationResults?.results?.length > 0 && (
+                  <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column' as const, gap: '8px' }}>
+                    {citationResults.results.map((r: any, i: number) => (
+                      <div key={i} style={{ background: '#FAFAF8', border: '1px solid #E8E8E4', borderRadius: '8px', padding: '10px 14px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' as const, marginBottom: r.competitorsCited?.length > 0 ? '6px' : 0 }}>
+                          <span style={{ fontSize: '12px', fontWeight: 600, color: '#0F0F0F', flex: 1 }}>{r.topic}</span>
+                          <span style={{
+                            fontSize: '9px', fontWeight: 700, padding: '2px 7px', borderRadius: '20px',
+                            background: r.mentioned ? '#F0FDF4' : '#F5F4F1',
+                            color: r.mentioned ? '#16A34A' : '#9B9B9B',
+                            border: `1px solid ${r.mentioned ? '#BBF7D0' : '#E8E8E4'}`,
+                          }}>
+                            {r.mentioned ? '✓ MENTIONED' : '✗ NOT MENTIONED'}
+                          </span>
+                          <span style={{
+                            fontSize: '9px', fontWeight: 700, padding: '2px 7px', borderRadius: '20px',
+                            background: r.cited ? '#EFF6FF' : '#F5F4F1',
+                            color: r.cited ? '#1D4ED8' : '#9B9B9B',
+                            border: `1px solid ${r.cited ? '#BFDBFE' : '#E8E8E4'}`,
+                          }}>
+                            {r.cited ? '✓ CITED' : '✗ NOT CITED'}
+                          </span>
+                        </div>
+                        {r.competitorsCited?.length > 0 && (
+                          <div style={{ fontSize: '11px', color: '#6B6B6B' }}>
+                            <span style={{ fontWeight: 600, color: '#DC2626' }}>Competitors cited instead: </span>
+                            {r.competitorsCited.join(', ')}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
+
           {/* Score simulation success banner */}
+
           {scoreSimMsg && (
             <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '10px', padding: '12px 16px', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
               <div style={{ fontSize: '13px', color: '#16A34A', fontWeight: 600 }}>{scoreSimMsg}</div>
@@ -1300,6 +1437,20 @@ export default function SiteAuditPage() {
                               {page.scoreBeforeFix} → {page.scoreAfterFix} (+{scoreGainDisplay})
                             </div>
                           )}
+                          {/* Drift trend badge */}
+                          {driftLoaded && (() => {
+                            const normUrl = page.url.replace(/^https?:\/\//, 'https://').replace(/\/$/, '');
+                            const drift = driftData[normUrl] || driftData[page.url];
+                            if (!drift || drift.change_from_previous == null) return null;
+                            const ch = drift.change_from_previous;
+                            if (ch === 0) return null;
+                            const up = ch > 0;
+                            return (
+                              <div style={{ fontSize: '9px', fontWeight: 700, color: up ? '#16A34A' : '#DC2626' }}>
+                                {up ? '↑' : '↓'} {up ? '+' : ''}{ch} vs last audit
+                              </div>
+                            );
+                          })()}
                         </div>
                       </td>
                       <td style={{ padding: '12px 16px', borderBottom: '1px solid #F5F4F1', verticalAlign: 'top' as const, fontWeight: 600, fontSize: '13px', color: page.wordCount < 600 ? '#DC2626' : '#16A34A' }}>
@@ -1442,6 +1593,16 @@ export default function SiteAuditPage() {
                                                       {effortIcon && (
                                                         <span style={{ fontSize: '9px', fontWeight: 700, color: effortColor, whiteSpace: 'nowrap' as const, flexShrink: 0 }}>
                                                           {effortIcon} {issue.effort} fix
+                                                        </span>
+                                                      )}
+                                                      {issue.confidence === 'low' && (
+                                                        <span style={{ fontSize: '8px', fontWeight: 700, color: '#9B9B9B', border: '1px solid #E8E8E4', borderRadius: '20px', padding: '1px 5px', whiteSpace: 'nowrap' as const, flexShrink: 0 }} title="Low-confidence signal — emerging standard, not yet widely adopted">
+                                                          EXPERIMENTAL
+                                                        </span>
+                                                      )}
+                                                      {issue.confidence === 'medium' && (
+                                                        <span style={{ fontSize: '8px', fontWeight: 700, color: '#D97706', border: '1px solid #FDE68A', borderRadius: '20px', padding: '1px 5px', whiteSpace: 'nowrap' as const, flexShrink: 0 }} title="Medium-confidence signal — important but impact varies by site">
+                                                          SIGNAL
                                                         </span>
                                                       )}
                                                     </div>

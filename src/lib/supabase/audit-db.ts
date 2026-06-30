@@ -163,6 +163,30 @@ export async function updateFixedPage(
   }
 }
 
+// ── Append a historical snapshot to audit_history (never overwrites) ──────────
+export async function insertAuditHistory(
+  domain: string,
+  results: Array<{ url: string; score: number; aiScore?: number | null }>,
+): Promise<void> {
+  const supabase = getClient();
+  const normDomain = normalizeDomain(domain);
+  const now = new Date().toISOString();
+
+  const rows = results.map(r => ({
+    domain: normDomain,
+    page_url: normalizeUrl(r.url),
+    score: r.score,
+    ai_score: r.aiScore ?? null,
+    audited_at: now,
+  }));
+
+  const { error } = await supabase.from('audit_history').insert(rows);
+  if (error) {
+    // Non-fatal — table may not exist yet in some environments
+    console.warn('[audit-db] insertAuditHistory warning:', error.message);
+  }
+}
+
 // ── Overwrite a row's live-scraped fields after re-verification ───────────────
 export async function updateScrapedPage(
   domain: string,

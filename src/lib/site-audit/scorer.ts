@@ -11,6 +11,7 @@ export interface AuditIssue {
   fix_preview?: string;
   effort?: '2min' | '30min' | '1hour';
   auto_fixable?: boolean;
+  confidence?: 'high' | 'medium' | 'low';
 }
 
 export interface PageSignals {
@@ -77,6 +78,9 @@ export interface PageSignals {
   hasAuthorByline: boolean;
   hasAuthorBio: boolean;
   hasExperienceSignals: boolean;
+  // Product / e-commerce
+  hasProductSchema: boolean;
+  hasAiImageLabel: boolean;
   deprecatedSchemas: string[];
   fetchError?: string;
 }
@@ -84,6 +88,12 @@ export interface PageSignals {
 export interface DomainSignals {
   blockedAiCrawlers: string[];
   hasLlmsTxt: boolean;
+  entityPresence?: {
+    wikipedia: boolean;
+    reddit: boolean;
+    linkedin: boolean;
+    foundCount: number;
+  };
 }
 
 function emptyPage(url: string, extra: Partial<PageSignals> = {}): PageSignals {
@@ -104,7 +114,8 @@ function emptyPage(url: string, extra: Partial<PageSignals> = {}): PageSignals {
     hasSpeakableSchema: false, hasPersonSchema: false, hasHowToSchema: false, hasQAStructure: false,
     poorAnchorTextCount: 0,
     answerBlockCount: 0, questionHeadingCount: 0, factDensityScore: 0,
-    dateModifiedAge: null, hasAuthorByline: false, hasAuthorBio: false, hasExperienceSignals: false, deprecatedSchemas: [],
+    dateModifiedAge: null, hasAuthorByline: false, hasAuthorBio: false, hasExperienceSignals: false,
+    hasProductSchema: false, hasAiImageLabel: false, deprecatedSchemas: [],
     ...extra,
   };
 }
@@ -308,6 +319,10 @@ export async function fetchPageSignals(url: string): Promise<PageSignals> {
     const hasExperienceSignals =
       /\b(I tested|I tried|I used|I found|I installed|I reviewed|I discovered|when I|we tested|we found|we tried|in my experience|what surprised me|the reality is)\b/i.test(text);
 
+    // Product schema + AI image labelling (Google Merchant Center policy)
+    const hasProductSchema = /"@type"\s*:\s*"Product"/i.test(html);
+    const hasAiImageLabel = /TrainedAlgorithmicMedia|iptcExt|ai[_-]?generated.*image|image.*ai[_-]?generated/i.test(html);
+
     // Deprecated schema types (as of 2026)
     const DEPRECATED_TYPES = ['HowTo', 'FAQPage', 'SpecialAnnouncement', 'ClaimReview'];
     const deprecatedSchemas = DEPRECATED_TYPES.filter(t =>
@@ -329,7 +344,8 @@ export async function fetchPageSignals(url: string): Promise<PageSignals> {
       hasSpeakableSchema, hasPersonSchema, hasHowToSchema, hasQAStructure,
       poorAnchorTextCount,
       answerBlockCount, questionHeadingCount, factDensityScore,
-      dateModifiedAge, hasAuthorByline, hasAuthorBio, hasExperienceSignals, deprecatedSchemas,
+      dateModifiedAge, hasAuthorByline, hasAuthorBio, hasExperienceSignals,
+      hasProductSchema, hasAiImageLabel, deprecatedSchemas,
     };
   } catch (err: any) {
     return emptyPage(url, { fetchTimeMs: Date.now() - startTime, fetchError: err.message?.slice(0, 100) });
@@ -507,6 +523,8 @@ function attachFixes(issues: AuditIssue[], page: PageSignals): AuditIssue[] {
       effort = '2min'; auto_fixable = false;
     } else if (msg.includes('first-person experience')) {
       effort = '1hour'; auto_fixable = false;
+    } else if (msg.includes('entity presence') || msg.includes('Wikipedia') || msg.includes('TrainedAlgorithmicMedia')) {
+      effort = '1hour'; auto_fixable = false;
     } else if (msg.includes('Article schema') || msg.includes('dateModified') || msg.includes('author byline') || msg.includes('Person schema')) {
       effort = '30min'; auto_fixable = false;
     } else if (msg.includes('answer-length') || msg.includes('fact density') || msg.includes('question heading')) {
@@ -529,6 +547,28 @@ function attachFixes(issues: AuditIssue[], page: PageSignals): AuditIssue[] {
       auto_fixable,
     };
   });
+}
+
+function assignConfidence(issue: AuditIssue): 'high' | 'medium' | 'low' {
+  const msg = issue.message;
+  // Low confidence: experimental signals with limited proven ROI
+  if (
+    msg.includes('llms.txt') || msg.includes('speakable') ||
+    msg.includes('Twitter Card') || msg.includes('lang attribute') ||
+    msg.includes('breadcrumb schema') || msg.includes('How-to page') ||
+    msg.includes('entity presence') || msg.includes('TrainedAlgorithmicMedia')
+  ) return 'low';
+  // Medium confidence: AI-specific evolving best practices
+  if (issue.category === 'ai' && (
+    msg.includes('author byline') || msg.includes('Person schema') ||
+    msg.includes('answer-length') || msg.includes('question heading') ||
+    msg.includes('fact density') || msg.includes('FAQPage') ||
+    msg.includes('Q&A structure') || msg.includes('dateModified') ||
+    msg.includes('Article schema') || msg.includes('author bio') ||
+    msg.includes('Deprecated schema')
+  )) return 'medium';
+  // High confidence: crawlability, onpage, security, speed, content, links
+  return 'high';
 }
 
 export function scorePage(
@@ -829,9 +869,9 @@ export function scorePage(
     opportunities.push(`Remove Disallow: / for ${bot} in robots.txt to allow AI citation`);
   }
 
-  // 2. llms.txt
+  // 2. llms.txt (low-confidence signal — most AI engines don't currently prioritise this)
   if (!domainSignals.hasLlmsTxt) {
-    aNote('No llms.txt file — AI models lack a structured content guide for this site', 5);
+    aNote('No llms.txt file found — low-confidence signal: most AI engines don\'t currently prioritise this file, but it\'s free to add as a precaution', 2);
     opportunities.push('Create /llms.txt with site overview and key content sections (use the Generate button)');
   }
 
@@ -935,11 +975,36 @@ export function scorePage(
     opportunities.push('Add "I tested...", "When I used...", or "What I found:" paragraphs with real measurements to satisfy Google\'s Experience signal');
   }
 
+  // 17. Entity presence (Wikipedia, Reddit, LinkedIn) — for domain-level homepage
+  if (domainSignals.entityPresence !== undefined) {
+    const ep = domainSignals.entityPresence;
+    const found = [ep.wikipedia && 'Wikipedia', ep.reddit && 'Reddit', ep.linkedin && 'LinkedIn'].filter(Boolean) as string[];
+    if (ep.foundCount === 0) {
+      aWarn('No entity presence found on Wikipedia, Reddit, or LinkedIn — these are the top sources ChatGPT and Perplexity cite from. Consider building presence on at least one', 5);
+      opportunities.push('Build brand presence on Wikipedia, Reddit, or LinkedIn — AI engines (ChatGPT, Perplexity) heavily cite these platforms');
+    } else if (ep.foundCount === 1) {
+      aNote(`Limited entity presence — found on ${found[0]} only. AI citation tools favour brands present on 2+ authority platforms`, 2);
+      opportunities.push(`Expand beyond ${found[0]} to at least one more platform (Wikipedia, Reddit, or LinkedIn) to improve AI citation rate`);
+    }
+    // 2+ found: no deduction — pass silently
+  }
+
+  // 18. AI image labelling (Google Merchant Center policy for e-commerce)
+  if (page.hasProductSchema && page.images > 0 && !page.hasAiImageLabel) {
+    aNote('If any product images are AI-generated, Google Merchant Center requires IPTC TrainedAlgorithmicMedia labelling — no disclosure detected on this product page', 2);
+    opportunities.push('Add IPTC TrainedAlgorithmicMedia metadata or explicit AI-generated disclosure near product images if any were AI-created (Google Merchant Center policy)');
+  }
+
+  const issuesWithMeta = attachFixes(
+    issues.map(issue => ({ ...issue, confidence: assignConfidence(issue) })),
+    page
+  );
+
   return {
     score: Math.max(0, searchScore),
     searchScore: Math.max(0, searchScore),
     aiScore: Math.max(0, aiScore),
-    issues: attachFixes(issues, page),
+    issues: issuesWithMeta,
     opportunities,
   };
 }

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { upsertAuditResults, getAuditResults, normalizeUrl, normalizeDomain } from '@/lib/supabase/audit-db';
+import { upsertAuditResults, insertAuditHistory, getAuditResults, normalizeUrl, normalizeDomain } from '@/lib/supabase/audit-db';
 import { AuditIssue, PageSignals, DomainSignals, fetchPageSignals, scorePage } from '@/lib/site-audit/scorer';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 3 });
@@ -236,6 +236,33 @@ async function fetchDomainSignals(baseUrl: string): Promise<DomainSignals> {
   return { blockedAiCrawlers, hasLlmsTxt: llmsOk };
 }
 
+// ── STEP C2: Entity presence (Wikipedia, Reddit, LinkedIn) ────────────────────
+async function checkEntityPresence(baseDomain: string): Promise<{
+  wikipedia: boolean; reddit: boolean; linkedin: boolean; foundCount: number;
+}> {
+  const brandName = baseDomain.split('.')[0];
+  const brand = brandName.charAt(0).toUpperCase() + brandName.slice(1);
+  try {
+    const res = await anthropic.messages.create({
+      model: FAST_MODEL,
+      max_tokens: 250,
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 } as any],
+      messages: [{
+        role: 'user',
+        content: `Does the brand "${brand}" have a presence on: 1) Wikipedia (search site:en.wikipedia.org "${brand}"), 2) Reddit (search site:reddit.com "${brand}"), 3) LinkedIn company page (search site:linkedin.com/company "${brand}")? Search each and answer with ONLY valid JSON: {"wikipedia":boolean,"reddit":boolean,"linkedin":boolean}`,
+      }],
+    });
+    const text = res.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+    const start = text.indexOf('{'); const end = text.lastIndexOf('}');
+    if (start !== -1 && end !== -1) {
+      const obj = JSON.parse(text.slice(start, end + 1));
+      const foundCount = [obj.wikipedia, obj.reddit, obj.linkedin].filter(Boolean).length;
+      return { wikipedia: !!obj.wikipedia, reddit: !!obj.reddit, linkedin: !!obj.linkedin, foundCount };
+    }
+  } catch { /* fail open */ }
+  return { wikipedia: false, reddit: false, linkedin: false, foundCount: 0 };
+}
+
 // ── STEP D: AI — keyword detection + quick wins ────────────────────────────────
 
 async function aiAnalysePages(pages: PageSignals[], market: string): Promise<Array<{
@@ -392,7 +419,7 @@ export async function POST(req: NextRequest) {
       const baseUrl = `https://${base}`;
 
       // Fetch domain-level signals in parallel with URL augmentation
-      const [augmentResult, ds] = await Promise.all([
+      const [augmentResult, ds, entityPresence] = await Promise.all([
         (async () => {
           if (urlList.length < 20) {
             const [crawledUrls, commonPathUrls] = await Promise.all([
@@ -405,9 +432,10 @@ export async function POST(req: NextRequest) {
           return [] as string[];
         })(),
         fetchDomainSignals(baseUrl),
+        checkEntityPresence(base).catch(() => ({ wikipedia: false, reddit: false, linkedin: false, foundCount: 0 })),
       ]);
 
-      domainSignals = ds;
+      domainSignals = { ...ds, entityPresence };
 
       if (augmentResult.length > 0) {
         const existingSet = new Set(urlList);
@@ -515,6 +543,11 @@ export async function POST(req: NextRequest) {
       upsertAuditResults(cleanDomain, freshResults).catch(e =>
         console.error('[site-audit] background upsert failed:', e)
       );
+      insertAuditHistory(cleanDomain, freshResults.map(r => ({
+        url: r.url,
+        score: r.score,
+        aiScore: r.aiScore ?? null,
+      }))).catch(e => console.warn('[site-audit] history insert failed:', e));
     }
 
     const preservedNote = fixedPageMap.size > 0
