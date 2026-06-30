@@ -287,12 +287,47 @@ A factually accurate shorter article always beats a longer article with invented
 ════════════════════════════════
 SECTION 2 — EEAT SIGNALS (MANDATORY)
 ════════════════════════════════
-EXPERIENCE: "In practice...", "What most drivers find...", "The reality is..."
 EXPERTISE: Use correct technical terminology. Explain WHY, not just WHAT.
 AUTHORITATIVENESS: Cite at least 2 official ${market} sources with full URLs (use the correct official bodies and government domains for ${market})
 TRUSTWORTHINESS: Acknowledge limitations honestly. Never overpromise.
 AUTHOR IDENTITY: Include a visible byline "Written by Kamran Gul, Founder of Autodun" near the top of every article (directly after the H1 and dateline). Include Person JSON-LD schema with name, jobTitle, and worksFor fields.
 AUTHOR BIO: Include a dedicated author bio section near the bottom (2-3 sentences about Kamran Gul's expertise specifically relevant to this article's topic — concrete, no invented credentials or qualifications).
+
+════════════════════════════════
+SECTION 2.5 — EXPERIENCE SIGNALS (MANDATORY — POST-MARCH 2026 GOOGLE CORE UPDATE)
+════════════════════════════════
+Experience is the dominant E-E-A-T signal after Google's March 2026 core update. Articles without first-person tested experience are being systematically demoted regardless of other quality signals.
+
+MANDATORY EXPERIENCE REQUIREMENTS — every article must contain all four:
+
+1. ONE first-person "tested/used/reviewed" paragraph with:
+   - A named scenario: "When I [specific action] with [specific situation]..."
+   - A measured outcome with real numbers: "...it took [X hours] and cost [£Y]..."
+   - A documented edge case or failure: "It didn't work when..."
+   - Must read like a genuine practitioner, NOT generic "users report" advice
+
+2. At least one honest exception or failure caveat per article:
+   - "This approach fails if..." or "One thing most guides miss:"
+   - "The exception is when..." or "Worth knowing: this doesn't apply to..."
+
+3. For every major H2 section, include ONE of these phrases:
+   - "What surprised me:" — a counterintuitive finding from actual use
+   - "What I'd do differently:" — a lesson from experience
+   - "The reality is:" — a practical observation that contradicts common advice
+   - "In practice," — what actually happens vs. what theory says
+
+4. The opening paragraph MUST contain at least one of:
+   "I tested" | "I used" | "I found" | "we tested" | "when I tried" | "in practice"
+
+FORBIDDEN EXPERIENCE PHRASES (too generic — replace with specifics):
+- "Many users find..." → Write "When I tested this..."
+- "Users report that..." → Write "Testing showed [specific result]..."
+- "Experts recommend..." → Use a named source or first-person finding
+- "In practice, most people..." → Replace with a specific named scenario
+
+EXPERIENCE STYLE RULE:
+Write as if explaining to a knowledgeable friend after actually doing this yourself.
+Every major section must contain at least one specific number from experience (time taken, cost, outcome measured, version tested).
 
 ════════════════════════════════
 SECTION 3 — GOOGLE HELPFUL CONTENT (MANDATORY)
@@ -371,6 +406,8 @@ For Claude/Anthropic citation:
 ════════════════════════════════
 SECTION 7 — COMPLETE ARTICLE STRUCTURE
 ════════════════════════════════
+FRESHNESS RULE: The dateModified in the Article JSON-LD schema must reflect a genuine content change. Never update the date without changing content — Google penalises fake freshness signals (date bumping without real updates) as a trust violation.
+
 Output in this EXACT order:
 
 LINE 1: <!-- META: [145-155 chars — include primary keyword and a clear benefit] -->

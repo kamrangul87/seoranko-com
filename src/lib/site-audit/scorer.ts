@@ -76,6 +76,7 @@ export interface PageSignals {
   dateModifiedAge: number | null;
   hasAuthorByline: boolean;
   hasAuthorBio: boolean;
+  hasExperienceSignals: boolean;
   deprecatedSchemas: string[];
   fetchError?: string;
 }
@@ -103,7 +104,7 @@ function emptyPage(url: string, extra: Partial<PageSignals> = {}): PageSignals {
     hasSpeakableSchema: false, hasPersonSchema: false, hasHowToSchema: false, hasQAStructure: false,
     poorAnchorTextCount: 0,
     answerBlockCount: 0, questionHeadingCount: 0, factDensityScore: 0,
-    dateModifiedAge: null, hasAuthorByline: false, hasAuthorBio: false, deprecatedSchemas: [],
+    dateModifiedAge: null, hasAuthorByline: false, hasAuthorBio: false, hasExperienceSignals: false, deprecatedSchemas: [],
     ...extra,
   };
 }
@@ -303,6 +304,10 @@ export async function fetchPageSignals(url: string): Promise<PageSignals> {
       /about the author/i.test(html) ||
       /class=["'][^"']*\b(?:author-?bio|author-?description|author-?box|author-?card|author-?info)\b[^"']*["']/i.test(html);
 
+    // Experience signals (Google March 2026 core update — dominant E-E-A-T factor)
+    const hasExperienceSignals =
+      /\b(I tested|I tried|I used|I found|I installed|I reviewed|I discovered|when I|we tested|we found|we tried|in my experience|what surprised me|the reality is)\b/i.test(text);
+
     // Deprecated schema types (as of 2026)
     const DEPRECATED_TYPES = ['HowTo', 'FAQPage', 'SpecialAnnouncement', 'ClaimReview'];
     const deprecatedSchemas = DEPRECATED_TYPES.filter(t =>
@@ -324,7 +329,7 @@ export async function fetchPageSignals(url: string): Promise<PageSignals> {
       hasSpeakableSchema, hasPersonSchema, hasHowToSchema, hasQAStructure,
       poorAnchorTextCount,
       answerBlockCount, questionHeadingCount, factDensityScore,
-      dateModifiedAge, hasAuthorByline, hasAuthorBio, deprecatedSchemas,
+      dateModifiedAge, hasAuthorByline, hasAuthorBio, hasExperienceSignals, deprecatedSchemas,
     };
   } catch (err: any) {
     return emptyPage(url, { fetchTimeMs: Date.now() - startTime, fetchError: err.message?.slice(0, 100) });
@@ -500,6 +505,8 @@ function attachFixes(issues: AuditIssue[], page: PageSignals): AuditIssue[] {
       effort = '30min'; auto_fixable = false;
     } else if (msg.includes('llms.txt')) {
       effort = '2min'; auto_fixable = false;
+    } else if (msg.includes('first-person experience')) {
+      effort = '1hour'; auto_fixable = false;
     } else if (msg.includes('Article schema') || msg.includes('dateModified') || msg.includes('author byline') || msg.includes('Person schema')) {
       effort = '30min'; auto_fixable = false;
     } else if (msg.includes('answer-length') || msg.includes('fact density') || msg.includes('question heading')) {
@@ -920,6 +927,12 @@ export function scorePage(
   if (isHowToPage && !page.hasHowToSchema && !page.deprecatedSchemas.includes('HowTo')) {
     aNote('How-to page — use numbered steps in content and Article schema instead of deprecated HowTo schema', 2);
     opportunities.push('Structure how-to content as numbered steps within Article schema (HowTo rich results removed Sept 2023)');
+  }
+
+  // 16. Experience signals (Google March 2026 core update — now the dominant E-E-A-T signal)
+  if (!page.hasExperienceSignals && page.wordCount > 300) {
+    aCrit('No first-person experience language — Google\'s March 2026 update made Experience the dominant E-E-A-T signal. Add a tested/reviewed paragraph with specific measured details', 15);
+    opportunities.push('Add "I tested...", "When I used...", or "What I found:" paragraphs with real measurements to satisfy Google\'s Experience signal');
   }
 
   return {

@@ -27,6 +27,7 @@ export interface HumanizerResult {
   humanizedHtml: string;
   humanScore: number;
   passesDetection: boolean;
+  experienceScore: number;
   seoPreserved: {
     linksPreserved: boolean;
     keywordInFirstParagraph: boolean;
@@ -117,6 +118,34 @@ export function calculateHumanScore(html: string): number {
   return Math.max(0, Math.min(100, score));
 }
 
+const EXPERIENCE_MARKERS = [
+  /\bI tested\b/i,
+  /\bI tried\b/i,
+  /\bI used\b/i,
+  /\bI found\b/i,
+  /\bI installed\b/i,
+  /\bI reviewed\b/i,
+  /\bI discovered\b/i,
+  /\bwhen I\b/i,
+  /\bwe tested\b/i,
+  /\bwe found\b/i,
+  /\bwe tried\b/i,
+  /\bin my experience\b/i,
+  /\bwhat surprised me\b/i,
+  /\bwhat I.d do differently\b/i,
+  /\bthe reality is\b/i,
+];
+
+function detectExperienceScore(html: string): number {
+  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  const matched = EXPERIENCE_MARKERS.filter(m => m.test(text)).length;
+  if (matched === 0) return 0;
+  if (matched === 1) return 35;
+  if (matched === 2) return 60;
+  if (matched === 3) return 78;
+  return Math.min(95, 60 + matched * 8);
+}
+
 export async function humanizeArticle(html: string, options: HumanizerOptions): Promise<HumanizerResult> {
   const { level, primaryKeyword = '' } = options;
 
@@ -130,6 +159,7 @@ export async function humanizeArticle(html: string, options: HumanizerOptions): 
       humanizedHtml: preprocessed,
       humanScore: preLightScore,
       passesDetection: preLightScore >= 72,
+      experienceScore: detectExperienceScore(preprocessed),
       seoPreserved: {
         linksPreserved: true,
         keywordInFirstParagraph: seoSignals.keywordInFirstPara,
@@ -202,6 +232,7 @@ ${preprocessed}`;
     humanizedHtml,
     humanScore,
     passesDetection: humanScore >= 72,
+    experienceScore: detectExperienceScore(humanizedHtml),
     seoPreserved: {
       linksPreserved,
       keywordInFirstParagraph: finalSignals.keywordInFirstPara,
