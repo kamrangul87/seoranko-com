@@ -684,13 +684,14 @@ export default function DashboardPage() {
       let articleAiScore: number | undefined;
       let articleEeatScore: number | undefined;
       let articleReadabilityScore: number | undefined;
+      let articleKeywordDensity: number | undefined;
       let articleFactSourcingScore: number | undefined;
       let articleFactPatchedCount: number | undefined;
       let articleLlmsTxtEntry: string | undefined;
       let articleHumanScore: number | undefined;
       let articlePassesDetection: boolean | undefined;
       let articleBannedWords: string[] | undefined;
-      const scoresMatch = fullArticle.match(/\n<!-- SEORANKO_SCORES:(\{[\s\S]*?\}) -->[\s]*$/);
+      const scoresMatch = fullArticle.match(/\n<!-- SEORANKO_SCORES:(\{[\s\S]*?\}) -->/);
       if (scoresMatch) {
         try {
           const parsed = JSON.parse(scoresMatch[1]);
@@ -698,6 +699,7 @@ export default function DashboardPage() {
           articleAiScore = parsed.aiScore;
           articleEeatScore = parsed.eeatScore;
           articleReadabilityScore = parsed.readabilityScore;
+          articleKeywordDensity = parsed.keywordDensity;
           articleFactSourcingScore = parsed.factSourcingScore;
           articleFactPatchedCount = parsed.factPatchedCount;
           articleLlmsTxtEntry = parsed.llmsTxtEntry;
@@ -705,7 +707,7 @@ export default function DashboardPage() {
           articlePassesDetection = parsed.passesDetection;
           articleBannedWords = parsed.bannedWordsRemoved;
         } catch { /* keep undefined */ }
-        fullArticle = fullArticle.replace(/\n<!-- SEORANKO_SCORES:\{[\s\S]*?\} -->[\s]*$/, '');
+        fullArticle = fullArticle.replace(/\n<!-- SEORANKO_SCORES:\{[\s\S]*?\} -->/, '');
       }
 
       // Priority: WITH_IMAGES (article + embedded images) > HUMANIZED > base
@@ -737,7 +739,7 @@ export default function DashboardPage() {
         readabilityScore: articleReadabilityScore ?? 0,
         factSourcingScore: articleFactSourcingScore,
         factPatchedCount: articleFactPatchedCount,
-        keywordDensity: 0,
+        keywordDensity: articleKeywordDensity ?? 0,
         improvements: [],
         searchScore: articleSearchScore,
         aiScore: articleAiScore,
@@ -872,15 +874,38 @@ export default function DashboardPage() {
       if (donePct) donePct.textContent = '100%';
       if (doneLabel) doneLabel.textContent = 'Competitor-beating article complete ✓';
 
+      // Parse scores emitted by the competitor route
+      let compSearchScore: number | undefined;
+      let compAiScore: number | undefined;
+      let compEeatScore = 0;
+      let compReadabilityScore = 0;
+      let compKeywordDensity = 0;
+      let compFactSourcingScore: number | undefined;
+      const compScoresMatch = fullArticle.match(/\n<!-- SEORANKO_SCORES:(\{[\s\S]*?\}) -->/);
+      if (compScoresMatch) {
+        try {
+          const parsed = JSON.parse(compScoresMatch[1]);
+          compSearchScore = parsed.searchScore;
+          compAiScore = parsed.aiScore;
+          compEeatScore = parsed.eeatScore ?? 0;
+          compReadabilityScore = parsed.readabilityScore ?? 0;
+          compKeywordDensity = parsed.keywordDensity ?? 0;
+          compFactSourcingScore = parsed.factSourcingScore;
+        } catch { /* keep defaults */ }
+      }
+
       setArticle({
         seoTitle: kw,
         metaDescription: '',
         article: finalArticle,
         wordCount,
-        eeaScore: 0,
-        readabilityScore: 0,
-        keywordDensity: 0,
+        eeaScore: compEeatScore,
+        readabilityScore: compReadabilityScore,
+        keywordDensity: compKeywordDensity,
         improvements: [],
+        searchScore: compSearchScore,
+        aiScore: compAiScore,
+        factSourcingScore: compFactSourcingScore,
         humanScore: competitorHumanScore,
         passesDetection: competitorHumanScore != null ? competitorHumanScore >= 72 : undefined,
       });

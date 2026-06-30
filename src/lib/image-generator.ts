@@ -500,10 +500,17 @@ export async function generateArticleImages(opts: {
 
 // ── Inject images into article HTML ──────────────────────────────────────────
 
+function escapeHtmlAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 export function injectImagesIntoArticle(html: string, imageSet: ArticleImageSet): string {
   if (!html) return html;
 
   const { hero, content, mobile } = imageSet;
+
+  const heroAlt = escapeHtmlAttr(hero.alt || '');
+  const heroCaption = hero.caption ? escapeHtmlAttr(hero.caption) : '';
 
   const heroFigure = hero.url
     ? `<figure class="article-hero-image" style="margin:0 0 2rem 0;">
@@ -511,14 +518,14 @@ export function injectImagesIntoArticle(html: string, imageSet: ArticleImageSet)
     src="${hero.url}"
     srcset="${mobile?.url ? `${mobile.url} 600w, ` : ''}${hero.url} 1200w"
     sizes="(max-width:640px) 600px, 1200px"
-    alt="${hero.alt}"
+    alt="${heroAlt}"
     width="${hero.width}"
     height="${hero.height}"
     loading="eager"
     decoding="async"
     style="width:100%;height:auto;border-radius:8px;"
   />
-  ${hero.caption ? `<figcaption style="text-align:center;font-size:0.85rem;color:#6B6B6B;margin-top:0.5rem;">${hero.caption}</figcaption>` : ''}
+  ${heroCaption ? `<figcaption style="text-align:center;font-size:0.85rem;color:#6B6B6B;margin-top:0.5rem;">${heroCaption}</figcaption>` : ''}
 </figure>\n`
     : '';
 
@@ -550,19 +557,21 @@ export function injectImagesIntoArticle(html: string, imageSet: ArticleImageSet)
         // Avoid inserting two images at the same position
         const pos = h2Positions[targetH2Index];
         if (pos !== undefined && img.url && !insertions.some(ins => ins.pos === pos)) {
+          const imgAlt = escapeHtmlAttr(img.alt || '');
+          const imgCaption = img.caption ? escapeHtmlAttr(img.caption) : '';
           insertions.push({
             pos,
             figure: `\n<figure class="article-content-image" style="margin:1.5rem 0;">
   <img
     src="${img.url}"
-    alt="${img.alt}"
+    alt="${imgAlt}"
     width="${img.width}"
     height="${img.height}"
     loading="lazy"
     decoding="async"
     style="width:100%;height:auto;border-radius:6px;"
   />
-  ${img.caption ? `<figcaption style="text-align:center;font-size:0.85rem;color:#6B6B6B;margin-top:0.5rem;">${img.caption}</figcaption>` : ''}
+  ${imgCaption ? `<figcaption style="text-align:center;font-size:0.85rem;color:#6B6B6B;margin-top:0.5rem;">${imgCaption}</figcaption>` : ''}
 </figure>\n`,
           });
         }
@@ -573,11 +582,13 @@ export function injectImagesIntoArticle(html: string, imageSet: ArticleImageSet)
       if (bodyStart !== -1) {
         const firstParaEnd = result.indexOf('</p>', bodyStart);
         if (firstParaEnd !== -1) {
+          const c0Alt = escapeHtmlAttr(content[0].alt || '');
+          const c0Caption = content[0].caption ? escapeHtmlAttr(content[0].caption) : '';
           insertions.push({
             pos: firstParaEnd + 4,
             figure: `\n<figure class="article-content-image" style="margin:1.5rem 0;">
-  <img src="${content[0].url}" alt="${content[0].alt}" width="${content[0].width}" height="${content[0].height}" loading="lazy" decoding="async" style="width:100%;height:auto;border-radius:6px;" />
-  ${content[0].caption ? `<figcaption style="text-align:center;font-size:0.85rem;color:#6B6B6B;margin-top:0.5rem;">${content[0].caption}</figcaption>` : ''}
+  <img src="${content[0].url}" alt="${c0Alt}" width="${content[0].width}" height="${content[0].height}" loading="lazy" decoding="async" style="width:100%;height:auto;border-radius:6px;" />
+  ${c0Caption ? `<figcaption style="text-align:center;font-size:0.85rem;color:#6B6B6B;margin-top:0.5rem;">${c0Caption}</figcaption>` : ''}
 </figure>\n`,
           });
         }

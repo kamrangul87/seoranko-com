@@ -12,6 +12,12 @@ import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-gene
 import { checkCitationOpportunity, queueCitationTest } from '@/lib/citation-tester';
 import { recordScoreSnapshot } from '@/lib/drift-tracker';
 import { checkAndPatchFactSourcing } from '@/lib/fact-checker';
+import {
+  calculateEEATScore,
+  calculateReadabilityScore,
+  calculateKeywordDensity,
+  scoreHtmlLocally,
+} from '@/lib/content-scorer';
 
 export const maxDuration = 300;
 
@@ -179,6 +185,7 @@ export async function POST(req: NextRequest) {
     const readable = new ReadableStream({
       async start(controller) {
         let fullArticle = '';
+        let competitorFinalHtml = ''; // tracks the final humanized+patched article for scoring
         try {
           // Stream article to client in real-time AND collect it server-side
           for await (const chunk of stream) {
@@ -231,6 +238,7 @@ export async function POST(req: NextRequest) {
               } catch (factErr) {
                 console.warn('[article-competitor] fact-sourcing check failed:', factErr);
               }
+              competitorFinalHtml = finalHtml;
 
               controller.enqueue(encoder.encode(
                 `\n<!--SEORANKO_HUMANIZED_START-->\n${finalHtml}\n<!--SEORANKO_HUMANIZED_END-->`
@@ -294,6 +302,7 @@ export async function POST(req: NextRequest) {
               } catch (factErr) {
                 console.warn('[article-competitor] fact-sourcing check (base) failed:', factErr);
               }
+              competitorFinalHtml = finalBaseHtml;
 
               controller.enqueue(encoder.encode(
                 `\n<!--SEORANKO_HUMANIZED_START-->\n${finalBaseHtml}\n<!--SEORANKO_HUMANIZED_END-->`
@@ -336,6 +345,23 @@ export async function POST(req: NextRequest) {
               ));
             }
           } catch { /* non-fatal */ }
+
+          // Emit scores for dashboard — use final humanized HTML so scores reflect the delivered article
+          if (competitorFinalHtml) {
+            const { searchScore: cSearchScore, aiScore: cAiScore } = scoreHtmlLocally(competitorFinalHtml, keyword);
+            const cEeatScore = calculateEEATScore(competitorFinalHtml);
+            const cReadabilityScore = calculateReadabilityScore(competitorFinalHtml);
+            const cKeywordDensity = calculateKeywordDensity(competitorFinalHtml, keyword);
+            controller.enqueue(encoder.encode(
+              `\n<!-- SEORANKO_SCORES:${JSON.stringify({
+                searchScore: cSearchScore,
+                aiScore: cAiScore,
+                eeatScore: cEeatScore,
+                readabilityScore: cReadabilityScore,
+                keywordDensity: cKeywordDensity,
+              })} -->`
+            ));
+          }
 
           controller.close();
 
