@@ -8,6 +8,7 @@ import {
 } from '@/lib/competitor';
 import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedFacts } from '@/lib/article-master';
 import { humanizeArticle } from '@/lib/humanizer';
+import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-generator';
 
 // Fluid compute (default on Vercel) allows up to 300s on Hobby. The full
 // pipeline (audit + scraping + NLP + angle + 6000-token generation) needs
@@ -214,14 +215,35 @@ Return ONLY valid JSON no markdown:
           console.log('[article-improve] validation corrections:', corrections);
         }
 
-        // Humanize the validated article
+        // Humanize + auto-generate images in parallel
         let humanScore: number | undefined;
         try {
-          const humanized = await humanizeArticle(validatedArticle, { level: 'medium', primaryKeyword: targetKeyword });
+          const [humanized, imageSet] = await Promise.all([
+            humanizeArticle(validatedArticle, { level: 'medium', primaryKeyword: targetKeyword }),
+            generateArticleImages({
+              topic: validatedArticle.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 400),
+              keyword: targetKeyword,
+              tier: 'free',
+              count: 3,
+            }).catch((err) => {
+              console.warn('[article-improve] auto image generation failed:', err?.message);
+              return null;
+            }),
+          ]);
           humanScore = humanized.humanScore;
           send(`<!--SEORANKO_HUMANIZED_START-->\n${humanized.humanizedHtml}\n<!--SEORANKO_HUMANIZED_END-->`);
+          if (imageSet) {
+            const withImages = injectImagesIntoArticle(humanized.humanizedHtml, imageSet);
+            send(`<!--SEORANKO_WITH_IMAGES_START-->\n${withImages}\n<!--SEORANKO_WITH_IMAGES_END-->`);
+            send(`<!--SEORANKO_IMAGE_SET_START-->${JSON.stringify({
+              images: [imageSet.hero, ...imageSet.content].map(img => ({ ...img, altText: img.alt })),
+              stored: [imageSet.hero, ...imageSet.content].some(img => img.url.includes('supabase')),
+              niche: imageSet.niche,
+              styleDescriptor: imageSet.styleDescriptor,
+            })}<!--SEORANKO_IMAGE_SET_END-->`);
+          }
         } catch (err) {
-          console.warn('[article-improve] humanization failed, continuing without:', err);
+          console.warn('[article-improve] humanization/images failed, continuing without:', err);
         }
 
         // Calculate new word count and score

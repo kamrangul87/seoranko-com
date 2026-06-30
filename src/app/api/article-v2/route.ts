@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedFacts } from '@/lib/article-master';
 import { humanizeArticle } from '@/lib/humanizer';
+import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-generator';
 
 export const maxDuration = 300;
 
@@ -211,20 +212,48 @@ Do not write generic angles. Be specific and surprising.`
           const articleUrl = `/${keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
           const llmsTxtEntry = generateLlmsTxtEntry(fullArticle, keyword, articleUrl);
 
-          // Humanize the article — runs after stream so user sees generation in real-time
+          // Humanize + auto-generate images in parallel (both only need the keyword/article text)
           let humanScore: number | undefined;
           let bannedWordsRemoved: string[] = [];
           let passesDetection = false;
           try {
-            const humanized = await humanizeArticle(fullArticle, { level: 'medium', primaryKeyword: keyword });
+            const [humanized, imageSet] = await Promise.all([
+              humanizeArticle(fullArticle, { level: 'medium', primaryKeyword: keyword }),
+              generateArticleImages({
+                topic: fullArticle.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 400),
+                keyword,
+                tier: 'free',
+                count: 3,
+              }).catch((err) => {
+                console.warn('[article-v2] auto image generation failed:', err?.message);
+                return null;
+              }),
+            ]);
+
             humanScore = humanized.humanScore;
             bannedWordsRemoved = humanized.bannedWordsRemoved;
             passesDetection = humanized.passesDetection;
+
             controller.enqueue(encoder.encode(
               `\n<!--SEORANKO_HUMANIZED_START-->\n${humanized.humanizedHtml}\n<!--SEORANKO_HUMANIZED_END-->`
             ));
+
+            if (imageSet) {
+              const withImages = injectImagesIntoArticle(humanized.humanizedHtml, imageSet);
+              controller.enqueue(encoder.encode(
+                `\n<!--SEORANKO_WITH_IMAGES_START-->\n${withImages}\n<!--SEORANKO_WITH_IMAGES_END-->`
+              ));
+              controller.enqueue(encoder.encode(
+                `\n<!--SEORANKO_IMAGE_SET_START-->${JSON.stringify({
+                  images: [imageSet.hero, ...imageSet.content].map(img => ({ ...img, altText: img.alt })),
+                  stored: [imageSet.hero, ...imageSet.content].some(img => img.url.includes('supabase')),
+                  niche: imageSet.niche,
+                  styleDescriptor: imageSet.styleDescriptor,
+                })}<!--SEORANKO_IMAGE_SET_END-->`
+              ));
+            }
           } catch (err) {
-            console.warn('[article-v2] humanization failed, continuing without:', err);
+            console.warn('[article-v2] humanization/images failed, continuing without:', err);
           }
 
           // Append score metadata as a parseable HTML comment — client strips this

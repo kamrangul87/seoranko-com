@@ -8,6 +8,7 @@ import {
 } from '@/lib/competitor';
 import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedFacts } from '@/lib/article-master';
 import { humanizeArticle } from '@/lib/humanizer';
+import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-generator';
 
 export const maxDuration = 300;
 
@@ -198,15 +199,40 @@ export async function POST(req: NextRequest) {
               `\n<!--SEORANKO_ENRICHED_START-->\n${validatedArticle}\n<!--SEORANKO_ENRICHED_END-->`
             ));
 
-            // Humanize after enrichment
+            // Humanize + auto-generate images in parallel after enrichment
             try {
-              const humanized = await humanizeArticle(validatedArticle, { level: 'medium', primaryKeyword: keyword });
+              const [humanized, imageSet] = await Promise.all([
+                humanizeArticle(validatedArticle, { level: 'medium', primaryKeyword: keyword }),
+                generateArticleImages({
+                  topic: validatedArticle.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 400),
+                  keyword,
+                  tier: 'free',
+                  count: 3,
+                }).catch((err) => {
+                  console.warn('[article-competitor] auto image generation failed:', err?.message);
+                  return null;
+                }),
+              ]);
               controller.enqueue(encoder.encode(
                 `\n<!--SEORANKO_HUMANIZED_START-->\n${humanized.humanizedHtml}\n<!--SEORANKO_HUMANIZED_END-->`
               ));
               controller.enqueue(encoder.encode(
                 `\n<!--SEORANKO_HUMAN_SCORE:${humanized.humanScore}-->`
               ));
+              if (imageSet) {
+                const withImages = injectImagesIntoArticle(humanized.humanizedHtml, imageSet);
+                controller.enqueue(encoder.encode(
+                  `\n<!--SEORANKO_WITH_IMAGES_START-->\n${withImages}\n<!--SEORANKO_WITH_IMAGES_END-->`
+                ));
+                controller.enqueue(encoder.encode(
+                  `\n<!--SEORANKO_IMAGE_SET_START-->${JSON.stringify({
+                    images: [imageSet.hero, ...imageSet.content].map(img => ({ ...img, altText: img.alt })),
+                    stored: [imageSet.hero, ...imageSet.content].some(img => img.url.includes('supabase')),
+                    niche: imageSet.niche,
+                    styleDescriptor: imageSet.styleDescriptor,
+                  })}<!--SEORANKO_IMAGE_SET_END-->`
+                ));
+              }
             } catch (err) {
               console.warn('[article-competitor] humanization failed:', err);
             }
@@ -219,15 +245,41 @@ export async function POST(req: NextRequest) {
               ));
             }
 
-            // Humanize base article
+            // Humanize + auto-generate images in parallel (base article path)
             try {
-              const humanized = await humanizeArticle(validatedArticle || fullArticle, { level: 'medium', primaryKeyword: keyword });
+              const baseArticle = validatedArticle || fullArticle;
+              const [humanized, imageSet] = await Promise.all([
+                humanizeArticle(baseArticle, { level: 'medium', primaryKeyword: keyword }),
+                generateArticleImages({
+                  topic: baseArticle.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 400),
+                  keyword,
+                  tier: 'free',
+                  count: 3,
+                }).catch((err) => {
+                  console.warn('[article-competitor] auto image generation failed (base):', err?.message);
+                  return null;
+                }),
+              ]);
               controller.enqueue(encoder.encode(
                 `\n<!--SEORANKO_HUMANIZED_START-->\n${humanized.humanizedHtml}\n<!--SEORANKO_HUMANIZED_END-->`
               ));
               controller.enqueue(encoder.encode(
                 `\n<!--SEORANKO_HUMAN_SCORE:${humanized.humanScore}-->`
               ));
+              if (imageSet) {
+                const withImages = injectImagesIntoArticle(humanized.humanizedHtml, imageSet);
+                controller.enqueue(encoder.encode(
+                  `\n<!--SEORANKO_WITH_IMAGES_START-->\n${withImages}\n<!--SEORANKO_WITH_IMAGES_END-->`
+                ));
+                controller.enqueue(encoder.encode(
+                  `\n<!--SEORANKO_IMAGE_SET_START-->${JSON.stringify({
+                    images: [imageSet.hero, ...imageSet.content].map(img => ({ ...img, altText: img.alt })),
+                    stored: [imageSet.hero, ...imageSet.content].some(img => img.url.includes('supabase')),
+                    niche: imageSet.niche,
+                    styleDescriptor: imageSet.styleDescriptor,
+                  })}<!--SEORANKO_IMAGE_SET_END-->`
+                ));
+              }
             } catch (err) {
               console.warn('[article-competitor] humanization (base) failed:', err);
             }

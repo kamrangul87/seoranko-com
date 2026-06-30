@@ -663,7 +663,9 @@ export default function DashboardPage() {
           else if (progress < 40) progressLabel.textContent = 'Writing introduction and key sections...';
           else if (progress < 60) progressLabel.textContent = 'Adding expert insights and data...';
           else if (progress < 80) progressLabel.textContent = 'Writing FAQ and conclusion...';
-          else progressLabel.textContent = 'Finalising and quality checking...';
+          else if (fullArticle.includes('<!--SEORANKO_WITH_IMAGES_START-->')) progressLabel.textContent = 'Images generated and embedded ✓';
+          else if (fullArticle.includes('<!--SEORANKO_HUMANIZED_START-->')) progressLabel.textContent = 'Generating images for article...';
+          else progressLabel.textContent = 'Humanising and generating images...';
         }
       }
 
@@ -672,7 +674,7 @@ export default function DashboardPage() {
       const doneLabel = document.getElementById('article-progress-label');
       if (doneBar) (doneBar as HTMLElement).style.width = '100%';
       if (donePct) donePct.textContent = '100%';
-      if (doneLabel) doneLabel.textContent = 'Article complete ✓';
+      if (doneLabel) doneLabel.textContent = 'Article + images complete ✓';
 
       // Parse score metadata appended by route as HTML comment
       let articleSearchScore: number | undefined;
@@ -695,18 +697,30 @@ export default function DashboardPage() {
         fullArticle = fullArticle.replace(/\n<!-- SEORANKO_SCORES:\{[\s\S]*?\} -->[\s]*$/, '');
       }
 
-      // Prefer humanized version if present
-      const humanizedMatch = fullArticle.match(/\n<!--SEORANKO_HUMANIZED_START-->\n([\s\S]*?)\n<!--SEORANKO_HUMANIZED_END-->/);
-      if (humanizedMatch) {
-        fullArticle = humanizedMatch[1].trim();
-      } else {
-        fullArticle = fullArticle.replace(/<!--SEORANKO_HUMANIZED_[^>]*-->/g, '').trim();
+      // Priority: WITH_IMAGES (article + embedded images) > HUMANIZED > base
+      const withImagesMatchV2 = fullArticle.match(/\n<!--SEORANKO_WITH_IMAGES_START-->\n([\s\S]*?)\n<!--SEORANKO_WITH_IMAGES_END-->/);
+      const humanizedMatchV2 = fullArticle.match(/\n<!--SEORANKO_HUMANIZED_START-->\n([\s\S]*?)\n<!--SEORANKO_HUMANIZED_END-->/);
+      const finalArticleHtml = withImagesMatchV2
+        ? withImagesMatchV2[1].trim()
+        : humanizedMatchV2
+          ? humanizedMatchV2[1].trim()
+          : fullArticle.replace(/<!--[^>]*-->/g, '').trim();
+
+      // Auto-populate Images tab from embedded image set
+      const imageSetMatchV2 = fullArticle.match(/<!--SEORANKO_IMAGE_SET_START-->([\s\S]*?)<!--SEORANKO_IMAGE_SET_END-->/);
+      if (imageSetMatchV2) {
+        try {
+          const imgData = JSON.parse(imageSetMatchV2[1]);
+          setImages(imgData.images || []);
+          setImageStored(imgData.stored || false);
+          if (withImagesMatchV2) setInjectedArticleHtml(withImagesMatchV2[1].trim());
+        } catch { /* ignore parse error */ }
       }
 
       setArticle({
         seoTitle: kw,
         metaDescription: '',
-        article: fullArticle,
+        article: finalArticleHtml,
         wordCount,
         eeaScore: 0,
         readabilityScore: 0,
@@ -807,7 +821,10 @@ export default function DashboardPage() {
         }
       }
 
-      // Extract humanized > enriched > base article (in order of preference)
+      // Priority: WITH_IMAGES > HUMANIZED > ENRICHED > base
+      const withImagesMatchComp = fullArticle.match(
+        /<!--SEORANKO_WITH_IMAGES_START-->\n([\s\S]*?)\n<!--SEORANKO_WITH_IMAGES_END-->/
+      );
       const humanizedMatchComp = fullArticle.match(
         /<!--SEORANKO_HUMANIZED_START-->\n([\s\S]*?)\n<!--SEORANKO_HUMANIZED_END-->/
       );
@@ -816,11 +833,24 @@ export default function DashboardPage() {
       );
       const humanScoreMatch = fullArticle.match(/<!--SEORANKO_HUMAN_SCORE:(\d+)-->/);
       const competitorHumanScore = humanScoreMatch ? parseInt(humanScoreMatch[1], 10) : undefined;
-      const finalArticle = humanizedMatchComp
-        ? humanizedMatchComp[1].trim()
-        : enrichedMatch
-          ? enrichedMatch[1]
-          : fullArticle.split('<!--SEORANKO_ENRICHING-->')[0];
+      const finalArticle = withImagesMatchComp
+        ? withImagesMatchComp[1].trim()
+        : humanizedMatchComp
+          ? humanizedMatchComp[1].trim()
+          : enrichedMatch
+            ? enrichedMatch[1]
+            : fullArticle.split('<!--SEORANKO_ENRICHING-->')[0];
+
+      // Auto-populate Images tab from embedded image set
+      const imageSetMatchComp = fullArticle.match(/<!--SEORANKO_IMAGE_SET_START-->([\s\S]*?)<!--SEORANKO_IMAGE_SET_END-->/);
+      if (imageSetMatchComp) {
+        try {
+          const imgData = JSON.parse(imageSetMatchComp[1]);
+          setImages(imgData.images || []);
+          setImageStored(imgData.stored || false);
+          if (withImagesMatchComp) setInjectedArticleHtml(withImagesMatchComp[1].trim());
+        } catch { /* ignore */ }
+      }
 
       const doneBar = document.getElementById('article-progress-bar');
       const donePct = document.getElementById('article-progress-pct');
@@ -1665,24 +1695,43 @@ export default function DashboardPage() {
                 </p>
               </div>
               {article && (
-                <div className="flex gap-3">
-                  <button
-                    onClick={handleGenerateImages}
-                    disabled={imagesLoading}
-                    className="flex items-center gap-2 bg-white border border-[#E8E8E4] hover:border-[#FF6B2C]/40 text-[#0F0F0F] text-sm font-medium px-4 py-2.5 rounded-[8px] transition-colors disabled:opacity-50"
-                  >
-                    {imagesLoading ? (
-                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                    ) : (
-                      <svg className="w-4 h-4 text-[#FF6B2C]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                    )}
-                    {imagesLoading ? "Generating…" : "Generate Images"}
-                  </button>
+                <div className="flex gap-3 items-center">
+                  {/* Images auto-embedded badge — shows when images were auto-generated */}
+                  {images.length > 0 ? (
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-[6px] px-2.5 py-1.5">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        {images.length} images embedded
+                      </div>
+                      <button
+                        onClick={handleGenerateImages}
+                        disabled={imagesLoading}
+                        className="text-xs text-[#6B6B6B] hover:text-[#FF6B2C] transition-colors disabled:opacity-50 underline underline-offset-2"
+                      >
+                        {imagesLoading ? "Regenerating…" : "Regenerate"}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleGenerateImages}
+                      disabled={imagesLoading}
+                      className="flex items-center gap-2 bg-white border border-[#E8E8E4] hover:border-[#FF6B2C]/40 text-[#0F0F0F] text-sm font-medium px-4 py-2.5 rounded-[8px] transition-colors disabled:opacity-50"
+                    >
+                      {imagesLoading ? (
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4 text-[#FF6B2C]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      )}
+                      {imagesLoading ? "Generating…" : "Generate Images"}
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       const text = `${article.seoTitle}\n\n${article.metaDescription}\n\n${article.article}`;
