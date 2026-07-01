@@ -641,6 +641,11 @@ export default function DashboardPage() {
 
   function handlePanelGenerateArticle() {
     const ordered = [panelPrimaryKeyword, ...panelKeywords.map(k => k.keyword).filter(k => k !== panelPrimaryKeyword)];
+    console.log('[cluster-panel] Generate Article payload:', {
+      primaryKeyword: ordered[0],
+      secondaryKeywords: ordered.slice(1),
+      totalKeywords: ordered.length,
+    });
     setClusterPanelOpen(false);
     setActiveNav('articles');
     handleGenerateArticle(ordered);
@@ -648,6 +653,11 @@ export default function DashboardPage() {
 
   function handlePanelCompetitorArticle() {
     const ordered = [panelPrimaryKeyword, ...panelKeywords.map(k => k.keyword).filter(k => k !== panelPrimaryKeyword)];
+    console.log('[cluster-panel] Competitor Article payload:', {
+      primaryKeyword: ordered[0],
+      secondaryKeywords: ordered.slice(1),
+      totalKeywords: ordered.length,
+    });
     setClusterPanelOpen(false);
     setActiveNav('articles');
     handleCompetitorArticle(ordered);
@@ -2596,14 +2606,14 @@ export default function DashboardPage() {
       >
         {/* Panel Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#E8E8E4] flex-shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-2 flex-1 min-w-0 mr-3">
             <svg className="w-4 h-4 text-[#FF6B2C] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h8m-8 6h16" />
             </svg>
             <input
               value={panelClusterName}
               onChange={e => setPanelClusterName(e.target.value)}
-              className="text-sm font-bold text-[#0F0F0F] bg-transparent border-0 border-b border-transparent focus:border-[#FF6B2C] focus:outline-none px-1 py-0.5 min-w-0 w-full"
+              className="text-sm font-bold text-[#0F0F0F] bg-transparent border-0 border-b border-transparent focus:border-[#FF6B2C] focus:outline-none px-1 py-0.5 w-full"
               placeholder="Cluster name…"
             />
           </div>
