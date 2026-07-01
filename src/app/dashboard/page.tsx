@@ -392,6 +392,12 @@ export default function DashboardPage() {
   const [improvingScore, setImprovingScore] = useState<string | null>(null);
   const [scoreToast, setScoreToast] = useState<{ message: string; kind: 'success' | 'error' } | null>(null);
 
+  // Download state
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  const [downloadLoading, setDownloadLoading] = useState(false);
+  const [downloadStatus, setDownloadStatus] = useState<string | null>(null);
+  const [articleCopied, setArticleCopied] = useState(false);
+
   // Humanize state
   const [humanizeInput, setHumanizeInput] = useState('');
   const [humanizeKeyword, setHumanizeKeyword] = useState('');
@@ -1027,6 +1033,66 @@ export default function DashboardPage() {
     });
     for (const { type, score } of targets) {
       await handleImproveScore(type, score as number);
+    }
+  }
+
+  // ── Download ──────────────────────────────────────────────────────────────
+  async function handleDownload(format: 'html' | 'zip' | 'markdown' | 'pdf') {
+    if (!article) return;
+    setDownloadOpen(false);
+    setDownloadLoading(true);
+    setDownloadStatus('Preparing download…');
+    try {
+      const res = await fetch('/api/article-download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          articleHtml: article.article,
+          format,
+          keyword: article.seoTitle || seedKeyword,
+          downloadImages: format === 'zip',
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Download failed' }));
+        setDownloadStatus(`Error: ${err.error}`);
+        setTimeout(() => setDownloadStatus(null), 4000);
+        return;
+      }
+
+      // Determine filename from Content-Disposition header
+      const cd = res.headers.get('content-disposition') || '';
+      const fnMatch = cd.match(/filename="([^"]+)"/);
+      const slug = (article.seoTitle || seedKeyword).toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60);
+      const ext = format === 'zip' ? 'html' : format === 'pdf' ? 'html' : format;
+      const filename = fnMatch ? fnMatch[1] : `${slug}.${ext}`;
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+
+      if (format === 'pdf') {
+        // Open print-ready HTML in new tab so user can File → Print → Save as PDF
+        window.open(url, '_blank');
+        setDownloadStatus('✅ Opened in new tab — use File → Print → Save as PDF');
+      } else {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setDownloadStatus(`✅ Downloaded as ${filename}`);
+      }
+
+      setTimeout(() => setDownloadStatus(null), 5000);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      setDownloadStatus(`Error: ${err.message}`);
+      setTimeout(() => setDownloadStatus(null), 4000);
+    } finally {
+      setDownloadLoading(false);
     }
   }
 
@@ -1908,6 +1974,7 @@ export default function DashboardPage() {
                 </p>
               </div>
               {article && (
+                <>
                 <div className="flex gap-3 items-center">
                   {/* Images auto-embedded badge — shows when images were auto-generated */}
                   {images.length > 0 ? (
@@ -1945,19 +2012,88 @@ export default function DashboardPage() {
                       {imagesLoading ? "Generating…" : "Generate Images"}
                     </button>
                   )}
+                  {/* Download dropdown */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setDownloadOpen(v => !v)}
+                      disabled={downloadLoading}
+                      className="flex items-center gap-2 bg-[#16a34a] hover:bg-[#15803d] disabled:opacity-50 text-white font-semibold text-sm px-4 py-2.5 rounded-[8px] transition-colors"
+                    >
+                      {downloadLoading ? (
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                      )}
+                      {downloadLoading ? 'Preparing…' : 'Download Article'}
+                      <svg className="w-3 h-3 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+
+                    {downloadOpen && (
+                      <>
+                        {/* backdrop */}
+                        <div className="fixed inset-0 z-10" onClick={() => setDownloadOpen(false)} />
+                        <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-[#E8E8E4] rounded-[10px] shadow-lg z-20 overflow-hidden">
+                          <div className="px-3 pt-3 pb-1">
+                            <p className="text-[10px] text-[#9B9B9B] uppercase tracking-wide font-medium mb-2">Choose Format</p>
+                          </div>
+                          {[
+                            { fmt: 'zip' as const, icon: '📦', label: 'Self-Contained HTML', desc: 'Images embedded as data URIs — works anywhere, no broken images' },
+                            { fmt: 'html' as const, icon: '📄', label: 'HTML File Only', desc: 'For platforms that host images separately' },
+                            { fmt: 'markdown' as const, icon: '📝', label: 'Markdown (.md)', desc: 'For Ghost, Notion, Obsidian, or Markdown editors' },
+                            { fmt: 'pdf' as const, icon: '🖨', label: 'Print / PDF', desc: 'Opens print-ready page — use File → Print → Save as PDF' },
+                          ].map(({ fmt, icon, label, desc }) => (
+                            <button
+                              key={fmt}
+                              onClick={() => handleDownload(fmt)}
+                              className="w-full flex items-start gap-3 px-3 py-2.5 hover:bg-[#F5F4F1] transition-colors text-left"
+                            >
+                              <span className="text-lg leading-none mt-0.5 flex-shrink-0">{icon}</span>
+                              <div>
+                                <p className="text-sm font-medium text-[#0F0F0F]">{label}{fmt === 'zip' && <span className="ml-1.5 text-[9px] font-bold bg-[#16a34a]/10 text-[#16a34a] px-1.5 py-0.5 rounded-full uppercase tracking-wide">Recommended</span>}</p>
+                                <p className="text-[11px] text-[#6B6B6B] leading-tight mt-0.5">{desc}</p>
+                              </div>
+                            </button>
+                          ))}
+                          <div className="px-3 py-2 border-t border-[#F5F4F1] mt-1">
+                            <p className="text-[10px] text-[#9B9B9B] leading-tight">Self-Contained HTML embeds images directly — no dependency on external URLs</p>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Copy HTML — secondary option for WordPress / custom editors */}
                   <button
                     onClick={() => {
-                      const text = `${article.seoTitle}\n\n${article.metaDescription}\n\n${article.article}`;
-                      navigator.clipboard.writeText(text);
+                      navigator.clipboard.writeText(article.article).then(() => {
+                        setArticleCopied(true);
+                        setTimeout(() => setArticleCopied(false), 2000);
+                      }).catch(() => {});
                     }}
-                    className="flex items-center gap-2 bg-[#FF6B2C] hover:bg-[#E85A1E] text-[#0a0a0a] font-semibold text-sm px-4 py-2.5 rounded-[8px] transition-colors"
+                    className="flex items-center gap-2 bg-white border border-[#E8E8E4] hover:border-[#FF6B2C]/40 text-[#0F0F0F] font-medium text-sm px-3 py-2.5 rounded-[8px] transition-colors"
+                    title="Copy raw HTML for WordPress or custom editors"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                     </svg>
-                    Copy Article
+                    {articleCopied ? '✅ Copied!' : 'Copy HTML'}
                   </button>
                 </div>
+
+                {/* Download status toast */}
+                {downloadStatus && (
+                  <div className={`mt-2 text-xs px-3 py-1.5 rounded-[6px] ${downloadStatus.startsWith('Error') ? 'bg-red-50 text-red-700 border border-red-100' : 'bg-green-50 text-green-700 border border-green-100'}`}>
+                    {downloadStatus}
+                  </div>
+                )}
+                </>
               )}
             </div>
 
