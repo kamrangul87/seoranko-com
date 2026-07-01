@@ -7,9 +7,9 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
+import { MODEL_FOR } from './model-router';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 2 });
-const MAIN_MODEL = 'claude-sonnet-4-6';
 
 export type CitationSource =
   | 'site_audit'
@@ -56,7 +56,7 @@ export async function testAICitation(params: {
 
   try {
     const res = await anthropic.messages.create({
-      model: MAIN_MODEL,
+      model: MODEL_FOR.citationTesting,
       max_tokens: 500,
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 } as any],
       messages: [{
@@ -65,6 +65,7 @@ export async function testAICitation(params: {
       }],
     });
 
+    console.log(`[model-router] task=citationTesting model=${MODEL_FOR.citationTesting} inputTokens=${res.usage.input_tokens} cacheHit=false`);
     const textBlocks = res.content.filter((b: any) => b.type === 'text').map((b: any) => b.text);
     const fullText = textBlocks.join('\n');
     const textLower = fullText.toLowerCase();
@@ -123,7 +124,7 @@ export async function testAICitation(params: {
 export async function checkCitationOpportunity(keyword: string): Promise<CitationOpportunity> {
   try {
     const res = await anthropic.messages.create({
-      model: MAIN_MODEL,
+      model: MODEL_FOR.citationTesting,
       max_tokens: 400,
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 1 } as any],
       messages: [{
@@ -132,6 +133,7 @@ export async function checkCitationOpportunity(keyword: string): Promise<Citatio
       }],
     });
 
+    console.log(`[model-router] task=citationOpportunity model=${MODEL_FOR.citationTesting} inputTokens=${res.usage.input_tokens} cacheHit=false`);
     const text = res.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n');
 
     // Extract named entities that look like company/product names

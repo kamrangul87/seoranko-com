@@ -3,6 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createHash } from "crypto";
 import { callClaude, parseJsonResponse } from "@/lib/anthropic";
+import { MODEL_FOR } from "@/lib/model-router";
 
 const DFS_BASE = "https://api.dataforseo.com/v3";
 
@@ -113,7 +114,8 @@ export async function POST(req: NextRequest) {
 - serpFeatures: { name: string, available: boolean, tip: string }[]
 Return only valid JSON, no markdown.`,
           `Keyword: "${keyword}"\n\nTop SERP results:\n${serpText}`,
-          2000
+          2000,
+          MODEL_FOR.nlpExtraction
         ), {
           intent: { type: "informational", confidence: 50, explanation: "Unable to determine intent" },
           entities: [] as string[],
@@ -147,7 +149,8 @@ Return only valid JSON, no markdown.`,
 - readability: { fleschKincaid: number, avgSentenceLength: number, passiveVoicePercent: number, tone: string }
 Return only valid JSON, no markdown.`,
             `Keyword: "${keyword}"\nDraft:\n${draft.trim().slice(0, 4000)}\n\nCompetitor entities: ${JSON.stringify(call1.entities)}\nCompetitor subtopics: ${JSON.stringify(call1.subtopics)}`,
-            2000
+            2000,
+            MODEL_FOR.eeAtScoring
           ), {
             eeat: { experience: 0, expertise: 0, authoritativeness: 0, trustworthiness: 0 },
             missingEntities: call1.entities,
@@ -180,7 +183,8 @@ Return only valid JSON, no markdown.`,
 - semanticSimilarityZone: { score: number, verdict: string, recommendation: string }
 Return only valid JSON, no markdown.`,
           `Keyword: "${keyword}"\nIntent: ${JSON.stringify(call1.intent)}\nEntities: ${JSON.stringify(call1.entities)}\nSubtopics: ${JSON.stringify(call1.subtopics)}\nCovered: ${JSON.stringify(call2.coveredTopics)}\nGaps: ${JSON.stringify(call2.topicalGaps)}\nE-E-A-T: ${JSON.stringify(call2.eeat)}`,
-          3000
+          3000,
+          MODEL_FOR.nlpExtraction
         ), {
           brief: { recommendedH1: keyword, structure: [] as { tag: string; text: string }[], wordCount: 1500, tone: "professional", targetAudience: "general readers" },
           lsiTerms: [] as { term: string; frequency: string; status: string }[],

@@ -1,8 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { MODEL_FOR } from './model-router';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 3 });
-const FAST_MODEL = 'claude-haiku-4-5-20251001';
-const MAIN_MODEL = 'claude-sonnet-4-6';
 
 export const BANNED_WORDS = [
   'delve', 'leverage', 'harness', 'robust', 'showcasing', 'vibrant', 'pivotal',
@@ -170,7 +169,7 @@ export async function humanizeArticle(html: string, options: HumanizerOptions): 
     };
   }
 
-  const model = level === 'light' ? FAST_MODEL : MAIN_MODEL;
+  const model = level === 'light' ? MODEL_FOR.bannedWordDetection : MODEL_FOR.humanizationRewrite;
   const intensity = level === 'aggressive' ? 'Aggressively' : level === 'medium' ? 'Moderately' : 'Lightly';
 
   const systemPrompt = `You are an expert human writing editor. Your job is to make AI-generated HTML articles sound like they were written by a real human expert journalist.
@@ -206,6 +205,9 @@ ${preprocessed}`;
     if (responseText.length > preprocessed.length * 0.4) {
       humanizedHtml = responseText.replace(/^```html?\n?/i, '').replace(/```\s*$/, '').trim();
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cacheHit = ((response.usage as any).cache_read_input_tokens ?? 0) > 0;
+    console.log(`[model-router] task=humanizationRewrite model=${model} inputTokens=${response.usage.input_tokens} cacheHit=${cacheHit}`);
   } catch (err) {
     console.warn('[humanizer] Claude rewrite failed, using pre-processed HTML:', err);
   }

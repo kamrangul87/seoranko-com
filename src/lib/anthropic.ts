@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { MODELS } from './model-router';
 
 let _client: Anthropic | null = null;
 
@@ -14,17 +15,21 @@ export function getAnthropicClient(): Anthropic {
 export async function callClaude(
   systemPrompt: string,
   userMessage: string,
-  maxTokens = 4096
+  maxTokens = 4096,
+  model: string = MODELS.SONNET
 ): Promise<string> {
   const client = getAnthropicClient();
   const response = await client.messages.create({
-    model: "claude-sonnet-4-5",
+    model,
     max_tokens: maxTokens,
-    system: systemPrompt,
+    system: [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }],
     messages: [{ role: "user", content: userMessage }],
   });
   const block = response.content[0];
   if (block.type !== "text") throw new Error("Unexpected response type from Claude");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cacheHit = ((response.usage as any).cache_read_input_tokens ?? 0) > 0;
+  console.log(`[model-router] task=callClaude model=${model} inputTokens=${response.usage.input_tokens} cacheHit=${cacheHit}`);
   return block.text;
 }
 
@@ -32,13 +37,14 @@ export async function streamClaude(
   systemPrompt: string,
   userMessage: string,
   onChunk: (delta: string, accumulated: string) => void,
-  maxTokens = 8000
+  maxTokens = 8000,
+  model: string = MODELS.SONNET
 ): Promise<string> {
   const client = getAnthropicClient();
   const stream = client.messages.stream({
-    model: "claude-sonnet-4-5",
+    model,
     max_tokens: maxTokens,
-    system: systemPrompt,
+    system: [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }],
     messages: [{ role: "user", content: userMessage }],
   });
 
@@ -52,6 +58,12 @@ export async function streamClaude(
       onChunk(event.delta.text, accumulated);
     }
   }
+
+  const finalMsg = await stream.finalMessage();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cacheHit = ((finalMsg.usage as any).cache_read_input_tokens ?? 0) > 0;
+  console.log(`[model-router] task=streamClaude model=${model} inputTokens=${finalMsg.usage.input_tokens} cacheHit=${cacheHit}`);
+
   return accumulated;
 }
 

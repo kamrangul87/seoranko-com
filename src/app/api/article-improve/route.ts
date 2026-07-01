@@ -12,6 +12,7 @@ import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-gene
 import { recordScoreSnapshot } from '@/lib/drift-tracker';
 import { queueCitationTest } from '@/lib/citation-tester';
 import { checkAndPatchFactSourcing } from '@/lib/fact-checker';
+import { MODEL_FOR } from '@/lib/model-router';
 
 // Fluid compute (default on Vercel) allows up to 300s on Hobby. The full
 // pipeline (audit + scraping + NLP + angle + 6000-token generation) needs
@@ -19,12 +20,6 @@ import { checkAndPatchFactSourcing } from '@/lib/fact-checker';
 export const maxDuration = 300;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
-
-// Keyword detection runs on Haiku (simple extraction, separate rate-limit bucket).
-// Audit scoring, fact verification, and fact-check run on Sonnet — Haiku
-// over-inflates EEAT scores and misses invented author names and factual errors.
-const FAST_MODEL = 'claude-haiku-4-5-20251001';
-const MAIN_MODEL = 'claude-sonnet-4-6';
 
 interface Audit {
   word_count: number;
@@ -73,7 +68,7 @@ export async function POST(req: NextRequest) {
         let targetKeyword = keyword.trim();
         if (!targetKeyword) {
           const kwRes = await anthropic.messages.create({
-            model: FAST_MODEL,
+            model: MODEL_FOR.keywordExtraction,
             max_tokens: 50,
             messages: [{
               role: 'user',
@@ -100,7 +95,7 @@ export async function POST(req: NextRequest) {
         })();
 
         const auditRes = await anthropic.messages.create({
-          model: MAIN_MODEL,
+          model: MODEL_FOR.articleImprovement,
           max_tokens: 1000,
           messages: [{
             role: 'user',
@@ -200,7 +195,7 @@ Return ONLY valid JSON no markdown:
         // ── STEP F: Stream improved article ───────────────────────────────────
         send('<!--SEORANKO_STAGE:rewriting-->');
         const stream = await anthropic.messages.stream({
-          model: 'claude-sonnet-4-6',
+          model: MODEL_FOR.articleImprovement,
           max_tokens: 8000,
           messages: [{ role: 'user', content: prompt }],
         });
@@ -212,6 +207,10 @@ Return ONLY valid JSON no markdown:
             improvedArticle += chunk.delta.text;
           }
         }
+        const improveFinalMsg = await stream.finalMessage();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const improveCacheHit = ((improveFinalMsg.usage as any).cache_read_input_tokens ?? 0) > 0;
+        console.log(`[model-router] task=articleImprovement model=${MODEL_FOR.articleImprovement} inputTokens=${improveFinalMsg.usage.input_tokens} cacheHit=${improveCacheHit}`);
 
         const { article: validatedArticle, corrections } = await validateAndCorrect(improvedArticle, targetKeyword, market, liveFacts);
         if (corrections.length > 0) {

@@ -5,11 +5,10 @@ import { buildMasterPrompt, validateAndCorrect, getInternalLinks } from '@/lib/a
 import { updateFixedPage, updateScrapedPage, normalizeUrl, normalizeDomain } from '@/lib/supabase/audit-db';
 import { fetchPageSignals, scorePage } from '@/lib/site-audit/scorer';
 import { humanizeArticle } from '@/lib/humanizer';
+import { MODEL_FOR } from '@/lib/model-router';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
 export const maxDuration = 300;
-
-const FAST_MODEL = 'claude-haiku-4-5-20251001';
 
 const GOOGLE_2026 = `Google 2026 Key Ranking Factors:
 1. EEAT is now the #1 ranking signal — pages must demonstrate Experience, Expertise, Authoritativeness, Trustworthiness through named authors, citations, and firsthand experience signals
@@ -639,7 +638,7 @@ export async function POST(req: NextRequest) {
     let brief: { briefSummary: string; missingElements: string[]; contentToAdd: string[]; structureChanges: string[]; seoFixes: string[] } | null = null;
     try {
       const briefResp = await callWithRetry(() => anthropic.messages.create({
-        model: FAST_MODEL,
+        model: MODEL_FOR.keywordExtraction,
         max_tokens: 800,
         messages: [{
           role: 'user',
@@ -781,7 +780,7 @@ Write the complete component now. Output TSX only.`;
 
       console.log('[site-audit/fix] streaming Next.js component...');
       const compStream = anthropic.messages.stream({
-        model: 'claude-sonnet-4-6',
+        model: MODEL_FOR.auditFixGeneration,
         max_tokens: 8000,
         messages: [{ role: 'user', content: componentPrompt }],
       });
@@ -913,7 +912,7 @@ RULES:
 
       console.log('[site-audit/fix] streaming Next.js page rewrite...');
       const rewriteStream = anthropic.messages.stream({
-        model: 'claude-sonnet-4-6',
+        model: MODEL_FOR.auditFixGeneration,
         max_tokens: 12000,
         messages: [{ role: 'user', content: rewritePrompt }],
       });
@@ -1049,7 +1048,7 @@ Write the fully improved, humanised article now. Make it rank #1 for "${kwData.p
     // STEP 6 — Stream improved article (NOT wrapped — MessageStream is not a Promise)
     console.log('[site-audit/fix] streaming improved article...');
     const stream = anthropic.messages.stream({
-      model: 'claude-sonnet-4-6',
+      model: MODEL_FOR.auditFixGeneration,
       max_tokens: 8000,
       messages: [{ role: 'user', content: fixPrompt }],
     });

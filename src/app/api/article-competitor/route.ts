@@ -18,32 +18,34 @@ import {
   calculateKeywordDensity,
   scoreHtmlLocally,
 } from '@/lib/content-scorer';
+import { MODEL_FOR } from '@/lib/model-router';
 
 export const maxDuration = 300;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
-
-// The fact-enrichment call runs on Haiku (separate rate-limit bucket) so it
-// doesn't eat the Sonnet input-token budget the main article generation needs.
-const FAST_MODEL = 'claude-haiku-4-5-20251001';
 
 async function enrichArticleWithMissingFacts(
   article: string,
   keyword: string,
   competitorContents: { url: string; content: string }[]
 ): Promise<string> {
+  // Competitor HTML is placed in a cached system prompt so repeated enrichment
+  // calls with the same competitors skip re-tokenising this large context.
+  const competitorContext = competitorContents.map(c => c.content.slice(0, 800)).join('\n---\n');
   const response = await anthropic.messages.create({
-    model: FAST_MODEL,
+    model: MODEL_FOR.keywordExtraction,
     max_tokens: 800,
+    system: [{
+      type: 'text' as const,
+      text: `You are a fact-checker reviewing competitor content for keyword: ${keyword}\n\nCOMPETITOR CONTENT:\n${competitorContext}`,
+      cache_control: { type: 'ephemeral' as const },
+    }],
     messages: [{
       role: 'user',
-      content: `You are a fact-checker. Compare this article against competitor content and identify up to 3 specific facts, data points, or insights that competitors mention but our article completely misses.
+      content: `Compare this article against the competitor content above and identify up to 3 specific facts, data points, or insights that competitors mention but our article completely misses.
 
 OUR ARTICLE:
 ${article.replace(/<[^>]*>/g, '').slice(0, 3000)}
-
-COMPETITOR CONTENT:
-${competitorContents.map(c => c.content.slice(0, 800)).join('\n---\n')}
 
 Rules:
 - Only identify facts that are SPECIFIC and VERIFIABLE (prices, percentages, legal rules, statistics)
@@ -65,6 +67,9 @@ Return ONLY valid JSON:
 If no important facts are missing return: { "missing_facts": [] }`,
     }],
   });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const enrichCacheHit = ((response.usage as any).cache_read_input_tokens ?? 0) > 0;
+  console.log(`[model-router] task=keywordExtraction model=${MODEL_FOR.keywordExtraction} inputTokens=${response.usage.input_tokens} cacheHit=${enrichCacheHit}`);
 
   const text = response.content[0].type === 'text' ? response.content[0].text : '{}';
 
@@ -176,7 +181,7 @@ export async function POST(req: NextRequest) {
 
     // ── STEP 6: Stream article ────────────────────────────────────────────────
     const stream = await anthropic.messages.stream({
-      model: 'claude-sonnet-4-6',
+      model: MODEL_FOR.competitorAnalysis,
       max_tokens: 8000,
       messages: [{ role: 'user', content: prompt }],
     });
@@ -197,6 +202,10 @@ export async function POST(req: NextRequest) {
               fullArticle += chunk.delta.text;
             }
           }
+          const compFinalMsg = await stream.finalMessage();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const compCacheHit = ((compFinalMsg.usage as any).cache_read_input_tokens ?? 0) > 0;
+          console.log(`[model-router] task=competitorAnalysis model=${MODEL_FOR.competitorAnalysis} inputTokens=${compFinalMsg.usage.input_tokens} cacheHit=${compCacheHit}`);
 
           // ── STEP 7: Post-write fact enrichment + validation + humanization ──
           if (validCompetitors.length > 0 && fullArticle.length > 200) {

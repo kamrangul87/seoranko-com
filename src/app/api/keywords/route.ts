@@ -5,6 +5,7 @@ import { createHash } from 'crypto'
 import { callClaude } from '@/lib/anthropic'
 import { checkCitationOpportunity } from '@/lib/citation-tester'
 import { getCachedEntityPresence } from '@/lib/entity-checker'
+import { MODEL_FOR } from '@/lib/model-router'
 
 // Per-plan limits. Free = daily; Starter/Pro = monthly; Agency/Master = unlimited.
 const PLAN_LIMITS: Record<string, { keywords: number; period: 'day' | 'month' | 'unlimited' }> = {
@@ -168,7 +169,9 @@ export async function POST(request: NextRequest) {
         try {
           const broaderRaw = await callClaude(
             'You are an SEO keyword expert. Return ONLY a 1-2 word broad keyword with high monthly search volume. No punctuation, no explanation.',
-            `The keyword "${keyword}" returned very few search results. Suggest a BROADER 1-2 word version with much higher search volume. Return ONLY the keyword.`
+            `The keyword "${keyword}" returned very few search results. Suggest a BROADER 1-2 word version with much higher search volume. Return ONLY the keyword.`,
+            100,
+            MODEL_FOR.keywordClassification
           )
           const broader = broaderRaw.trim().toLowerCase().replace(/[^a-z0-9 ]/g, '').trim()
           if (broader && broader !== keyword && broader !== usedKeyword) {

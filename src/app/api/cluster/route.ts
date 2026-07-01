@@ -4,6 +4,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createHash } from "crypto";
 import type { Cluster, KeywordResult } from "@/types";
+import { MODEL_FOR } from "@/lib/model-router";
 
 const SYSTEM_PROMPT = `You are an SEO strategist. Group these keywords by search intent into exactly 3 clusters: informational, commercial, transactional. Score each cluster opportunity 0-100.
 
@@ -99,7 +100,8 @@ export async function POST(req: NextRequest) {
     const raw = await callClaude(
       SYSTEM_PROMPT,
       `Cluster these ${topKeywords.length} keywords:\n${keywordList}`,
-      2048
+      2048,
+      MODEL_FOR.keywordClassification
     );
 
     console.log("[cluster] raw response (first 300):", raw.slice(0, 300));

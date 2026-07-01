@@ -2,6 +2,7 @@
 // SEORANKO Fact Verification Module — Pipeline v2
 
 import Anthropic from '@anthropic-ai/sdk';
+import { MODEL_FOR } from './model-router';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
@@ -92,7 +93,7 @@ function safeParseJson<T>(text: string, context = 'unknown', repair = false): T 
 
 export async function classifyTopic(keyword: string): Promise<TopicClassification> {
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: MODEL_FOR.factVerification,
     max_tokens: 2000,
     messages: [{
       role: 'user',
@@ -146,7 +147,7 @@ Return ALL raw facts found, with the source URL for each. Do not summarise or in
 
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: MODEL_FOR.factVerification,
       max_tokens: 4000,
       tools: [{
         type: 'web_search_20250305',
@@ -156,6 +157,7 @@ Return ALL raw facts found, with the source URL for each. Do not summarise or in
       messages: [{ role: 'user', content: searchPrompt }],
     });
 
+    console.log(`[model-router] task=searchAndCollectFacts model=${MODEL_FOR.factVerification} inputTokens=${response.usage.input_tokens} cacheHit=false`);
     return response.content
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .map((block: any) => block.type === 'text' ? block.text : '')
@@ -165,7 +167,7 @@ Return ALL raw facts found, with the source URL for each. Do not summarise or in
     // Web search tool unavailable — fall back to knowledge-based facts only
     console.warn('[fact-verifier] web_search tool unavailable, falling back to knowledge base:', err);
     const fallback = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: MODEL_FOR.factVerification,
       max_tokens: 2000,
       messages: [{
         role: 'user',
@@ -183,7 +185,7 @@ export async function extractAndVerifyFacts(
   rawSearchResults: string
 ): Promise<FactExtractionResult> {
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: MODEL_FOR.factVerification,
     max_tokens: 4000,
     messages: [{
       role: 'user',
@@ -220,7 +222,7 @@ export async function editorialAudit(
   publishedPages: string[]
 ): Promise<EditorialAudit> {
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: MODEL_FOR.factVerification,
     max_tokens: 6000,
     messages: [{
       role: 'user',

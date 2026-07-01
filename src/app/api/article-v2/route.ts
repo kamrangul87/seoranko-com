@@ -12,14 +12,11 @@ import {
   calculateKeywordDensity,
   scoreHtmlLocally,
 } from '@/lib/content-scorer';
+import { MODEL_FOR } from '@/lib/model-router';
 
 export const maxDuration = 300;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
-
-// The angle generator runs on Haiku (separate rate-limit bucket) so it doesn't
-// eat the Sonnet input-token budget the main article generation needs.
-const FAST_MODEL = 'claude-haiku-4-5-20251001';
 
 
 function generateLlmsTxtEntry(html: string, keyword: string, url: string): string {
@@ -54,7 +51,7 @@ export async function POST(req: NextRequest) {
 
     // ── STEP A — Unique Angle Generator ──────────────────────────────────────
     const angleResponse = await anthropic.messages.create({
-      model: FAST_MODEL,
+      model: MODEL_FOR.keywordExtraction,
       max_tokens: 500,
       messages: [{
         role: 'user',
@@ -84,6 +81,9 @@ Do not write generic angles. Be specific and surprising.`
       }]
     });
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const angleCacheHit = ((angleResponse.usage as any).cache_read_input_tokens ?? 0) > 0;
+    console.log(`[model-router] task=keywordExtraction model=${MODEL_FOR.keywordExtraction} inputTokens=${angleResponse.usage.input_tokens} cacheHit=${angleCacheHit}`);
     const angleText = angleResponse.content[0].type === 'text' ? angleResponse.content[0].text : '{}';
     let angle = { unique_angle: '', hook_opening: '', unique_section_title: '', unique_section_content: '' };
     try {
@@ -125,7 +125,7 @@ Do not write generic angles. Be specific and surprising.`
 
     // ── STEP D — Stream article with angle injected ───────────────────────────
     const stream = await anthropic.messages.stream({
-      model: 'claude-sonnet-4-6',
+      model: MODEL_FOR.articleWriting,
       max_tokens: 8000,
       messages: [{ role: 'user', content: prompt }],
     });
@@ -144,6 +144,10 @@ Do not write generic angles. Be specific and surprising.`
               fullArticle += chunk.delta.text;
             }
           }
+          const articleFinalMsg = await stream.finalMessage();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const articleCacheHit = ((articleFinalMsg.usage as any).cache_read_input_tokens ?? 0) > 0;
+          console.log(`[model-router] task=articleWriting model=${MODEL_FOR.articleWriting} inputTokens=${articleFinalMsg.usage.input_tokens} cacheHit=${articleCacheHit}`);
 
           // Validate and correct the article
           const { corrections } = await validateAndCorrect(fullArticle, keyword, market, liveFacts);

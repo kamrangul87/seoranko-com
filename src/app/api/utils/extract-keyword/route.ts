@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { callClaude } from '@/lib/anthropic'
+import { MODEL_FOR } from '@/lib/model-router'
 
 export async function POST(req: NextRequest) {
   let problem = ''
@@ -36,7 +37,8 @@ Keyword: home bakery profits
 
 Problem: "${problem}"
 Keyword:`,
-      50
+      50,
+      MODEL_FOR.keywordExtraction
     )
 
     const keyword = raw.trim().toLowerCase().replace(/[^a-z0-9 ]/g, '').trim()
