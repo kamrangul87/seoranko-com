@@ -5,7 +5,6 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import type {
   KeywordResult,
-  Cluster,
   ArticleOutput,
   ResearchBrief,
   ImagePrompt,
@@ -358,13 +357,15 @@ export default function DashboardPage() {
   const [hideNavigational, setHideNavigational] = useState(true);
 
   // Cluster state
-  const [clusters, setClusters] = useState<Cluster[]>([]);
   const [clusterLoading, setClusterLoading] = useState(false);
   const [clusterError, setClusterError] = useState("");
-  const [selectedCluster, setSelectedCluster] = useState<Cluster | null>(null);
-  const [editingCluster, setEditingCluster] = useState<string | null>(null);
-  const [clusterEdits, setClusterEdits] = useState<Record<string, string[]>>({});
-  const [newKwInputs, setNewKwInputs] = useState<Record<string, string>>({});
+
+  // Cluster panel state
+  const [clusterPanelOpen, setClusterPanelOpen] = useState(false);
+  const [panelKeywords, setPanelKeywords] = useState<Array<{ keyword: string; volume: number; kd: number; intent: string }>>([]);
+  const [panelPrimaryKeyword, setPanelPrimaryKeyword] = useState('');
+  const [panelClusterName, setPanelClusterName] = useState('');
+  const [panelAddKwInput, setPanelAddKwInput] = useState('');
 
   // Article settings
   const [wordCount, setWordCount] = useState(2000);
@@ -425,8 +426,6 @@ export default function DashboardPage() {
     setKwError("");
     setKwBroaderNotice("");
     setKeywords([]);
-    setClusters([]);
-    setSelectedCluster(null);
     setArticle(null);
     try {
       const res = await fetch("/api/keywords", {
@@ -455,8 +454,6 @@ export default function DashboardPage() {
     setKwError("");
     setKwBroaderNotice("");
     setKeywords([]);
-    setClusters([]);
-    setSelectedCluster(null);
     setArticle(null);
 
     const words = kw.trim().split(/\s+/);
@@ -583,6 +580,14 @@ export default function DashboardPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setClusterPanelOpen(false);
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   async function handleSignOut() {
     await fetch("/api/auth/signout", { method: "POST" });
     window.location.href = "/login";
@@ -610,7 +615,14 @@ export default function DashboardPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Clustering failed");
-      setClusters(data.clusters);
+      // Build flat keyword list sorted by volume descending for the side panel
+      const sortedKws = [...kwsToCluster].sort((a, b) => b.volume - a.volume);
+      const panelKws = sortedKws.map(k => ({ keyword: k.keyword, volume: k.volume, kd: k.kd, intent: k.intent }));
+      const clusterName = data.clusters?.[0]?.name ?? (sortedKws[0]?.keyword ?? 'Keyword Cluster');
+      setPanelKeywords(panelKws);
+      setPanelPrimaryKeyword(sortedKws[0]?.keyword ?? '');
+      setPanelClusterName(clusterName);
+      setClusterPanelOpen(true);
     } catch (e) {
       setClusterError(e instanceof Error ? e.message : "Clustering failed");
     } finally {
@@ -618,24 +630,27 @@ export default function DashboardPage() {
     }
   }
 
-  // ── Cluster editing helpers ───────────────────────────────────────────────
-  function getClusterKeywords(cluster: Cluster): string[] {
-    return clusterEdits[cluster.name] ?? cluster.keywords;
+  function handlePanelAddKeyword() {
+    const kw = panelAddKwInput.trim();
+    if (!kw || panelKeywords.some(pk => pk.keyword === kw)) return;
+    const newKw = { keyword: kw, volume: 0, kd: 0, intent: 'informational' };
+    setPanelKeywords(prev => [...prev, newKw]);
+    if (!panelPrimaryKeyword) setPanelPrimaryKeyword(kw);
+    setPanelAddKwInput('');
   }
 
-  function addKeywordToCluster(clusterName: string) {
-    const input = (newKwInputs[clusterName] ?? "").trim();
-    if (!input) return;
-    const current = clusterEdits[clusterName] ?? (clusters.find((c) => c.name === clusterName)?.keywords ?? []);
-    if (!current.includes(input)) {
-      setClusterEdits((prev) => ({ ...prev, [clusterName]: [...current, input] }));
-    }
-    setNewKwInputs((prev) => ({ ...prev, [clusterName]: "" }));
+  function handlePanelGenerateArticle() {
+    const ordered = [panelPrimaryKeyword, ...panelKeywords.map(k => k.keyword).filter(k => k !== panelPrimaryKeyword)];
+    setClusterPanelOpen(false);
+    setActiveNav('articles');
+    handleGenerateArticle(ordered);
   }
 
-  function removeKeywordFromCluster(clusterName: string, kw: string) {
-    const current = clusterEdits[clusterName] ?? (clusters.find((c) => c.name === clusterName)?.keywords ?? []);
-    setClusterEdits((prev) => ({ ...prev, [clusterName]: current.filter((k) => k !== kw) }));
+  function handlePanelCompetitorArticle() {
+    const ordered = [panelPrimaryKeyword, ...panelKeywords.map(k => k.keyword).filter(k => k !== panelPrimaryKeyword)];
+    setClusterPanelOpen(false);
+    setActiveNav('articles');
+    handleCompetitorArticle(ordered);
   }
 
   // ── Pipeline article generation ───────────────────────────────────────────
@@ -656,19 +671,21 @@ export default function DashboardPage() {
   }
 
   // ── Article generation ────────────────────────────────────────────────────
-  async function handleGenerateArticle() {
-    const selectedKwsArray = Array.from(selectedKws);
+  async function handleGenerateArticle(overrideKws?: string[]) {
+    const selectedKwsArray = overrideKws ?? Array.from(selectedKws);
     const kw = fromPipeline && pipelineData?.selectedKeywords?.[0]
       ? pipelineData.selectedKeywords[0]
       : selectedKwsArray[0] ?? seedKeyword;
     if (!kw) return;
 
     setArticleLoading(true);
+    setIsCompetitorMode(false);
     setArticleError('');
     setArticle(null);
     setImproveCounts({});
     setImageStats(null);
     setScoreToast(null);
+    setActiveNav('articles');
 
     const finalSecondaryKws = selectedKwsArray.filter((k: string) => k !== kw);
     setLastSecondaryKws(finalSecondaryKws.length > 0 ? finalSecondaryKws : [kw]);
@@ -812,8 +829,8 @@ export default function DashboardPage() {
   }
 
   // ── Competitor article generation ─────────────────────────────────────────
-  async function handleCompetitorArticle() {
-    const selectedKwsArray = Array.from(selectedKws);
+  async function handleCompetitorArticle(overrideKws?: string[]) {
+    const selectedKwsArray = overrideKws ?? Array.from(selectedKws);
     const kw = fromPipeline && pipelineData?.selectedKeywords?.[0]
       ? pipelineData.selectedKeywords[0]
       : selectedKwsArray[0] ?? seedKeyword;
@@ -1596,220 +1613,6 @@ export default function DashboardPage() {
               </>
             )}
 
-            {/* Clusters */}
-            {clusters.length > 0 && (
-              <div className="mb-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="font-bold text-lg">Keyword Clusters</h2>
-                  <p className="text-[#6B6B6B] text-sm">Select a cluster to generate an article</p>
-                </div>
-                <div className="grid md:grid-cols-3 gap-4">
-                  {clusters.map((cluster) => {
-                    const isSelected = selectedCluster?.name === cluster.name;
-                    const isEditing = editingCluster === cluster.name;
-                    const kws = getClusterKeywords(cluster);
-                    return (
-                      <div
-                        key={cluster.name}
-                        className={`bg-white border rounded-[10px] p-5 transition-all ${
-                          isSelected ? "border-[#FF6B2C] shadow-lg shadow-amber-500/10" : "border-[#E8E8E4] hover:border-[#FF6B2C]/40"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between mb-3">
-                          <div
-                            className="flex-1 cursor-pointer"
-                            onClick={() => { setSelectedCluster(cluster); setEditingCluster(null); }}
-                          >
-                            <p className="font-semibold text-sm mb-1">{cluster.name}</p>
-                            <IntentBadge intent={cluster.intent} />
-                          </div>
-                          <div className="flex items-center gap-2 ml-2">
-                            <div className="text-right">
-                              <p className="text-[#FF6B2C] font-bold text-lg leading-none">{cluster.opportunity}</p>
-                              <p className="text-[#6B6B6B] text-[10px]">score</p>
-                            </div>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setEditingCluster(isEditing ? null : cluster.name); }}
-                              className="text-[#6B6B6B] hover:text-[#0F0F0F] p-1 rounded transition-colors"
-                              title="Edit keywords"
-                            >
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                              </svg>
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="flex flex-wrap gap-1.5 mb-3">
-                          {kws.map((kw) => (
-                            <span
-                              key={kw}
-                              className="inline-flex items-center gap-1 bg-[#FAFAF8] border border-[#E8E8E4] rounded-[6px] px-2 py-0.5 text-[11px] text-[#6B6B6B]"
-                            >
-                              {kw}
-                              {isEditing && (
-                                <button
-                                  onClick={() => removeKeywordFromCluster(cluster.name, kw)}
-                                  className="text-[#6B6B6B] hover:text-[#ef4444] leading-none ml-0.5"
-                                >×</button>
-                              )}
-                            </span>
-                          ))}
-                        </div>
-
-                        {isEditing && (
-                          <div className="flex gap-1.5 mt-2">
-                            <input
-                              type="text"
-                              value={newKwInputs[cluster.name] ?? ""}
-                              onChange={(e) => setNewKwInputs((prev) => ({ ...prev, [cluster.name]: e.target.value }))}
-                              onKeyDown={(e) => { if (e.key === "Enter") addKeywordToCluster(cluster.name); }}
-                              placeholder="Add keyword…"
-                              className="flex-1 bg-[#FAFAF8] border border-[#E8E8E4] rounded-[6px] px-2.5 py-1.5 text-xs text-[#0F0F0F] placeholder-[#6b7280] focus:outline-none focus:border-[#FF6B2C]/50"
-                            />
-                            <button
-                              onClick={() => addKeywordToCluster(cluster.name)}
-                              className="bg-[#FF6B2C] hover:bg-[#E85A1E] text-[#0a0a0a] font-bold text-xs px-2.5 py-1.5 rounded-[6px] transition-colors"
-                            >+</button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Article generator settings */}
-            {(keywords.length > 0 || clusters.length > 0) && (
-              <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-6">
-                <h2 className="font-bold mb-5 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-[#FF6B2C]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                  </svg>
-                  Generate Article
-                </h2>
-
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
-                  <div>
-                    <label className="text-[#6B6B6B] text-xs font-medium block mb-2 uppercase tracking-wide">Word Count</label>
-                    <select
-                      value={wordCount}
-                      onChange={(e) => setWordCount(Number(e.target.value))}
-                      className="w-full bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-3 py-2 text-sm text-[#0F0F0F] focus:outline-none focus:border-[#FF6B2C]/50"
-                    >
-                      {[1000, 1500, 2000, 2500, 3000].map((n) => (
-                        <option key={n} value={n}>{n} words</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-[#6B6B6B] text-xs font-medium block mb-2 uppercase tracking-wide">Tone</label>
-                    <select
-                      value={tone}
-                      onChange={(e) => setTone(e.target.value as Tone)}
-                      className="w-full bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-3 py-2 text-sm text-[#0F0F0F] focus:outline-none focus:border-[#FF6B2C]/50"
-                    >
-                      <option value="professional">Professional</option>
-                      <option value="conversational">Conversational</option>
-                      <option value="authoritative">Authoritative</option>
-                      <option value="friendly">Friendly</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-[#6B6B6B] text-xs font-medium block mb-2 uppercase tracking-wide">Audience</label>
-                    <input
-                      type="text"
-                      value={audience}
-                      onChange={(e) => setAudience(e.target.value)}
-                      className="w-full bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-3 py-2 text-sm text-[#0F0F0F] placeholder-[#6b7280] focus:outline-none focus:border-[#FF6B2C]/50"
-                      placeholder="e.g. marketing managers"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[#6B6B6B] text-xs font-medium block mb-2 uppercase tracking-wide">Market</label>
-                    <select
-                      value={country}
-                      onChange={(e) => setCountry(e.target.value as Country)}
-                      className="w-full bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-3 py-2 text-sm text-[#0F0F0F] focus:outline-none focus:border-[#FF6B2C]/50"
-                    >
-                      {ALL_COUNTRIES.map((c) => (
-                        <option key={c.value} value={c.value}>{c.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {selectedCluster && (
-                  <div className="bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-4 py-3 mb-5 flex items-center gap-3">
-                    <svg className="w-4 h-4 text-[#FF6B2C] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    <p className="text-sm">
-                      <span className="text-[#6B6B6B]">Targeting cluster: </span>
-                      <span className="font-semibold">{selectedCluster.name}</span>
-                      <span className="text-[#6B6B6B]"> · Primary keyword: </span>
-                      <span className="text-[#FF6B2C] font-medium">{selectedCluster.keywords[0]}</span>
-                    </p>
-                  </div>
-                )}
-
-                {articleLoading && (
-                  <div style={{padding:'32px', background:'#FFF0E8', borderRadius:'12px', border:'1px solid rgba(255,107,44,0.2)', margin:'24px 0'}}>
-                    <div style={{display:'flex', justifyContent:'space-between', marginBottom:'8px'}}>
-                      <span style={{fontSize:'14px', fontWeight:600, color:'#CC4A0F'}}>{isCompetitorMode ? '🏆 Analysing competitors & writing superior article...' : '✍️ Writing your article...'}</span>
-                      <span style={{fontSize:'14px', fontWeight:700, color:'#FF6B2C'}} id="article-progress-pct">0%</span>
-                    </div>
-                    <div style={{background:'rgba(255,107,44,0.15)', borderRadius:'8px', height:'8px', overflow:'hidden'}}>
-                      <div id="article-progress-bar" style={{height:'100%', background:'#FF6B2C', borderRadius:'8px', width:'0%', transition:'width 0.3s ease'}}></div>
-                    </div>
-                    <div style={{marginTop:'12px', fontSize:'13px', color:'#CC4A0F'}} id="article-progress-label">Preparing article structure...</div>
-                  </div>
-                )}
-
-                <div className="flex items-center gap-3 flex-wrap">
-                  <button
-                    onClick={handleGenerateArticle}
-                    disabled={articleLoading}
-                    className="bg-[#FF6B2C] hover:bg-[#E85A1E] disabled:opacity-60 disabled:cursor-not-allowed text-[#0a0a0a] font-bold text-sm px-8 py-3 rounded-[8px] transition-colors flex items-center gap-2"
-                  >
-                    {articleLoading && !isCompetitorMode ? (
-                      <>
-                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                        </svg>
-                        Generating…
-                      </>
-                    ) : "Generate Article →"}
-                  </button>
-                  <button
-                    onClick={handleCompetitorArticle}
-                    disabled={articleLoading}
-                    className="bg-gradient-to-r from-[#FF6B2C] to-[#FF9A2C] hover:from-[#E85A1E] hover:to-[#E8881E] disabled:opacity-60 disabled:cursor-not-allowed text-[#0a0a0a] font-bold text-sm px-8 py-3 rounded-[8px] transition-all flex items-center gap-2 shadow-sm"
-                  >
-                    {articleLoading && isCompetitorMode ? (
-                      <>
-                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                        </svg>
-                        Analysing…
-                      </>
-                    ) : "🏆 Competitor-Beating Article"}
-                  </button>
-                </div>
-
-                {articleError && (
-                  <div className="bg-red-900/20 border border-red-500/30 rounded-[8px] px-4 py-3 mt-4 text-red-400 text-sm">
-                    {articleError}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         )}
 
@@ -1930,14 +1733,14 @@ export default function DashboardPage() {
                 </div>
                 <div className="flex items-center gap-3 flex-wrap">
                   <button
-                    onClick={handleGenerateArticle}
+                    onClick={() => handleGenerateArticle()}
                     disabled={articleLoading}
                     className="bg-[#FF6B2C] hover:bg-[#E85A1E] disabled:opacity-60 disabled:cursor-not-allowed text-[#0a0a0a] font-bold text-sm px-8 py-3 rounded-[8px] transition-colors flex items-center gap-2"
                   >
                     Generate Pipeline Article →
                   </button>
                   <button
-                    onClick={handleCompetitorArticle}
+                    onClick={() => handleCompetitorArticle()}
                     disabled={articleLoading}
                     className="bg-gradient-to-r from-[#FF6B2C] to-[#FF9A2C] hover:from-[#E85A1E] hover:to-[#E8881E] disabled:opacity-60 disabled:cursor-not-allowed text-[#0a0a0a] font-bold text-sm px-8 py-3 rounded-[8px] transition-all flex items-center gap-2 shadow-sm"
                   >
@@ -2779,6 +2582,170 @@ export default function DashboardPage() {
         )}
 
       </main>
+
+      {/* ── Cluster Side Panel ── */}
+      {clusterPanelOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-40"
+          onClick={() => setClusterPanelOpen(false)}
+        />
+      )}
+      <div
+        className="fixed top-0 right-0 h-full bg-white shadow-2xl z-50 flex flex-col w-full md:w-2/5"
+        style={{ transform: clusterPanelOpen ? 'translateX(0)' : 'translateX(100%)', transition: 'transform 0.3s ease' }}
+      >
+        {/* Panel Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#E8E8E4] flex-shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <svg className="w-4 h-4 text-[#FF6B2C] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h8m-8 6h16" />
+            </svg>
+            <input
+              value={panelClusterName}
+              onChange={e => setPanelClusterName(e.target.value)}
+              className="text-sm font-bold text-[#0F0F0F] bg-transparent border-0 border-b border-transparent focus:border-[#FF6B2C] focus:outline-none px-1 py-0.5 min-w-0 w-full"
+              placeholder="Cluster name…"
+            />
+          </div>
+          <button
+            onClick={() => setClusterPanelOpen(false)}
+            className="text-[#6B6B6B] hover:text-[#0F0F0F] transition-colors p-1 flex-shrink-0"
+            aria-label="Close panel"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Keywords chips */}
+        <div className="flex-1 overflow-y-auto p-5">
+          <p className="text-xs text-[#6B6B6B] font-medium uppercase tracking-wide mb-3">
+            {panelKeywords.length} keyword{panelKeywords.length !== 1 ? 's' : ''} · click any keyword to set as primary
+          </p>
+          <div className="flex flex-wrap gap-2 mb-4">
+            {panelKeywords.map(pk => {
+              const isPrimary = pk.keyword === panelPrimaryKeyword;
+              return (
+                <span
+                  key={pk.keyword}
+                  className={`inline-flex items-center gap-1.5 border rounded-[8px] px-2.5 py-1.5 text-xs transition-colors ${
+                    isPrimary
+                      ? 'bg-[#FFF0E8] border-[#FF6B2C]/50 text-[#CC4A0F]'
+                      : 'bg-[#FAFAF8] border-[#E8E8E4] text-[#0F0F0F] hover:border-[#FF6B2C]/30'
+                  }`}
+                >
+                  {isPrimary && <span className="text-[9px] font-bold text-[#FF6B2C]">⭐ PRIMARY</span>}
+                  <button
+                    className="font-medium hover:text-[#FF6B2C] transition-colors"
+                    onClick={() => setPanelPrimaryKeyword(pk.keyword)}
+                    title="Set as primary keyword"
+                  >
+                    {pk.keyword}
+                  </button>
+                  {pk.volume > 0 && (
+                    <span className="text-[9px] text-[#9B9B9B]">{pk.volume.toLocaleString()}/mo</span>
+                  )}
+                  {pk.kd > 0 && <KdBadge kd={pk.kd} />}
+                  <button
+                    onClick={() => {
+                      const updated = panelKeywords.filter(k => k.keyword !== pk.keyword);
+                      setPanelKeywords(updated);
+                      if (isPrimary && updated.length > 0) setPanelPrimaryKeyword(updated[0].keyword);
+                    }}
+                    className="text-[#9B9B9B] hover:text-[#ef4444] transition-colors leading-none ml-0.5"
+                    aria-label={`Remove ${pk.keyword}`}
+                  >×</button>
+                </span>
+              );
+            })}
+          </div>
+
+          {/* Add keyword input */}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={panelAddKwInput}
+              onChange={e => setPanelAddKwInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handlePanelAddKeyword(); }}
+              placeholder="+ Add keyword…"
+              className="flex-1 bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-3 py-2 text-sm text-[#0F0F0F] placeholder-[#9B9B9B] focus:outline-none focus:border-[#FF6B2C]/50"
+            />
+            <button
+              onClick={handlePanelAddKeyword}
+              className="bg-[#FF6B2C] hover:bg-[#E85A1E] text-[#0a0a0a] font-bold text-sm px-3 py-2 rounded-[8px] transition-colors"
+            >+</button>
+          </div>
+        </div>
+
+        {/* Panel Footer — settings + action buttons */}
+        <div className="border-t border-[#E8E8E4] p-5 flex-shrink-0 space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="text-[#6B6B6B] text-[10px] font-medium uppercase tracking-wide block mb-1.5">Words</label>
+              <select
+                value={wordCount}
+                onChange={e => setWordCount(Number(e.target.value))}
+                className="w-full bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-2.5 py-2 text-sm text-[#0F0F0F] focus:outline-none focus:border-[#FF6B2C]/50"
+              >
+                {[1000, 1500, 2000, 2500, 3000].map(n => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-[#6B6B6B] text-[10px] font-medium uppercase tracking-wide block mb-1.5">Tone</label>
+              <select
+                value={tone}
+                onChange={e => setTone(e.target.value as Tone)}
+                className="w-full bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-2.5 py-2 text-sm text-[#0F0F0F] focus:outline-none focus:border-[#FF6B2C]/50"
+              >
+                <option value="professional">Professional</option>
+                <option value="conversational">Conversational</option>
+                <option value="authoritative">Authoritative</option>
+                <option value="friendly">Friendly</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[#6B6B6B] text-[10px] font-medium uppercase tracking-wide block mb-1.5">Market</label>
+              <select
+                value={country}
+                onChange={e => setCountry(e.target.value as Country)}
+                className="w-full bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-2.5 py-2 text-sm text-[#0F0F0F] focus:outline-none focus:border-[#FF6B2C]/50"
+              >
+                {ALL_COUNTRIES.map(c => (
+                  <option key={c.value} value={c.value}>{c.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {panelPrimaryKeyword && (
+            <p className="text-xs text-[#6B6B6B]">
+              Primary: <span className="text-[#FF6B2C] font-semibold">{panelPrimaryKeyword}</span>
+              {panelKeywords.length > 1 && <span> + {panelKeywords.length - 1} secondary keywords</span>}
+            </p>
+          )}
+
+          <div className="flex gap-3">
+            <button
+              onClick={handlePanelGenerateArticle}
+              disabled={panelKeywords.length === 0}
+              className="flex-1 bg-[#FF6B2C] hover:bg-[#E85A1E] disabled:opacity-50 disabled:cursor-not-allowed text-[#0a0a0a] font-bold text-sm px-4 py-3 rounded-[8px] transition-colors"
+            >
+              Generate Article →
+            </button>
+            <button
+              onClick={handlePanelCompetitorArticle}
+              disabled={panelKeywords.length === 0}
+              className="flex-1 bg-gradient-to-r from-[#FF6B2C] to-[#FF9A2C] hover:from-[#E85A1E] hover:to-[#E8881E] disabled:opacity-50 disabled:cursor-not-allowed text-[#0a0a0a] font-bold text-sm px-4 py-3 rounded-[8px] transition-all shadow-sm"
+            >
+              🏆 Competitor Article →
+            </button>
+          </div>
+        </div>
+      </div>
+
     </div>
   );
 }
