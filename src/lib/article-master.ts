@@ -392,6 +392,16 @@ SECTION 6 — ON-PAGE SEO (MANDATORY)
 TITLE: 50-60 characters, primary keyword near start, include ${currentYear} where natural
 META: exactly 145-155 characters, primary keyword, clear benefit or CTA
 KEYWORD PLACEMENT: Primary keyword in H1, first 100 words, at least 2 H2s, conclusion
+
+ANSWER-FIRST RULE (mandatory):
+The article's primary answer or key conclusion MUST appear within the first 30% of the article body — specifically in the first 2–3 paragraphs after the introduction. This is not optional. Research shows 44.2% of all AI citations come from the first 30% of text. Structure every article as:
+1. Hook sentence (1 line)
+2. Direct answer to the target query (2–4 sentences — the actual answer, not a teaser)
+3. What this article covers (1 sentence)
+4. Then expand with detail, evidence, examples
+
+NEVER bury the answer. NEVER start with "In today's world..." or vague intros. Lead with the answer.
+
 SECONDARY KEYWORDS: each used at least once naturally in body text
 HEADING HIERARCHY: Exactly one H1. 6-8 H2 sections minimum. H3 subsections where needed.
 INTERNAL LINKS: Use links specified above. Descriptive anchor text only. Max 3 links.
@@ -466,12 +476,23 @@ ${uniqueDataSection ? uniqueDataSection : ''}
 <h2>What Do Official Sources Say About This?</h2>
 <p>[100 words. Reference 2 official ${market} sources with full URLs. Use format: "According to [Source] at [URL]..."]</p>
 
+FAQ SECTION RULE (mandatory):
+Every article MUST include exactly 6 FAQ items below. Rules:
+- Questions must match real search queries people ask about this topic
+- Questions should be phrased exactly as someone would type into Google or ask ChatGPT
+- Each answer must be 2–4 sentences, self-contained (answerable without reading the article)
+- Cover: definition question, how-to question, comparison question, cost/time question, common mistake question, best practice question
+- These FAQs will be converted to FAQPage schema automatically — make them genuinely useful
+- DO NOT add generic filler questions. Every question must be something a real user would actually search.
+
 <h2>Frequently Asked Questions</h2>
 <p><em>Note: FAQPage schema no longer generates Google rich results (deprecated May 2026) but retains strong AI citation value for ChatGPT, Perplexity, and Claude — always include it.</em></p>
-<div class="faq-item"><h3>[Conversational question 1 — exactly as a user would type it, ends with question mark?]</h3><p>[60-100 words — complete, self-contained answer. No "see above" or "as mentioned". A user should get the full answer from this alone.]</p></div>
-<div class="faq-item"><h3>[Question 2?]</h3><p>[60-100 words]</p></div>
-<div class="faq-item"><h3>[Question 3?]</h3><p>[60-100 words]</p></div>
-<div class="faq-item"><h3>[Question 4?]</h3><p>[60-100 words]</p></div>
+<div class="faq-item"><h3>[Conversational question 1 — definition question, exactly as a user would type it?]</h3><p>[60-100 words — complete, self-contained answer. No "see above" or "as mentioned". A user should get the full answer from this alone.]</p></div>
+<div class="faq-item"><h3>[Question 2 — how-to question?]</h3><p>[60-100 words]</p></div>
+<div class="faq-item"><h3>[Question 3 — comparison question?]</h3><p>[60-100 words]</p></div>
+<div class="faq-item"><h3>[Question 4 — cost or time question?]</h3><p>[60-100 words]</p></div>
+<div class="faq-item"><h3>[Question 5 — common mistake question?]</h3><p>[60-100 words]</p></div>
+<div class="faq-item"><h3>[Question 6 — best practice question?]</h3><p>[60-100 words]</p></div>
 
 <h2>The Bottom Line</h2>
 <p>[80 words. Practical summary. 2 action steps. One internal link naturally.]</p>
@@ -731,6 +752,48 @@ export async function fetchVerifiedFacts(
   } catch {
     return { facts: '', sources: [] };
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AEO/GEO HELPER FUNCTIONS — used in post-processing after article generation
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function checkAnswerFirst(content: string): boolean {
+  const cleanContent = content.replace(/<[^>]+>/g, '').trim()
+  const totalWords = cleanContent.split(/\s+/).length
+  const firstThirtyPercent = cleanContent.split(/\s+/).slice(0, Math.floor(totalWords * 0.3)).join(' ')
+  const answerSignals = /\b(is|are|means|refers to|defined as|works by|costs|takes|requires|\d+%|\d+ (steps|ways|tips|methods))\b/i
+  return answerSignals.test(firstThirtyPercent)
+}
+
+export function computeRankScore(signals: {
+  eeat: number
+  readability: number
+  factDensity: number
+  hasFAQ: boolean
+  hasSchema: boolean
+  answerFirst: boolean
+}): number {
+  // Weighted composite: SEO (40%) + AEO (35%) + GEO (25%)
+  const seoComponent = (signals.eeat * 0.6 + signals.readability * 0.4) * 0.40
+  const aeoComponent = (signals.factDensity * 0.5 + (signals.answerFirst ? 100 : 40) * 0.3 + (signals.hasFAQ ? 100 : 20) * 0.2) * 0.35
+  const geoComponent = (signals.factDensity * 0.5 + (signals.hasSchema ? 100 : 0) * 0.5) * 0.25
+  return Math.round(seoComponent + aeoComponent + geoComponent)
+}
+
+export function extractHowToSteps(content: string): Array<{ name: string; text: string }> {
+  const stepPattern = /^#{1,3}\s*(?:Step\s+)?(\d+)[.:)]\s*(.+)$/gm
+  const steps: Array<{ name: string; text: string }> = []
+  let match: RegExpExecArray | null
+
+  while ((match = stepPattern.exec(content)) !== null) {
+    const stepTitle = match[2].trim()
+    const afterHeading = content.slice(match.index + match[0].length).trim()
+    const nextParagraph = afterHeading.split(/\n\n/)[0].replace(/<[^>]+>/g, '').trim()
+    steps.push({ name: stepTitle, text: nextParagraph.slice(0, 300) })
+  }
+
+  return steps.slice(0, 10)
 }
 
 // Universal post-write fact check — compares the finished article against the

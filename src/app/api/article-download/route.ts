@@ -118,8 +118,18 @@ function htmlToMarkdown(html: string): string {
     .trim();
 }
 
+// Extract JSON-LD script blocks from HTML body (to move to head)
+function extractJsonLd(html: string): { html: string; scripts: string } {
+  const scripts: string[] = []
+  const cleaned = html.replace(/<script[^>]+type=["']application\/ld\+json["'][^>]*>[\s\S]*?<\/script>/gi, (match) => {
+    scripts.push(match)
+    return ''
+  })
+  return { html: cleaned, scripts: scripts.join('\n') }
+}
+
 // Wrap cleaned HTML in a proper standalone document
-function wrapHtml(body: string, title: string, printOptimised = false): string {
+function wrapHtml(body: string, title: string, printOptimised = false, extraHeadContent = ''): string {
   const printCss = printOptimised ? `
     @media print {
       body { max-width: 100% !important; margin: 0 !important; padding: 0.5in !important; }
@@ -135,7 +145,7 @@ function wrapHtml(body: string, title: string, printOptimised = false): string {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${title.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</title>
-  <style>
+${extraHeadContent ? extraHeadContent + '\n' : ''}  <style>
     *, *::before, *::after { box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Georgia, serif;
@@ -181,11 +191,13 @@ export async function POST(req: NextRequest) {
       format = 'html',
       keyword = 'article',
       downloadImages = true,
+      schemaScriptTag = '',
     } = body as {
       articleHtml: string;
       format: 'html' | 'zip' | 'markdown' | 'pdf';
       keyword: string;
       downloadImages: boolean;
+      schemaScriptTag?: string;
     };
 
     if (!articleHtml) {
@@ -199,12 +211,17 @@ export async function POST(req: NextRequest) {
     const title = extractTitle(cleanedHtml);
     const slug = toSlug(keyword || title);
 
+    // Extract existing JSON-LD from article body + merge with generated schema
+    const { html: bodyWithoutLd, scripts: existingLd } = extractJsonLd(cleanedHtml);
+    const headSchemas = [existingLd, schemaScriptTag].filter(Boolean).join('\n');
+
     // ── Markdown ──────────────────────────────────────────────────────────
     if (format === 'markdown') {
       const today = new Date().toISOString().split('T')[0];
-      const md = htmlToMarkdown(cleanedHtml);
+      const md = htmlToMarkdown(bodyWithoutLd);
+      const schemaComment = headSchemas ? `\n\n<!-- SCHEMA\n${headSchemas}\n-->` : '';
       const frontmatter = `---\ntitle: "${title.replace(/"/g, '\\"')}"\ndate: ${today}\nauthor: Kamran Gul\nkeyword: "${keyword}"\n---\n\n`;
-      const content = frontmatter + md;
+      const content = frontmatter + md + schemaComment;
       return new Response(content, {
         headers: {
           'Content-Type': 'text/markdown; charset=utf-8',
@@ -215,7 +232,7 @@ export async function POST(req: NextRequest) {
 
     // ── HTML (clean, no images embedded) ─────────────────────────────────
     if (format === 'html') {
-      const wrapped = wrapHtml(cleanedHtml, title);
+      const wrapped = wrapHtml(bodyWithoutLd, title, false, headSchemas);
       return new Response(wrapped, {
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
@@ -226,7 +243,7 @@ export async function POST(req: NextRequest) {
 
     // ── Print/PDF — same as html but with print CSS ───────────────────────
     if (format === 'pdf') {
-      const wrapped = wrapHtml(cleanedHtml, title, true);
+      const wrapped = wrapHtml(bodyWithoutLd, title, true, headSchemas);
       return new Response(wrapped, {
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
@@ -237,19 +254,19 @@ export async function POST(req: NextRequest) {
 
     // ── ZIP / self-contained (base64-embed all images) ────────────────────
     // format === 'zip' → single fully self-contained HTML with images as data URIs
-    let finalHtml = cleanedHtml;
+    let finalHtml = bodyWithoutLd;
     let embeddedCount = 0;
     let failedCount = 0;
 
     if (downloadImages) {
-      const result = await embedImages(cleanedHtml);
+      const result = await embedImages(bodyWithoutLd);
       finalHtml = result.html;
       embeddedCount = result.embedded;
       failedCount = result.failed;
       console.log(`[article-download] embedded ${embeddedCount} images, ${failedCount} failed`);
     }
 
-    const wrapped = wrapHtml(finalHtml, title);
+    const wrapped = wrapHtml(finalHtml, title, false, headSchemas);
     const filename = `${slug}-selfcontained.html`;
 
     return new Response(wrapped, {

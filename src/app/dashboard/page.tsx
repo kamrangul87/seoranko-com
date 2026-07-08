@@ -769,6 +769,12 @@ export default function DashboardPage() {
       let articleHumanScore: number | undefined;
       let articlePassesDetection: boolean | undefined;
       let articleBannedWords: string[] | undefined;
+      let articleRankScore: number | undefined;
+      let articleFactDensity: { score: number; grade: string; factsPerHundredWords: number; suggestions: string[] } | undefined;
+      let articleFaqs: Array<{ question: string; answer: string }> | undefined;
+      let articleAnswerFirst: boolean | undefined;
+      let articleHasSchema: boolean | undefined;
+      let articleSchemaScriptTag: string | undefined;
       const scoresMatch = fullArticle.match(/\n<!-- SEORANKO_SCORES:(\{[\s\S]*?\}) -->/);
       if (scoresMatch) {
         try {
@@ -784,6 +790,12 @@ export default function DashboardPage() {
           articleHumanScore = parsed.humanScore;
           articlePassesDetection = parsed.passesDetection;
           articleBannedWords = parsed.bannedWordsRemoved;
+          articleRankScore = parsed.rankScore;
+          articleFactDensity = parsed.factDensity;
+          articleFaqs = parsed.faqs;
+          articleAnswerFirst = parsed.answerFirst;
+          articleHasSchema = parsed.hasSchema;
+          articleSchemaScriptTag = parsed.schemaScriptTag;
         } catch { /* keep undefined */ }
         fullArticle = fullArticle.replace(/\n<!-- SEORANKO_SCORES:\{[\s\S]*?\} -->/, '');
       }
@@ -826,6 +838,12 @@ export default function DashboardPage() {
         humanScore: articleHumanScore,
         passesDetection: articlePassesDetection,
         bannedWordsRemoved: articleBannedWords,
+        rankScore: articleRankScore,
+        factDensity: articleFactDensity,
+        faqs: articleFaqs,
+        answerFirst: articleAnswerFirst,
+        hasSchema: articleHasSchema,
+        schemaScriptTag: articleSchemaScriptTag,
       });
 
       refreshUserProfile();
@@ -1078,6 +1096,7 @@ export default function DashboardPage() {
           format,
           keyword: article.seoTitle || seedKeyword,
           downloadImages: format === 'zip',
+          schemaScriptTag: article.schemaScriptTag || '',
         }),
       });
 
@@ -2054,6 +2073,56 @@ export default function DashboardPage() {
                         ✅ {article.factPatchedCount} unsourced statistic{article.factPatchedCount === 1 ? '' : 's'} automatically hedged with citations
                       </p>
                     )}
+
+                    {/* RANK Score */}
+                    {article.rankScore != null && (
+                      <div className="mt-4 pt-4 border-t border-[#E8E8E4]">
+                        <div className={`p-3 rounded-lg border-2 ${article.rankScore >= 80 ? 'bg-green-50 border-green-200' : article.rankScore >= 60 ? 'bg-yellow-50 border-yellow-200' : 'bg-red-50 border-red-200'}`}>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <div>
+                              <p className="text-xs font-semibold text-gray-900">RANK Score</p>
+                              <p className="text-[10px] text-gray-400">SEO + AEO + GEO</p>
+                            </div>
+                            <div className={`text-2xl font-bold ${article.rankScore >= 80 ? 'text-green-600' : article.rankScore >= 60 ? 'text-yellow-600' : 'text-red-600'}`}>{article.rankScore}</div>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-1.5">
+                            <div className={`h-1.5 rounded-full ${article.rankScore >= 80 ? 'bg-green-500' : article.rankScore >= 60 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${article.rankScore}%` }} />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-1.5 mt-2">
+                          {article.factDensity && (
+                            <div className="p-2 bg-gray-50 rounded border border-gray-200 text-center">
+                              <div className={`text-base font-bold ${article.factDensity.grade === 'A' ? 'text-green-600' : article.factDensity.grade === 'B' ? 'text-blue-600' : 'text-orange-600'}`}>{article.factDensity.grade}</div>
+                              <div className="text-[9px] text-gray-400">Facts/100w</div>
+                            </div>
+                          )}
+                          <div className="p-2 bg-gray-50 rounded border border-gray-200 text-center">
+                            <div className={`text-base font-bold ${article.answerFirst ? 'text-green-600' : 'text-red-500'}`}>{article.answerFirst ? '✓' : '✗'}</div>
+                            <div className="text-[9px] text-gray-400">Ans. first</div>
+                          </div>
+                          <div className="p-2 bg-gray-50 rounded border border-gray-200 text-center">
+                            <div className={`text-base font-bold ${(article.faqs?.length ?? 0) >= 4 ? 'text-green-600' : 'text-orange-500'}`}>{article.faqs?.length ?? 0}</div>
+                            <div className="text-[9px] text-gray-400">FAQs</div>
+                          </div>
+                        </div>
+
+                        {article.hasSchema && (
+                          <div className="flex items-center gap-1.5 mt-2 px-2 py-1.5 bg-purple-50 rounded border border-purple-200">
+                            <span className="text-[10px] text-purple-600 font-medium">JSON-LD schema generated</span>
+                          </div>
+                        )}
+
+                        {article.factDensity && article.factDensity.suggestions.length > 0 && (
+                          <div className="mt-2 p-2 bg-amber-50 rounded border border-amber-200">
+                            {article.factDensity.suggestions.slice(0, 2).map((s, i) => (
+                              <p key={i} className="text-[9px] text-amber-700 leading-tight">• {s}</p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="mt-4 pt-4 border-t border-[#E8E8E4] space-y-3">
                       <div className="flex justify-between items-center">
                         <span className="text-[#6B6B6B] text-xs">Word Count</span>

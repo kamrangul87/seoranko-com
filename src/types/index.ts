@@ -185,6 +185,17 @@ export interface ArticleOutput {
   bannedWordsRemoved?: string[];
   factSourcingScore?: number;
   factPatchedCount?: number;
+  rankScore?: number;
+  factDensity?: {
+    score: number;
+    grade: string;
+    factsPerHundredWords: number;
+    suggestions: string[];
+  };
+  faqs?: Array<{ question: string; answer: string }>;
+  answerFirst?: boolean;
+  hasSchema?: boolean;
+  schemaScriptTag?: string;
 }
 
 export interface ArticleResponse {

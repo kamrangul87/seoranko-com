@@ -1,6 +1,9 @@
 import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedFacts } from '@/lib/article-master';
+import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedFacts, checkAnswerFirst, computeRankScore, extractHowToSteps } from '@/lib/article-master';
+import { scoreFactDensity } from '@/lib/fact-density';
+import { parseFAQsFromArticle } from '@/lib/faq-generator';
+import { generateArticleSchema, detectHowTo } from '@/lib/schema-generator';
 import { humanizeArticle } from '@/lib/humanizer';
 import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-generator';
 import { recordScoreSnapshot } from '@/lib/drift-tracker';
@@ -157,11 +160,42 @@ Do not write generic angles. Be specific and surprising.`
             console.log('[article-v2] validation corrections:', corrections);
           }
 
+          // === POST-PROCESSING: AEO/GEO enrichment ===
+          const { faqs } = parseFAQsFromArticle(fullArticle);
+          const factDensityResult = scoreFactDensity(fullArticle);
+          const isHowTo = detectHowTo(keyword, keyword);
+          const titleMatch = fullArticle.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+          const articleTitle = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : keyword;
+          const metaMatch = fullArticle.match(/<!-- META:\s*([^-]+?)\s*-->/i);
+          const articleDescription = metaMatch ? metaMatch[1].trim().slice(0, 160) : `Article about ${keyword}`;
+          const articleSlug = `/${keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+          const schemaResult = generateArticleSchema({
+            title: articleTitle,
+            description: articleDescription,
+            keyword,
+            authorName: 'Kamran Gul',
+            publishDate: new Date().toISOString(),
+            articleUrl: `https://seoranko.com/blog${articleSlug}`,
+            wordCount: factDensityResult.wordCount,
+            faqs: faqs.length > 0 ? faqs : undefined,
+            isHowTo,
+            howToSteps: isHowTo ? extractHowToSteps(fullArticle) : undefined,
+          });
+          const answerFirst = checkAnswerFirst(fullArticle);
+
           // Score the article and generate llms.txt entry
           const { searchScore, aiScore } = scoreHtmlLocally(fullArticle, keyword);
           const eeatScore = calculateEEATScore(fullArticle);
           const readabilityScore = calculateReadabilityScore(fullArticle);
           const keywordDensity = calculateKeywordDensity(fullArticle, keyword);
+          const rankScore = computeRankScore({
+            eeat: eeatScore,
+            readability: readabilityScore,
+            factDensity: factDensityResult.score,
+            hasFAQ: faqs.length >= 4,
+            hasSchema: true,
+            answerFirst,
+          });
           const articleUrl = `/${keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
           const llmsTxtEntry = generateLlmsTxtEntry(fullArticle, keyword, articleUrl);
 
@@ -231,13 +265,26 @@ Do not write generic angles. Be specific and surprising.`
           }
 
           // Append score metadata as a parseable HTML comment — client strips this
-          const scoreMeta = JSON.stringify({ searchScore, aiScore, eeatScore, readabilityScore, keywordDensity, factSourcingScore, factPatchedCount, llmsTxtEntry, humanScore, bannedWordsRemoved, passesDetection });
+          const scoreMeta = JSON.stringify({
+            searchScore, aiScore, eeatScore, readabilityScore, keywordDensity,
+            factSourcingScore, factPatchedCount, llmsTxtEntry, humanScore, bannedWordsRemoved, passesDetection,
+            rankScore,
+            factDensity: {
+              score: factDensityResult.score,
+              grade: factDensityResult.grade,
+              factsPerHundredWords: factDensityResult.factsPerHundredWords,
+              suggestions: factDensityResult.suggestions,
+            },
+            faqs,
+            answerFirst,
+            hasSchema: true,
+            schemaScriptTag: schemaResult.combinedScriptTag,
+          });
           controller.enqueue(encoder.encode(`\n<!-- SEORANKO_SCORES:${scoreMeta} -->`));
 
           controller.close();
 
           // Fire-and-forget: record score snapshot + queue 7-day citation test
-          const articleSlug = `/${keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
           recordScoreSnapshot({
             domain: 'generated_articles',
             page_url: articleSlug,
