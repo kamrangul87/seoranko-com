@@ -7,9 +7,9 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
+import { MODEL_FOR } from '@/lib/model-router';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 2 });
-const FAST_MODEL = 'claude-haiku-4-5-20251001';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export interface EntityPresence {
@@ -72,7 +72,7 @@ export async function checkEntityPresence(brandName: string): Promise<EntityPres
   // Live web search
   try {
     const res = await anthropic.messages.create({
-      model: FAST_MODEL,
+      model: MODEL_FOR.keywordExtraction,
       max_tokens: 250,
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 } as any],
       messages: [{

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { getAnthropicClient } from "@/lib/anthropic";
+import { MODEL_FOR } from "@/lib/model-router";
 import {
   classifyTopic,
   searchAndCollectFacts,
@@ -324,7 +325,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const body: ArticleRequest & { nlpBrief?: NlpBrief; pipelineData?: PipelineData } = await req.json();
+  let body: ArticleRequest & { nlpBrief?: NlpBrief; pipelineData?: PipelineData };
+  try {
+    body = await req.json();
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), { status: 400, headers: { "Content-Type": "application/json" } });
+  }
   const {
     keyword,
     cluster,
@@ -445,9 +451,9 @@ Return only valid JSON.`;
 
         const client = getAnthropicClient();
         const articleStream = client.messages.stream({
-          model: "claude-sonnet-4-6",
+          model: MODEL_FOR.articleWriting,
           max_tokens: 8000,
-          system: systemPrompt,
+          system: [{ type: "text" as const, text: systemPrompt, cache_control: { type: "ephemeral" as const } }],
           messages: [{ role: "user", content: finalUserMessage }],
         });
 

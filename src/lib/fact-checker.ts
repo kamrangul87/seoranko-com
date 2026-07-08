@@ -1,6 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-
-const FAST_MODEL = 'claude-haiku-4-5-20251001';
+import { MODEL_FOR } from '@/lib/model-router';
 
 export interface FlaggedClaim {
   claim: string;
@@ -122,16 +121,16 @@ export async function checkAndPatchFactSourcing(
   try {
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
     const response = await client.messages.create({
-      model: FAST_MODEL,
+      model: MODEL_FOR.bannedWordDetection,
       max_tokens: 2048,
-      system: `You are a fact-sourcing editor for an article about "${keyword}" in the ${market} market.
+      system: [{ type: 'text' as const, text: `You are a fact-sourcing editor for an article about "${keyword}" in the ${market} market.
 Your job: rewrite each numbered sentence to add appropriate hedging (approximately, typically, around, etc.) or attribution (According to industry data, ...).
 RULES:
 - Keep the meaning identical; only add hedging words or attribution phrases
 - Do NOT invent specific sources or URLs
 - Do NOT change the HTML structure
 - Return ONLY a JSON array of rewritten sentences, indexed from 1, no other text
-- Example output: {"1": "rewritten sentence 1", "2": "rewritten sentence 2"}`,
+- Example output: {"1": "rewritten sentence 1", "2": "rewritten sentence 2"}`, cache_control: { type: 'ephemeral' as const } }],
       messages: [{
         role: 'user',
         content: `Rewrite these unsourced sentences with appropriate hedging:\n\n${flaggedSnippets}`,

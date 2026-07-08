@@ -4,6 +4,8 @@ import { createClient } from '@supabase/supabase-js';
 import { getLatestCitationResult } from '@/lib/citation-tester';
 import { recordScoreSnapshot } from '@/lib/drift-tracker';
 
+import { MODEL_FOR } from '@/lib/model-router';
+
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
 
 // Created lazily inside the handler (not at module scope) so the build's page-data
@@ -16,9 +18,6 @@ function getSupabase() {
 }
 
 export const maxDuration = 60;
-
-// Drop analysis runs on Haiku — simple summarisation, separate rate-limit bucket.
-const FAST_MODEL = 'claude-haiku-4-5-20251001';
 
 // ── Check current rank for a keyword ──────────────────────────────────────────
 async function checkKeywordRank(
@@ -102,7 +101,7 @@ async function analyseRankDrop(
 ): Promise<string> {
   try {
     const response = await anthropic.messages.create({
-      model: FAST_MODEL,
+      model: MODEL_FOR.keywordClassification,
       max_tokens: 300,
       messages: [{
         role: 'user',
@@ -156,7 +155,7 @@ async function deepCompetitorAnalysis(
   const hasCompetitorContent = competitorContents.filter(c => c.length > 100).length > 0;
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: MODEL_FOR.competitorAnalysis,
     max_tokens: 1500,
     messages: [{
       role: 'user',

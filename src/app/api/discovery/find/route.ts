@@ -3,8 +3,9 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createHash } from "crypto";
 import Anthropic from "@anthropic-ai/sdk";
-import { callClaude, parseJsonResponse } from "@/lib/anthropic";
+import { parseJsonResponse } from "@/lib/anthropic";
 import { getCachedEntityPresence } from "@/lib/entity-checker";
+import { MODEL_FOR } from "@/lib/model-router";
 
 const anthropic = new Anthropic();
 
@@ -153,9 +154,6 @@ async function checkAuth(): Promise<boolean> {
   return !!user;
 }
 
-// Satisfy unused import (callClaude used by other routes in this file tree)
-void callClaude;
-
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -165,11 +163,13 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const { niche, depth = "quick", region = "Global" } = await req.json() as {
-    niche: string;
-    depth?: "quick" | "deep";
-    region?: string;
-  };
+  let parsedBody: { niche: string; depth?: "quick" | "deep"; region?: string };
+  try {
+    parsedBody = await req.json();
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), { status: 400, headers: { "Content-Type": "application/json" } });
+  }
+  const { niche, depth = "quick", region = "Global" } = parsedBody;
 
   if (!niche?.trim()) {
     return new Response(JSON.stringify({ error: "niche is required" }), {
@@ -230,7 +230,7 @@ export async function POST(req: NextRequest) {
 
         const analysisRaw = await (async () => {
           const msg = await anthropic.messages.create({
-            model: "claude-sonnet-4-5",
+            model: MODEL_FOR.nlpExtraction,
             max_tokens: 4000,
             messages: [{
               role: "user",

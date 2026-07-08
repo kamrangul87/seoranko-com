@@ -41,7 +41,9 @@ export async function POST(req: NextRequest) {
       secondaryKeywords = [],
       entities = [],
       topicalGaps = [],
+      domain: rawDomain = '',
     } = body;
+    const citationDomain = (rawDomain as string).replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase().trim();
 
     console.log('[article-v2] received:', { keyword, secondaryKeywords: (secondaryKeywords as string[]).length, entities: (entities as string[]).length });
 
@@ -243,7 +245,7 @@ Do not write generic angles. Be specific and surprising.`
             ai_score: aiScore,
             source: 'article_v2',
           }).catch(() => {});
-          queueCitationTest({ domain: '', topic: keyword, daysFromNow: 7, source: 'article_v2' });
+          if (citationDomain) queueCitationTest({ domain: citationDomain, topic: keyword, daysFromNow: 7, source: 'article_v2' });
 
         } catch (err) {
           controller.error(err);

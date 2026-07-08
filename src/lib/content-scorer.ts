@@ -2,8 +2,7 @@
 // Centralised here so logic doesn't drift between article-v2, article-improve, and article-competitor.
 
 import Anthropic from '@anthropic-ai/sdk';
-
-const FAST_MODEL = 'claude-haiku-4-5-20251001';
+import { MODEL_FOR } from '@/lib/model-router';
 
 export function calculateEEATScore(html: string): number {
   let score = 0;
@@ -208,7 +207,7 @@ export async function improveEEAT(
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
   const res = await anthropic.messages.create({
-    model: FAST_MODEL,
+    model: MODEL_FOR.scoreImprovement,
     max_tokens: 3000,
     messages: [{
       role: 'user',
@@ -264,7 +263,7 @@ export async function improveReadability(
   if (avgSentLen > 25) issues.push(`Average sentence length is ${Math.round(avgSentLen)} words — aim for under 20 words`);
 
   const res = await anthropic.messages.create({
-    model: FAST_MODEL,
+    model: MODEL_FOR.scoreImprovement,
     max_tokens: 3000,
     messages: [{
       role: 'user',
@@ -327,7 +326,7 @@ export async function improveKeywordDensity(
     : `The keyword "${keyword}" is overused (${currentDensity}%). Replace some exact-match occurrences with natural synonyms or related phrases to bring density below 2.5%.`;
 
   const res = await anthropic.messages.create({
-    model: FAST_MODEL,
+    model: MODEL_FOR.scoreImprovement,
     max_tokens: 3000,
     messages: [{
       role: 'user',

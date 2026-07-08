@@ -198,7 +198,7 @@ ${preprocessed}`;
     const response = await anthropic.messages.create({
       model,
       max_tokens: 8000,
-      system: systemPrompt,
+      system: [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }],
       messages: [{ role: 'user', content: userPrompt }],
     });
     const responseText = response.content[0].type === 'text' ? response.content[0].text.trim() : '';

@@ -2,7 +2,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
+  let body: { keyword?: string; url?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
   const { keyword, url } = body;
 
   const login = process.env.DATAFORSEO_EMAIL;

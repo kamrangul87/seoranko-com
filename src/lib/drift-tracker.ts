@@ -5,6 +5,7 @@
  * Used by: site-audit, article-v2, article-improve, article-competitor, ranking-agent, discovery.
  */
 import { createClient } from '@supabase/supabase-js';
+import { normalizeUrl } from '@/lib/supabase/audit-db';
 
 export type DriftSource =
   | 'site_audit'
@@ -44,7 +45,7 @@ export async function recordScoreSnapshot(params: {
   const supabase = getSupabase();
   const { error } = await supabase.from('score_history').insert({
     domain:      params.domain,
-    page_url:    params.page_url,
+    page_url:    normalizeUrl(params.page_url),
     score:       Math.round(params.score),
     ai_score:    params.ai_score != null ? Math.round(params.ai_score) : null,
     source:      params.source,
@@ -59,11 +60,12 @@ export async function recordScoreSnapshot(params: {
  */
 export async function getScoreDrift(domain: string, page_url: string): Promise<ScoreDrift> {
   const supabase = getSupabase();
+  const normalizedUrl = normalizeUrl(page_url);
   const { data, error } = await supabase
     .from('score_history')
     .select('score, recorded_at')
     .eq('domain', domain)
-    .eq('page_url', page_url)
+    .eq('page_url', normalizedUrl)
     .order('recorded_at', { ascending: false })
     .limit(60);
 

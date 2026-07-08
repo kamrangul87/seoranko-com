@@ -111,7 +111,9 @@ export async function POST(req: NextRequest) {
       secondaryKeywords = [],
       entities = [],
       topicalGaps = [],
+      domain: rawDomain = '',
     } = body;
+    const citationDomain = (rawDomain as string).replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase().trim();
 
     console.log('[article-competitor] received:', { keyword, market });
 
@@ -191,6 +193,8 @@ export async function POST(req: NextRequest) {
       async start(controller) {
         let fullArticle = '';
         let competitorFinalHtml = ''; // tracks the final humanized+patched article for scoring
+        let finalFactSourcingScore: number | undefined;
+        let finalFactPatchedCount = 0;
         try {
           // Stream article to client in real-time AND collect it server-side
           for await (const chunk of stream) {
@@ -251,6 +255,8 @@ export async function POST(req: NextRequest) {
               } catch (factErr) {
                 console.warn('[article-competitor] fact-sourcing check failed:', factErr);
               }
+              finalFactSourcingScore = factSourcingScore;
+              finalFactPatchedCount = factPatchedCount;
               competitorFinalHtml = finalHtml;
 
               controller.enqueue(encoder.encode(
@@ -320,6 +326,8 @@ export async function POST(req: NextRequest) {
               } catch (factErr) {
                 console.warn('[article-competitor] fact-sourcing check (base) failed:', factErr);
               }
+              finalFactSourcingScore = baseSourcingScore;
+              finalFactPatchedCount = basePatchedCount;
               competitorFinalHtml = finalBaseHtml;
 
               controller.enqueue(encoder.encode(
@@ -378,6 +386,8 @@ export async function POST(req: NextRequest) {
                 eeatScore: cEeatScore,
                 readabilityScore: cReadabilityScore,
                 keywordDensity: cKeywordDensity,
+                factSourcingScore: finalFactSourcingScore,
+                factPatchedCount: finalFactPatchedCount,
               })} -->`
             ));
           }
@@ -392,7 +402,7 @@ export async function POST(req: NextRequest) {
             score: 70, // baseline score for newly generated competitor article
             source: 'article_competitor',
           }).catch(() => {});
-          queueCitationTest({ domain: '', topic: keyword, daysFromNow: 7, source: 'article_competitor' });
+          if (citationDomain) queueCitationTest({ domain: citationDomain, topic: keyword, daysFromNow: 7, source: 'article_competitor' });
 
         } catch (err) {
           controller.error(err);

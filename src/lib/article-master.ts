@@ -4,11 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 // maxRetries lets the SDK auto-retry 429s using the server's Retry-After header.
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
 
-// Topic query (generating search queries) runs on Haiku — simple structured output.
-// Web searches and finalFactCheck run on Sonnet — Haiku hallucinates facts and
-// misses errors; accuracy here directly affects article quality.
-const FAST_MODEL = 'claude-haiku-4-5-20251001';
-const MAIN_MODEL = 'claude-sonnet-4-6';
+import { MODEL_FOR } from '@/lib/model-router';
 
 export type ArticleMode = 'generate' | 'competitor' | 'improve';
 
@@ -675,7 +671,7 @@ export async function fetchVerifiedFacts(
       : '';
 
     const topicResponse = await anthropic.messages.create({
-      model: FAST_MODEL,
+      model: MODEL_FOR.keywordExtraction,
       max_tokens: 200,
       messages: [{
         role: 'user',
@@ -699,7 +695,7 @@ export async function fetchVerifiedFacts(
     for (const query of queries.slice(0, 2)) {
       try {
         const searchResponse = await anthropic.messages.create({
-          model: MAIN_MODEL,
+          model: MODEL_FOR.factVerification,
           max_tokens: 350,
           // Cap internal searches so a single request can't balloon input tokens
           tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 } as any],
@@ -747,7 +743,7 @@ async function finalFactCheck(
   liveFacts: string,
 ): Promise<{ article: string; corrections: string[] }> {
   const response = await anthropic.messages.create({
-    model: MAIN_MODEL,
+    model: MODEL_FOR.factVerification,
     max_tokens: 600,
     messages: [{
       role: 'user',

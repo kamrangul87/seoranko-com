@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { buildMasterPrompt, validateAndCorrect, getInternalLinks } from '@/lib/article-master';
 import { updateFixedPage, updateScrapedPage, normalizeUrl, normalizeDomain } from '@/lib/supabase/audit-db';
+import { upsertFix, siteIdFromDomain } from '@/lib/supabase/fixes-db';
 import { fetchPageSignals, scorePage } from '@/lib/site-audit/scorer';
 import { humanizeArticle } from '@/lib/humanizer';
 import { MODEL_FOR } from '@/lib/model-router';
@@ -433,6 +434,33 @@ function factCheckContent(content: string): { content: string; status: 'passed' 
 }
 
 // ── Compute which audit issues the fix resolves ────────────────────────────
+async function persistFixesAfterUpdate(
+  domain: string,
+  pageUrl: string,
+  fixedIssues: string[],
+  title: string,
+  metaDesc: string,
+): Promise<void> {
+  const siteId = siteIdFromDomain(domain);
+  const FIX_MAP: Record<string, { fix_type: Parameters<typeof upsertFix>[0]['fix_type']; getValue: () => string }> = {
+    missing_title:            { fix_type: 'meta_title',      getValue: () => title },
+    title_too_long:           { fix_type: 'meta_title',      getValue: () => title },
+    missing_meta_description: { fix_type: 'meta_description', getValue: () => metaDesc },
+    meta_too_long:            { fix_type: 'meta_description', getValue: () => metaDesc },
+    missing_h1:               { fix_type: 'h1',              getValue: () => title },
+    no_schema:                { fix_type: 'schema',          getValue: () => 'AI-generated structured data added' },
+    missing_og_tags:          { fix_type: 'og_title',        getValue: () => title },
+  };
+  await Promise.allSettled(
+    fixedIssues
+      .map(key => FIX_MAP[key])
+      .filter(Boolean)
+      .map(({ fix_type, getValue }) =>
+        upsertFix({ site_id: siteId, page_url: pageUrl, fix_type, new_value: getValue() })
+      )
+  );
+}
+
 function computeFixedIssues(
   inputIssues: Array<{ severity: string; category: string; message: string; deduction: number }>,
   is404: boolean,
@@ -818,6 +846,7 @@ Write the complete component now. Output TSX only.`;
       // Persist fix to Supabase
       try {
         await updateFixedPage(cleanDomain, url, fi, sbf, saf);
+        persistFixesAfterUpdate(cleanDomain, url, fi, kwData.primary, brief?.briefSummary ?? '').catch(() => {});
       } catch (e) {
         console.error('[site-audit/fix] DB update (createNextjs) failed:', e);
       }
@@ -954,6 +983,7 @@ RULES:
 
       try {
         await updateFixedPage(cleanDomain, url, fi, sbf, saf);
+        persistFixesAfterUpdate(cleanDomain, url, fi, kwData.primary, brief?.briefSummary ?? '').catch(() => {});
       } catch (e) {
         console.error('[site-audit/fix] DB update (fixExistingNextjs) failed:', e);
       }
@@ -1128,6 +1158,7 @@ Write the fully improved, humanised article now. Make it rank #1 for "${kwData.p
     if (fixedIssues.length > 0) {
       try {
         await updateFixedPage(cleanDomain, url, fixedIssues, scoreBeforeFix, scoreAfterFix);
+        persistFixesAfterUpdate(cleanDomain, url, fixedIssues, kwData.primary, brief?.briefSummary ?? '').catch(() => {});
       } catch (e) {
         console.error('[site-audit/fix] DB update failed:', e);
       }

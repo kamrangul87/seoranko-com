@@ -1,6 +1,7 @@
 import sharp from 'sharp';
 import { createClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
+import { MODEL_FOR } from '@/lib/model-router';
 
 // ── Blog-standard size presets ────────────────────────────────────────────────
 
@@ -104,7 +105,7 @@ export async function detectNicheAndStyle(
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
   const res = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: MODEL_FOR.imagePromptGeneration,
     max_tokens: 120,
     messages: [{
       role: 'user',
@@ -149,7 +150,7 @@ async function buildImagePrompts(
   const fullStyle = `${nicheStyle}, ${styleDescriptor}`;
 
   const res = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: MODEL_FOR.imagePromptGeneration,
     // 2000 tokens prevents truncation for 4-5 prompts (~150 tokens each + JSON overhead was
     // cutting off the JSON array at 800, causing parse failure and hero-only fallback)
     max_tokens: 2000,

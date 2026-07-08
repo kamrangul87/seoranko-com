@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { buildMasterPrompt, validateAndCorrect, getInternalLinks } from '@/lib/article-master';
+import { MODEL_FOR } from '@/lib/model-router';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
 
@@ -145,7 +146,7 @@ async function buildImprovementBrief(
   ).join('\n\n');
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: MODEL_FOR.scoreImprovement,
     max_tokens: 1000,
     messages: [{
       role: 'user',
@@ -328,7 +329,7 @@ Write it as if your career depends on it. Be comprehensive, accurate, and author
 
     // STEP E — Stream the improved article
     const stream = anthropic.messages.stream({
-      model: 'claude-sonnet-4-6',
+      model: MODEL_FOR.articleImprovement,
       max_tokens: 8000,
       messages: [{ role: 'user', content: autoFixPrompt }],
     });

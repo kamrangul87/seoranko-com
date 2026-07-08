@@ -4,9 +4,10 @@ import Anthropic from '@anthropic-ai/sdk';
 import { upsertAuditResults, insertAuditHistory, getAuditResults, normalizeUrl, normalizeDomain } from '@/lib/supabase/audit-db';
 import { AuditIssue, PageSignals, DomainSignals, fetchPageSignals, scorePage } from '@/lib/site-audit/scorer';
 
+import { MODEL_FOR } from '@/lib/model-router';
+
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 3 });
 export const maxDuration = 300;
-const FAST_MODEL = 'claude-haiku-4-5-20251001';
 
 // ── STEP A: Discover all URLs from a domain via sitemap ───────────────────────
 
@@ -244,7 +245,7 @@ async function checkEntityPresence(baseDomain: string): Promise<{
   const brand = brandName.charAt(0).toUpperCase() + brandName.slice(1);
   try {
     const res = await anthropic.messages.create({
-      model: FAST_MODEL,
+      model: MODEL_FOR.keywordExtraction,
       max_tokens: 250,
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 } as any],
       messages: [{
@@ -280,7 +281,7 @@ Meta: ${p.metaDescription?.slice(0, 80) || 'MISSING'}`
   ).join('\n\n');
 
   const response = await anthropic.messages.create({
-    model: FAST_MODEL,
+    model: MODEL_FOR.keywordExtraction,
     max_tokens: 2500,
     messages: [{
       role: 'user',

@@ -12,6 +12,7 @@ import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-gene
 import { recordScoreSnapshot } from '@/lib/drift-tracker';
 import { queueCitationTest } from '@/lib/citation-tester';
 import { checkAndPatchFactSourcing } from '@/lib/fact-checker';
+import { calculateEEATScore, calculateReadabilityScore, calculateKeywordDensity } from '@/lib/content-scorer';
 import { MODEL_FOR } from '@/lib/model-router';
 
 // Fluid compute (default on Vercel) allows up to 300s on Hobby. The full
@@ -46,13 +47,20 @@ interface Audit {
 // Protocol: stage markers for live progress, then a META JSON block (audit,
 // competitors, gaps), then raw article HTML, then a STATS JSON block.
 export async function POST(req: NextRequest) {
-  const body = await req.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
   const {
     article = '',
     keyword = '',
     market = 'United Kingdom',
     tone = 'professional',
-  } = body;
+    domain: rawDomain = '',
+  } = body as { article?: string; keyword?: string; market?: string; tone?: string; domain?: string };
+  const citationDomain = (rawDomain as string).replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase().trim();
 
   if (!article.trim()) {
     return NextResponse.json({ error: 'Article text is required' }, { status: 400 });
@@ -267,9 +275,11 @@ Return ONLY valid JSON no markdown:
           console.warn('[article-improve] humanization/images failed, continuing without:', err);
         }
 
-        // Calculate new word count and score
+        // Calculate new word count and score using deterministic content-scorer functions
         const newWordCount = validatedArticle.replace(/<[^>]*>/g, '').trim().split(/\s+/).filter(Boolean).length;
-        const newEeatScore = Math.min(95, (audit.eeat_score || 0) + 55 + (nlpData.contentGaps.length * 3));
+        const newEeatScore = calculateEEATScore(validatedArticle);
+        const newReadabilityScore = calculateReadabilityScore(validatedArticle);
+        const newKeywordDensity = calculateKeywordDensity(validatedArticle, targetKeyword);
 
         // Build improvements list for UI
         const improvements: { type: string; count: number }[] = [];
@@ -295,7 +305,10 @@ Return ONLY valid JSON no markdown:
               newWordCount,
               originalEeat: audit.eeat_score || 0,
               newEeat: newEeatScore,
+              originalReadability: audit.readability_score || 0,
+              newReadability: newReadabilityScore,
               originalKeywordDensity: audit.keyword_density || 0,
+              newKeywordDensity,
               issuesFixed: improvements.length,
             },
           }) +
@@ -318,7 +331,7 @@ Return ONLY valid JSON no markdown:
           score: newEeatScore,
           source: 'article_improve',
         }).catch(() => {});
-        queueCitationTest({ domain: '', topic: targetKeyword, daysFromNow: 7, source: 'article_improve' });
+        if (citationDomain) queueCitationTest({ domain: citationDomain, topic: targetKeyword, daysFromNow: 7, source: 'article_improve' });
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (error: any) {

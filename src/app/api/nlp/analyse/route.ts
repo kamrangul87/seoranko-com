@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { createHash } from "crypto";
 import { callClaude, parseJsonResponse } from "@/lib/anthropic";
 import { MODEL_FOR } from "@/lib/model-router";
+import { calculateReadabilityScore } from "@/lib/content-scorer";
 
 const DFS_BASE = "https://api.dataforseo.com/v3";
 
@@ -64,12 +65,12 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const body = await req.json() as {
-    keyword: string;
-    draft?: string;
-    location_code?: number;
-    language_code?: string;
-  };
+  let body: { keyword: string; draft?: string; location_code?: number; language_code?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), { status: 400, headers: { "Content-Type": "application/json" } });
+  }
   const { keyword, draft, location_code, language_code } = body;
 
   if (!keyword?.trim()) {
@@ -209,8 +210,7 @@ Return only valid JSON, no markdown.`,
           const eeaVals = Object.values(call2.eeat) as number[];
           const eeaAvg = eeaVals.reduce((a, b) => a + b, 0) / Math.max(eeaVals.length, 1);
 
-          const fk = call2.readability?.fleschKincaid ?? 12;
-          const readabilityScore = Math.max(0, Math.min(100, 100 - fk * 4));
+          const readabilityScore = draft?.trim() ? calculateReadabilityScore(draft) : 0;
 
           const overallScore = Math.min(100, Math.max(0, Math.round(
             (call1.intent?.confidence ?? 50) * 0.2 +

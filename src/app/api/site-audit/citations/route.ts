@@ -4,8 +4,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { normalizeDomain } from '@/lib/supabase/audit-db';
 
+import { MODEL_FOR } from '@/lib/model-router';
+
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 2 });
-const MAIN_MODEL = 'claude-sonnet-4-6';
 
 function getSupabase() {
   return createClient(
@@ -32,7 +33,7 @@ async function testCitation(
 
   try {
     const res = await anthropic.messages.create({
-      model: MAIN_MODEL,
+      model: MODEL_FOR.citationTesting,
       max_tokens: 600,
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 } as any],
       messages: [{ role: 'user', content: query }],

@@ -1857,10 +1857,10 @@ export default function DashboardPage() {
                             <p className="text-[10px] text-[#9B9B9B] uppercase tracking-wide font-medium mb-2">Choose Format</p>
                           </div>
                           {[
-                            { fmt: 'zip' as const, icon: '📦', label: 'Self-Contained HTML', desc: 'Images embedded as data URIs — works anywhere, no broken images' },
+                            { fmt: 'zip' as const, icon: '📦', label: 'Self-Contained HTML (images embedded)', desc: 'Images embedded as data URIs — works anywhere, no broken images' },
                             { fmt: 'html' as const, icon: '📄', label: 'HTML File Only', desc: 'For platforms that host images separately' },
                             { fmt: 'markdown' as const, icon: '📝', label: 'Markdown (.md)', desc: 'For Ghost, Notion, Obsidian, or Markdown editors' },
-                            { fmt: 'pdf' as const, icon: '🖨', label: 'Print / PDF', desc: 'Opens print-ready page — use File → Print → Save as PDF' },
+                            { fmt: 'pdf' as const, icon: '🖨', label: 'Print-Ready HTML (for PDF)', desc: 'Opens print-ready page — use File → Print → Save as PDF' },
                           ].map(({ fmt, icon, label, desc }) => (
                             <button
                               key={fmt}

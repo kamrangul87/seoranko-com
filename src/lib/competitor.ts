@@ -3,10 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 // maxRetries lets the SDK auto-retry 429s using the server's Retry-After header.
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
 
-// Auxiliary JSON/extraction calls run on Haiku — a SEPARATE rate-limit bucket
-// from Sonnet — so they don't eat the Sonnet input-token budget the main
-// article generation needs. Quality-critical writing stays on Sonnet.
-const FAST_MODEL = 'claude-haiku-4-5-20251001';
+import { MODEL_FOR } from '@/lib/model-router';
 
 export async function getTopCompetitorUrls(keyword: string, market: string): Promise<string[]> {
   const locationCode =
@@ -79,7 +76,7 @@ export async function extractCompetitorNLP(competitorTexts: string[], keyword: s
     .join('\n\n---\n\n');
 
   const response = await anthropic.messages.create({
-    model: FAST_MODEL,
+    model: MODEL_FOR.nlpExtraction,
     max_tokens: 1000,
     messages: [{
       role: 'user',
@@ -119,7 +116,7 @@ export async function generateUniqueAngle(
   weaknesses: string[],
 ): Promise<UniqueAngle> {
   const response = await anthropic.messages.create({
-    model: FAST_MODEL,
+    model: MODEL_FOR.nlpExtraction,
     max_tokens: 400,
     messages: [{
       role: 'user',
