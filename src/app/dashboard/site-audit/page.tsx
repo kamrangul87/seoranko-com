@@ -1,6 +1,19 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 import { useState, useEffect, useRef } from 'react';
+import { sanitiseForTransport } from '@/lib/sanitise-text';
+
+// Browser-safe base64 encoder: handles Unicode without deprecated unescape()
+function safeBtoa(str: string): string {
+  try {
+    return btoa(str);
+  } catch {
+    const bytes = new Uint8Array(new TextEncoder().encode(str));
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  }
+}
 
 const PLATFORMS = [
   {
@@ -428,7 +441,7 @@ export default function SiteAuditPage() {
         if (!pf('url') || !pf('username') || !pf('password')) throw new Error('Fill in all WordPress fields');
         const base = pf('url').replace(/\/$/, '');
         const res = await fetch(`${base}/wp-json/wp/v2/users/me`, {
-          headers: { Authorization: `Basic ${btoa(`${pf('username')}:${pf('password')}`) }` },
+          headers: { Authorization: `Basic ${safeBtoa(`${sanitiseForTransport(pf('username'))}:${sanitiseForTransport(pf('password'))}`)}` },
         });
         if (!res.ok) throw new Error(`WordPress: ${res.status} — check URL and Application Password`);
         const data = await res.json();
@@ -730,7 +743,7 @@ export default function SiteAuditPage() {
           const getRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`, { headers });
           if (getRes.ok) { const ex = await getRes.json(); sha = ex.sha; }
         } catch { /* new file */ }
-        const body: any = { message: `SEO fix: ${title}`, content: btoa(unescape(encodeURIComponent(articleHtml))), branch };
+        const body: any = { message: `SEO fix: ${sanitiseForTransport(title)}`, content: safeBtoa(articleHtml), branch };
         if (sha) body.sha = sha;
         const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, { method: 'PUT', headers, body: JSON.stringify(body) });
         if (res.ok) setPublishSuccess(`✅ Published to GitHub — ${f('repo')}/${path}`);
@@ -741,7 +754,7 @@ export default function SiteAuditPage() {
         const status = 'draft';
         const res = await fetch(`${base}/wp-json/wp/v2/posts`, {
           method: 'POST',
-          headers: { Authorization: `Basic ${btoa(`${f('username')}:${f('password')}`)}`, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Basic ${safeBtoa(`${sanitiseForTransport(f('username'))}:${sanitiseForTransport(f('password'))}`)}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ title, content: articleHtml, status, slug: kwSlug }),
         });
         if (res.ok) { const post = await res.json(); setPublishSuccess(`✅ Saved as draft in WordPress — post ID ${post.id}`); }
@@ -762,8 +775,8 @@ export default function SiteAuditPage() {
         const [id, secret] = f('adminKey').split(':');
         if (!id || !secret) { setPublishSuccess('❌ Ghost key must be id:secret format'); return; }
         const now = Math.floor(Date.now() / 1000);
-        const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT', kid: id }));
-        const payload = btoa(JSON.stringify({ iat: now, exp: now + 300, aud: '/admin/' }));
+        const header = safeBtoa(JSON.stringify({ alg: 'HS256', typ: 'JWT', kid: id }));
+        const payload = safeBtoa(JSON.stringify({ iat: now, exp: now + 300, aud: '/admin/' }));
         const res = await fetch(`${base}/ghost/api/admin/posts/`, {
           method: 'POST',
           headers: { Authorization: `Ghost ${header}.${payload}.signature`, 'Content-Type': 'application/json' },

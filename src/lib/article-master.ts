@@ -5,6 +5,7 @@ import Anthropic from '@anthropic-ai/sdk';
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
 
 import { MODEL_FOR } from '@/lib/model-router';
+import { sanitiseForTransport } from '@/lib/sanitise-text';
 
 export type ArticleMode = 'generate' | 'competitor' | 'improve';
 
@@ -107,7 +108,7 @@ export function buildMasterPrompt(params: ArticleMasterParams): string {
 IMPROVE MODE — REWRITE EXISTING ARTICLE
 ════════════════════════════════════════
 ORIGINAL ARTICLE TO IMPROVE (keep accurate facts, fix everything else):
-${originalArticle.slice(0, 2000)}
+${sanitiseForTransport(originalArticle.slice(0, 2000))}
 
 FACTUAL ERRORS TO FIX (these are wrong — correct them):
 ${factualErrors.length > 0 ? factualErrors.join('\n') : 'None identified — verify all facts against official sources'}
@@ -810,13 +811,13 @@ async function finalFactCheck(
     max_tokens: 600,
     messages: [{
       role: 'user',
-      content: `You are a fact-checker for a ${market} article about "${keyword}".
+      content: `You are a fact-checker for a ${market} article about "${sanitiseForTransport(keyword)}".
 
 LIVE VERIFIED FACTS (these are correct):
 ${liveFacts || 'None available'}
 
 ARTICLE TO CHECK (first 2000 chars):
-${article.slice(0, 2000)}
+${sanitiseForTransport(article.slice(0, 2000))}
 
 Find up to 3 specific factual claims in the article that:
 1. Contradict the live verified facts above, OR
