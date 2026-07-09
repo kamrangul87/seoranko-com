@@ -1037,40 +1037,54 @@ export default function DashboardPage() {
     }
   }
 
-  // ── Score improvement ─────────────────────────────────────────────────────
+  // ── Score improvement (streaming) ────────────────────────────────────────
   async function handleImproveScore(scoreType: string, currentScore: number) {
     if (!article) return;
     if ((improveCounts[scoreType] ?? 0) >= 3) return;
     setImprovingScore(scoreType);
     setScoreToast(null);
     try {
-      const res = await fetch('/api/article-improve-score', {
+      const label = scoreType === 'eeat' ? 'EEAT' : scoreType === 'readability' ? 'Readability' : scoreType === 'human' ? 'Human Score' : 'Keyword Density';
+      setScoreToast({ message: `Improving ${label}…`, kind: 'success' });
+
+      const res = await fetch('/api/improve-article-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          articleHtml: article.article,
-          scoreType,
+          articleContent: article.article,
+          target: scoreType,
           currentScore,
-          primaryKeyword: article.seoTitle,
-          market: country || 'United Kingdom',
+          keyword: article.seoTitle,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Improvement failed');
-      const ns = data.newScores ?? {};
-      setArticle(prev => prev ? {
-        ...prev,
-        article: data.updatedHtml,
-        eeaScore: ns.eeatScore ?? prev.eeaScore,
-        readabilityScore: ns.readabilityScore ?? prev.readabilityScore,
-        keywordDensity: ns.keywordDensity ?? prev.keywordDensity,
-        searchScore: ns.searchScore ?? prev.searchScore,
-        aiScore: ns.aiScore ?? prev.aiScore,
-        humanScore: ns.humanScore != null ? ns.humanScore : prev.humanScore,
-      } : null);
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: 'Improvement failed' }));
+        throw new Error(errData.error || 'Improvement failed');
+      }
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      let fullContent = '';
+
+      if (!reader) throw new Error('No response stream');
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        fullContent += decoder.decode(value);
+      }
+
+      // Extract changes summary and clean content
+      const changesMatch = fullContent.match(/<!--\s*CHANGES:\s*([\s\S]*?)\s*-->/);
+      const changesSummary = changesMatch ? changesMatch[1].trim() : 'Improvements applied';
+      const cleanContent = fullContent.replace(/<!--\s*CHANGES:[\s\S]*?-->/g, '').trim();
+
+      if (cleanContent) {
+        setArticle(prev => prev ? { ...prev, article: cleanContent } : null);
+      }
       setImproveCounts(prev => ({ ...prev, [scoreType]: (prev[scoreType] ?? 0) + 1 }));
-      const label = scoreType === 'eeat' ? 'EEAT' : scoreType === 'readability' ? 'Readability' : scoreType === 'human' ? 'Human Score' : 'Keyword Density';
-      setScoreToast({ message: `${label} improved — ${data.changesSummary}`, kind: 'success' });
+      setScoreToast({ message: `${label} improved — ${changesSummary}`, kind: 'success' });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       setScoreToast({ message: err.message || 'Improvement failed', kind: 'error' });

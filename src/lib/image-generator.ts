@@ -398,23 +398,19 @@ export async function generateArticleImages(opts: {
 
   console.log(`[image-generator] requesting ${count} images (hero + ${count - 1} content) for "${keyword}"`);
 
-  // Step 3: Generate all raw images in parallel (hero + all content simultaneously)
-  const [heroResult, ...contentResults] = await Promise.all([
-    generateWithRetryAndFallback(
-      heroPrompt.prompt,
-      BLOG_SIZES.hero.width,
-      BLOG_SIZES.hero.height,
-      tier, niche, 'hero', keyword,
-    ),
-    ...contentPrompts.map((cp) =>
-      generateWithRetryAndFallback(
-        cp.prompt,
-        BLOG_SIZES.content.width,
-        BLOG_SIZES.content.height,
-        tier, niche, 'content', keyword,
-      )
-    ),
-  ]);
+  // Step 3: Generate all raw images SEQUENTIALLY with 1.5s delay to avoid Pollinations rate limits
+  const allResults: ({ buffer: Buffer; tierUsed: ImageTier } | ImageFailure)[] = [];
+  const allSlots = [
+    { prompt: heroPrompt.prompt, width: BLOG_SIZES.hero.width, height: BLOG_SIZES.hero.height, sizeKey: 'hero' as BlogSizeKey },
+    ...contentPrompts.map(cp => ({ prompt: cp.prompt, width: BLOG_SIZES.content.width, height: BLOG_SIZES.content.height, sizeKey: 'content' as BlogSizeKey })),
+  ];
+  for (let i = 0; i < allSlots.length; i++) {
+    if (i > 0) await new Promise(r => setTimeout(r, 1500));
+    const slot = allSlots[i];
+    const result = await generateWithRetryAndFallback(slot.prompt, slot.width, slot.height, tier, niche, slot.sizeKey, keyword);
+    allResults.push(result);
+  }
+  const [heroResult, ...contentResults] = allResults;
 
   // Track which images failed at the generation stage (before Pollinations fallback)
   const heroFailed = 'failed' in heroResult;
@@ -680,4 +676,79 @@ export function buildImageMeta(imageSet: ArticleImageSet, keyword: string): stri
     `<!--SEORANKO_OG_IMAGE:${imageSet.hero.url}-->` +
     `<!--SEORANKO_IMAGE_SCHEMA:${JSON.stringify(imageObject)}-->`
   );
+}
+
+// ── Simple sequential image generation (for regenerate-images API) ────────────
+
+export interface ImageRequest {
+  prompt: string
+  width: number
+  height: number
+  slot: 'hero' | 'content1' | 'content2' | 'content3'
+}
+
+export interface ImageResult {
+  slot: string
+  url: string | null
+  success: boolean
+  error?: string
+}
+
+function buildPollinationsUrl(prompt: string, width: number, height: number): string {
+  const cleanPrompt = prompt
+    .replace(/[^\w\s,.-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 400)
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?width=${width}&height=${height}&nologo=true&model=flux`
+}
+
+async function verifyImageUrl(url: string, timeoutMs = 15000): Promise<boolean> {
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+    const response = await fetch(url, { method: 'HEAD', signal: controller.signal })
+    clearTimeout(timeout)
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+async function generateOneImage(request: ImageRequest, maxRetries = 3): Promise<ImageResult> {
+  const url = buildPollinationsUrl(request.prompt, request.width, request.height)
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const works = await verifyImageUrl(url, 20000)
+      if (works) return { slot: request.slot, url, success: true }
+      if (attempt < maxRetries) await new Promise(r => setTimeout(r, attempt * 2000))
+    } catch (err) {
+      if (attempt === maxRetries) return { slot: request.slot, url: null, success: false, error: String(err) }
+      await new Promise(r => setTimeout(r, attempt * 2000))
+    }
+  }
+  return { slot: request.slot, url: null, success: false, error: 'Max retries reached' }
+}
+
+export async function generateArticleImagesFromRequests(requests: ImageRequest[]): Promise<ImageResult[]> {
+  const results: ImageResult[] = []
+  for (let i = 0; i < requests.length; i++) {
+    if (i > 0) await new Promise(r => setTimeout(r, 1500))
+    results.push(await generateOneImage(requests[i]))
+  }
+  return results
+}
+
+export function buildArticleImageRequests(
+  keyword: string,
+  title: string,
+  sections: string[]
+): ImageRequest[] {
+  const style = 'professional photography, clean composition, bright daylight, contemporary editorial style, no text, no logos, no watermarks'
+  return [
+    { slot: 'hero', prompt: `${title}, ${keyword}, ${style}`, width: 1200, height: 630 },
+    { slot: 'content1', prompt: `${sections[0] || keyword}, ${style}`, width: 800, height: 533 },
+    { slot: 'content2', prompt: `${sections[1] || keyword}, ${style}`, width: 800, height: 533 },
+    { slot: 'content3', prompt: `${sections[2] || keyword}, ${style}`, width: 800, height: 533 },
+  ]
 }
