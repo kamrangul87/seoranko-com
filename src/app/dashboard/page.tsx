@@ -3,6 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { InternalLinksPanel } from "@/components/InternalLinksPanel";
+import { OrganisationSchemaSettings } from "@/components/OrganisationSchemaSettings";
+import type { InternalLink } from "@/lib/article-master";
 import type {
   KeywordResult,
   ArticleOutput,
@@ -24,6 +27,16 @@ interface UserProfile {
   articles_used_today: number;
   keywords_used_month: number;
   articles_used_month: number;
+  // Org schema fields (added in Phase 1b migration)
+  org_name?: string;
+  org_url?: string;
+  org_description?: string;
+  org_linkedin?: string;
+  org_twitter?: string;
+  org_github?: string;
+  org_address_country?: string;
+  org_founding_year?: number;
+  website_url?: string;
 }
 
 const PLAN_USAGE = {
@@ -378,6 +391,7 @@ export default function DashboardPage() {
   const [article, setArticle] = useState<ArticleOutput | null>(null);
   const [pipelineLog] = useState<string[]>([]);
   const [lastSecondaryKws, setLastSecondaryKws] = useState<string[]>([]);
+  const [internalLinks, setInternalLinks] = useState<InternalLink[]>([]);
 
   // Images state
   const [images, setImages] = useState<ImagePrompt[]>([]);
@@ -712,6 +726,7 @@ export default function DashboardPage() {
           secondaryKeywords: finalSecondaryKws.length > 0 ? finalSecondaryKws : [kw],
           entities: nlpAnalysis?.entities ?? [],
           topicalGaps: nlpAnalysis?.topicalGaps ?? [],
+          internalLinks: internalLinks.filter(l => l.url && l.anchorText),
         }),
       });
 
@@ -1097,6 +1112,12 @@ export default function DashboardPage() {
           keyword: article.seoTitle || seedKeyword,
           downloadImages: format === 'zip',
           schemaScriptTag: article.schemaScriptTag || '',
+          articleUrl: (() => {
+            const slug = (article.seoTitle || seedKeyword).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80)
+            return `${userProfile?.website_url || 'https://yourdomain.com'}/blog/${slug}`
+          })(),
+          authorName: userProfile?.name || 'Author',
+          metaDescription: article.metaDescription || '',
         }),
       });
 
@@ -1760,6 +1781,7 @@ export default function DashboardPage() {
                     )}
                   </p>
                 </div>
+                <InternalLinksPanel links={internalLinks} onChange={setInternalLinks} />
                 <div className="flex items-center gap-3 flex-wrap">
                   <button
                     onClick={() => handleGenerateArticle()}
@@ -2112,6 +2134,24 @@ export default function DashboardPage() {
                             <span className="text-[10px] text-purple-600 font-medium">JSON-LD schema generated</span>
                           </div>
                         )}
+
+                        {/* Canonical URL */}
+                        {(() => {
+                          const slug = (article.seoTitle || seedKeyword).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80)
+                          const canonicalUrl = `${userProfile?.website_url || 'https://yourdomain.com'}/blog/${slug}`
+                          return (
+                            <div className="flex items-center gap-1.5 mt-2 px-2 py-1.5 bg-gray-50 rounded border border-gray-200">
+                              <span className="text-[9px] text-gray-500 font-medium flex-shrink-0">Canonical:</span>
+                              <code className="text-[9px] text-gray-600 truncate flex-1 min-w-0">{canonicalUrl}</code>
+                              <button
+                                onClick={() => navigator.clipboard.writeText(canonicalUrl)}
+                                className="text-[9px] text-orange-600 hover:text-orange-700 flex-shrink-0 font-medium"
+                              >
+                                Copy
+                              </button>
+                            </div>
+                          )
+                        })()}
 
                         {article.factDensity && article.factDensity.suggestions.length > 0 && (
                           <div className="mt-2 p-2 bg-amber-50 rounded border border-amber-200">
@@ -2657,6 +2697,42 @@ export default function DashboardPage() {
                 </div>
               );
             })()}
+
+            {/* Organisation / Publisher Schema Settings */}
+            {userProfile && (
+              <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-6 mt-5">
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-[#6B6B6B] mb-5">GEO Schema</h2>
+                <OrganisationSchemaSettings
+                  initial={{
+                    org_name: userProfile.org_name,
+                    org_url: userProfile.org_url,
+                    org_description: userProfile.org_description,
+                    org_linkedin: userProfile.org_linkedin,
+                    org_twitter: userProfile.org_twitter,
+                    org_github: userProfile.org_github,
+                    org_address_country: userProfile.org_address_country,
+                    org_founding_year: userProfile.org_founding_year != null ? String(userProfile.org_founding_year) : '',
+                  }}
+                  onSave={async (data) => {
+                    const supabase = createClient();
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (!user) return;
+                    await supabase.from('profiles').upsert({
+                      id: user.id,
+                      org_name: data.org_name || null,
+                      org_url: data.org_url || null,
+                      org_description: data.org_description || null,
+                      org_linkedin: data.org_linkedin || null,
+                      org_twitter: data.org_twitter || null,
+                      org_github: data.org_github || null,
+                      org_address_country: data.org_address_country || 'GB',
+                      org_founding_year: data.org_founding_year ? parseInt(data.org_founding_year) : null,
+                    });
+                    await refreshUserProfile();
+                  }}
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -2805,6 +2881,8 @@ export default function DashboardPage() {
               {panelKeywords.length > 1 && <span> + {panelKeywords.length - 1} secondary keywords</span>}
             </p>
           )}
+
+          <InternalLinksPanel links={internalLinks} onChange={setInternalLinks} />
 
           <div className="flex gap-3">
             <button

@@ -2,6 +2,8 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { sanitiseForTransport } from '@/lib/sanitise-text';
+import { generateAIBotsRobotsBlock } from '@/lib/robots-checker';
+import type { RobotsCheckResult } from '@/lib/robots-checker';
 
 // Browser-safe base64 encoder: handles Unicode without deprecated unescape()
 function safeBtoa(str: string): string {
@@ -147,6 +149,12 @@ export default function SiteAuditPage() {
   const [driftData, setDriftData] = useState<Record<string, any>>({});
   const [driftLoaded, setDriftLoaded] = useState(false);
 
+  // AI Bot robots.txt check
+  const [robotsCheckResult, setRobotsCheckResult] = useState<RobotsCheckResult | null>(null);
+  const [robotsCheckLoading, setRobotsCheckLoading] = useState(false);
+  const [robotsCheckMsg, setRobotsCheckMsg] = useState('');
+  const [robotsCopied, setRobotsCopied] = useState(false);
+
   // Ref so the auto-load effect only fires once on mount
   const didAutoLoad = useRef(false);
 
@@ -233,6 +241,35 @@ export default function SiteAuditPage() {
       setCitationMsg('❌ ' + err.message);
     } finally {
       setCitationLoading(false);
+    }
+  }
+
+  async function handleRobotsCheck() {
+    if (!domain) return;
+    setRobotsCheckLoading(true);
+    setRobotsCheckMsg('');
+    setRobotsCheckResult(null);
+    try {
+      const res = await fetch('/api/robots-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ domain }),
+      });
+      const data = await res.json();
+      if (data.error && !data.robotsTxtFound) {
+        setRobotsCheckMsg('Could not fetch robots.txt — ' + data.error);
+        return;
+      }
+      setRobotsCheckResult(data);
+      if (data.allAllowed) {
+        setRobotsCheckMsg('All AI bots are allowed.');
+      } else {
+        setRobotsCheckMsg(`${data.blockedCount} AI bot(s) may be blocked.`);
+      }
+    } catch (err: any) {
+      setRobotsCheckMsg('Error: ' + err.message);
+    } finally {
+      setRobotsCheckLoading(false);
     }
   }
 
@@ -1349,6 +1386,75 @@ export default function SiteAuditPage() {
                 )}
               </div>
             ) : null}
+          </div>
+
+          {/* AI Bot Access (robots.txt) panel */}
+          <div style={{ background: '#fff', border: '1px solid #E8E8E4', borderRadius: '10px', padding: '14px 18px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' as const }}>
+              <div style={{ flex: 1, minWidth: '200px' }}>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#0F0F0F' }}>🤖 AI Bot Access</div>
+                <div style={{ fontSize: '11px', color: '#9B9B9B', marginTop: '2px' }}>
+                  Check if ChatGPT, Perplexity, Claude and other AI crawlers are allowed in your robots.txt
+                </div>
+              </div>
+              <button
+                onClick={handleRobotsCheck}
+                disabled={robotsCheckLoading || !domain}
+                style={{ padding: '7px 14px', background: '#F5F4F1', color: '#0F0F0F', border: '1px solid #E8E8E4', borderRadius: '8px', fontSize: '12px', fontWeight: 600, cursor: (robotsCheckLoading || !domain) ? 'not-allowed' : 'pointer', opacity: (robotsCheckLoading || !domain) ? 0.6 : 1, whiteSpace: 'nowrap' as const }}
+              >
+                {robotsCheckLoading ? '⏳ Checking...' : 'Check robots.txt'}
+              </button>
+            </div>
+
+            {robotsCheckMsg && (
+              <div style={{ marginTop: '10px', fontSize: '12px', color: robotsCheckResult?.allAllowed ? '#16A34A' : '#DC2626', fontWeight: 600 }}>
+                {robotsCheckMsg}
+              </div>
+            )}
+
+            {robotsCheckResult && robotsCheckResult.robotsTxtFound && (
+              <div style={{ marginTop: '14px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column' as const, gap: '0' }}>
+                  {robotsCheckResult.results.map((r, i) => (
+                    <div key={r.bot.userAgent} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: i < robotsCheckResult.results.length - 1 ? '1px solid #F5F4F1' : 'none' }}>
+                      <div>
+                        <span style={{ fontSize: '12px', fontWeight: 600, color: '#0F0F0F' }}>{r.bot.name}</span>
+                        <span style={{ fontSize: '11px', color: '#9B9B9B', marginLeft: '6px' }}>({r.bot.userAgent})</span>
+                      </div>
+                      <span style={{
+                        fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '20px',
+                        background: r.status === 'allowed' ? '#F0FDF4' : r.status === 'blocked' ? '#FEF2F2' : '#F5F4F1',
+                        color: r.status === 'allowed' ? '#16A34A' : r.status === 'blocked' ? '#DC2626' : '#9B9B9B',
+                        border: `1px solid ${r.status === 'allowed' ? '#BBF7D0' : r.status === 'blocked' ? '#FECACA' : '#E8E8E4'}`,
+                      }}>
+                        {r.status === 'allowed' ? '✓ Allowed' : r.status === 'blocked' ? '✗ Blocked' : 'Unknown'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                {!robotsCheckResult.allAllowed && (
+                  <div style={{ marginTop: '14px', background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: '8px', padding: '12px 14px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#92400E', marginBottom: '8px' }}>
+                      Add this to your robots.txt to allow all AI bots:
+                    </div>
+                    <pre style={{ fontSize: '11px', color: '#1C1917', background: '#F5F5F4', padding: '10px', borderRadius: '6px', overflow: 'auto', margin: 0 }}>
+                      {generateAIBotsRobotsBlock()}
+                    </pre>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(generateAIBotsRobotsBlock());
+                        setRobotsCopied(true);
+                        setTimeout(() => setRobotsCopied(false), 2000);
+                      }}
+                      style={{ marginTop: '8px', padding: '6px 14px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      {robotsCopied ? '✓ Copied!' : 'Copy fix'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Score simulation success banner */}

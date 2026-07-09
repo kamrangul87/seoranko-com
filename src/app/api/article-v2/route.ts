@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedFacts, checkAnswerFirst, computeRankScore, extractHowToSteps } from '@/lib/article-master';
+import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedFacts, checkAnswerFirst, computeRankScore, extractHowToSteps, buildInternalLinksPrompt } from '@/lib/article-master';
+import type { InternalLink } from '@/lib/article-master';
 import { scoreFactDensity } from '@/lib/fact-density';
 import { parseFAQsFromArticle } from '@/lib/faq-generator';
 import { generateArticleSchema, detectHowTo } from '@/lib/schema-generator';
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
       entities = [],
       topicalGaps = [],
       domain: rawDomain = '',
+      internalLinks: userInternalLinks = [],
     } = body;
     const citationDomain = (rawDomain as string).replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase().trim();
 
@@ -112,6 +114,9 @@ Do not write generic angles. Be specific and surprising.`
     const { facts: liveFacts } = await fetchVerifiedFacts(keyword, market);
 
     // ── STEP C — Centralised master prompt (shared across all 3 article routes)
+    const userLinksStr = (userInternalLinks as InternalLink[]).length > 0
+      ? buildInternalLinksPrompt(userInternalLinks as InternalLink[])
+      : ''
     const prompt = buildMasterPrompt({
       mode: 'generate',
       keyword,
@@ -124,7 +129,7 @@ Do not write generic angles. Be specific and surprising.`
       uniqueAngle: angle.unique_angle || angle.hook_opening || '',
       uniqueContent: angle.unique_section_content || '',
       uniqueDataSection,
-      internalLinks: getInternalLinks(keyword),
+      internalLinks: userLinksStr || getInternalLinks(keyword),
       liveFacts,
     });
 

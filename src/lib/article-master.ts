@@ -9,6 +9,39 @@ import { sanitiseForTransport } from '@/lib/sanitise-text';
 
 export type ArticleMode = 'generate' | 'competitor' | 'improve';
 
+export interface InternalLink {
+  url: string
+  anchorText: string
+  context: string
+}
+
+export function buildInternalLinksPrompt(links: InternalLink[]): string {
+  if (!links || links.length === 0) return ''
+  const validLinks = links.filter(l => l.url && l.anchorText)
+  if (validLinks.length === 0) return ''
+
+  const linkList = validLinks.map((link, i) =>
+    `${i + 1}. URL: ${link.url}
+   Anchor text: "${link.anchorText}"
+   Context: ${link.context || 'not specified'}`
+  ).join('\n\n')
+
+  return `
+INTERNAL LINKS (mandatory — include ALL of these naturally in the article):
+The user wants these internal links included. You MUST include every link below.
+Rules:
+- Place each link where it is genuinely relevant to the surrounding paragraph — never forced
+- Use the EXACT anchor text specified, not a variation
+- Distribute links throughout the article — not all in one section
+- Never place two links in the same sentence
+- Each link must appear as a proper HTML anchor: <a href="URL" rel="noopener">anchor text</a>
+- If a link's context doesn't fit the article topic naturally, place it in the most relevant section and add a brief bridging sentence
+
+Links to include:
+${linkList}
+`
+}
+
 export interface ArticleMasterParams {
   mode: ArticleMode;
   keyword: string;

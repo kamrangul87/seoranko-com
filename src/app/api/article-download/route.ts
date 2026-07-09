@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { buildCanonicalTags } from '@/lib/canonical-builder';
 
 export const maxDuration = 60;
 
@@ -192,12 +193,18 @@ export async function POST(req: NextRequest) {
       keyword = 'article',
       downloadImages = true,
       schemaScriptTag = '',
+      articleUrl = '',
+      authorName = 'Author',
+      metaDescription = '',
     } = body as {
       articleHtml: string;
       format: 'html' | 'zip' | 'markdown' | 'pdf';
       keyword: string;
       downloadImages: boolean;
       schemaScriptTag?: string;
+      articleUrl?: string;
+      authorName?: string;
+      metaDescription?: string;
     };
 
     if (!articleHtml) {
@@ -213,7 +220,19 @@ export async function POST(req: NextRequest) {
 
     // Extract existing JSON-LD from article body + merge with generated schema
     const { html: bodyWithoutLd, scripts: existingLd } = extractJsonLd(cleanedHtml);
-    const headSchemas = [existingLd, schemaScriptTag].filter(Boolean).join('\n');
+
+    // Build canonical tags if an article URL was provided
+    const canonicalTags = articleUrl
+      ? buildCanonicalTags({
+          articleUrl,
+          title,
+          description: metaDescription || `Article about ${keyword}`,
+          publishDate: new Date().toISOString(),
+          authorName: authorName || 'Author',
+        })
+      : ''
+
+    const headSchemas = [canonicalTags, existingLd, schemaScriptTag].filter(Boolean).join('\n');
 
     // ── Markdown ──────────────────────────────────────────────────────────
     if (format === 'markdown') {

@@ -165,3 +165,82 @@ export function detectHowTo(title: string, keyword: string): boolean {
   const combined = `${title} ${keyword}`.toLowerCase()
   return howToSignals.some(signal => combined.includes(signal))
 }
+
+// Standalone BreadcrumbList schema generator
+export function generateBreadcrumbSchema(input: {
+  siteUrl: string
+  siteName: string
+  blogUrl?: string
+  articleTitle: string
+  articleUrl: string
+}): string {
+  const { siteUrl, siteName, articleTitle, articleUrl } = input
+  const blogUrl = input.blogUrl || `${siteUrl.replace(/\/$/, '')}/blog`
+  void siteName
+
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {
+        "@type": "ListItem",
+        "position": 1,
+        "name": "Home",
+        "item": siteUrl.replace(/\/$/, '')
+      },
+      {
+        "@type": "ListItem",
+        "position": 2,
+        "name": "Blog",
+        "item": blogUrl
+      },
+      {
+        "@type": "ListItem",
+        "position": 3,
+        "name": articleTitle,
+        "item": articleUrl
+      }
+    ]
+  }
+
+  return `<script type="application/ld+json">\n${JSON.stringify(schema, null, 2)}\n</script>`
+}
+
+export interface OrganisationInput {
+  name: string
+  url: string
+  description?: string
+  logoUrl?: string
+  foundingYear?: number
+  sameAs: string[]
+  contactEmail?: string
+  addressCountry?: string
+}
+
+export function generateOrganisationSchema(input: OrganisationInput): string {
+  const schema: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": input.name,
+    "url": input.url,
+    "sameAs": input.sameAs.filter(Boolean)
+  }
+
+  if (input.description) schema["description"] = input.description
+  if (input.logoUrl) {
+    schema["logo"] = {
+      "@type": "ImageObject",
+      "url": input.logoUrl
+    }
+  }
+  if (input.foundingYear) schema["foundingDate"] = String(input.foundingYear)
+  if (input.contactEmail) schema["email"] = input.contactEmail
+  if (input.addressCountry) {
+    schema["address"] = {
+      "@type": "PostalAddress",
+      "addressCountry": input.addressCountry
+    }
+  }
+
+  return `<script type="application/ld+json">\n${JSON.stringify(schema, null, 2)}\n</script>`
+}
