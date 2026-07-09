@@ -15,7 +15,11 @@ export interface InternalLink {
   context: string
 }
 
-export function buildInternalLinksPrompt(links: InternalLink[]): string {
+export function buildInternalLinksPrompt(
+  links: InternalLink[],
+  articleKeyword: string,
+  articleTitle: string
+): string {
   if (!links || links.length === 0) return ''
   const validLinks = links.filter(l => l.url && l.anchorText)
   if (validLinks.length === 0) return ''
@@ -23,22 +27,58 @@ export function buildInternalLinksPrompt(links: InternalLink[]): string {
   const linkList = validLinks.map((link, i) =>
     `${i + 1}. URL: ${link.url}
    Anchor text: "${link.anchorText}"
-   Context: ${link.context || 'not specified'}`
+   What this page is about: ${link.context || 'not specified'}`
   ).join('\n\n')
 
   return `
-INTERNAL LINKS (mandatory — include ALL of these naturally in the article):
-The user wants these internal links included. You MUST include every link below.
-Rules:
-- Place each link where it is genuinely relevant to the surrounding paragraph — never forced
-- Use the EXACT anchor text specified, not a variation
-- Distribute links throughout the article — not all in one section
-- Never place two links in the same sentence
-- Each link must appear as a proper HTML anchor: <a href="URL" rel="noopener">anchor text</a>
-- If a link's context doesn't fit the article topic naturally, place it in the most relevant section and add a brief bridging sentence
+INTERNAL LINKS — CRITICAL RULES (read carefully before placing any link):
 
-Links to include:
+The user has provided these internal links to include in the article about "${articleTitle}" (keyword: "${articleKeyword}"):
+
 ${linkList}
+
+MANDATORY RELEVANCE CHECK — apply this rule to EVERY link before placing it:
+
+Ask yourself: "Would a reader of THIS article, about THIS topic, genuinely benefit from clicking this link?"
+
+ONLY place a link if ALL of these are true:
+✓ The linked page is directly relevant to the article topic
+✓ The anchor text flows naturally in the surrounding sentence
+✓ A real editor would approve this link in a professional publication
+✓ The link adds value for the reader — it is NOT just there for SEO
+
+DO NOT place a link if ANY of these are true:
+✗ The linked page is about a different product, service, or topic unrelated to this article
+✗ Placing the link requires writing an awkward bridging sentence to make it fit
+✗ The link would confuse or mislead a reader about what the linked page contains
+✗ The linked page is an SEO tool but this article is about cars, health, travel, finance, etc.
+
+EXAMPLE OF WRONG placement (never do this):
+Article about: EV chargers
+Link provided: seoranko.com (an SEO content tool)
+WRONG: "For broader EV guidance, resources like Seoranko cover the charging landscape."
+WHY WRONG: SEORANKO is an SEO tool, not an EV resource. This misleads readers and damages credibility.
+
+EXAMPLE OF CORRECT placement:
+Article about: EV chargers
+Link provided: autodun.com/mot-checker (an MOT checker for UK vehicles)
+CORRECT: Place in a section about vehicle maintenance, e.g. "Before a long EV journey, it's also worth ensuring your MOT is current — Autodun's [MOT checker](url) shows your vehicle's status instantly."
+WHY CORRECT: Both are about UK vehicle ownership. The link is genuinely useful to the same reader.
+
+IF A LINK IS NOT RELEVANT:
+Do NOT place it anywhere. Do NOT force it in with a vague sentence.
+Instead, at the end of the article add an HTML comment:
+<!-- LINK SKIPPED: [url] — reason: not relevant to article topic "${articleKeyword}" -->
+
+This comment will be logged and shown to the user so they know the link was not placed and why.
+
+PLACEMENT RULES for links that DO pass the relevance check:
+- Use the EXACT anchor text the user specified, not a variation
+- Place naturally within existing paragraph text — never create a new paragraph just for a link
+- Distribute across the article — not all in one section
+- Never place two links in the same sentence
+- HTML format: <a href="URL" rel="noopener">anchor text</a>
+- Maximum 1 link per paragraph
 `
 }
 

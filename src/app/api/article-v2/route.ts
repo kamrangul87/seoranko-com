@@ -23,6 +23,24 @@ export const maxDuration = 300;
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
 
 
+function auditPlacedLinks(
+  articleContent: string,
+  requestedLinks: InternalLink[]
+): { placed: string[]; skipped: string[] } {
+  const placed: string[] = []
+  const skipped: string[] = []
+  for (const link of requestedLinks) {
+    if (!link.url) continue
+    const isInArticle = articleContent.includes(link.url)
+    if (isInArticle) {
+      placed.push(link.url)
+    } else {
+      skipped.push(link.url)
+    }
+  }
+  return { placed, skipped }
+}
+
 function generateLlmsTxtEntry(html: string, keyword: string, url: string): string {
   const isoDate = new Date().toISOString().split('T')[0];
   const titleMatch = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
@@ -115,7 +133,7 @@ Do not write generic angles. Be specific and surprising.`
 
     // ── STEP C — Centralised master prompt (shared across all 3 article routes)
     const userLinksStr = (userInternalLinks as InternalLink[]).length > 0
-      ? buildInternalLinksPrompt(userInternalLinks as InternalLink[])
+      ? buildInternalLinksPrompt(userInternalLinks as InternalLink[], keyword, angle.unique_angle || keyword)
       : ''
     const prompt = buildMasterPrompt({
       mode: 'generate',
@@ -269,6 +287,9 @@ Do not write generic angles. Be specific and surprising.`
             console.warn('[article-v2] humanization/images failed, continuing without:', err);
           }
 
+          // Audit which user-provided internal links were placed vs skipped
+          const linkAudit = auditPlacedLinks(fullArticle, userInternalLinks as InternalLink[]);
+
           // Append score metadata as a parseable HTML comment — client strips this
           const scoreMeta = JSON.stringify({
             searchScore, aiScore, eeatScore, readabilityScore, keywordDensity,
@@ -284,6 +305,7 @@ Do not write generic angles. Be specific and surprising.`
             answerFirst,
             hasSchema: true,
             schemaScriptTag: schemaResult.combinedScriptTag,
+            linkAudit,
           });
           controller.enqueue(encoder.encode(`\n<!-- SEORANKO_SCORES:${scoreMeta} -->`));
 

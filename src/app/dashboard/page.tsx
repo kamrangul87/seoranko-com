@@ -407,6 +407,9 @@ export default function DashboardPage() {
   const [improvingScore, setImprovingScore] = useState<string | null>(null);
   const [scoreToast, setScoreToast] = useState<{ message: string; kind: 'success' | 'error' } | null>(null);
 
+  // Link audit state — set after article generation
+  const [linkAudit, setLinkAudit] = useState<{ placed: string[]; skipped: string[] } | null>(null);
+
   // Download state
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
@@ -709,6 +712,7 @@ export default function DashboardPage() {
     setImproveCounts({});
     setImageStats(null);
     setScoreToast(null);
+    setLinkAudit(null);
     setActiveNav('articles');
 
     const finalSecondaryKws = selectedKwsArray.filter((k: string) => k !== kw);
@@ -811,6 +815,7 @@ export default function DashboardPage() {
           articleAnswerFirst = parsed.answerFirst;
           articleHasSchema = parsed.hasSchema;
           articleSchemaScriptTag = parsed.schemaScriptTag;
+          if (parsed.linkAudit) setLinkAudit(parsed.linkAudit);
         } catch { /* keep undefined */ }
         fullArticle = fullArticle.replace(/\n<!-- SEORANKO_SCORES:\{[\s\S]*?\} -->/, '');
       }
@@ -886,6 +891,7 @@ export default function DashboardPage() {
     setImproveCounts({});
     setImageStats(null);
     setScoreToast(null);
+    setLinkAudit(null);
 
     const finalSecondaryKws = selectedKwsArray.filter((k: string) => k !== kw);
     setLastSecondaryKws(finalSecondaryKws.length > 0 ? finalSecondaryKws : [kw]);
@@ -2202,6 +2208,29 @@ export default function DashboardPage() {
                       </div>
                     </div>
                   </div>
+
+                  {linkAudit && (linkAudit.placed.length > 0 || linkAudit.skipped.length > 0) && (
+                    <div style={{ marginBottom: '12px' }}>
+                      {linkAudit.placed.length > 0 && (
+                        <p style={{ fontSize: '11px', color: '#15803D', marginBottom: '4px' }}>
+                          ✓ {linkAudit.placed.length} link{linkAudit.placed.length > 1 ? 's' : ''} placed naturally in article
+                        </p>
+                      )}
+                      {linkAudit.skipped.length > 0 && (
+                        <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: '8px', padding: '10px 14px', fontSize: '12px', color: '#92400E' }}>
+                          <p style={{ fontWeight: 600, marginBottom: '4px' }}>
+                            ⚠ {linkAudit.skipped.length} link{linkAudit.skipped.length > 1 ? 's' : ''} not placed — not relevant to this article topic:
+                          </p>
+                          {linkAudit.skipped.map((url, i) => (
+                            <p key={i} style={{ fontFamily: 'monospace', fontSize: '11px', marginBottom: '2px' }}>{url}</p>
+                          ))}
+                          <p style={{ fontSize: '11px', color: '#B45309', marginTop: '4px' }}>
+                            These links will work in articles about their actual topic.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {imageStats && imageStats.failures.length > 0 && (
                     <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '12px', color: '#DC2626' }}>
