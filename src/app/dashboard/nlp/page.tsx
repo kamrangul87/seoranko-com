@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import type { NlpAnalysis } from "@/types";
+import { auditHeadingStructure, auditAuthorityLinks } from "@/lib/aeo-signals";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -138,7 +139,7 @@ const REGION_TO_LOCATION: Record<string, number> = {
   SG: 2702, ZA: 2710, PK: 2586,
 };
 
-const TABS = ["Overview", "Entities", "Topics", "E-E-A-T", "Readability", "Brief"] as const;
+const TABS = ["Overview", "Entities", "Topics", "E-E-A-T", "Readability", "Brief", "AEO"] as const;
 type Tab = (typeof TABS)[number];
 
 // ─── Pipeline Bar ─────────────────────────────────────────────────────────────
@@ -978,6 +979,67 @@ function NlpPageInner() {
                       <ScoreBar label="Overall Score" value={results.overallScore} />
                       <ScoreBar label="Semantic Similarity" value={results.semanticSimilarityZone?.score ?? 0} />
                     </div>
+                  </div>
+                )}
+
+                {/* AEO */}
+                {activeTab === "AEO" && (
+                  <div className="space-y-5">
+                    {!draft ? (
+                      <div className="p-4 bg-[#FAFAF8] rounded-[8px] border border-[#E8E8E4] text-center">
+                        <p className="text-sm text-[#6B6B6B]">Add your draft content above to see AEO signals</p>
+                      </div>
+                    ) : (() => {
+                      const headingAudit = auditHeadingStructure(draft)
+                      const authorityAudit = auditAuthorityLinks(draft)
+                      return (
+                        <>
+                          <div className="space-y-2">
+                            <h4 className="text-sm font-semibold text-[#0F0F0F]">Heading structure</h4>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="p-3 bg-[#FAFAF8] rounded-[8px] border border-[#E8E8E4] text-center">
+                                <div className="text-xl font-bold text-[#0F0F0F]">{headingAudit.questionH2}/{headingAudit.totalH2}</div>
+                                <div className="text-xs text-[#9B9B9B] mt-0.5">Question H2s</div>
+                              </div>
+                              <div className="p-3 bg-[#FAFAF8] rounded-[8px] border border-[#E8E8E4] text-center">
+                                <div className={`text-xl font-bold ${headingAudit.grade === 'A' ? 'text-green-600' : headingAudit.grade === 'B' ? 'text-blue-600' : 'text-amber-600'}`}>{headingAudit.grade}</div>
+                                <div className="text-xs text-[#9B9B9B] mt-0.5">AEO grade</div>
+                              </div>
+                            </div>
+                            {headingAudit.issues.map((issue, i) => (
+                              <p key={i} className="text-xs text-amber-700 bg-amber-50 px-3 py-1.5 rounded-[6px] border border-amber-100">• {issue}</p>
+                            ))}
+                            {headingAudit.grade === 'A' && (
+                              <p className="text-xs text-green-700 bg-green-50 px-3 py-1.5 rounded-[6px] border border-green-100">✓ Heading structure is optimised for AI citation engines</p>
+                            )}
+                          </div>
+
+                          <div className="space-y-2">
+                            <h4 className="text-sm font-semibold text-[#0F0F0F]">Authority links</h4>
+                            <div className="grid grid-cols-3 gap-2">
+                              <div className="p-3 bg-[#FAFAF8] rounded-[8px] border border-[#E8E8E4] text-center">
+                                <div className="text-xl font-bold text-[#0F0F0F]">{authorityAudit.govLinks}</div>
+                                <div className="text-xs text-[#9B9B9B] mt-0.5">.gov/.gov.uk</div>
+                              </div>
+                              <div className="p-3 bg-[#FAFAF8] rounded-[8px] border border-[#E8E8E4] text-center">
+                                <div className="text-xl font-bold text-[#0F0F0F]">{authorityAudit.eduLinks}</div>
+                                <div className="text-xs text-[#9B9B9B] mt-0.5">.edu/.ac.uk</div>
+                              </div>
+                              <div className="p-3 bg-[#FAFAF8] rounded-[8px] border border-[#E8E8E4] text-center">
+                                <div className={`text-xl font-bold ${authorityAudit.grade === 'A' ? 'text-green-600' : 'text-amber-600'}`}>{authorityAudit.grade}</div>
+                                <div className="text-xs text-[#9B9B9B] mt-0.5">grade</div>
+                              </div>
+                            </div>
+                            {authorityAudit.suggestions.map((s, i) => (
+                              <p key={i} className="text-xs text-amber-700 bg-amber-50 px-3 py-1.5 rounded-[6px] border border-amber-100">• {s}</p>
+                            ))}
+                            {authorityAudit.grade === 'A' && (
+                              <p className="text-xs text-green-700 bg-green-50 px-3 py-1.5 rounded-[6px] border border-green-100">✓ Authority links meet the AEO threshold (≥2 .gov/.org sources)</p>
+                            )}
+                          </div>
+                        </>
+                      )
+                    })()}
                   </div>
                 )}
 

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { sanitiseForTransport } from '@/lib/sanitise-text';
 import { generateAIBotsRobotsBlock } from '@/lib/robots-checker';
 import type { RobotsCheckResult } from '@/lib/robots-checker';
+import { generateAIJson } from '@/lib/aeo-signals';
 
 // Browser-safe base64 encoder: handles Unicode without deprecated unescape()
 function safeBtoa(str: string): string {
@@ -122,6 +123,10 @@ export default function SiteAuditPage() {
   // Generate llms.txt state
   const [llmsTxtContent, setLlmsTxtContent] = useState<string | null>(null);
   const [llmsTxtMsg, setLlmsTxtMsg] = useState('');
+
+  // AEO — ai.json + Wikidata wizard state
+  const [aiJsonContent, setAiJsonContent] = useState<string | null>(null);
+  const [wikidataStep, setWikidataStep] = useState(0);
 
   // Score simulation (local update after fix)
   const [scoreSimMsg, setScoreSimMsg] = useState<string>('');
@@ -1294,6 +1299,118 @@ export default function SiteAuditPage() {
               {llmsTxtContent.slice(0, 800)}
             </div>
           )}
+
+          {/* Generate ai.json */}
+          <div style={{ background: '#fff', border: '1px solid #E8E8E4', borderRadius: '10px', padding: '14px 18px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' as const, gap: '10px' }}>
+              <div style={{ flex: 1, minWidth: '200px' }}>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#0F0F0F' }}>🤖 Generate ai.json</div>
+                <div style={{ fontSize: '11px', color: '#9B9B9B', marginTop: '2px' }}>
+                  Structured entity file for AI engines — place at <code style={{ fontSize: '10px', background: '#F5F4F1', padding: '0 3px', borderRadius: '3px' }}>/.well-known/ai.json</code> to help AI crawlers identify your brand
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  const domainClean = domain.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0] || 'example.com';
+                  const json = generateAIJson({
+                    name: domainClean,
+                    url: domain.startsWith('http') ? domain : `https://${domainClean}`,
+                    description: `Official website of ${domainClean}`,
+                    sameAs: [],
+                  });
+                  setAiJsonContent(json);
+                  const blob = new Blob([json], { type: 'application/json' });
+                  const a = document.createElement('a');
+                  a.href = URL.createObjectURL(blob);
+                  a.download = 'ai.json';
+                  a.click();
+                  URL.revokeObjectURL(a.href);
+                }}
+                style={{ padding: '8px 16px', background: '#0891b2', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' as const }}
+              >
+                ⬇ Download ai.json
+              </button>
+            </div>
+            {aiJsonContent && (
+              <div style={{ background: '#F0F9FF', borderRadius: '8px', padding: '10px 14px', marginTop: '10px', maxHeight: '120px', overflowY: 'auto', fontSize: '11px', color: '#0c4a6e', fontFamily: 'monospace', whiteSpace: 'pre' as const }}>
+                {aiJsonContent.slice(0, 600)}
+              </div>
+            )}
+          </div>
+
+          {/* Wikidata Wizard */}
+          <div style={{ background: '#fff', border: '1px solid #E8E8E4', borderRadius: '10px', padding: '14px 18px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' as const }}>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#0F0F0F' }}>🌐 Wikidata Entity Wizard</div>
+                <div style={{ fontSize: '11px', color: '#9B9B9B', marginTop: '2px' }}>
+                  Create a Wikidata entry to unlock Google Knowledge Panels and boost AI citation confidence
+                </div>
+              </div>
+              <button
+                onClick={() => setWikidataStep(s => s === 0 ? 1 : 0)}
+                style={{ padding: '7px 14px', background: '#F5F4F1', color: '#0F0F0F', border: '1px solid #E8E8E4', borderRadius: '8px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' as const }}
+              >
+                {wikidataStep === 0 ? 'Start wizard ▼' : 'Hide ▲'}
+              </button>
+            </div>
+            {wikidataStep > 0 && (() => {
+              const domainClean = domain.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0] || 'your-brand';
+              const steps = [
+                { title: 'Create a Wikidata account', detail: 'Go to wikidata.org → Create account. Use your real name or brand name as the username. Confirm your email.' },
+                { title: 'Search for your entity', detail: `Search "Special:Search" on Wikidata for "${domainClean}". If it already exists, skip to step 5. If not, proceed to create a new item.` },
+                { title: 'Create a new item', detail: 'Click "Create a new item" → Enter your brand/company label in English → Add a brief description (e.g. "UK-based SEO software company") → Save.' },
+                { title: 'Add key statements', detail: 'Add: instance of (P31) → business (Q4830453) · official website (P856) → ' + (domain || 'https://yoursite.com') + ' · country (P17) → United Kingdom (Q145) · industry (P452) → search engine optimization (Q183756)' },
+                { title: 'Add sameAs identifiers', detail: 'Link to your Google Business Profile, LinkedIn company page, Companies House number (P1278 → your CH number), Twitter/X handle (P2002). Each cross-link raises AI confidence.' },
+                { title: 'Verify and monitor', detail: 'After saving, paste your Wikidata entity URL (e.g. https://www.wikidata.org/wiki/Q12345) into Google Search Console as a structured data target. Knowledge Panel typically appears within 2–8 weeks.' },
+              ];
+              return (
+                <div style={{ marginTop: '14px' }}>
+                  <div style={{ display: 'flex', gap: '4px', marginBottom: '12px', flexWrap: 'wrap' as const }}>
+                    {steps.map((_, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setWikidataStep(i + 1)}
+                        style={{ width: '28px', height: '28px', borderRadius: '50%', border: 'none', fontSize: '11px', fontWeight: 700, cursor: 'pointer', background: wikidataStep === i + 1 ? '#FF6B2C' : '#F5F4F1', color: wikidataStep === i + 1 ? '#fff' : '#6B6B6B' }}
+                      >
+                        {i + 1}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ background: '#FAFAF8', border: '1px solid #E8E8E4', borderRadius: '8px', padding: '12px 14px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: '#0F0F0F', marginBottom: '6px' }}>Step {wikidataStep}: {steps[wikidataStep - 1].title}</div>
+                    <div style={{ fontSize: '12px', color: '#6B6B6B', lineHeight: 1.6 }}>{steps[wikidataStep - 1].detail}</div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10px' }}>
+                    <button
+                      onClick={() => setWikidataStep(s => Math.max(1, s - 1))}
+                      disabled={wikidataStep === 1}
+                      style={{ padding: '6px 12px', background: '#F5F4F1', color: '#6B6B6B', border: '1px solid #E8E8E4', borderRadius: '8px', fontSize: '12px', cursor: wikidataStep === 1 ? 'not-allowed' : 'pointer', opacity: wikidataStep === 1 ? 0.5 : 1 }}
+                    >
+                      ← Previous
+                    </button>
+                    {wikidataStep < 6 ? (
+                      <button
+                        onClick={() => setWikidataStep(s => s + 1)}
+                        style={{ padding: '6px 12px', background: '#FF6B2C', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}
+                      >
+                        Next →
+                      </button>
+                    ) : (
+                      <a
+                        href="https://www.wikidata.org/wiki/Special:NewItem"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ padding: '6px 12px', background: '#16A34A', color: '#fff', borderRadius: '8px', fontSize: '12px', fontWeight: 700, textDecoration: 'none' }}
+                      >
+                        Open Wikidata →
+                      </a>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
 
           {/* Expanded categories note — shown after a fresh/smart audit */}
           {showExpandedNote && (

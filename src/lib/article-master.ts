@@ -476,6 +476,17 @@ The article's primary answer or key conclusion MUST appear within the first 30% 
 
 NEVER bury the answer. NEVER start with "In today's world..." or vague intros. Lead with the answer.
 
+HEADING STRUCTURE RULE (mandatory):
+- Every H2 heading MUST be phrased as a question or contain a question word (How, What, Why, When, Where, Which, Who)
+- Minimum 4 of 6 H2 headings must be question-format
+- Never skip heading levels: H1 → H2 → H3 only, never H1 → H3
+
+AUTHORITY LINKS RULE (mandatory):
+- Every article MUST include at least 2 external links to authoritative sources (.gov, .gov.uk, .ac.uk, .org, official regulatory bodies)
+- Link text must be descriptive — never use "click here", "here", "read more", or "this"
+- Format: <a href="URL" rel="noopener">Descriptive anchor text</a>
+- If the topic involves UK regulations, always link to the specific gov.uk page, not the homepage
+
 SECONDARY KEYWORDS: each used at least once naturally in body text
 HEADING HIERARCHY: Exactly one H1. 6-8 H2 sections minimum. H3 subsections where needed.
 INTERNAL LINKS: Use links specified above. Descriptive anchor text only. Max 3 links.

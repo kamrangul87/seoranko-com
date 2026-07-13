@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { InternalLinksPanel } from "@/components/InternalLinksPanel";
 import { OrganisationSchemaSettings } from "@/components/OrganisationSchemaSettings";
 import type { InternalLink } from "@/lib/article-master";
+import { auditHeadingStructure, auditAuthorityLinks, scoreContentFreshness, generateLLMsEntry, generateAIJson } from "@/lib/aeo-signals";
 import type {
   KeywordResult,
   ArticleOutput,
@@ -2207,6 +2208,42 @@ export default function DashboardPage() {
                         </div>
                       </div>
                     </div>
+
+                    {/* AEO Signals */}
+                    {(() => {
+                      const headingAudit = auditHeadingStructure(article.article)
+                      const authorityAudit = auditAuthorityLinks(article.article)
+                      const freshness = scoreContentFreshness(new Date().toISOString())
+                      return (
+                        <div className="mt-3 pt-3 border-t border-[#E8E8E4] space-y-2">
+                          <p className="text-[9px] font-semibold text-[#6B6B6B] uppercase tracking-wide mb-2">AEO signals</p>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-[#6B6B6B]">Question headings</span>
+                            <div className="flex items-center gap-1">
+                              <span className={`text-[10px] font-medium ${headingAudit.grade === 'A' ? 'text-green-600' : 'text-amber-600'}`}>{headingAudit.questionH2}/{headingAudit.totalH2}</span>
+                              <span className={`text-[9px] px-1 py-0.5 rounded font-medium ${headingAudit.grade === 'A' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>{headingAudit.grade}</span>
+                              {headingAudit.grade !== 'A' && (improveCounts['heading_structure'] ?? 0) < 3 && (
+                                <button onClick={() => handleImproveScore('heading_structure', 0)} disabled={improvingScore !== null} className="text-[9px] text-[#FF6B2C] hover:text-[#E85A1E] disabled:opacity-40">↻</button>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-[#6B6B6B]">Authority links</span>
+                            <div className="flex items-center gap-1">
+                              <span className={`text-[10px] font-medium ${authorityAudit.totalAuthorityLinks >= 2 ? 'text-green-600' : 'text-amber-600'}`}>{authorityAudit.totalAuthorityLinks}</span>
+                              <span className={`text-[9px] px-1 py-0.5 rounded font-medium ${authorityAudit.grade === 'A' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>{authorityAudit.grade}</span>
+                              {authorityAudit.grade !== 'A' && (improveCounts['authority_links'] ?? 0) < 3 && (
+                                <button onClick={() => handleImproveScore('authority_links', 0)} disabled={improvingScore !== null} className="text-[9px] text-[#FF6B2C] hover:text-[#E85A1E] disabled:opacity-40">↻</button>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-[#6B6B6B]">Freshness</span>
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full" style={{ background: freshness.color + '18', color: freshness.color }}>{freshness.label}</span>
+                          </div>
+                        </div>
+                      )
+                    })()}
                   </div>
 
                   {linkAudit && (linkAudit.placed.length > 0 || linkAudit.skipped.length > 0) && (
@@ -2458,6 +2495,30 @@ export default function DashboardPage() {
                     </div>
                   )}
                 </div>
+
+                {/* Heading preservation check */}
+                {(() => {
+                  const original = humanizeInput.trim() || article?.article || ''
+                  if (!original) return null
+                  const preHumanize = auditHeadingStructure(original)
+                  const postHumanize = auditHeadingStructure(humanizeResult.humanizedHtml)
+                  const lost = preHumanize.questionH2 - postHumanize.questionH2
+                  if (lost > 0) {
+                    return (
+                      <div className="bg-amber-50 border border-amber-200 rounded-[8px] p-3 text-sm text-amber-800">
+                        ⚠ Humanization changed {lost} question heading{lost > 1 ? 's' : ''} to statements. AEO score may have decreased. Use the heading_structure improve button to restore them.
+                      </div>
+                    )
+                  }
+                  if (postHumanize.questionH2 >= preHumanize.questionH2 && preHumanize.totalH2 > 0) {
+                    return (
+                      <div className="bg-teal-50 border border-teal-200 rounded-[8px] p-3 text-sm text-teal-800">
+                        ✓ Question headings preserved ({postHumanize.questionH2}/{postHumanize.totalH2})
+                      </div>
+                    )
+                  }
+                  return null
+                })()}
 
                 {/* Copy buttons */}
                 <div className="flex gap-3">
@@ -2776,6 +2837,67 @@ export default function DashboardPage() {
                 />
               </div>
             )}
+
+            {/* llms.txt Manager */}
+            {userProfile && (
+              <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-6 mt-5">
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-[#6B6B6B] mb-5">AI Discovery Files</h2>
+                <div className="space-y-6">
+                  {/* llms.txt */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-800">llms.txt file</h4>
+                        <p className="text-xs text-gray-500 mt-0.5">AI-readable content index for your site</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const domain = userProfile.org_url || 'https://yoursite.com'
+                          const siteName = (userProfile.org_name || domain.replace(/^https?:\/\//, '').split('.')[0]) || 'My Site'
+                          const isoDate = new Date().toISOString().split('T')[0]
+                          const content = `# ${siteName} — AI-readable content index\n# Generated by SEORANKO | ${isoDate}\n# Format: https://llmstxt.org\n\n> This site covers ${userProfile.org_description || siteName}.\n`
+                          const blob = new Blob([content], { type: 'text/plain' })
+                          const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'llms.txt'; a.click()
+                        }}
+                        className="text-sm font-medium text-purple-600 hover:text-purple-700 border border-purple-200 px-3 py-1.5 rounded-lg"
+                      >
+                        Download llms.txt
+                      </button>
+                    </div>
+                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 text-xs text-gray-600 font-mono">
+                      {`# ${userProfile.org_name || 'My Site'} — AI-readable content index\n# Generated by SEORANKO\n# Format: https://llmstxt.org`}
+                    </div>
+                    <p className="text-xs text-gray-400">Upload this file to your website root as /llms.txt</p>
+                  </div>
+
+                  {/* ai.json */}
+                  <div className="border-t border-gray-100 pt-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-800">/.well-known/ai.json</h4>
+                        <p className="text-xs text-gray-500 mt-0.5">Emerging standard for AI engine entity discovery</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const aiJson = generateAIJson({
+                            name: userProfile.org_name || '',
+                            url: userProfile.org_url || '',
+                            description: userProfile.org_description || '',
+                            sameAs: [userProfile.org_linkedin, userProfile.org_twitter, userProfile.org_github].filter(Boolean) as string[]
+                          })
+                          const blob = new Blob([aiJson], { type: 'application/json' })
+                          const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'ai.json'; a.click()
+                        }}
+                        className="text-sm font-medium text-purple-600 hover:text-purple-700 border border-purple-200 px-3 py-1.5 rounded-lg"
+                      >
+                        Download ai.json
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-400">Upload to: yoursite.com/.well-known/ai.json</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -2858,6 +2980,19 @@ export default function DashboardPage() {
               );
             })}
           </div>
+
+          {/* AEO opportunity badge */}
+          {(() => {
+            const questionWords = /^(how|what|why|when|where|which|who)/i
+            const questionCount = panelKeywords.filter(pk => questionWords.test(pk.keyword.trim())).length
+            const aeoOpportunity = panelKeywords.length > 0 && questionCount / panelKeywords.length > 0.4
+            return aeoOpportunity ? (
+              <div className="flex items-center gap-1.5 mb-3 text-xs text-teal-700 bg-teal-50 px-2 py-1 rounded-md border border-teal-200">
+                <span>★</span>
+                <span>{questionCount} question keywords — high AEO potential</span>
+              </div>
+            ) : null
+          })()}
 
           {/* Add keyword input */}
           <div className="flex gap-2">

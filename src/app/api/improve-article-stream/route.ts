@@ -53,6 +53,24 @@ Make surgical improvements only:
 3. Add keyword to H2 heading if missing
 Return the full improved article. End with: <!-- CHANGES: [what changed] -->`,
 
+  heading_structure: `You are an SEO editor improving heading structure for AEO (Answer Engine Optimisation). Make ONLY these changes:
+1. Convert statement H2s into questions (e.g. "The Benefits of X" → "What Are the Benefits of X?")
+2. Ensure at least 4 of 6 H2s start with a question word: How, What, Why, When, Where, Which, Who
+3. Fix any skipped heading levels (H1 → H3 without H2 — insert an H2 between them)
+4. Ensure exactly one H1 tag
+5. Make question headings specific, not vague
+DO NOT rewrite the article body. Only change heading text.
+Return the full article. End with: <!-- CHANGES: [headings changed] -->`,
+
+  authority_links: `You are an SEO editor adding authoritative external links. Make ONLY these changes:
+1. Identify 2-3 claims referencing regulations, statistics, or official guidance
+2. Add a link to the authoritative source (.gov.uk, .ac.uk, official regulatory body)
+3. Replace weak anchor text ("click here", "here", "this") with descriptive text
+4. Ensure all external links have rel="noopener"
+5. Do NOT link to commercial websites — only authoritative sources
+DO NOT change content other than adding links.
+Return the full article. End with: <!-- CHANGES: [links added] -->`,
+
   all: `You are an expert editor doing a comprehensive improvement pass. Apply ALL:
 1. EEAT: Add 1 firsthand detail, strengthen 2 claims with sources
 2. Readability: Break long paragraphs, simplify jargon

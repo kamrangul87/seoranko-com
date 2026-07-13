@@ -497,6 +497,11 @@ export default function DiscoveryPage() {
                         <div className="w-28">
                           <GapBar score={opp.gapScore} />
                         </div>
+                        {/^(how|what|why|when|where|which|who)/i.test(opp.problem.trim()) && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-[6px] bg-teal-50 text-teal-700 border border-teal-200">
+                            ★ AEO
+                          </span>
+                        )}
                         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-[6px] ${COMPETITION_STYLES[opp.competition] ?? "bg-[#E8E8E4] text-[#6B6B6B]"}`}>
                           {opp.competition}
                         </span>

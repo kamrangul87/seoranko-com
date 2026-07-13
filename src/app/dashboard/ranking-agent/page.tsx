@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 import { useState, useEffect } from 'react';
+import { scoreContentFreshness } from '@/lib/aeo-signals';
 
 export default function RankingAgentPage() {
   const [articles, setArticles] = useState<any[]>([]);
@@ -449,6 +450,18 @@ export default function RankingAgentPage() {
                     <td style={s.td}>
                       <div style={{ fontWeight: 600, marginBottom: '2px', fontSize: '13px' }}>{article.keyword}</div>
                       <div style={{ fontSize: '11px', color: '#9B9B9B', wordBreak: 'break-all' }}>{article.url}</div>
+                      {article.created_at && (() => {
+                        const freshness = scoreContentFreshness(article.created_at)
+                        if (freshness.status === 'stale' || freshness.status === 'very-stale') {
+                          return (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 8px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: '6px', marginTop: '4px', fontSize: '11px' }}>
+                              <span style={{ color: '#92400E', fontWeight: 600 }}>⚠ Stale ({freshness.daysSincePublish}d)</span>
+                              <span style={{ color: '#B45309' }}>{freshness.aeoImpact}</span>
+                            </div>
+                          )
+                        }
+                        return null
+                      })()}
                     </td>
                     <td style={s.td}>
                       {getPositionBadge(article.current_position, article.previous_position)}

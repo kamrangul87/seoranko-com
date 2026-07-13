@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { auditHeadingStructure, auditAuthorityLinks, scoreContentFreshness } from '@/lib/aeo-signals'
 
 interface ContentScoresProps {
   scores: {
@@ -16,6 +17,7 @@ interface ContentScoresProps {
   title?: string
   wordCount?: number
   keywordDensity?: number
+  publishDate?: string
   onArticleImproved: (newContent: string, target: string) => void
 }
 
@@ -29,8 +31,11 @@ interface ScoreItem {
 
 export function ContentScores({
   scores, articleId, articleContent, keyword, title,
-  wordCount, keywordDensity, onArticleImproved
+  wordCount, keywordDensity, publishDate, onArticleImproved
 }: ContentScoresProps) {
+  const headingAudit = auditHeadingStructure(articleContent)
+  const authorityAudit = auditAuthorityLinks(articleContent)
+  const freshness = scoreContentFreshness(publishDate || new Date().toISOString())
   const [improving, setImproving] = useState<string | null>(null)
   const [improved, setImproved] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
@@ -220,6 +225,73 @@ export function ContentScores({
               {keywordDensity < 0.5 && ' ↓ low'}
               {keywordDensity > 2.5 && ' ↑ high'}
             </span>
+          </div>
+        )}
+      </div>
+
+      {/* AEO Signals */}
+      <div className="border-t border-gray-100 pt-3 mt-3 space-y-2">
+        <p className="text-xs font-medium text-gray-500 mb-2">AEO signals</p>
+
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-gray-500">Question headings</span>
+          <div className="flex items-center gap-1.5">
+            <span className={`text-xs font-medium ${headingAudit.grade === 'A' ? 'text-green-600' : headingAudit.grade === 'B' ? 'text-blue-600' : 'text-amber-600'}`}>
+              {headingAudit.questionH2}/{headingAudit.totalH2}
+            </span>
+            <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${headingAudit.grade === 'A' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+              {headingAudit.grade}
+            </span>
+            {headingAudit.grade !== 'A' && !improved['heading_structure'] && (
+              <button
+                onClick={() => handleImprove('heading_structure', 0)}
+                disabled={!!improving}
+                className="text-xs text-orange-500 hover:text-orange-600 underline underline-offset-2 disabled:opacity-40 transition-colors"
+              >
+                {improving === 'heading_structure' ? '…' : '↑ Fix'}
+              </button>
+            )}
+            {improved['heading_structure'] && <span className="text-xs text-green-600">✓</span>}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-gray-500">Authority links</span>
+          <div className="flex items-center gap-1.5">
+            <span className={`text-xs font-medium ${authorityAudit.totalAuthorityLinks >= 2 ? 'text-green-600' : 'text-amber-600'}`}>
+              {authorityAudit.totalAuthorityLinks} .gov/.org
+            </span>
+            <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${authorityAudit.grade === 'A' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+              {authorityAudit.grade}
+            </span>
+            {authorityAudit.grade !== 'A' && !improved['authority_links'] && (
+              <button
+                onClick={() => handleImprove('authority_links', 0)}
+                disabled={!!improving}
+                className="text-xs text-orange-500 hover:text-orange-600 underline underline-offset-2 disabled:opacity-40 transition-colors"
+              >
+                {improving === 'authority_links' ? '…' : '↑ Add'}
+              </button>
+            )}
+            {improved['authority_links'] && <span className="text-xs text-green-600">✓</span>}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-gray-500">Freshness</span>
+          <span
+            className="text-xs font-medium px-2 py-0.5 rounded-full"
+            style={{ background: freshness.color + '18', color: freshness.color }}
+          >
+            {freshness.label} · {freshness.daysSincePublish}d
+          </span>
+        </div>
+
+        {headingAudit.issues.length > 0 && (
+          <div className="mt-2 p-2 bg-amber-50 rounded border border-amber-100">
+            {headingAudit.issues.map((issue, i) => (
+              <p key={i} className="text-xs text-amber-700">• {issue}</p>
+            ))}
           </div>
         )}
       </div>

@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 
-export type ImproveTarget = 'eeat' | 'readability' | 'human_score' | 'fact_sourcing' | 'keyword_density' | 'all'
+export type ImproveTarget = 'eeat' | 'readability' | 'human_score' | 'fact_sourcing' | 'keyword_density' | 'heading_structure' | 'authority_links' | 'all'
 
 export interface ImproveRequest {
   articleContent: string
@@ -86,6 +86,32 @@ DO NOT keyword-stuff. DO NOT rewrite the entire article.
 Return the complete improved article with your changes applied.
 At the end, add: <!-- CHANGES: [brief list of what you changed] -->`,
 
+  heading_structure: `You are an SEO editor improving heading structure for AEO (Answer Engine Optimisation).
+
+Make ONLY these targeted improvements:
+1. Convert any H2 headings that are statements into questions (e.g. "The Benefits of X" → "What Are the Benefits of X?")
+2. Ensure at least 4 of 6 H2 headings start with a question word: How, What, Why, When, Where, Which, Who
+3. Fix any skipped heading levels (H1 directly to H3 — insert an H2 between them)
+4. Ensure there is exactly one H1 tag in the article
+5. Make question headings specific, not vague ("What Is SEO?" is too generic — "What Is SEO and Why Does It Matter in 2026?" is better)
+
+DO NOT rewrite the article body. Only change heading text.
+Return the complete article with heading improvements applied.
+At the end, add: <!-- CHANGES: [list of headings changed] -->`,
+
+  authority_links: `You are an SEO editor adding authoritative external links to an article.
+
+Make ONLY these targeted improvements:
+1. Identify 2-3 claims in the article that reference regulations, statistics, or official guidance
+2. Add a link to the authoritative source for each: .gov.uk, .ac.uk, official regulatory body, or peer-reviewed publication
+3. Replace any weak anchor text ("click here", "here", "this") with descriptive text
+4. Ensure all external links have rel="noopener"
+5. Do NOT add links to commercial websites — only to genuinely authoritative sources
+
+DO NOT change the article content other than adding links.
+Return the complete article with links added.
+At the end, add: <!-- CHANGES: [links added] -->`,
+
   all: `You are an expert editor doing a comprehensive improvement pass on an article.
 
 Apply ALL of these improvements:
@@ -126,7 +152,8 @@ ${request.articleContent}`
   const cleanedContent = improved.replace(/<!--\s*CHANGES:[\s\S]*?-->/g, '').trim()
 
   const scoreGainMap: Record<ImproveTarget, number> = {
-    eeat: 10, readability: 12, human_score: 15, fact_sourcing: 8, keyword_density: 5, all: 20
+    eeat: 10, readability: 12, human_score: 15, fact_sourcing: 8,
+    keyword_density: 5, heading_structure: 8, authority_links: 6, all: 20
   }
 
   return {
