@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { InternalLinksPanel } from "@/components/InternalLinksPanel";
 import { OrganisationSchemaSettings } from "@/components/OrganisationSchemaSettings";
 import type { InternalLink } from "@/lib/article-master";
-import { auditHeadingStructure, auditAuthorityLinks, scoreContentFreshness, generateLLMsEntry, generateAIJson } from "@/lib/aeo-signals";
+import { auditHeadingStructure, auditAuthorityLinks, scoreContentFreshness, generateAIJson } from "@/lib/aeo-signals";
 import type {
   KeywordResult,
   ArticleOutput,
