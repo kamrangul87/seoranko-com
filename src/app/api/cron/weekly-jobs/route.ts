@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
+import { checkBatchRanks } from '@/lib/rank-tracker'
+import { handleRankDrop } from '@/lib/rank-guard'
 import { runWeeklyFreshnessJobs } from '@/lib/freshness-automation'
+import { checkArticleCitation } from '@/lib/citation-tracker'
 
 export const maxDuration = 300
 
@@ -9,6 +13,146 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const result = await runWeeklyFreshnessJobs()
-  return NextResponse.json({ success: true, ...result })
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+
+  const results = {
+    rankChecks: 0,
+    rankDrops: 0,
+    reoptimised: 0,
+    citationChecks: 0,
+    freshnessRefreshes: 0,
+    errors: [] as string[]
+  }
+
+  try {
+    // Step 1: get all tracked articles
+    const { data: tracked } = await supabase
+      .from('ranking_agent_articles')
+      .select(`
+        id, keyword, article_url, current_position,
+        location_code, user_id, title, last_citation_check,
+        articles (
+          id, content, rank_score, fact_density_score,
+          eeat_score, readability_score, human_score, created_at
+        )
+      `)
+      .limit(50)
+
+    if (!tracked?.length) {
+      return NextResponse.json({ success: true, message: 'No tracked articles', ...results })
+    }
+
+    // Step 2: batch rank check
+    const rankInputs = tracked.map(a => ({
+      keyword: a.keyword,
+      url: a.article_url,
+      previousPosition: a.current_position,
+      locationCode: a.location_code || 2840
+    }))
+
+    const rankResults = await checkBatchRanks(rankInputs)
+    results.rankChecks = rankResults.length
+
+    // Step 3: save results + trigger re-optimise on drops
+    for (let i = 0; i < rankResults.length; i++) {
+      const rank = rankResults[i]
+      const article_record = tracked[i]
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const article = article_record.articles as any
+
+      const prevPos = article_record.current_position
+      const newPos = rank.position
+      const change = prevPos != null && newPos != null ? prevPos - newPos : null
+
+      // Save to rank history
+      await supabase.from('rank_history').insert({
+        ranking_article_id: article_record.id,
+        user_id: article_record.user_id,
+        keyword: rank.keyword,
+        position: newPos,
+        previous_position: prevPos,
+        position_change: change,
+        location_code: rank.locationCode,
+        location_name: rank.locationName,
+        top_competitor: rank.topCompetitor,
+        serp_features: rank.serpFeatures,
+        checked_at: rank.checkedAt
+      })
+
+      // Update current position on tracking record
+      await supabase
+        .from('ranking_agent_articles')
+        .update({
+          current_position: newPos,
+          previous_position: prevPos,
+          position_change: change,
+          top_competitor: rank.topCompetitor,
+          last_rank_check: rank.checkedAt
+        })
+        .eq('id', article_record.id)
+
+      // Auto re-optimise if dropped 3+ positions
+      if (change !== null && change <= -3 && article?.content) {
+        results.rankDrops++
+        const reopt = await handleRankDrop(
+          {
+            articleId: article.id,
+            keyword: rank.keyword,
+            previousPosition: prevPos!,
+            currentPosition: newPos!,
+            drop: Math.abs(change)
+          },
+          article.content,
+          article_record.title || rank.keyword,
+          {
+            eeat: article.eeat_score,
+            readability: article.readability_score,
+            humanScore: article.human_score,
+            factDensity: article.fact_density_score
+          }
+        )
+        if (reopt.triggered) results.reoptimised++
+      }
+    }
+
+    // Step 4: citation checks — max 10 per week to control Perplexity API costs
+    const citationDue = tracked
+      .filter(a => {
+        if (!a.last_citation_check) return true
+        const days = (Date.now() - new Date(a.last_citation_check).getTime()) / 86400000
+        return days >= 7
+      })
+      .slice(0, 10)
+
+    for (const a of citationDue) {
+      try {
+        const cit = await checkArticleCitation(a.keyword, a.article_url)
+        await supabase
+          .from('ranking_agent_articles')
+          .update({
+            perplexity_cited: cit.isCited,
+            cited_competitors: cit.citedCompetitors,
+            citation_share_of_voice: cit.shareOfVoice,
+            last_citation_check: cit.checkedAt
+          })
+          .eq('id', a.id)
+        results.citationChecks++
+      } catch (err) {
+        results.errors.push(`Citation failed: ${a.keyword} — ${String(err)}`)
+      }
+    }
+
+    // Step 5: freshness refresh
+    const fresh = await runWeeklyFreshnessJobs()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    results.freshnessRefreshes = (fresh as any).refreshed || 0
+
+  } catch (err) {
+    results.errors.push(String(err))
+  }
+
+  return NextResponse.json({ success: true, ...results })
 }

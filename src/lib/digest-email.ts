@@ -17,6 +17,9 @@ export interface DigestArticle {
   keyword: string
   rankScore: number
   rankChange: number | null     // + = improved, - = dropped, null = no data
+  currentPosition: number | null
+  positionChange: number | null
+  locationCode?: number
   isCited: boolean | null
   citedCompetitors: string[]
   freshnessStatus: string
@@ -29,15 +32,29 @@ export function buildDigestHTML(data: DigestData): string {
 
   const articleRows = articles.slice(0, 10).map(a => `
     <tr style="border-bottom:1px solid #F3F4F6">
-      <td style="padding:12px 8px;font-size:13px;color:#111827;max-width:200px">${a.title}</td>
-      <td style="padding:12px 8px;text-align:center">
+      <td style="padding:10px 8px;font-size:13px;color:#111827;max-width:160px">${a.title}</td>
+      <td style="padding:10px 8px;text-align:center">
         <span style="font-size:14px;font-weight:600;color:${a.rankScore >= 80 ? '#1D9E75' : a.rankScore >= 60 ? '#BA7517' : '#E24B4A'}">${a.rankScore}</span>
       </td>
-      <td style="padding:12px 8px;text-align:center;font-size:13px">
+      <td style="padding:10px 8px;text-align:center;font-size:13px">
+        ${a.currentPosition
+          ? `<span style="font-weight:600">#${a.currentPosition}</span>${
+              a.positionChange
+                ? a.positionChange > 0
+                  ? `<span style="color:#1D9E75;font-size:11px"> ↑${a.positionChange}</span>`
+                  : a.positionChange < 0
+                    ? `<span style="color:#E24B4A;font-size:11px"> ↓${Math.abs(a.positionChange)}</span>`
+                    : ''
+                : ''
+            }`
+          : '<span style="color:#9CA3AF">—</span>'
+        }
+      </td>
+      <td style="padding:10px 8px;text-align:center;font-size:13px">
         ${a.isCited === null ? '<span style="color:#9CA3AF">—</span>' : a.isCited ? '<span style="color:#1D9E75">✓</span>' : '<span style="color:#E24B4A">✗</span>'}
       </td>
-      <td style="padding:12px 8px;text-align:center">
-        <span style="font-size:11px;padding:2px 8px;border-radius:20px;background:${a.freshnessStatus === 'fresh' ? '#E1F5EE' : a.freshnessStatus === 'aging' ? '#FAEEDA' : '#FCEBEB'};color:${a.freshnessStatus === 'fresh' ? '#085041' : a.freshnessStatus === 'aging' ? '#633806' : '#791F1F'}">${a.freshnessStatus}</span>
+      <td style="padding:10px 8px;text-align:center">
+        <span style="font-size:11px;padding:2px 7px;border-radius:20px;background:${a.freshnessStatus === 'fresh' ? '#E1F5EE' : a.freshnessStatus === 'aging' ? '#FAEEDA' : '#FCEBEB'};color:${a.freshnessStatus === 'fresh' ? '#085041' : a.freshnessStatus === 'aging' ? '#633806' : '#791F1F'}">${a.freshnessStatus}</span>
       </td>
     </tr>
   `).join('')
@@ -85,8 +102,9 @@ export function buildDigestHTML(data: DigestData): string {
           <tr style="border-bottom:2px solid #E5E7EB">
             <th style="padding:8px;text-align:left;font-size:11px;color:#6B7280;font-weight:500">Article</th>
             <th style="padding:8px;text-align:center;font-size:11px;color:#6B7280;font-weight:500">RANK</th>
+            <th style="padding:8px;text-align:center;font-size:11px;color:#6B7280;font-weight:500">Position</th>
             <th style="padding:8px;text-align:center;font-size:11px;color:#6B7280;font-weight:500">AI cited</th>
-            <th style="padding:8px;text-align:center;font-size:11px;color:#6B7280;font-weight:500">Freshness</th>
+            <th style="padding:8px;text-align:center;font-size:11px;color:#6B7280;font-weight:500">Fresh</th>
           </tr>
         </thead>
         <tbody>${articleRows}</tbody>
@@ -105,12 +123,30 @@ export function buildDigestHTML(data: DigestData): string {
 }
 
 export function computeTopAction(articles: DigestArticle[]): string {
-  const staleArticles = articles.filter(a => a.needsRefresh)
-  const uncitedArticles = articles.filter(a => a.isCited === false)
-  const lowScoreArticles = articles.filter(a => a.rankScore < 60)
+  const droppedArticles = articles.filter(
+    a => a.positionChange !== null && a.positionChange < -3
+  )
+  if (droppedArticles.length > 0) {
+    const worst = droppedArticles.sort((a, b) =>
+      (a.positionChange || 0) - (b.positionChange || 0)
+    )[0]
+    return `"${worst.title}" dropped ${Math.abs(worst.positionChange!)} positions this week — auto-fix has been applied. Check the article and consider a manual review.`
+  }
 
-  if (staleArticles.length > 0) return `Refresh "${staleArticles[0].title}" — it's ${staleArticles[0].freshnessStatus} and 3× less likely to be cited by AI engines`
-  if (uncitedArticles.length > 0) return `Improve AI citability for "${uncitedArticles[0].title}" — competitors are being cited instead. Check fact density and schema.`
-  if (lowScoreArticles.length > 0) return `Boost RANK score for "${lowScoreArticles[0].title}" (currently ${lowScoreArticles[0].rankScore}/100) — click Improve All in the article editor`
-  return 'All articles are in good shape — consider generating a new article for a related keyword cluster'
+  const stale = articles.filter(a => a.needsRefresh)
+  if (stale.length > 0) {
+    return `Refresh "${stale[0].title}" — content is ${stale[0].freshnessStatus} and 3× less likely to be cited by AI engines`
+  }
+
+  const uncited = articles.filter(a => a.isCited === false)
+  if (uncited.length > 0) {
+    return `Improve AI citability for "${uncited[0].title}" — competitors are being cited instead. Check fact density and schema.`
+  }
+
+  const lowScore = articles.filter(a => a.rankScore < 60)
+  if (lowScore.length > 0) {
+    return `Boost RANK score for "${lowScore[0].title}" (currently ${lowScore[0].rankScore}/100) — click Improve All in the article editor`
+  }
+
+  return 'All articles are performing well — consider generating a new article targeting a related keyword cluster'
 }
