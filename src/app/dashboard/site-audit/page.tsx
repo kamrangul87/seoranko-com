@@ -5,6 +5,7 @@ import { sanitiseForTransport } from '@/lib/sanitise-text';
 import { generateAIBotsRobotsBlock } from '@/lib/robots-checker';
 import type { RobotsCheckResult } from '@/lib/robots-checker';
 import { generateAIJson } from '@/lib/aeo-signals';
+import { GEOAuditor } from '@/components/GEOAuditor';
 
 // Browser-safe base64 encoder: handles Unicode without deprecated unescape()
 function safeBtoa(str: string): string {
@@ -936,6 +937,11 @@ export default function SiteAuditPage() {
   // ── RENDER ─────────────────────────────────────────────────────────────────
   return (
     <div style={{ padding: '32px', maxWidth: '1100px', margin: '0 auto', fontFamily: 'system-ui, sans-serif' }}>
+
+      {/* GEO Site Auditor — primary Phase 2 feature */}
+      <div style={{ background: '#fff', border: '1px solid #E8E8E4', borderRadius: '14px', padding: '24px', marginBottom: '32px' }}>
+        <GEOAuditor />
+      </div>
 
       {/* Header */}
       <div style={{ marginBottom: '28px' }}>

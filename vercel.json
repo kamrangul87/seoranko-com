@@ -7,5 +7,9 @@
     "src/app/api/pipeline/write/route.ts": {
       "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    { "path": "/api/cron/weekly-jobs", "schedule": "0 8 * * 1" },
+    { "path": "/api/cron/send-digests", "schedule": "0 9 * * 1" }
+  ]
 }

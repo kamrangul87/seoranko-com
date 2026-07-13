@@ -1,0 +1,116 @@
+// src/lib/digest-email.ts
+// Weekly Monday digest email — makes SEORANKO indispensable
+// Sends via Resend
+
+export interface DigestData {
+  userName: string
+  userEmail: string
+  weekEnding: string
+  articles: DigestArticle[]
+  topAction: string
+  freshnessSummary: { fresh: number; aging: number; stale: number }
+  citationSummary: { cited: number; notCited: number; unchecked: number }
+}
+
+export interface DigestArticle {
+  title: string
+  keyword: string
+  rankScore: number
+  rankChange: number | null     // + = improved, - = dropped, null = no data
+  isCited: boolean | null
+  citedCompetitors: string[]
+  freshnessStatus: string
+  needsRefresh: boolean
+  topAction: string
+}
+
+export function buildDigestHTML(data: DigestData): string {
+  const { userName, weekEnding, articles, topAction, freshnessSummary, citationSummary } = data
+
+  const articleRows = articles.slice(0, 10).map(a => `
+    <tr style="border-bottom:1px solid #F3F4F6">
+      <td style="padding:12px 8px;font-size:13px;color:#111827;max-width:200px">${a.title}</td>
+      <td style="padding:12px 8px;text-align:center">
+        <span style="font-size:14px;font-weight:600;color:${a.rankScore >= 80 ? '#1D9E75' : a.rankScore >= 60 ? '#BA7517' : '#E24B4A'}">${a.rankScore}</span>
+      </td>
+      <td style="padding:12px 8px;text-align:center;font-size:13px">
+        ${a.isCited === null ? '<span style="color:#9CA3AF">—</span>' : a.isCited ? '<span style="color:#1D9E75">✓</span>' : '<span style="color:#E24B4A">✗</span>'}
+      </td>
+      <td style="padding:12px 8px;text-align:center">
+        <span style="font-size:11px;padding:2px 8px;border-radius:20px;background:${a.freshnessStatus === 'fresh' ? '#E1F5EE' : a.freshnessStatus === 'aging' ? '#FAEEDA' : '#FCEBEB'};color:${a.freshnessStatus === 'fresh' ? '#085041' : a.freshnessStatus === 'aging' ? '#633806' : '#791F1F'}">${a.freshnessStatus}</span>
+      </td>
+    </tr>
+  `).join('')
+
+  return `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F9FAFB;margin:0;padding:20px">
+  <div style="max-width:600px;margin:0 auto;background:#FFFFFF;border-radius:12px;overflow:hidden;border:1px solid #E5E7EB">
+
+    <!-- Header -->
+    <div style="background:#FF6B2C;padding:24px 28px">
+      <p style="margin:0;color:#FFFFFF;font-size:11px;letter-spacing:.08em;text-transform:uppercase;opacity:.8">SEORANKO · Weekly Digest</p>
+      <h1 style="margin:6px 0 0;color:#FFFFFF;font-size:22px;font-weight:600">Week ending ${weekEnding}</h1>
+    </div>
+
+    <!-- Top action -->
+    <div style="padding:20px 28px;background:#FFF7F0;border-bottom:1px solid #FFE4CC">
+      <p style="margin:0;font-size:11px;color:#9A4E1A;font-weight:500;text-transform:uppercase;letter-spacing:.06em">Your #1 action this week</p>
+      <p style="margin:6px 0 0;font-size:15px;color:#7C3A0F;font-weight:500">${topAction}</p>
+    </div>
+
+    <!-- Summary stats -->
+    <div style="display:flex;padding:20px 28px;gap:16px;border-bottom:1px solid #F3F4F6">
+      <div style="flex:1;text-align:center">
+        <div style="font-size:24px;font-weight:700;color:#1D9E75">${citationSummary.cited}</div>
+        <div style="font-size:11px;color:#6B7280;margin-top:2px">Articles cited by AI</div>
+      </div>
+      <div style="flex:1;text-align:center">
+        <div style="font-size:24px;font-weight:700;color:#E24B4A">${citationSummary.notCited}</div>
+        <div style="font-size:11px;color:#6B7280;margin-top:2px">Not yet cited</div>
+      </div>
+      <div style="flex:1;text-align:center">
+        <div style="font-size:24px;font-weight:700;color:#BA7517">${freshnessSummary.stale}</div>
+        <div style="font-size:11px;color:#6B7280;margin-top:2px">Need refreshing</div>
+      </div>
+    </div>
+
+    <!-- Article table -->
+    <div style="padding:20px 28px">
+      <p style="margin:0 0 12px;font-size:13px;font-weight:600;color:#374151">Tracked articles — hi ${userName}</p>
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="border-bottom:2px solid #E5E7EB">
+            <th style="padding:8px;text-align:left;font-size:11px;color:#6B7280;font-weight:500">Article</th>
+            <th style="padding:8px;text-align:center;font-size:11px;color:#6B7280;font-weight:500">RANK</th>
+            <th style="padding:8px;text-align:center;font-size:11px;color:#6B7280;font-weight:500">AI cited</th>
+            <th style="padding:8px;text-align:center;font-size:11px;color:#6B7280;font-weight:500">Freshness</th>
+          </tr>
+        </thead>
+        <tbody>${articleRows}</tbody>
+      </table>
+    </div>
+
+    <!-- Footer -->
+    <div style="padding:16px 28px;background:#F9FAFB;border-top:1px solid #E5E7EB">
+      <p style="margin:0;font-size:12px;color:#9CA3AF">
+        SEORANKO · <a href="https://seoranko.com/dashboard" style="color:#FF6B2C">Open dashboard</a> · <a href="https://seoranko.com/unsubscribe" style="color:#9CA3AF">Unsubscribe</a>
+      </p>
+    </div>
+  </div>
+</body>
+</html>`
+}
+
+export function computeTopAction(articles: DigestArticle[]): string {
+  const staleArticles = articles.filter(a => a.needsRefresh)
+  const uncitedArticles = articles.filter(a => a.isCited === false)
+  const lowScoreArticles = articles.filter(a => a.rankScore < 60)
+
+  if (staleArticles.length > 0) return `Refresh "${staleArticles[0].title}" — it's ${staleArticles[0].freshnessStatus} and 3× less likely to be cited by AI engines`
+  if (uncitedArticles.length > 0) return `Improve AI citability for "${uncitedArticles[0].title}" — competitors are being cited instead. Check fact density and schema.`
+  if (lowScoreArticles.length > 0) return `Boost RANK score for "${lowScoreArticles[0].title}" (currently ${lowScoreArticles[0].rankScore}/100) — click Improve All in the article editor`
+  return 'All articles are in good shape — consider generating a new article for a related keyword cluster'
+}

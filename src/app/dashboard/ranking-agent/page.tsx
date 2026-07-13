@@ -214,6 +214,26 @@ export default function RankingAgentPage() {
     setAutoFixArticle('');
   }
 
+  async function handleCheckCitation(article: any) {
+    if (!article?.url || !article?.keyword) return;
+    setChecking(`citation-${article.id}`);
+    try {
+      const res = await fetch('/api/check-citation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyword: article.keyword, articleUrl: article.url, articleId: article.id })
+      });
+      const data = await res.json();
+      if (data.result) {
+        setCitationResults(prev => ({ ...prev, [article.id]: data.result }));
+      }
+    } catch (err) {
+      console.error('Citation check failed:', err);
+    } finally {
+      setChecking(null);
+    }
+  }
+
   async function handleAutoFix(article: any) {
     if (!article) return;
     setAutoFixing(true);
@@ -507,6 +527,33 @@ export default function RankingAgentPage() {
                           </button>
                         </div>
                       )}
+                      {/* Citation check */}
+                      {(() => {
+                        const cr = citationResults[article.id];
+                        const isChecking = checking === `citation-${article.id}`;
+                        if (!cr) return (
+                          <button
+                            onClick={() => handleCheckCitation(article)}
+                            disabled={checking !== null}
+                            style={{ fontSize: '11px', fontWeight: 600, padding: '4px 10px', background: '#F5F3FF', color: '#6D28D9', border: '1px solid #DDD6FE', borderRadius: '6px', cursor: checking !== null ? 'not-allowed' : 'pointer', marginTop: '6px', opacity: checking !== null ? 0.5 : 1, display: 'block', whiteSpace: 'nowrap' }}
+                          >
+                            {isChecking ? '⏳ Checking…' : '🤖 AI Citations'}
+                          </button>
+                        );
+                        return (
+                          <div style={{ marginTop: '6px', fontSize: '11px' }}>
+                            <div style={{ padding: '4px 8px', borderRadius: '6px', fontWeight: 600, background: cr.isCited ? '#F0FDF4' : '#FEF2F2', border: `1px solid ${cr.isCited ? '#BBF7D0' : '#FECACA'}`, color: cr.isCited ? '#16A34A' : '#DC2626' }}>
+                              {cr.isCited ? `✓ Cited (${cr.shareOfVoice}% SoV)` : '✗ Not cited'}
+                            </div>
+                            {!cr.isCited && cr.citedCompetitors?.length > 0 && (
+                              <div style={{ color: '#9B9B9B', marginTop: '2px', fontSize: '10px' }}>vs {cr.citedCompetitors.slice(0, 2).join(', ')}</div>
+                            )}
+                            <button onClick={() => handleCheckCitation(article)} disabled={checking !== null} style={{ color: '#9B9B9B', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '10px', marginTop: '2px' }}>
+                              Refresh →
+                            </button>
+                          </div>
+                        );
+                      })()}
                     </td>
                   </tr>
                 );
