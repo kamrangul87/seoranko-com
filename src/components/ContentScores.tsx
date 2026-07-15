@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { auditHeadingStructure, auditAuthorityLinks, scoreContentFreshness } from '@/lib/aeo-signals'
+import { auditHeadingStructure, auditAuthorityLinks, scoreContentFreshness, scoreEntityCoverage } from '@/lib/aeo-signals'
 
 interface ContentScoresProps {
   scores: {
@@ -36,6 +36,7 @@ export function ContentScores({
   const headingAudit = auditHeadingStructure(articleContent)
   const authorityAudit = auditAuthorityLinks(articleContent)
   const freshness = scoreContentFreshness(publishDate || new Date().toISOString())
+  const entityCoverage = scoreEntityCoverage(articleContent)
   const [improving, setImproving] = useState<string | null>(null)
   const [improved, setImproved] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
@@ -274,6 +275,18 @@ export function ContentScores({
               </button>
             )}
             {improved['authority_links'] && <span className="text-xs text-green-600">✓</span>}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-gray-500">Entity coverage</span>
+          <div className="flex items-center gap-1.5">
+            <span className={`text-xs font-medium ${entityCoverage.grade === 'A' ? 'text-green-600' : entityCoverage.grade === 'B' ? 'text-blue-600' : 'text-amber-600'}`}>
+              {entityCoverage.entitiesPerThousandWords}/1k
+            </span>
+            <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${entityCoverage.grade === 'A' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+              {entityCoverage.grade}
+            </span>
           </div>
         </div>
 

@@ -155,6 +155,83 @@ Word count: ${article.wordCount}
 `
 }
 
+// --- Entity Coverage Scoring ---
+export interface EntityCoverageResult {
+  entityCount: number
+  entitiesPerThousandWords: number
+  topEntities: string[]
+  grade: 'A' | 'B' | 'C' | 'D' | 'F'
+  score: number
+  suggestions: string[]
+  entityTypes: {
+    organisations: number
+    people: number
+    places: number
+    products: number
+    concepts: number
+  }
+}
+
+export function scoreEntityCoverage(articleContent: string): EntityCoverageResult {
+  const text = articleContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  const words = text.split(/\s+/).filter(w => w.length > 0)
+  const wordCount = words.length
+
+  const orgPattern = /\b(?:Ltd|Limited|Inc|Corp|Corporation|Group|Company|Co\.|PLC|LLP|LLC)\b/g
+  const orgs = (text.match(orgPattern) || []).length +
+    (text.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}\s+(?:Ltd|Limited|Inc|Corp|Group|Company)\b/g) || []).length
+
+  const peoplePattern = /\b(?:Mr|Mrs|Ms|Dr|Prof|Sir)\s+[A-Z][a-z]+/g
+  const people = (text.match(peoplePattern) || []).length
+
+  const placePattern = /\b(?:UK|United Kingdom|England|Scotland|Wales|London|Manchester|Birmingham|US|USA|United States)\b/g
+  const places = (text.match(placePattern) || []).length
+
+  const productPattern = /\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,2}\b/g
+  const allCaps = (text.match(productPattern) || [])
+  const products = Math.max(0, allCaps.length - orgs - people - places)
+
+  const conceptPattern = /\b(?:AI|SEO|GEO|AEO|SERP|EV|OZEV|EEAT|JSON-LD|API|CCS|CHAdeMO)\b/g
+  const concepts = (text.match(conceptPattern) || []).length
+
+  const entityCount = orgs + people + places + Math.min(products, 15) + concepts
+  const entitiesPerThousandWords = wordCount > 0 ? (entityCount / wordCount) * 1000 : 0
+
+  let grade: 'A' | 'B' | 'C' | 'D' | 'F'
+  let score: number
+
+  if (entitiesPerThousandWords >= 8) { grade = 'A'; score = 90 + Math.min(10, (entitiesPerThousandWords - 8) * 2) }
+  else if (entitiesPerThousandWords >= 6) { grade = 'B'; score = 75 + ((entitiesPerThousandWords - 6) / 2) * 15 }
+  else if (entitiesPerThousandWords >= 4) { grade = 'C'; score = 55 + ((entitiesPerThousandWords - 4) / 2) * 20 }
+  else if (entitiesPerThousandWords >= 2) { grade = 'D'; score = 30 + ((entitiesPerThousandWords - 2) / 2) * 25 }
+  else { grade = 'F'; score = Math.max(0, entitiesPerThousandWords * 15) }
+
+  const suggestions: string[] = []
+  if (orgs < 2) suggestions.push('Name specific organisations, companies, or official bodies (e.g. "OZEV" not "the government agency")')
+  if (people < 1) suggestions.push('Attribute claims to named experts, researchers, or spokespersons')
+  if (places < 1) suggestions.push('Include specific geographic references where relevant')
+  if (entitiesPerThousandWords < 6) suggestions.push('Sites with 8+ named entities per 1,000 words see 3× more AI citations (Floyi AIRS 2026 research)')
+
+  const entityMatches = text.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}\b/g) || []
+  const entityFreq: Record<string, number> = {}
+  for (const e of entityMatches) entityFreq[e] = (entityFreq[e] || 0) + 1
+  const topEntities = Object.entries(entityFreq)
+    .filter(([, count]) => count >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([entity]) => entity)
+
+  return {
+    entityCount,
+    entitiesPerThousandWords: Math.round(entitiesPerThousandWords * 10) / 10,
+    topEntities,
+    grade,
+    score: Math.round(Math.min(100, score)),
+    suggestions,
+    entityTypes: { organisations: orgs, people, places, products: Math.min(products, 15), concepts }
+  }
+}
+
 // --- ai.json discovery file generator ---
 export function generateAIJson(org: {
   name: string
