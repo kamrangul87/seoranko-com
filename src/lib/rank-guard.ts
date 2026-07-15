@@ -1,6 +1,7 @@
 // src/lib/rank-guard.ts
 // Fires when rank drops 3+ positions
 // Picks the weakest score dimension and runs a targeted improve pass
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { improveArticle } from './article-improver'
 import { createClient } from '@supabase/supabase-js'

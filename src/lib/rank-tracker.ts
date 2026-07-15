@@ -2,6 +2,7 @@
 // Global SERP rank tracking via DataForSEO
 // Supports 14 countries + global (US proxy)
 // Default: US/Global (2840)
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 export const LOCATION_CODES: Record<string, { code: number; name: string; flag: string }> = {
   global: { code: 2840, name: 'Global / US',   flag: '🌍' },
