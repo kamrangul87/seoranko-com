@@ -168,25 +168,21 @@ export function RankingAgentDashboard() {
         return
       }
 
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Request timed out — please try again')), 10000)
-      )
-
-      const insertPromise = supabase.from('ranking_agent_articles').insert({
-        user_id: user.id,
-        keyword: form.keyword,
-        article_url: form.articleUrl,
-        title: form.title || form.keyword,
-        location_code: form.locationCode,
-        freshness_status: 'fresh',
-        needs_refresh: false
-      })
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await Promise.race([insertPromise, timeoutPromise]) as any
+      const { error } = await supabase
+        .from('ranking_agent_articles')
+        .insert({
+          user_id: user.id,
+          keyword: form.keyword,
+          article_url: form.articleUrl,
+          title: form.title || form.keyword,
+          location_code: form.locationCode,
+          freshness_status: 'fresh',
+          needs_refresh: false
+        })
 
       if (error) {
         setAddError(`Failed to add: ${error.message}`)
+        setAdding(false)
         return
       }
 

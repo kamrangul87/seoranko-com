@@ -10,7 +10,6 @@ interface ROIArticle {
   created_at: string
   rank_score: number | null
   current_position: number | null
-  starting_position: number | null
   perplexity_cited: boolean | null
   freshness_status: string
   positions_gained: number | null
@@ -56,38 +55,52 @@ export function ContentROIDashboard() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setLoading(false)
+      setArticles([])
+    }, 10000)
+
+    load().finally(() => clearTimeout(timeout))
+    return () => clearTimeout(timeout)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function load() {
     setLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+    if (!user) { setLoading(false); return }
 
-    const { data } = await supabase
+    const { data: articleRows } = await supabase
       .from('articles')
-      .select(`
-        id, title, keyword, created_at, rank_score,
-        ranking_agent_articles (
-          current_position, position_change, perplexity_cited, freshness_status
-        )
-      `)
+      .select('id, title, keyword, created_at, rank_score')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
+      .limit(50)
 
-    const mapped: ROIArticle[] = (data || []).map((a: any) => {
-      const tracking = a.ranking_agent_articles?.[0]
+    if (!articleRows?.length) { setLoading(false); setArticles([]); return }
+
+    const articleIds = articleRows.map((a: any) => a.id)
+    const { data: tracking } = await supabase
+      .from('ranking_agent_articles')
+      .select('article_id, current_position, position_change, perplexity_cited, freshness_status')
+      .in('article_id', articleIds)
+
+    const trackingMap: Record<string, any> = Object.fromEntries(
+      (tracking || []).map((t: any) => [t.article_id, t])
+    )
+
+    const mapped: ROIArticle[] = articleRows.map((a: any) => {
+      const t = trackingMap[a.id]
       return {
         id: a.id,
         title: a.title || a.keyword,
         keyword: a.keyword,
         created_at: a.created_at,
         rank_score: a.rank_score,
-        current_position: tracking?.current_position || null,
-        starting_position: null,
-        perplexity_cited: tracking?.perplexity_cited ?? null,
-        freshness_status: tracking?.freshness_status || 'fresh',
-        positions_gained: tracking?.position_change ? -tracking.position_change : null
+        current_position: t?.current_position || null,
+        perplexity_cited: t?.perplexity_cited ?? null,
+        freshness_status: t?.freshness_status || 'fresh',
+        positions_gained: t?.position_change ? -t.position_change : null
       }
     })
 

@@ -1,7 +1,6 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState } from 'react'
-import { createBrowserClient } from '@supabase/ssr'
 
 function Loader2({ className }: { className?: string }) {
   return (
@@ -36,22 +35,14 @@ export default function TopicalMapPage() {
     setLoading(true)
     setError(null)
     try {
-      const supabase = createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      )
-      const { data: { session } } = await supabase.auth.getSession()
-
       const res = await fetch('/api/topical-map', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`
-        }
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include'
       })
       const data = await res.json()
       if (data.success) setResult(data.result)
-      else setError(data.error)
+      else setError(data.error || 'Failed to build map')
     } catch (err) {
       setError(String(err))
     } finally {

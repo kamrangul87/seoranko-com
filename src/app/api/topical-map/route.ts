@@ -1,23 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 import { buildTopicalMap } from '@/lib/topical-map'
 
 export const maxDuration = 120
 
-export async function POST(req: NextRequest) {
+export async function POST(_req: NextRequest) {
   try {
-    const supabase = createClient(
+    const cookieStore = cookies()
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          get(name: string) { return cookieStore.get(name)?.value },
+        },
+      }
+    )
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
 
-    const authHeader = req.headers.get('authorization')
-    const { data: { user } } = await supabase.auth.getUser(
-      authHeader?.replace('Bearer ', '') || ''
-    )
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-    const { data: articles } = await supabase
+    const { data: articles } = await supabaseAdmin
       .from('articles')
       .select('id, title, keyword, internal_links')
       .eq('user_id', user.id)
@@ -25,7 +34,7 @@ export async function POST(req: NextRequest) {
 
     const result = await buildTopicalMap(articles || [])
 
-    await supabase.from('topical_maps').upsert({
+    await supabaseAdmin.from('topical_maps').upsert({
       user_id: user.id,
       map_data: result,
       generated_at: result.generatedAt,
