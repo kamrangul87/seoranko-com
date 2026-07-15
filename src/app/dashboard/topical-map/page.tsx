@@ -151,7 +151,16 @@ export default function TopicalMapPage() {
         <div className="text-center py-16 border-2 border-dashed border-gray-200 rounded-2xl">
           <MapIcon className="w-10 h-10 text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500 font-medium">No topical map yet</p>
-          <p className="text-sm text-gray-400 mt-1">Click &ldquo;Build topical map&rdquo; to analyse your articles</p>
+          <p className="text-sm text-gray-400 mt-1 max-w-sm mx-auto">
+            Your topical map is built automatically from articles you generate in SEORANKO.
+            Generate at least 3 articles first, then click &ldquo;Build topical map&rdquo;.
+          </p>
+          <a
+            href="/dashboard/keywords"
+            className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-xl transition-colors"
+          >
+            Go to Keywords to generate articles →
+          </a>
         </div>
       )}
     </div>

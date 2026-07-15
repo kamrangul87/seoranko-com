@@ -162,11 +162,12 @@ export function RankingAgentDashboard() {
     setAddError(null)
 
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.user) {
         setAddError('Not logged in — please refresh the page')
         return
       }
+      const user = session.user
 
       const { error } = await supabase
         .from('ranking_agent_articles')
