@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { buildMasterPrompt, validateAndCorrect, getInternalLinks } from '@/lib/article-master';
+import { buildMasterPrompt, validateAndCorrect } from '@/lib/article-master';
 import { updateFixedPage, updateScrapedPage, normalizeUrl, normalizeDomain } from '@/lib/supabase/audit-db';
 import { upsertFix, siteIdFromDomain } from '@/lib/supabase/fixes-db';
 import { fetchPageSignals, scorePage } from '@/lib/site-audit/scorer';
@@ -1026,7 +1026,7 @@ RULES:
       : 1500;
 
     const competitorHeadings = competitors.flatMap(c => c.headings).filter(Boolean).slice(0, 10);
-    const internalLinks = getInternalLinks(kwData.primary);
+    const internalLinks = '';
 
     const fixPrompt = `${buildMasterPrompt({
       mode: 'generate',

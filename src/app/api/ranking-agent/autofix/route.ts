@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
-import { buildMasterPrompt, validateAndCorrect, getInternalLinks } from '@/lib/article-master';
+import { buildMasterPrompt, validateAndCorrect } from '@/lib/article-master';
 import { MODEL_FOR } from '@/lib/model-router';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
@@ -275,7 +275,7 @@ export async function POST(req: NextRequest) {
       .filter(Boolean)
       .slice(0, 10);
 
-    const internalLinks = getInternalLinks(article.keyword);
+    const internalLinks = '';
 
     const autoFixPrompt = `${buildMasterPrompt({
       mode: 'improve',

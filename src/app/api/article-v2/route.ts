@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedFacts, checkAnswerFirst, computeRankScore, extractHowToSteps, buildInternalLinksPrompt } from '@/lib/article-master';
+import { buildMasterPrompt, validateAndCorrect, fetchVerifiedFacts, checkAnswerFirst, computeRankScore, extractHowToSteps, buildInternalLinksPrompt } from '@/lib/article-master';
+import { getEligibleLinks } from '@/lib/internal-link-engine';
 import type { InternalLink } from '@/lib/article-master';
 import { scoreFactDensity } from '@/lib/fact-density';
 import { parseFAQsFromArticle } from '@/lib/faq-generator';
@@ -65,6 +66,8 @@ export async function POST(req: NextRequest) {
       topicalGaps = [],
       domain: rawDomain = '',
       internalLinks: userInternalLinks = [],
+      brand = '',
+      userId = '',
     } = body;
     const citationDomain = (rawDomain as string).replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase().trim();
 
@@ -132,9 +135,24 @@ Do not write generic angles. Be specific and surprising.`
     const { facts: liveFacts } = await fetchVerifiedFacts(keyword, market);
 
     // ── STEP C — Centralised master prompt (shared across all 3 article routes)
-    const userLinksStr = (userInternalLinks as InternalLink[]).length > 0
-      ? buildInternalLinksPrompt(userInternalLinks as InternalLink[], keyword, angle.unique_angle || keyword)
-      : ''
+    // Brand-aware link registry takes priority over user-provided panel links.
+    // Only links that match the article brand AND have topic tag overlap are eligible.
+    let resolvedLinksStr = ''
+    if (brand && userId) {
+      const eligibleLinks = await getEligibleLinks(userId, brand, keyword, angle.unique_angle || keyword)
+      if (eligibleLinks.length > 0) {
+        const registryLinksAsInternal: InternalLink[] = eligibleLinks.map(l => ({
+          url: l.pageUrl,
+          anchorText: l.anchorText,
+          context: l.pageDescription || l.pageTitle
+        }))
+        resolvedLinksStr = buildInternalLinksPrompt(registryLinksAsInternal, keyword, angle.unique_angle || keyword)
+      }
+    }
+    // Fall back to user-provided links from InternalLinksPanel only if no registry links found
+    if (!resolvedLinksStr && (userInternalLinks as InternalLink[]).length > 0) {
+      resolvedLinksStr = buildInternalLinksPrompt(userInternalLinks as InternalLink[], keyword, angle.unique_angle || keyword)
+    }
     const prompt = buildMasterPrompt({
       mode: 'generate',
       keyword,
@@ -147,7 +165,7 @@ Do not write generic angles. Be specific and surprising.`
       uniqueAngle: angle.unique_angle || angle.hook_opening || '',
       uniqueContent: angle.unique_section_content || '',
       uniqueDataSection,
-      internalLinks: userLinksStr || getInternalLinks(keyword),
+      internalLinks: resolvedLinksStr,
       liveFacts,
     });
 

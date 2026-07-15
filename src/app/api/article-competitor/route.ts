@@ -6,7 +6,7 @@ import {
   extractCompetitorNLP,
   generateUniqueAngle,
 } from '@/lib/competitor';
-import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedFacts } from '@/lib/article-master';
+import { buildMasterPrompt, validateAndCorrect, fetchVerifiedFacts } from '@/lib/article-master';
 import { humanizeArticle } from '@/lib/humanizer';
 import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-generator';
 import { checkCitationOpportunity, queueCitationTest } from '@/lib/citation-tester';
@@ -176,7 +176,7 @@ export async function POST(req: NextRequest) {
       uniqueAngle: angle.uniqueSection || angle.hook || '',
       uniqueContent: angle.uniqueContent || '',
       uniqueDataSection,
-      internalLinks: getInternalLinks(keyword),
+      internalLinks: '',
       competitorTopics: nlp.commonTopics,
       liveFacts,
     });

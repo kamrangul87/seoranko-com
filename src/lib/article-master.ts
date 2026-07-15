@@ -105,26 +105,6 @@ export interface ArticleMasterParams {
   liveFacts?: string;
 }
 
-export function getInternalLinks(keyword: string): string {
-  const kw = keyword.toLowerCase();
-  if (kw.includes('mot') || kw.includes('car') || kw.includes('vehicle') || kw.includes('dvsa') || kw.includes('tyre') || kw.includes('brake') || kw.includes('driving') || kw.includes('engine')) {
-    return `INTERNAL LINKS — insert naturally in article body (max 3, never same URL twice):
-- "check your MOT history" → https://mot.autodun.com (when mentioning MOT checks or due dates)
-- "free MOT predictor" → https://mot.autodun.com (use once in Bottom Line or FAQ)
-- "find the right electric car" → https://ev.autodun.com (only if EVs mentioned)
-- "instant AI car advice" → https://ai.autodun.com (when mentioning car problems or repairs)`;
-  }
-  if (kw.includes('seo') || kw.includes('keyword') || kw.includes('content') || kw.includes('rank') || kw.includes('google') || kw.includes('search') || kw.includes('article')) {
-    return `INTERNAL LINKS — insert naturally (max 2):
-- "keyword research tool" → https://seoranko.com
-- "AI article generator" → https://seoranko.com`;
-  }
-  if (kw.includes('health') || kw.includes('fitness') || kw.includes('weight') || kw.includes('diet') || kw.includes('exercise')) {
-    return `INTERNAL LINKS — insert naturally (max 2):
-- "personalised health analysis" → https://fitford.com`;
-  }
-  return `INTERNAL LINKS — insert 1 natural link to https://seoranko.com where appropriate.`;
-}
 
 export function buildMasterPrompt(params: ArticleMasterParams): string {
   const {
@@ -156,7 +136,7 @@ export function buildMasterPrompt(params: ArticleMasterParams): string {
   const gapsList = topicalGaps.slice(0, 6).join(', ');
   const competitorList = competitorTopics.slice(0, 5).join(', ');
   const questionsList = questionsAnswered.slice(0, 5).join(' | ');
-  const links = internalLinks || getInternalLinks(keyword);
+  const links = internalLinks || '';
 
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().toLocaleString('en-GB', { month: 'long' });

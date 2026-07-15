@@ -6,7 +6,7 @@ import {
   extractCompetitorNLP,
   generateUniqueAngle,
 } from '@/lib/competitor';
-import { buildMasterPrompt, validateAndCorrect, getInternalLinks, fetchVerifiedFacts } from '@/lib/article-master';
+import { buildMasterPrompt, validateAndCorrect, fetchVerifiedFacts } from '@/lib/article-master';
 import { humanizeArticle } from '@/lib/humanizer';
 import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-generator';
 import { recordScoreSnapshot } from '@/lib/drift-tracker';
@@ -191,7 +191,7 @@ Return ONLY valid JSON no markdown:
           market,
           uniqueAngle: angle.uniqueSection || '',
           uniqueContent: angle.uniqueContent || '',
-          internalLinks: getInternalLinks(targetKeyword),
+          internalLinks: '',
           competitorTopics: nlpData.commonTopics || [],
           originalArticle: article,
           missingElements: audit.missing_elements || [],

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { InternalLinksPanel } from "@/components/InternalLinksPanel";
 import { OrganisationSchemaSettings } from "@/components/OrganisationSchemaSettings";
+import { LinkRegistryManager } from "@/components/LinkRegistryManager";
 import type { InternalLink } from "@/lib/article-master";
 import { auditHeadingStructure, auditAuthorityLinks, scoreContentFreshness, generateAIJson } from "@/lib/aeo-signals";
 import type {
@@ -402,6 +403,7 @@ export default function DashboardPage() {
   const [panelAddKwInput, setPanelAddKwInput] = useState('');
 
   // Article settings
+  const [articleBrand, setArticleBrand] = useState('autodun');
   const [wordCount, setWordCount] = useState(2000);
   const [tone, setTone] = useState<Tone>("professional");
   const [audience, setAudience] = useState("general readers");
@@ -752,6 +754,8 @@ export default function DashboardPage() {
           entities: nlpAnalysis?.entities ?? [],
           topicalGaps: nlpAnalysis?.topicalGaps ?? [],
           internalLinks: internalLinks.filter(l => l.url && l.anchorText),
+          brand: articleBrand,
+          userId: userProfile?.id ?? '',
         }),
       });
 
@@ -1834,6 +1838,32 @@ export default function DashboardPage() {
                   </p>
                 </div>
                 <InternalLinksPanel links={internalLinks} onChange={setInternalLinks} />
+
+                {/* Brand selector — controls which registry links are eligible */}
+                <div className="mb-3">
+                  <label className="text-xs text-[#6B6B6B] mb-1.5 block font-medium">Writing for brand:</label>
+                  <div className="flex gap-2 flex-wrap">
+                    {[
+                      { value: 'autodun', label: '🚗 Autodun' },
+                      { value: 'seoranko', label: '📊 SEORANKO' },
+                      { value: 'fitford', label: '💪 FitFord' },
+                    ].map(b => (
+                      <button
+                        key={b.value}
+                        type="button"
+                        onClick={() => setArticleBrand(b.value)}
+                        className={`text-xs px-3 py-1.5 rounded-[6px] border font-medium transition-colors ${
+                          articleBrand === b.value
+                            ? 'bg-[#FF6B2C] text-white border-[#FF6B2C]'
+                            : 'border-[#E8E8E4] text-[#6B6B6B] bg-white hover:border-[#FF6B2C]/40'
+                        }`}
+                      >
+                        {b.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="flex items-center gap-3 flex-wrap">
                   <button
                     onClick={() => handleGenerateArticle()}
@@ -2929,6 +2959,12 @@ export default function DashboardPage() {
                 </div>
               </div>
             )}
+
+            {/* Internal Link Registry */}
+            <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-6 mt-5">
+              <LinkRegistryManager />
+            </div>
+
           </div>
         )}
 
