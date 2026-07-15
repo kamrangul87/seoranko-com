@@ -56,6 +56,7 @@ export function ContentROIDashboard() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load() }, [])
 
   async function load() {

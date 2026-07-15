@@ -96,7 +96,8 @@ export async function GET(req: NextRequest) {
       articles,
       topAction,
       freshnessSummary,
-      citationSummary
+      citationSummary,
+      weeklySummary: weeklySummary || undefined
     })
 
     await fetch('https://api.resend.com/emails', {

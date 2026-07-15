@@ -10,6 +10,7 @@ export interface DigestData {
   topAction: string
   freshnessSummary: { fresh: number; aging: number; stale: number }
   citationSummary: { cited: number; notCited: number; unchecked: number }
+  weeklySummary?: string
 }
 
 export interface DigestArticle {
@@ -28,7 +29,7 @@ export interface DigestArticle {
 }
 
 export function buildDigestHTML(data: DigestData): string {
-  const { userName, weekEnding, articles, topAction, freshnessSummary, citationSummary } = data
+  const { userName, weekEnding, articles, topAction, freshnessSummary, citationSummary, weeklySummary } = data
 
   const articleRows = articles.slice(0, 10).map(a => `
     <tr style="border-bottom:1px solid #F3F4F6">
@@ -93,6 +94,13 @@ export function buildDigestHTML(data: DigestData): string {
         <div style="font-size:11px;color:#6B7280;margin-top:2px">Need refreshing</div>
       </div>
     </div>
+
+    <!-- Weekly AI summary -->
+    ${weeklySummary ? `
+    <div style="padding:16px 28px;background:#F0FDF4;border-bottom:1px solid #D1FAE5">
+      <p style="margin:0 0 4px;font-size:11px;color:#065F46;font-weight:500;text-transform:uppercase;letter-spacing:.06em">AI Weekly Summary</p>
+      <p style="margin:0;font-size:14px;color:#064E3B;line-height:1.5">${weeklySummary}</p>
+    </div>` : ''}
 
     <!-- Article table -->
     <div style="padding:20px 28px">
