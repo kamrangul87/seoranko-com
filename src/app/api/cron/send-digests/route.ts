@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { buildDigestHTML, computeTopAction } from '@/lib/digest-email'
 import type { DigestArticle } from '@/lib/digest-email'
+import { generateWeeklySummary } from '@/lib/ranking-intelligence'
 
 export const maxDuration = 300
 
@@ -56,6 +57,27 @@ export async function GET(req: NextRequest) {
     }))
 
     const topAction = computeTopAction(articles)
+
+    // AI-generated weekly summary
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const articleContexts = articles.map((a: any) => ({
+      keyword: a.keyword,
+      currentPosition: a.currentPosition || null,
+      previousPosition: a.positionChange !== null && a.currentPosition !== null
+        ? a.currentPosition - (a.positionChange || 0) : null,
+      positionChange: a.positionChange || null,
+      rankScore: a.rankScore || 0,
+      eeatScore: 70,
+      readabilityScore: 70,
+      humanScore: 70,
+      factScore: 70,
+      daysSincePublish: 30,
+      isCited: a.isCited,
+      topCompetitor: null,
+      serpFeatures: []
+    }))
+    const weeklySummary = await generateWeeklySummary(articleContexts).catch(() => '')
+
     const freshnessSummary = {
       fresh: articles.filter(a => a.freshnessStatus === 'fresh').length,
       aging: articles.filter(a => a.freshnessStatus === 'aging').length,

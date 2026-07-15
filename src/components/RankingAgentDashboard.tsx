@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { LOCATION_OPTIONS } from '@/lib/rank-tracker'
+import type { RankingDiagnosis } from '@/lib/ranking-intelligence'
 
 interface TrackedArticle {
   id: string
@@ -20,6 +21,7 @@ interface TrackedArticle {
   cited_competitors: string[]
   freshness_status: string
   needs_refresh: boolean
+  last_diagnosis?: RankingDiagnosis | null
   rank_history?: Array<{ position: number | null; checked_at: string }>
 }
 
@@ -30,7 +32,7 @@ interface AddForm {
   locationCode: number
 }
 
-// Inline icon components
+// Inline icon components (lucide-react not installed)
 function IconTrendingUp({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -115,7 +117,10 @@ export function RankingAgentDashboard() {
   const [articles, setArticles] = useState<TrackedArticle[]>([])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
   const [checking, setChecking] = useState<string | null>(null)
+  const [diagnosing, setDiagnosing] = useState<string | null>(null)
+  const [diagnoses, setDiagnoses] = useState<Record<string, RankingDiagnosis>>({})
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<AddForm>({
     keyword: '', articleUrl: '', title: '', locationCode: 2840
@@ -140,28 +145,59 @@ export function RankingAgentDashboard() {
       .order('created_at', { ascending: false })
 
     setArticles(data || [])
+
+    // Seed cached diagnoses from DB
+    const cached: Record<string, RankingDiagnosis> = {}
+    for (const a of (data || [])) {
+      if (a.last_diagnosis) cached[a.id] = a.last_diagnosis
+    }
+    setDiagnoses(prev => ({ ...cached, ...prev }))
+
     setLoading(false)
   }
 
   async function addArticle() {
     if (!form.keyword || !form.articleUrl) return
     setAdding(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+    setAddError(null)
 
-    await supabase.from('ranking_agent_articles').insert({
-      user_id: user.id,
-      keyword: form.keyword,
-      article_url: form.articleUrl,
-      title: form.title || form.keyword,
-      location_code: form.locationCode,
-      freshness_status: 'fresh'
-    })
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        setAddError('Not logged in — please refresh the page')
+        return
+      }
 
-    setForm({ keyword: '', articleUrl: '', title: '', locationCode: 2840 })
-    setShowForm(false)
-    setAdding(false)
-    load()
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Request timed out — please try again')), 10000)
+      )
+
+      const insertPromise = supabase.from('ranking_agent_articles').insert({
+        user_id: user.id,
+        keyword: form.keyword,
+        article_url: form.articleUrl,
+        title: form.title || form.keyword,
+        location_code: form.locationCode,
+        freshness_status: 'fresh',
+        needs_refresh: false
+      })
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await Promise.race([insertPromise, timeoutPromise]) as any
+
+      if (error) {
+        setAddError(`Failed to add: ${error.message}`)
+        return
+      }
+
+      setForm({ keyword: '', articleUrl: '', title: '', locationCode: 2840 })
+      setShowForm(false)
+      load()
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : 'Failed to add article')
+    } finally {
+      setAdding(false)
+    }
   }
 
   async function checkNow(article: TrackedArticle) {
@@ -183,6 +219,33 @@ export function RankingAgentDashboard() {
       console.error('Rank check failed:', err)
     } finally {
       setChecking(null)
+    }
+  }
+
+  async function diagnoseArticle(article: TrackedArticle) {
+    setDiagnosing(article.id)
+    try {
+      const res = await fetch('/api/rank/diagnose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keyword: article.keyword,
+          currentPosition: article.current_position,
+          previousPosition: article.previous_position,
+          positionChange: article.position_change,
+          isCited: article.perplexity_cited,
+          topCompetitor: article.top_competitor,
+          articleId: article.id
+        })
+      })
+      const data = await res.json()
+      if (data.diagnosis) {
+        setDiagnoses(prev => ({ ...prev, [article.id]: data.diagnosis }))
+      }
+    } catch (err) {
+      console.error('Diagnosis failed:', err)
+    } finally {
+      setDiagnosing(null)
     }
   }
 
@@ -253,7 +316,7 @@ export function RankingAgentDashboard() {
           </p>
         </div>
         <button
-          onClick={() => setShowForm(!showForm)}
+          onClick={() => { setShowForm(!showForm); setAddError(null) }}
           className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-xl transition-colors"
         >
           <IconPlus className="w-4 h-4" />
@@ -288,7 +351,6 @@ export function RankingAgentDashboard() {
             className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400"
           />
 
-          {/* Location selector */}
           <div>
             <label className="text-xs text-gray-500 mb-1 flex items-center gap-1">
               <IconGlobe className="w-3 h-3" /> Target country / market
@@ -313,12 +375,16 @@ export function RankingAgentDashboard() {
               {adding ? 'Adding...' : 'Start tracking'}
             </button>
             <button
-              onClick={() => setShowForm(false)}
+              onClick={() => { setShowForm(false); setAddError(null) }}
               className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
             >
               Cancel
             </button>
           </div>
+
+          {addError && (
+            <p className="text-xs text-red-600 mt-1">{addError}</p>
+          )}
         </div>
       )}
 
@@ -394,7 +460,7 @@ export function RankingAgentDashboard() {
               )}
             </div>
 
-            {/* Row 3: signals */}
+            {/* Row 3: signals + action buttons */}
             <div className="flex items-center gap-3 flex-wrap pt-2 border-t border-gray-100">
 
               {/* AI citation */}
@@ -431,33 +497,76 @@ export function RankingAgentDashboard() {
                 {article.freshness_status}
               </span>
 
-              {/* Needs refresh */}
               {article.needs_refresh && (
                 <span className="flex items-center gap-1 text-xs text-amber-600">
                   <IconAlertTriangle className="w-3 h-3" /> Refresh needed
                 </span>
               )}
 
-              {/* Auto-fixed badge */}
               {article.last_reoptimise_at && (
                 <span className="text-xs text-purple-600">
                   Auto-fixed {new Date(article.last_reoptimise_at).toLocaleDateString('en-GB')}
                 </span>
               )}
 
-              {/* Check now button */}
-              <button
-                onClick={() => checkNow(article)}
-                disabled={checking === article.id}
-                className="ml-auto flex items-center gap-1 text-xs text-gray-400 hover:text-orange-500 transition-colors disabled:opacity-50"
-              >
-                {checking === article.id
-                  ? <IconLoader2 className="w-3 h-3 animate-spin" />
-                  : <IconRefreshCw className="w-3 h-3" />
-                }
-                {checking === article.id ? 'Checking...' : 'Check now'}
-              </button>
+              {/* Action buttons */}
+              <div className="ml-auto flex items-center gap-3">
+                <button
+                  onClick={() => diagnoseArticle(article)}
+                  disabled={diagnosing === article.id}
+                  className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-600 transition-colors disabled:opacity-50"
+                >
+                  {diagnosing === article.id
+                    ? <IconLoader2 className="w-3 h-3 animate-spin" />
+                    : <span>🧠</span>
+                  }
+                  {diagnosing === article.id ? 'Analysing...' : 'Diagnose'}
+                </button>
+
+                <button
+                  onClick={() => checkNow(article)}
+                  disabled={checking === article.id}
+                  className="flex items-center gap-1 text-xs text-gray-400 hover:text-orange-500 transition-colors disabled:opacity-50"
+                >
+                  {checking === article.id
+                    ? <IconLoader2 className="w-3 h-3 animate-spin" />
+                    : <IconRefreshCw className="w-3 h-3" />
+                  }
+                  {checking === article.id ? 'Checking...' : 'Check now'}
+                </button>
+              </div>
             </div>
+
+            {/* AI Diagnosis panel */}
+            {diagnoses[article.id] && (
+              <div className="mt-1 p-3 bg-blue-50 rounded-lg border border-blue-100 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-blue-800">
+                    AI Diagnosis
+                  </span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                    diagnoses[article.id].overallHealth === 'excellent' ? 'bg-green-100 text-green-700' :
+                    diagnoses[article.id].overallHealth === 'good' ? 'bg-blue-100 text-blue-700' :
+                    diagnoses[article.id].overallHealth === 'needs-work' ? 'bg-amber-100 text-amber-700' :
+                    'bg-red-100 text-red-700'
+                  }`}>
+                    {diagnoses[article.id].recommendedAction.replace(/-/g, ' ')}
+                  </span>
+                </div>
+                <p className="text-xs text-blue-700">{diagnoses[article.id].reasoning}</p>
+                {diagnoses[article.id].quickWins?.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-blue-800 mb-1">Quick wins:</p>
+                    {diagnoses[article.id].quickWins.map((win, i) => (
+                      <p key={i} className="text-xs text-blue-700">• {win}</p>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-blue-500 italic">
+                  Recovery estimate: {diagnoses[article.id].estimatedRecoveryTime}
+                </p>
+              </div>
+            )}
 
             {/* Last checked */}
             {article.last_rank_check && (

@@ -322,7 +322,12 @@ Do not write generic angles. Be specific and surprising.`
           if (citationDomain) queueCitationTest({ domain: citationDomain, topic: keyword, daysFromNow: 7, source: 'article_v2' });
 
         } catch (err) {
-          controller.error(err);
+          const errMsg = err instanceof Error ? err.message : String(err)
+          console.error('[article-v2] stream error:', errMsg)
+          controller.enqueue(encoder.encode(
+            `\n<!--SEORANKO_ERROR:${encodeURIComponent(errMsg)}-->`
+          ))
+          controller.close()
         }
       },
     });

@@ -55,6 +55,23 @@ export async function POST(req: NextRequest) {
         .eq('id', articleId)
     }
 
+    // Auto-diagnose if position changed or outside top 20 — fire and forget
+    if (articleId && (change !== null || (result.position && result.position > 20))) {
+      fetch(`${req.nextUrl.origin}/api/rank/diagnose`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keyword,
+          currentPosition: result.position,
+          previousPosition,
+          positionChange: change,
+          topCompetitor: result.topCompetitor,
+          serpFeatures: result.serpFeatures,
+          articleId
+        })
+      }).catch(() => {})
+    }
+
     return NextResponse.json({ success: true, result, change })
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 })

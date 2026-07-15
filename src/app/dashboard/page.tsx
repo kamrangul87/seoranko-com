@@ -777,6 +777,17 @@ export default function DashboardPage() {
       if (donePct) donePct.textContent = '100%';
       if (doneLabel) doneLabel.textContent = 'Article + images complete ✓';
 
+      // Detect stream-level error encoded by the route
+      const streamErrorMatch = fullArticle.match(/<!--SEORANKO_ERROR:([^-]+)-->/)
+      if (streamErrorMatch) {
+        try {
+          setArticleError(`Generation failed: ${decodeURIComponent(streamErrorMatch[1])}`)
+        } catch {
+          setArticleError('Article generation failed — please try again')
+        }
+        return
+      }
+
       // Parse score metadata appended by route as HTML comment
       let articleSearchScore: number | undefined;
       let articleAiScore: number | undefined;
