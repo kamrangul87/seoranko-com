@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
@@ -6,7 +6,7 @@ import { detectCannibalization } from '@/lib/cannibalization-detector'
 
 export const maxDuration = 120
 
-export async function POST(_req: NextRequest) {
+export async function POST() {
   try {
     const cookieStore = cookies()
     const supabase = createServerClient(
