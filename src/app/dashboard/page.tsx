@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { InternalLinksPanel } from "@/components/InternalLinksPanel";
@@ -8,6 +9,10 @@ import { OrganisationSchemaSettings } from "@/components/OrganisationSchemaSetti
 import { LinkRegistryManager } from "@/components/LinkRegistryManager";
 import type { InternalLink } from "@/lib/article-master";
 import { auditHeadingStructure, auditAuthorityLinks, scoreContentFreshness, generateAIJson } from "@/lib/aeo-signals";
+import { HubTabs } from "@/components/HubTabs";
+
+const ImproveTab = dynamic(() => import("./improve/page"), { ssr: false });
+const NLPTab = dynamic(() => import("./nlp/page"), { ssr: false });
 import type {
   KeywordResult,
   ArticleOutput,
@@ -115,19 +120,12 @@ function PipelineBar({ step }: { step: "discovery" | "nlp" | "keywords" | "artic
 
 type NavItem = { id: string; label: string; icon: React.ReactNode; href?: string };
 
+const CONTENT_TAB_IDS = ["keywords", "articles", "humanize", "improve", "nlp", "images"];
+
 const NAV_ITEMS: NavItem[] = [
   {
-    id: "keywords",
-    label: "Keywords",
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-      </svg>
-    ),
-  },
-  {
-    id: "articles",
-    label: "Articles",
+    id: "content",
+    label: "Content",
     icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -135,38 +133,33 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
-    id: "humanize",
-    label: "Humanize",
+    id: "research",
+    label: "Research",
+    href: "/dashboard/research",
     icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
       </svg>
     ),
   },
   {
-    id: "improve",
-    label: "Improve Article",
-    href: "/dashboard/improve",
+    id: "performance",
+    label: "Performance",
+    href: "/dashboard/performance",
     icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21.75 6.75a4.5 4.5 0 01-4.884 4.484c-1.076-.091-2.264.071-2.95.904l-7.152 8.684a2.548 2.548 0 11-3.586-3.586l8.684-7.152c.833-.686.995-1.874.904-2.95a4.5 4.5 0 016.336-4.486l-3.276 3.276a3.004 3.004 0 002.25 2.25l3.276-3.276c.256.565.398 1.192.398 1.852z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
       </svg>
     ),
   },
   {
-    id: "ranking-agent",
-    label: "Ranking Agent",
-    href: "/dashboard/ranking-agent",
+    id: "intelligence",
+    label: "Intelligence",
+    href: "/dashboard/intelligence",
     icon: (
-      <span className="w-4 h-4 flex items-center justify-center text-sm leading-none">🤖</span>
-    ),
-  },
-  {
-    id: "site-audit",
-    label: "Site Audit",
-    href: "/dashboard/site-audit",
-    icon: (
-      <span className="w-4 h-4 flex items-center justify-center text-sm leading-none">🔍</span>
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+      </svg>
     ),
   },
   {
@@ -175,46 +168,6 @@ const NAV_ITEMS: NavItem[] = [
     icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-      </svg>
-    ),
-  },
-  {
-    id: "discovery",
-    label: "Discovery",
-    href: "/dashboard/discovery",
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-      </svg>
-    ),
-  },
-  {
-    id: "nlp",
-    label: "NLP Analyser",
-    href: "/dashboard/nlp",
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-      </svg>
-    ),
-  },
-  {
-    id: "topical-map",
-    label: "Topical Map",
-    href: "/dashboard/topical-map",
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-      </svg>
-    ),
-  },
-  {
-    id: "content-roi",
-    label: "Content ROI",
-    href: "/dashboard/content-roi",
-    icon: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
       </svg>
     ),
   },
@@ -1299,9 +1252,9 @@ export default function DashboardPage() {
             ) : (
               <button
                 key={id}
-                onClick={() => setActiveNav(id)}
+                onClick={() => setActiveNav(id === "content" ? "articles" : id)}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-[8px] text-sm font-medium transition-colors ${
-                  activeNav === id
+                  (activeNav === id || (id === "content" && CONTENT_TAB_IDS.includes(activeNav)))
                     ? "bg-[#FF6B2C]/10 text-[#FF6B2C]"
                     : "text-[#6B6B6B] hover:text-[#0F0F0F] hover:bg-white"
                 }`}
@@ -1389,6 +1342,24 @@ export default function DashboardPage() {
 
       {/* ── Main ── */}
       <main className="flex-1 overflow-y-auto">
+
+        {/* ── Content Hub tabs ── */}
+        {CONTENT_TAB_IDS.includes(activeNav) && (
+          <div className="px-8 pt-6 bg-white border-b border-[#E8E8E4] sticky top-0 z-10">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-[#6B6B6B] mb-3">Content Hub</h2>
+            <HubTabs
+              tabs={[
+                { id: 'articles', label: 'Write', icon: '✍️' },
+                { id: 'humanize', label: 'Humanize', icon: '🤝' },
+                { id: 'improve', label: 'Improve', icon: '⚡' },
+                { id: 'nlp', label: 'NLP', icon: '🧠' },
+                { id: 'images', label: 'Images', icon: '🖼️' },
+              ]}
+              activeTab={activeNav}
+              onTabChange={setActiveNav}
+            />
+          </div>
+        )}
 
         {/* ── KEYWORDS view ── */}
         {activeNav === "keywords" && (
@@ -2767,6 +2738,20 @@ export default function DashboardPage() {
               </>
             )}
           </div>
+        )}
+
+        {/* ── IMPROVE view ── */}
+        {activeNav === "improve" && (
+          <Suspense fallback={<div className="p-8 text-[#6B6B6B]">Loading Improve…</div>}>
+            <ImproveTab />
+          </Suspense>
+        )}
+
+        {/* ── NLP view ── */}
+        {activeNav === "nlp" && (
+          <Suspense fallback={<div className="p-8 text-[#6B6B6B]">Loading NLP…</div>}>
+            <NLPTab />
+          </Suspense>
         )}
 
         {/* ── SETTINGS view ── */}

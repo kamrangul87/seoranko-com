@@ -127,14 +127,13 @@ export function RankingAgentDashboard() {
     keyword: '', articleUrl: '', title: '', locationCode: 2840
   })
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
-
   useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function load() {
+    const supabase = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
     setLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setLoading(false); return }
@@ -163,12 +162,17 @@ export function RankingAgentDashboard() {
     setAdding(true)
     setAddError(null)
 
+    const supabase = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+
     try {
-      if (!currentUser) {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
         setAddError('Not logged in — please refresh the page')
         return
       }
-      const user = currentUser
 
       const { error } = await supabase
         .from('ranking_agent_articles')
