@@ -1,6 +1,7 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState } from 'react'
+import { createBrowserClient } from '@supabase/ssr'
 
 function Loader2({ className }: { className?: string }) {
   return (
@@ -31,13 +32,32 @@ export default function TopicalMapPage() {
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // Same pattern as ContentROIDashboard (the working reference)
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+
   async function generateMap() {
     setLoading(true)
     setError(null)
     try {
+      // Get the session client-side (same as ContentROIDashboard's getUser pattern)
+      // and pass the access token as a Bearer header so the API route doesn't need
+      // to read cookies (which silently fails in Next.js 14 Route Handlers on refresh)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        setError('Not logged in — please refresh the page')
+        setLoading(false)
+        return
+      }
+
       const res = await fetch('/api/topical-map', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
         credentials: 'include'
       })
       const data = await res.json()

@@ -1,20 +1,21 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { createClient as createServerSupabase } from '@/lib/supabase/server'
 import { buildTopicalMap } from '@/lib/topical-map'
 
 export const maxDuration = 120
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
-    const supabase = await createServerSupabase()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const authHeader = req.headers.get('authorization')
+    const token = authHeader?.replace('Bearer ', '') || ''
 
     const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
+
+    const { data: { user } } = await supabaseAdmin.auth.getUser(token)
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { data: articles } = await supabaseAdmin
       .from('articles')
