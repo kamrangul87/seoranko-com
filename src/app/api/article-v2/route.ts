@@ -18,6 +18,7 @@ import {
   scoreHtmlLocally,
 } from '@/lib/content-scorer';
 import { MODEL_FOR } from '@/lib/model-router';
+import { runQualityGate } from '@/lib/article-quality-gate';
 
 export const maxDuration = 300;
 
@@ -250,6 +251,7 @@ Do not write generic angles. Be specific and surprising.`
           let passesDetection = false;
           let factSourcingScore: number | undefined;
           let factPatchedCount = 0;
+          let articleQualityGate: object | undefined;
           try {
             const [humanized, imageSet] = await Promise.all([
               humanizeArticle(fullArticle, { level: 'medium', primaryKeyword: keyword }),
@@ -282,7 +284,31 @@ Do not write generic angles. Be specific and surprising.`
               console.warn('[article-v2] fact-sourcing check failed, continuing:', factErr);
             }
 
-            controller.enqueue(encoder.encode(
+            // Quality gate — runs after humanization + fact-sourcing; auto-fixes applied to finalHtml
+          try {
+            const brandDomains: Record<string, string[]> = {
+              autodun: ['autodun.com'], seoranko: ['seoranko.com'], fitford: ['fitford.com'],
+            }
+            const qr = await runQualityGate(finalHtml, {
+              brand: brand || 'autodun',
+              keyword,
+              authorName: 'Kamran Gul',
+              registeredLinkDomains: brandDomains[brand] || ['autodun.com'],
+              minWordCount: 800,
+              maxTypically: 5,
+            })
+            finalHtml = qr.articleAfterAutoFix
+            articleQualityGate = {
+              passed: qr.passed, score: qr.score, criticalCount: qr.criticalCount,
+              warningCount: qr.warningCount, autoFixedCount: qr.autoFixedCount,
+              issues: qr.issues, blockers: qr.blockers, readyToPublish: qr.readyToPublish,
+            }
+            if (qr.autoFixedCount > 0) console.log(`[article-v2] quality-gate: auto-fixed ${qr.autoFixedCount} issues, score=${qr.score}`)
+          } catch (qErr) {
+            console.warn('[article-v2] quality gate failed, continuing:', qErr)
+          }
+
+          controller.enqueue(encoder.encode(
               `\n<!--SEORANKO_HUMANIZED_START-->\n${finalHtml}\n<!--SEORANKO_HUMANIZED_END-->`
             ));
 
@@ -324,6 +350,7 @@ Do not write generic angles. Be specific and surprising.`
             hasSchema: true,
             schemaScriptTag: schemaResult.combinedScriptTag,
             linkAudit,
+            qualityGate: articleQualityGate,
           });
           controller.enqueue(encoder.encode(`\n<!-- SEORANKO_SCORES:${scoreMeta} -->`));
 

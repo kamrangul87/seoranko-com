@@ -10,6 +10,7 @@ import { LinkRegistryManager } from "@/components/LinkRegistryManager";
 import type { InternalLink } from "@/lib/article-master";
 import { auditHeadingStructure, auditAuthorityLinks, scoreContentFreshness, generateAIJson } from "@/lib/aeo-signals";
 import { HubTabs } from "@/components/HubTabs";
+import { QualityGatePanel } from "@/components/QualityGatePanel";
 
 const ImproveTab = dynamic(() => import("./improve/page"), { ssr: false });
 const NLPTab = dynamic(() => import("./nlp/page"), { ssr: false });
@@ -783,6 +784,7 @@ export default function DashboardPage() {
       let articleAnswerFirst: boolean | undefined;
       let articleHasSchema: boolean | undefined;
       let articleSchemaScriptTag: string | undefined;
+      let articleQualityGate: ArticleOutput['qualityGate'];
       const scoresMatch = fullArticle.match(/\n<!-- SEORANKO_SCORES:(\{[\s\S]*?\}) -->/);
       if (scoresMatch) {
         try {
@@ -805,6 +807,7 @@ export default function DashboardPage() {
           articleHasSchema = parsed.hasSchema;
           articleSchemaScriptTag = parsed.schemaScriptTag;
           if (parsed.linkAudit) setLinkAudit(parsed.linkAudit);
+          if (parsed.qualityGate) articleQualityGate = parsed.qualityGate;
         } catch { /* keep undefined */ }
         fullArticle = fullArticle.replace(/\n<!-- SEORANKO_SCORES:\{[\s\S]*?\} -->/, '');
       }
@@ -853,6 +856,7 @@ export default function DashboardPage() {
         answerFirst: articleAnswerFirst,
         hasSchema: articleHasSchema,
         schemaScriptTag: articleSchemaScriptTag,
+        qualityGate: articleQualityGate,
       });
 
       refreshUserProfile();
@@ -2091,6 +2095,9 @@ export default function DashboardPage() {
                           </strong></span>
                         )}
                       </div>
+                      {article.qualityGate && (
+                        <QualityGatePanel result={article.qualityGate} />
+                      )}
                       <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-6">
                         <div
                           dangerouslySetInnerHTML={{ __html: article.article }}

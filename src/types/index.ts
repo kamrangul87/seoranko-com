@@ -196,6 +196,25 @@ export interface ArticleOutput {
   answerFirst?: boolean;
   hasSchema?: boolean;
   schemaScriptTag?: string;
+  qualityGate?: {
+    passed: boolean
+    score: number
+    criticalCount: number
+    warningCount: number
+    autoFixedCount: number
+    issues: Array<{
+      id: string
+      severity: 'critical' | 'warning' | 'info'
+      category: string
+      title: string
+      description: string
+      location?: string
+      autoFixable: boolean
+      autoFixDescription?: string
+    }>
+    blockers: string[]
+    readyToPublish: boolean
+  }
 }
 
 export interface ArticleResponse {

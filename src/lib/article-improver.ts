@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { runQualityGate } from './article-quality-gate'
 
 export type ImproveTarget = 'eeat' | 'readability' | 'human_score' | 'fact_sourcing' | 'keyword_density' | 'heading_structure' | 'authority_links' | 'all'
 
@@ -14,6 +15,16 @@ export interface ImproveResult {
   improvedContent: string
   changesSummary: string
   estimatedScoreGain: number
+  qualityGate?: {
+    passed: boolean
+    score: number
+    criticalCount: number
+    warningCount: number
+    autoFixedCount: number
+    issues: object[]
+    blockers: string[]
+    readyToPublish: boolean
+  }
 }
 
 const IMPROVE_PROMPTS: Record<ImproveTarget, string> = {
@@ -156,10 +167,31 @@ ${request.articleContent}`
     keyword_density: 5, heading_structure: 8, authority_links: 6, all: 20
   }
 
+  let qualityGate: ImproveResult['qualityGate']
+  try {
+    const qr = await runQualityGate(cleanedContent, {
+      brand: 'autodun',
+      keyword: request.keyword,
+      authorName: 'Kamran Gul',
+      registeredLinkDomains: ['autodun.com'],
+      minWordCount: 800,
+      maxTypically: 5,
+    })
+    qualityGate = {
+      passed: qr.passed, score: qr.score, criticalCount: qr.criticalCount,
+      warningCount: qr.warningCount, autoFixedCount: qr.autoFixedCount,
+      issues: qr.issues, blockers: qr.blockers, readyToPublish: qr.readyToPublish,
+    }
+    if (qr.autoFixedCount > 0) {
+      return { improvedContent: qr.articleAfterAutoFix, changesSummary, estimatedScoreGain: scoreGainMap[request.target], qualityGate }
+    }
+  } catch { /* non-fatal */ }
+
   return {
     improvedContent: cleanedContent,
     changesSummary,
-    estimatedScoreGain: scoreGainMap[request.target]
+    estimatedScoreGain: scoreGainMap[request.target],
+    qualityGate,
   }
 }
 

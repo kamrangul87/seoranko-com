@@ -14,6 +14,7 @@ import { queueCitationTest } from '@/lib/citation-tester';
 import { checkAndPatchFactSourcing } from '@/lib/fact-checker';
 import { calculateEEATScore, calculateReadabilityScore, calculateKeywordDensity } from '@/lib/content-scorer';
 import { MODEL_FOR } from '@/lib/model-router';
+import { runQualityGate } from '@/lib/article-quality-gate';
 
 // Fluid compute (default on Vercel) allows up to 300s on Hobby. The full
 // pipeline (audit + scraping + NLP + angle + 6000-token generation) needs
@@ -229,6 +230,7 @@ Return ONLY valid JSON no markdown:
         let humanScore: number | undefined;
         let factSourcingScore: number | undefined;
         let factPatchedCount = 0;
+        let improveQualityGate: object | undefined;
         try {
           // Adaptive image count: same formula as article-v2
           const improveWordCount = validatedArticle.replace(/<[^>]*>/g, ' ').trim().split(/\s+/).filter(Boolean).length;
@@ -257,6 +259,27 @@ Return ONLY valid JSON no markdown:
             factPatchedCount = factResult.result.patchedCount;
           } catch (factErr) {
             console.warn('[article-improve] fact-sourcing check failed:', factErr);
+          }
+
+          // Quality gate — runs after humanization + fact-sourcing
+          try {
+            const qr = await runQualityGate(finalHtml, {
+              brand: 'autodun',
+              keyword: targetKeyword,
+              authorName: 'Kamran Gul',
+              registeredLinkDomains: ['autodun.com'],
+              minWordCount: 800,
+              maxTypically: 5,
+            })
+            finalHtml = qr.articleAfterAutoFix
+            improveQualityGate = {
+              passed: qr.passed, score: qr.score, criticalCount: qr.criticalCount,
+              warningCount: qr.warningCount, autoFixedCount: qr.autoFixedCount,
+              issues: qr.issues, blockers: qr.blockers, readyToPublish: qr.readyToPublish,
+            }
+            if (qr.autoFixedCount > 0) console.log(`[article-improve] quality-gate: auto-fixed ${qr.autoFixedCount} issues, score=${qr.score}`)
+          } catch (qErr) {
+            console.warn('[article-improve] quality gate failed, continuing:', qErr)
           }
 
           send(`<!--SEORANKO_HUMANIZED_START-->\n${finalHtml}\n<!--SEORANKO_HUMANIZED_END-->`);
@@ -300,6 +323,7 @@ Return ONLY valid JSON no markdown:
             humanScore,
             factSourcingScore,
             factPatchedCount,
+            qualityGate: improveQualityGate,
             stats: {
               originalWordCount: audit.word_count || 0,
               newWordCount,
