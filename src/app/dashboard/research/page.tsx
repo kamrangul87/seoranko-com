@@ -103,7 +103,7 @@ function KeywordsPanel() {
         <div className="bg-white border border-[#E8E8E4] rounded-[10px] overflow-hidden">
           <div className="px-4 py-3 border-b border-[#E8E8E4] flex items-center justify-between">
             <span className="text-sm font-semibold">{keywords.length} keywords found</span>
-            <span className="text-xs text-[#6B6B6B]">Click "Write article" to open in Content Hub</span>
+            <span className="text-xs text-[#6B6B6B]">Click &quot;Write article&quot; to open in Content Hub</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">

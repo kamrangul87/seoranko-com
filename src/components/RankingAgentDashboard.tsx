@@ -121,7 +121,7 @@ export function RankingAgentDashboard() {
   const [checking, setChecking] = useState<string | null>(null)
   const [diagnosing, setDiagnosing] = useState<string | null>(null)
   const [diagnoses, setDiagnoses] = useState<Record<string, RankingDiagnosis>>({})
-  const [currentUser, setCurrentUser] = useState<{ id: string } | null>(null)
+
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<AddForm>({
     keyword: '', articleUrl: '', title: '', locationCode: 2840
@@ -137,7 +137,6 @@ export function RankingAgentDashboard() {
     setLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setLoading(false); return }
-    setCurrentUser(user)
 
     const { data } = await supabase
       .from('ranking_agent_articles')

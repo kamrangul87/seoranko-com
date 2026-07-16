@@ -28,7 +28,7 @@ function CannibalPlaceholder() {
       <h2 className="text-xl font-semibold text-gray-800 mb-2">Cannibalisation Detector</h2>
       <p className="text-gray-500 text-sm">
         Keyword cannibalisation analysis is coming soon. This tool will identify when multiple pages
-        compete for the same keyword and hurt each other's rankings.
+        compete for the same keyword and hurt each other&apos;s rankings.
       </p>
     </div>
   )
