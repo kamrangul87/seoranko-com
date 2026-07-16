@@ -121,27 +121,43 @@ export function RankingAgentDashboard() {
   const [checking, setChecking] = useState<string | null>(null)
   const [diagnosing, setDiagnosing] = useState<string | null>(null)
   const [diagnoses, setDiagnoses] = useState<Record<string, RankingDiagnosis>>({})
-
+  const [userId, setUserId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<AddForm>({
     keyword: '', articleUrl: '', title: '', locationCode: 2840
   })
 
-  useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const supabase = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
 
-  async function load() {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        if (session?.user) {
+          setUserId(session.user.id)
+          await loadArticles(session.user.id)
+        } else {
+          setLoading(false)
+        }
+      }
+    )
+
+    return () => subscription.unsubscribe()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadArticles(uid: string) {
     const supabase = createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     )
     setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setLoading(false); return }
 
     const { data } = await supabase
       .from('ranking_agent_articles')
       .select('*, rank_history(position, checked_at)')
-      .eq('user_id', user.id)
+      .eq('user_id', uid)
       .order('created_at', { ascending: false })
 
     setArticles(data || [])
@@ -157,26 +173,24 @@ export function RankingAgentDashboard() {
   }
 
   async function addArticle() {
-    if (!form.keyword || !form.articleUrl) return
-    setAdding(true)
-    setAddError(null)
+    if (!form.keyword || !form.articleUrl || !userId) {
+      setAddError('Session not ready — please wait a moment and try again')
+      return
+    }
 
     const supabase = createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     )
 
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        setAddError('Not logged in — please refresh the page')
-        return
-      }
+    setAdding(true)
+    setAddError(null)
 
+    try {
       const { error } = await supabase
         .from('ranking_agent_articles')
         .insert({
-          user_id: user.id,
+          user_id: userId,
           keyword: form.keyword,
           article_url: form.articleUrl,
           title: form.title || form.keyword,
@@ -187,13 +201,12 @@ export function RankingAgentDashboard() {
 
       if (error) {
         setAddError(`Failed to add: ${error.message}`)
-        setAdding(false)
         return
       }
 
       setForm({ keyword: '', articleUrl: '', title: '', locationCode: 2840 })
       setShowForm(false)
-      load()
+      await loadArticles(userId)
     } catch (err) {
       setAddError(err instanceof Error ? err.message : 'Failed to add article')
     } finally {
@@ -215,7 +228,7 @@ export function RankingAgentDashboard() {
           locationCode: article.location_code || 2840
         })
       })
-      load()
+      if (userId) await loadArticles(userId)
     } catch (err) {
       console.error('Rank check failed:', err)
     } finally {
