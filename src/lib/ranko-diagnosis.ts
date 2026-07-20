@@ -57,7 +57,7 @@ export async function runRANKODiagnosis(
   const issues: RANKOIssue[] = []
 
   // === Layer 1: GEO Audit (technical + AI visibility) ===
-  let geoIssues: RANKOIssue[] = []
+  const geoIssues: RANKOIssue[] = []
   try {
     const geoResult = await runGEOAudit(siteUrl)
 
