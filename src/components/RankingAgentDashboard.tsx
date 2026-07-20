@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { LOCATION_OPTIONS } from '@/lib/rank-tracker'
-import type { RankingDiagnosis } from '@/lib/ranking-intelligence'
+import type { RANKODiagnosis } from '@/lib/ranko-diagnosis'
 
 interface TrackedArticle {
   id: string
@@ -21,7 +21,7 @@ interface TrackedArticle {
   cited_competitors: string[]
   freshness_status: string
   needs_refresh: boolean
-  last_diagnosis?: RankingDiagnosis | null
+  last_diagnosis?: RANKODiagnosis | null
   rank_history?: Array<{ position: number | null; checked_at: string }>
 }
 
@@ -120,7 +120,7 @@ export function RankingAgentDashboard() {
   const [addError, setAddError] = useState<string | null>(null)
   const [checking, setChecking] = useState<string | null>(null)
   const [diagnosing, setDiagnosing] = useState<string | null>(null)
-  const [diagnoses, setDiagnoses] = useState<Record<string, RankingDiagnosis>>({})
+  const [diagnoses, setDiagnoses] = useState<Record<string, RANKODiagnosis>>({})
   const [userId, setUserId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<AddForm>({
@@ -163,7 +163,7 @@ export function RankingAgentDashboard() {
     setArticles(data || [])
 
     // Seed cached diagnoses from DB
-    const cached: Record<string, RankingDiagnosis> = {}
+    const cached: Record<string, RANKODiagnosis> = {}
     for (const a of (data || [])) {
       if (a.last_diagnosis) cached[a.id] = a.last_diagnosis
     }
@@ -239,25 +239,17 @@ export function RankingAgentDashboard() {
   async function diagnoseArticle(article: TrackedArticle) {
     setDiagnosing(article.id)
     try {
-      const res = await fetch('/api/rank/diagnose', {
+      const res = await fetch('/api/ranko/diagnose', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          keyword: article.keyword,
-          currentPosition: article.current_position,
-          previousPosition: article.previous_position,
-          positionChange: article.position_change,
-          isCited: article.perplexity_cited,
-          topCompetitor: article.top_competitor,
-          articleId: article.id
-        })
+        body: JSON.stringify({ siteUrl: article.article_url })
       })
       const data = await res.json()
       if (data.diagnosis) {
         setDiagnoses(prev => ({ ...prev, [article.id]: data.diagnosis }))
       }
     } catch (err) {
-      console.error('Diagnosis failed:', err)
+      console.error('RANKO diagnosis failed:', err)
     } finally {
       setDiagnosing(null)
     }
@@ -323,11 +315,14 @@ export function RankingAgentDashboard() {
 
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-gray-900">Ranking Agent</h2>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Tracks rankings globally — auto-checks weekly, auto-fixes on drops, digest every Monday.
-          </p>
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center text-white font-bold text-sm flex-shrink-0">R</div>
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">RANKO</h2>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Your autonomous SEO strategist — diagnoses, prescribes, acts.
+            </p>
+          </div>
         </div>
         <button
           onClick={() => { setShowForm(!showForm); setAddError(null) }}
@@ -551,36 +546,43 @@ export function RankingAgentDashboard() {
               </div>
             </div>
 
-            {/* AI Diagnosis panel */}
-            {diagnoses[article.id] && (
-              <div className="mt-1 p-3 bg-blue-50 rounded-lg border border-blue-100 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-blue-800">
-                    AI Diagnosis
-                  </span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                    diagnoses[article.id].overallHealth === 'excellent' ? 'bg-green-100 text-green-700' :
-                    diagnoses[article.id].overallHealth === 'good' ? 'bg-blue-100 text-blue-700' :
-                    diagnoses[article.id].overallHealth === 'needs-work' ? 'bg-amber-100 text-amber-700' :
-                    'bg-red-100 text-red-700'
-                  }`}>
-                    {diagnoses[article.id].recommendedAction.replace(/-/g, ' ')}
-                  </span>
-                </div>
-                <p className="text-xs text-blue-700">{diagnoses[article.id].reasoning}</p>
-                {diagnoses[article.id].quickWins?.length > 0 && (
-                  <div>
-                    <p className="text-xs font-medium text-blue-800 mb-1">Quick wins:</p>
-                    {diagnoses[article.id].quickWins.map((win, i) => (
-                      <p key={i} className="text-xs text-blue-700">• {win}</p>
-                    ))}
+            {/* RANKO Diagnosis panel */}
+            {diagnoses[article.id] && (() => {
+              const d = diagnoses[article.id]
+              const hColor = { excellent: '#1D9E75', good: '#2563EB', 'needs-work': '#BA7517', critical: '#E24B4A' }[d.overallHealth] || '#BA7517'
+              const impactCls = (imp: string) => ({ critical: 'bg-red-100 text-red-700', high: 'bg-orange-100 text-orange-700', medium: 'bg-amber-100 text-amber-700', low: 'bg-gray-100 text-gray-600' } as Record<string,string>)[imp] || 'bg-gray-100 text-gray-600'
+              const riskCls = (r: string) => ({ safe: 'bg-green-100 text-green-700', 'low-risk': 'bg-blue-100 text-blue-700', 'medium-risk': 'bg-amber-100 text-amber-700', 'high-risk': 'bg-red-100 text-red-700' } as Record<string,string>)[r] || 'bg-green-100 text-green-700'
+              return (
+                <div className="mt-1 p-3 bg-orange-50 rounded-lg border border-orange-100 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-orange-800">🧠 RANKO Diagnosis</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-base font-bold" style={{ color: hColor }}>{d.healthScore}</span>
+                      <span className="text-xs capitalize" style={{ color: hColor }}>{d.overallHealth.replace('-', ' ')}</span>
+                    </div>
                   </div>
-                )}
-                <p className="text-xs text-blue-500 italic">
-                  Recovery estimate: {diagnoses[article.id].estimatedRecoveryTime}
-                </p>
-              </div>
-            )}
+                  {d.topThreeActions.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-orange-800 mb-1">Fix these first:</p>
+                      {d.topThreeActions.slice(0, 2).map((action, i) => (
+                        <p key={i} className="text-xs text-orange-700">• {action}</p>
+                      ))}
+                    </div>
+                  )}
+                  {d.issues.slice(0, 3).map(issue => (
+                    <div key={issue.id} className="flex items-center gap-1.5 flex-wrap">
+                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${impactCls(issue.impact)}`}>{issue.impact}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${riskCls(issue.risk)}`}>{issue.risk}</span>
+                      <span className="text-xs text-gray-400">{issue.confidence}% confident</span>
+                      <span className="text-xs text-gray-700 truncate max-w-[200px]">{issue.title}</span>
+                    </div>
+                  ))}
+                  <p className="text-xs text-orange-500 italic">
+                    Expected impact: ~{d.estimatedWeeksToImpact} weeks if you act now
+                  </p>
+                </div>
+              )
+            })()}
 
             {/* Last checked */}
             {article.last_rank_check && (

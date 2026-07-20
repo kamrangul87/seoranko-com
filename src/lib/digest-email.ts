@@ -69,8 +69,8 @@ export function buildDigestHTML(data: DigestData): string {
 
     <!-- Header -->
     <div style="background:#FF6B2C;padding:24px 28px">
-      <p style="margin:0;color:#FFFFFF;font-size:11px;letter-spacing:.08em;text-transform:uppercase;opacity:.8">SEORANKO · Weekly Digest</p>
-      <h1 style="margin:6px 0 0;color:#FFFFFF;font-size:22px;font-weight:600">Week ending ${weekEnding}</h1>
+      <p style="margin:0;color:#FFFFFF;font-size:11px;letter-spacing:.08em;text-transform:uppercase;opacity:.8">RANKO — Your SEO Strategist</p>
+      <h1 style="margin:6px 0 0;color:#FFFFFF;font-size:22px;font-weight:600">RANKO Weekly: week ending ${weekEnding}</h1>
     </div>
 
     <!-- Top action -->
@@ -122,7 +122,7 @@ export function buildDigestHTML(data: DigestData): string {
     <!-- Footer -->
     <div style="padding:16px 28px;background:#F9FAFB;border-top:1px solid #E5E7EB">
       <p style="margin:0;font-size:12px;color:#9CA3AF">
-        SEORANKO · <a href="https://seoranko.com/dashboard" style="color:#FF6B2C">Open dashboard</a> · <a href="https://seoranko.com/unsubscribe" style="color:#9CA3AF">Unsubscribe</a>
+        RANKO by SEORANKO · <a href="https://seoranko.com/dashboard" style="color:#FF6B2C">Open dashboard</a> · <a href="https://seoranko.com/unsubscribe" style="color:#9CA3AF">Unsubscribe</a>
       </p>
     </div>
   </div>

@@ -6,6 +6,8 @@ import { HubTabs } from '@/components/HubTabs'
 import { DashboardNav } from '@/components/DashboardNav'
 import dynamic from 'next/dynamic'
 import TopicalMapPage from '../topical-map/page'
+import { WinnabilityCard } from '@/components/WinnabilityCard'
+import type { WinnabilityResult } from '@/components/WinnabilityCard'
 
 const DiscoveryPage = dynamic(() => import('../discovery/page'), { ssr: false })
 
@@ -16,6 +18,12 @@ const COUNTRIES = [
   { value: 'AE', label: 'UAE' }, { value: 'DE', label: 'Germany' },
   { value: 'FR', label: 'France' }, { value: 'SG', label: 'Singapore' },
 ]
+
+const COUNTRY_LOCATION_CODE: Record<string, number> = {
+  'Global': 2840, 'US': 2840, 'UK': 2826, 'AU': 2036,
+  'CA': 2124, 'IN': 2356, 'AE': 2784, 'DE': 2276,
+  'FR': 2250, 'SG': 2702,
+}
 
 const TABS = [
   { id: 'keywords',    label: 'Keywords',    icon: '🔍' },
@@ -30,26 +38,55 @@ function KdBadge({ kd }: { kd: number }) {
 }
 
 function KeywordsPanel() {
-  const [seed, setSeed]         = useState('')
-  const [country, setCountry]   = useState('Global')
-  const [keywords, setKeywords] = useState<any[]>([])
-  const [loading, setLoading]   = useState(false)
-  const [error, setError]       = useState('')
+  const [seed, setSeed]                       = useState('')
+  const [country, setCountry]                 = useState('Global')
+  const [keywords, setKeywords]               = useState<any[]>([])
+  const [loading, setLoading]                 = useState(false)
+  const [error, setError]                     = useState('')
+  const [winnability, setWinnability]         = useState<WinnabilityResult | null>(null)
+  const [checkingWinnability, setCheckingWinnability] = useState(false)
+
+  async function checkWinnability(keyword: string) {
+    if (!keyword.trim()) return
+    setCheckingWinnability(true)
+    setWinnability(null)
+    try {
+      const locationCode = COUNTRY_LOCATION_CODE[country] || 2840
+      const res = await fetch('/api/ranko/winnability', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyword, locationCode }),
+      })
+      const data = await res.json()
+      if (data.result) setWinnability(data.result)
+    } catch (err) {
+      console.error('Winnability check failed:', err)
+    } finally {
+      setCheckingWinnability(false)
+    }
+  }
 
   async function search() {
     if (!seed.trim()) return
     setLoading(true)
     setError('')
     setKeywords([])
-    try {
-      const res = await fetch('/api/keywords', {
+    // Run keyword search and winnability check in parallel
+    const [, keywordsRes] = await Promise.allSettled([
+      checkWinnability(seed.trim()),
+      fetch('/api/keywords', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ keyword: seed.trim(), country }),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed')
-      setKeywords(data.keywords || [])
+    ])
+    try {
+      if (keywordsRes.status === 'fulfilled') {
+        const res = keywordsRes.value
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Failed')
+        setKeywords(data.keywords || [])
+      }
     } catch (e: any) {
       setError(e.message || 'Something went wrong')
     } finally {
@@ -90,6 +127,15 @@ function KeywordsPanel() {
         </div>
         {error && <p className="text-red-500 text-sm mt-3">{error}</p>}
       </div>
+
+      {/* RANKO Winnability score */}
+      {checkingWinnability && (
+        <div className="rounded-xl border border-[#E8E8E4] bg-[#FAFAF8] p-4 mb-4 text-sm text-[#6B6B6B] flex items-center gap-2">
+          <span className="inline-block w-3 h-3 rounded-full bg-orange-400 animate-pulse" />
+          RANKO is reading the SERP to score winnability...
+        </div>
+      )}
+      {winnability && !checkingWinnability && <WinnabilityCard result={winnability} />}
 
       {keywords.length > 0 && (
         <div className="bg-white border border-[#E8E8E4] rounded-[10px] overflow-hidden">
