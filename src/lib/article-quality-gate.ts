@@ -160,7 +160,6 @@ export async function runQualityGate(
 
   const {
     brand,
-    keyword: _keyword,
     authorName,
     registeredLinkDomains,
     minWordCount = 800,
