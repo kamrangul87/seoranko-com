@@ -5,6 +5,7 @@ import { DashboardNav } from '@/components/DashboardNav'
 import { RankingAgentDashboard } from '@/components/RankingAgentDashboard'
 import { ContentROIDashboard } from '@/components/ContentROIDashboard'
 import { RANKODiagnosisPanel } from '@/components/RANKODiagnosisPanel'
+import { VelocityPredictor } from '@/components/VelocityPredictor'
 import { createBrowserClient } from '@supabase/ssr'
 
 const TABS = [
@@ -80,10 +81,9 @@ export default function RankingsPage() {
           </div>
         )}
         {activeTab === 'velocity' && (
-          <ComingSoon
-            title="Rank Velocity Predictor"
-            description="Predict how quickly your content will climb the SERPs based on competition and authority signals."
-          />
+          <div className="max-w-3xl mx-auto px-8 py-8">
+            <VelocityPredictor />
+          </div>
         )}
         {activeTab === 'cannibalisation' && (
           <ComingSoon

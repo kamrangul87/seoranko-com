@@ -8,6 +8,7 @@ import dynamic from 'next/dynamic'
 import TopicalMapPage from '../topical-map/page'
 import { WinnabilityCard } from '@/components/WinnabilityCard'
 import type { WinnabilityResult } from '@/components/WinnabilityCard'
+import { SERPIntentAnalyser } from '@/components/SERPIntentAnalyser'
 
 const DiscoveryPage = dynamic(() => import('../discovery/page'), { ssr: false })
 
@@ -214,7 +215,7 @@ export default function KeywordsPage() {
             </div>
           </div>
         )}
-        {activeTab === 'serp-intent' && <SerpIntentPlaceholder />}
+        {activeTab === 'serp-intent' && <SERPIntentAnalyser />}
       </main>
     </div>
   )

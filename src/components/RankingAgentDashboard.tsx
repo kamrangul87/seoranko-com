@@ -4,6 +4,12 @@ import { createBrowserClient } from '@supabase/ssr'
 import { LOCATION_OPTIONS } from '@/lib/rank-tracker'
 import type { RANKODiagnosis } from '@/lib/ranko-diagnosis'
 
+// Module-level client — created once, not per render
+const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+
 interface TrackedArticle {
   id: string
   title: string
@@ -122,36 +128,37 @@ export function RankingAgentDashboard() {
   const [diagnosing, setDiagnosing] = useState<string | null>(null)
   const [diagnoses, setDiagnoses] = useState<Record<string, RANKODiagnosis>>({})
   const [userId, setUserId] = useState<string | null>(null)
+  const [sessionReady, setSessionReady] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<AddForm>({
     keyword: '', articleUrl: '', title: '', locationCode: 2840
   })
 
   useEffect(() => {
-    const supabase = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        if (session?.user) {
-          setUserId(session.user.id)
-          await loadArticles(session.user.id)
-        } else {
-          setLoading(false)
-        }
+    // Get initial session immediately — don't wait for onAuthStateChange
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUserId(session.user.id)
+        setSessionReady(true)
+        loadArticles(session.user.id)
+      } else {
+        setLoading(false)
       }
-    )
+    })
+
+    // Also listen for subsequent auth changes (sign-in, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        setUserId(session.user.id)
+        setSessionReady(true)
+        if (event === 'SIGNED_IN') loadArticles(session.user.id)
+      }
+    })
 
     return () => subscription.unsubscribe()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadArticles(uid: string) {
-    const supabase = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
     setLoading(true)
 
     const { data } = await supabase
@@ -173,15 +180,11 @@ export function RankingAgentDashboard() {
   }
 
   async function addArticle() {
-    if (!form.keyword || !form.articleUrl || !userId) {
-      setAddError('Session not ready — please wait a moment and try again')
+    if (!form.keyword || !form.articleUrl) return
+    if (!sessionReady || !userId) {
+      setAddError('Please wait — session loading...')
       return
     }
-
-    const supabase = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
 
     setAdding(true)
     setAddError(null)
@@ -200,7 +203,7 @@ export function RankingAgentDashboard() {
         })
 
       if (error) {
-        setAddError(`Failed to add: ${error.message}`)
+        setAddError(`Failed: ${error.message}`)
         return
       }
 
