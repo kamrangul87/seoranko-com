@@ -127,7 +127,7 @@ export function RankingAgentDashboard() {
   const [diagnosing, setDiagnosing] = useState<string | null>(null)
   const [diagnoses, setDiagnoses] = useState<Record<string, RANKODiagnosis>>({})
   const [userId, setUserId] = useState<string | null>(null)
-  const [sessionReady, setSessionReady] = useState(false)
+
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<AddForm>({
     keyword: '', articleUrl: '', locationCode: 2840
@@ -138,7 +138,6 @@ export function RankingAgentDashboard() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         setUserId(session.user.id)
-        setSessionReady(true)
         loadArticles(session.user.id)
       } else {
         setLoading(false)
@@ -149,7 +148,6 @@ export function RankingAgentDashboard() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
         setUserId(session.user.id)
-        setSessionReady(true)
         if (event === 'SIGNED_IN') loadArticles(session.user.id)
       }
     })
