@@ -1,7 +1,5 @@
-import { createBrowserClient } from '@supabase/ssr'
+// Re-exports the singleton so all existing createClient() callers
+// get the same shared instance.
+import { getSupabaseClient } from '@/lib/supabase-client'
 
-export const createClient = () =>
-  createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+export const createClient = getSupabaseClient

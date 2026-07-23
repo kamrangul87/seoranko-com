@@ -1,14 +1,9 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { createBrowserClient } from '@supabase/ssr'
+import { supabase } from '@/lib/supabase-client'
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import { LOCATION_OPTIONS } from '@/lib/rank-tracker'
 import type { RANKODiagnosis } from '@/lib/ranko-diagnosis'
-
-// Module-level client — created once, not per render
-const supabase = createBrowserClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
 interface TrackedArticle {
   id: string
@@ -135,7 +130,7 @@ export function RankingAgentDashboard() {
 
   useEffect(() => {
     // Get initial session immediately — don't wait for onAuthStateChange
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }: { data: { session: Session | null } }) => {
       if (session?.user) {
         setUserId(session.user.id)
         loadArticles(session.user.id)
@@ -145,7 +140,7 @@ export function RankingAgentDashboard() {
     })
 
     // Also listen for subsequent auth changes (sign-in, token refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
       if (session?.user) {
         setUserId(session.user.id)
         if (event === 'SIGNED_IN') loadArticles(session.user.id)

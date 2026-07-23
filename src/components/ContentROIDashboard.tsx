@@ -1,7 +1,7 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect } from 'react'
-import { createBrowserClient } from '@supabase/ssr'
+import { supabase } from '@/lib/supabase-client'
 
 interface ROIArticle {
   id: string
@@ -50,10 +50,6 @@ function FileText({ className }: { className?: string }) {
 export function ContentROIDashboard() {
   const [articles, setArticles] = useState<ROIArticle[]>([])
   const [loading, setLoading] = useState(true)
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
 
   useEffect(() => {
     const timeout = setTimeout(() => {

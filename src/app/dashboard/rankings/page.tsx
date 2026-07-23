@@ -6,7 +6,8 @@ import { RankingAgentDashboard } from '@/components/RankingAgentDashboard'
 import { ContentROIDashboard } from '@/components/ContentROIDashboard'
 import { RANKODiagnosisPanel } from '@/components/RANKODiagnosisPanel'
 import { VelocityPredictor } from '@/components/VelocityPredictor'
-import { createBrowserClient } from '@supabase/ssr'
+import { supabase } from '@/lib/supabase-client'
+import type { User } from '@supabase/supabase-js'
 
 const TABS = [
   { id: 'track',    label: 'Track',    icon: '📈' },
@@ -53,11 +54,7 @@ export default function RankingsPage() {
   const [siteUrl, setSiteUrl] = useState('https://yoursite.com')
 
   useEffect(() => {
-    const supabase = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
+    supabase.auth.getUser().then(async ({ data: { user } }: { data: { user: User | null } }) => {
       if (!user) return
       setUserId(user.id)
       const { data } = await supabase

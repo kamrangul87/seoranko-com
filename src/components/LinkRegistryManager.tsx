@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { createBrowserClient } from '@supabase/ssr'
+import { supabase } from '@/lib/supabase-client'
 
 interface RegistryLink {
   id: string
@@ -78,10 +78,6 @@ export function LinkRegistryManager() {
     anchor_text: ''
   })
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
 
   useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -5,6 +5,7 @@ import { OrganisationSchemaSettings } from '@/components/OrganisationSchemaSetti
 import { InternalLinksPanel } from '@/components/InternalLinksPanel'
 import { LinkRegistryManager } from '@/components/LinkRegistryManager'
 import { createClient } from '@/lib/supabase/client'
+import type { User } from '@supabase/supabase-js'
 import type { InternalLink } from '@/lib/article-master'
 
 interface OrgSettings {
@@ -26,7 +27,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     const supabase = createClient()
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
+    supabase.auth.getUser().then(async ({ data: { user } }: { data: { user: User | null } }) => {
       if (!user) { setLoading(false); return }
       setUserId(user.id)
       const { data } = await supabase.from('user_profiles').select('*').eq('id', user.id).single()

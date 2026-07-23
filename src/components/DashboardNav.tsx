@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import type { User } from '@supabase/supabase-js'
 
 interface UserProfile {
   name?: string
@@ -101,7 +102,7 @@ export function DashboardNav() {
 
   useEffect(() => {
     const supabase = createClient()
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
+    supabase.auth.getUser().then(async ({ data: { user } }: { data: { user: User | null } }) => {
       if (!user) return
       const { data } = await supabase.from('user_profiles').select('*').eq('id', user.id).single()
       if (data) setUserProfile(data as UserProfile)

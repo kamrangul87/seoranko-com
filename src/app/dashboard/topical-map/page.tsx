@@ -1,7 +1,7 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState } from 'react'
-import { createBrowserClient } from '@supabase/ssr'
+import { supabase } from '@/lib/supabase-client'
 
 function Loader2({ className }: { className?: string }) {
   return (
@@ -33,10 +33,6 @@ export default function TopicalMapPage() {
   const [error, setError] = useState<string | null>(null)
 
   // Same pattern as ContentROIDashboard (the working reference)
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
 
   async function generateMap() {
     setLoading(true)
