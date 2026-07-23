@@ -181,16 +181,6 @@ function KeywordsPanel() {
   )
 }
 
-function SerpIntentPlaceholder() {
-  return (
-    <div className="max-w-4xl mx-auto px-8 py-16 text-center">
-      <div className="text-5xl mb-4">🎯</div>
-      <h2 className="text-xl font-bold text-[#0F0F0F] mb-2">SERP Intent Analyser</h2>
-      <p className="text-[#6B6B6B] text-sm mb-6">Deep SERP analysis — intent mapping, featured snippet opportunities, People Also Ask data.</p>
-      <span className="inline-block bg-[#FF6B2C]/10 text-[#FF6B2C] text-xs font-semibold px-3 py-1.5 rounded-full">Coming in Phase 4</span>
-    </div>
-  )
-}
 
 export default function KeywordsPage() {
   const [activeTab, setActiveTab] = useState('keywords')
