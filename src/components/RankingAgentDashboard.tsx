@@ -34,7 +34,6 @@ interface TrackedArticle {
 interface AddForm {
   keyword: string
   articleUrl: string
-  title: string
   locationCode: number
 }
 
@@ -131,7 +130,7 @@ export function RankingAgentDashboard() {
   const [sessionReady, setSessionReady] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<AddForm>({
-    keyword: '', articleUrl: '', title: '', locationCode: 2840
+    keyword: '', articleUrl: '', locationCode: 2840
   })
 
   useEffect(() => {
@@ -179,42 +178,49 @@ export function RankingAgentDashboard() {
     setLoading(false)
   }
 
-  async function addArticle() {
-    if (!form.keyword || !form.articleUrl) return
-    if (!sessionReady || !userId) {
-      setAddError('Please wait — session loading...')
+  async function addArticleWithRetry(retries = 20): Promise<void> {
+    const { data: { session } } = await supabase.auth.getSession()
+
+    if (!session && retries > 0) {
+      await new Promise(r => setTimeout(r, 500))
+      return addArticleWithRetry(retries - 1)
+    }
+
+    if (!session) {
+      setAddError('Could not connect — please refresh the page and try again')
+      setAdding(false)
       return
     }
 
+    const { error } = await supabase
+      .from('ranking_agent_articles')
+      .insert({
+        user_id: session.user.id,
+        keyword: form.keyword,
+        article_url: form.articleUrl,
+        title: form.keyword,
+        location_code: form.locationCode,
+        freshness_status: 'fresh',
+        needs_refresh: false
+      })
+
+    if (error) {
+      setAddError(`Failed: ${error.message}`)
+      setAdding(false)
+      return
+    }
+
+    setForm({ keyword: '', articleUrl: '', locationCode: 2840 })
+    setShowForm(false)
+    setAdding(false)
+    await loadArticles(session.user.id)
+  }
+
+  function startAdding() {
+    if (!form.keyword || !form.articleUrl) return
     setAdding(true)
     setAddError(null)
-
-    try {
-      const { error } = await supabase
-        .from('ranking_agent_articles')
-        .insert({
-          user_id: userId,
-          keyword: form.keyword,
-          article_url: form.articleUrl,
-          title: form.title || form.keyword,
-          location_code: form.locationCode,
-          freshness_status: 'fresh',
-          needs_refresh: false
-        })
-
-      if (error) {
-        setAddError(`Failed: ${error.message}`)
-        return
-      }
-
-      setForm({ keyword: '', articleUrl: '', title: '', locationCode: 2840 })
-      setShowForm(false)
-      await loadArticles(userId)
-    } catch (err) {
-      setAddError(err instanceof Error ? err.message : 'Failed to add article')
-    } finally {
-      setAdding(false)
-    }
+    addArticleWithRetry()
   }
 
   async function checkNow(article: TrackedArticle) {
@@ -328,7 +334,7 @@ export function RankingAgentDashboard() {
           </div>
         </div>
         <button
-          onClick={() => { setShowForm(!showForm); setAddError(null) }}
+          onClick={() => { setShowForm(true); setAddError(null) }}
           className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-xl transition-colors"
         >
           <IconPlus className="w-4 h-4" />
@@ -336,67 +342,82 @@ export function RankingAgentDashboard() {
         </button>
       </div>
 
-      {/* Add form */}
+      {/* Track article modal */}
       {showForm && (
-        <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-3">
-          <p className="text-sm font-semibold text-gray-700">Add article to track</p>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          onClick={() => { setShowForm(false); setAddError(null) }}
+        >
+          <div className="absolute inset-0 bg-black/40" />
+          <div
+            className="relative z-10 bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-base font-semibold text-[#0F0F0F] mb-4">Track an article</h3>
 
-          <input
-            type="text"
-            placeholder="Target keyword (e.g. best ev charger 2026)"
-            value={form.keyword}
-            onChange={e => setForm(f => ({ ...f, keyword: e.target.value }))}
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400"
-          />
-          <input
-            type="url"
-            placeholder="Article URL (e.g. https://yoursite.com/blog/article)"
-            value={form.articleUrl}
-            onChange={e => setForm(f => ({ ...f, articleUrl: e.target.value }))}
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400"
-          />
-          <input
-            type="text"
-            placeholder="Article title (optional)"
-            value={form.title}
-            onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400"
-          />
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-[#6B6B6B] mb-1 block">Keyword</label>
+                <input
+                  type="text"
+                  placeholder="e.g. best ev charger 2026"
+                  value={form.keyword}
+                  onChange={e => setForm(f => ({ ...f, keyword: e.target.value }))}
+                  className="w-full px-3 py-2.5 text-sm border border-[#E8E8E4] rounded-[8px] bg-[#FAFAF8] focus:outline-none focus:border-[#FF6B2C]/50"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#6B6B6B] mb-1 block">Article URL</label>
+                <input
+                  type="url"
+                  placeholder="https://yoursite.com/blog/article"
+                  value={form.articleUrl}
+                  onChange={e => setForm(f => ({ ...f, articleUrl: e.target.value }))}
+                  className="w-full px-3 py-2.5 text-sm border border-[#E8E8E4] rounded-[8px] bg-[#FAFAF8] focus:outline-none focus:border-[#FF6B2C]/50"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-[#6B6B6B] mb-1 flex items-center gap-1">
+                  <IconGlobe className="w-3 h-3" /> Country
+                </label>
+                <select
+                  value={form.locationCode}
+                  onChange={e => setForm(f => ({ ...f, locationCode: Number(e.target.value) }))}
+                  className="w-full px-3 py-2.5 text-sm border border-[#E8E8E4] rounded-[8px] bg-[#FAFAF8] focus:outline-none focus:border-[#FF6B2C]/50"
+                >
+                  {LOCATION_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
-          <div>
-            <label className="text-xs text-gray-500 mb-1 flex items-center gap-1">
-              <IconGlobe className="w-3 h-3" /> Target country / market
-            </label>
-            <select
-              value={form.locationCode}
-              onChange={e => setForm(f => ({ ...f, locationCode: Number(e.target.value) }))}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400 bg-white"
-            >
-              {LOCATION_OPTIONS.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
+            {addError && (
+              <p className="text-xs text-red-600 mt-3">{addError}</p>
+            )}
+
+            <div className="flex gap-2 mt-5">
+              <button
+                onClick={startAdding}
+                disabled={adding || !form.keyword || !form.articleUrl}
+                className="flex-1 py-2.5 bg-[#FF6B2C] hover:bg-[#E85A1E] text-white text-sm font-medium rounded-[8px] disabled:opacity-50 transition-colors"
+              >
+                {adding ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
+                    Connecting…
+                  </span>
+                ) : 'Start tracking'}
+              </button>
+              <button
+                onClick={() => { setShowForm(false); setAddError(null) }}
+                className="px-4 py-2.5 text-sm text-[#6B6B6B] hover:text-[#0F0F0F] border border-[#E8E8E4] rounded-[8px] transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
-
-          <div className="flex gap-2">
-            <button
-              onClick={addArticle}
-              disabled={adding || !form.keyword || !form.articleUrl}
-              className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
-            >
-              {adding ? 'Adding...' : 'Start tracking'}
-            </button>
-            <button
-              onClick={() => { setShowForm(false); setAddError(null) }}
-              className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
-            >
-              Cancel
-            </button>
-          </div>
-
-          {addError && (
-            <p className="text-xs text-red-600 mt-1">{addError}</p>
-          )}
         </div>
       )}
 

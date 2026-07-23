@@ -9,10 +9,10 @@ const ImproveTab = dynamic(() => import('../improve/page'), { ssr: false })
 const NLPTab     = dynamic(() => import('../nlp/page'),     { ssr: false })
 
 const TABS = [
-  { id: 'humanize', label: 'Humanize', icon: '✍️' },
-  { id: 'improve',  label: 'Improve',  icon: '⚡' },
-  { id: 'nlp',      label: 'NLP',      icon: '🧠' },
-  { id: 'images',   label: 'Images',   icon: '🖼️' },
+  { id: 'humanize', label: 'Make it human', icon: '✍️' },
+  { id: 'improve',  label: 'Boost scores',  icon: '⚡' },
+  { id: 'nlp',      label: 'NLP analysis',  icon: '🧠' },
+  { id: 'images',   label: 'Images',        icon: '🖼️' },
 ]
 
 function ImagesPlaceholder() {

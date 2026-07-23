@@ -9,26 +9,46 @@ import { VelocityPredictor } from '@/components/VelocityPredictor'
 import { createBrowserClient } from '@supabase/ssr'
 
 const TABS = [
-  { id: 'rankings',      label: 'Rankings',          icon: '📈' },
-  { id: 'roi',           label: 'ROI',               icon: '💰' },
-  { id: 'velocity',      label: 'Velocity',          icon: '⚡' },
-  { id: 'cannibalisation', label: 'Cannibalisation', icon: '⚠️' },
-  { id: 'diagnosis',     label: 'RANKO Diagnosis',   icon: '🧠' },
+  { id: 'track',    label: 'Track',    icon: '📈' },
+  { id: 'diagnose', label: 'Diagnose', icon: '🧠' },
+  { id: 'roi',      label: 'ROI',      icon: '💰' },
+  { id: 'advanced', label: 'Advanced', icon: '⚙️' },
 ]
 
-function ComingSoon({ title, description }: { title: string; description: string }) {
+function AdvancedTab() {
+  const [section, setSection] = useState<'velocity' | 'cannibalisation'>('velocity')
   return (
-    <div className="max-w-4xl mx-auto px-8 py-16 text-center">
-      <div className="text-5xl mb-4">🚧</div>
-      <h2 className="text-xl font-bold text-[#0F0F0F] mb-2">{title}</h2>
-      <p className="text-[#6B6B6B] text-sm mb-6">{description}</p>
-      <span className="inline-block bg-[#FF6B2C]/10 text-[#FF6B2C] text-xs font-semibold px-3 py-1.5 rounded-full">Coming in Phase 4</span>
+    <div className="max-w-3xl mx-auto px-8 py-8">
+      <div className="flex gap-3 mb-6">
+        {(['velocity', 'cannibalisation'] as const).map(s => (
+          <button
+            key={s}
+            onClick={() => setSection(s)}
+            className={`text-sm px-4 py-1.5 rounded-full font-medium capitalize transition-colors ${
+              section === s
+                ? 'bg-[#FF6B2C] text-white'
+                : 'bg-white border border-[#E8E8E4] text-[#6B6B6B] hover:text-[#0F0F0F]'
+            }`}
+          >
+            {s === 'velocity' ? 'Velocity' : 'Cannibalisation'}
+          </button>
+        ))}
+      </div>
+      {section === 'velocity' && <VelocityPredictor />}
+      {section === 'cannibalisation' && (
+        <div className="text-center py-16 border-2 border-dashed border-[#E8E8E4] rounded-2xl">
+          <div className="text-5xl mb-4">⚠️</div>
+          <h2 className="text-xl font-bold text-[#0F0F0F] mb-2">Keyword Cannibalisation Detector</h2>
+          <p className="text-[#6B6B6B] text-sm mb-6">Find pages competing for the same keywords and get AI-powered merge or redirect recommendations.</p>
+          <span className="inline-block bg-[#FF6B2C]/10 text-[#FF6B2C] text-xs font-semibold px-3 py-1.5 rounded-full">Coming soon</span>
+        </div>
+      )}
     </div>
   )
 }
 
 export default function RankingsPage() {
-  const [activeTab, setActiveTab] = useState('rankings')
+  const [activeTab, setActiveTab] = useState('track')
   const [userId, setUserId] = useState('')
   const [siteUrl, setSiteUrl] = useState('https://yoursite.com')
 
@@ -55,7 +75,6 @@ export default function RankingsPage() {
       <DashboardNav />
       <main className="flex-1 overflow-y-auto">
         <div className="px-8 pt-6 pb-0 bg-white border-b border-[#E8E8E4] sticky top-0 z-10">
-          {/* RANKO header */}
           <div className="flex items-center gap-3 mb-4">
             <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center text-white font-bold text-sm flex-shrink-0">R</div>
             <div>
@@ -66,11 +85,16 @@ export default function RankingsPage() {
           <HubTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} />
         </div>
 
-        {activeTab === 'rankings' && (
+        {activeTab === 'track' && (
           <div className="max-w-3xl mx-auto px-8 py-8">
             <Suspense fallback={<div className="text-[#6B6B6B]">Loading…</div>}>
               <RankingAgentDashboard />
             </Suspense>
+          </div>
+        )}
+        {activeTab === 'diagnose' && (
+          <div className="max-w-3xl mx-auto px-8 py-8">
+            <RANKODiagnosisPanel userId={userId} siteUrl={siteUrl} />
           </div>
         )}
         {activeTab === 'roi' && (
@@ -80,22 +104,7 @@ export default function RankingsPage() {
             </Suspense>
           </div>
         )}
-        {activeTab === 'velocity' && (
-          <div className="max-w-3xl mx-auto px-8 py-8">
-            <VelocityPredictor />
-          </div>
-        )}
-        {activeTab === 'cannibalisation' && (
-          <ComingSoon
-            title="Keyword Cannibalisation Detector"
-            description="Find pages competing for the same keywords and get AI-powered merge or redirect recommendations."
-          />
-        )}
-        {activeTab === 'diagnosis' && (
-          <div className="max-w-3xl mx-auto px-8 py-8">
-            <RANKODiagnosisPanel userId={userId} siteUrl={siteUrl} />
-          </div>
-        )}
+        {activeTab === 'advanced' && <AdvancedTab />}
       </main>
     </div>
   )

@@ -1,16 +1,11 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, Suspense } from 'react'
+import { useState, useEffect, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { HubTabs } from '@/components/HubTabs'
 import { DashboardNav } from '@/components/DashboardNav'
-import dynamic from 'next/dynamic'
-import TopicalMapPage from '../topical-map/page'
 import { WinnabilityCard } from '@/components/WinnabilityCard'
 import type { WinnabilityResult } from '@/components/WinnabilityCard'
-import { SERPIntentAnalyser } from '@/components/SERPIntentAnalyser'
-
-const DiscoveryPage = dynamic(() => import('../discovery/page'), { ssr: false })
 
 const COUNTRIES = [
   { value: 'Global', label: 'Global' }, { value: 'US', label: 'United States' },
@@ -26,20 +21,16 @@ const COUNTRY_LOCATION_CODE: Record<string, number> = {
   'FR': 2250, 'SG': 2702,
 }
 
-const TABS = [
-  { id: 'keywords',    label: 'Keywords',    icon: '🔍' },
-  { id: 'topical-map', label: 'Topical Map', icon: '🗺️' },
-  { id: 'discover',    label: 'Discovery',   icon: '💡' },
-  { id: 'serp-intent', label: 'SERP Intent', icon: '🎯' },
-]
-
 function KdBadge({ kd }: { kd: number }) {
   const color = kd <= 35 ? 'bg-green-100 text-green-700' : kd <= 55 ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'
   return <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-semibold ${color}`}>{kd}</span>
 }
 
-function KeywordsPanel() {
-  const [seed, setSeed]                       = useState('')
+function ResearchPanel() {
+  const searchParams = useSearchParams()
+  const initialQ = searchParams.get('q') || ''
+
+  const [seed, setSeed]                       = useState(initialQ)
   const [country, setCountry]                 = useState('Global')
   const [keywords, setKeywords]               = useState<any[]>([])
   const [loading, setLoading]                 = useState(false)
@@ -67,19 +58,19 @@ function KeywordsPanel() {
     }
   }
 
-  async function search() {
-    if (!seed.trim()) return
+  async function search(kw?: string) {
+    const term = (kw ?? seed).trim()
+    if (!term) return
     setLoading(true)
     setError('')
     setKeywords([])
-    // Run keyword search and winnability check in parallel
     const [, keywordsRes] = await Promise.allSettled([
-      checkWinnability(seed.trim()),
+      checkWinnability(term),
       fetch('/api/keywords', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keyword: seed.trim(), country }),
-      })
+        body: JSON.stringify({ keyword: term, country }),
+      }),
     ])
     try {
       if (keywordsRes.status === 'fulfilled') {
@@ -95,11 +86,16 @@ function KeywordsPanel() {
     }
   }
 
+  // Auto-search if keyword came from dashboard
+  useEffect(() => {
+    if (initialQ) search(initialQ)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
-    <div className="max-w-6xl mx-auto px-8 py-8">
+    <div className="max-w-5xl mx-auto px-8 py-8">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold mb-1">Keyword Research</h1>
-        <p className="text-[#6B6B6B] text-sm">Find ranking opportunities across 13+ markets.</p>
+        <h1 className="text-2xl font-bold mb-1">Research</h1>
+        <p className="text-[#6B6B6B] text-sm">Find ranking opportunities — RANKO checks winnability before you write.</p>
       </div>
 
       <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-4 mb-6">
@@ -119,7 +115,7 @@ function KeywordsPanel() {
             {COUNTRIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
           <button
-            onClick={search}
+            onClick={() => search()}
             disabled={loading || !seed.trim()}
             className="bg-[#FF6B2C] hover:bg-[#E85A1E] disabled:opacity-50 text-[#0a0a0a] font-semibold text-sm px-6 py-2.5 rounded-[8px] whitespace-nowrap transition-colors"
           >
@@ -129,7 +125,7 @@ function KeywordsPanel() {
         {error && <p className="text-red-500 text-sm mt-3">{error}</p>}
       </div>
 
-      {/* RANKO Winnability score */}
+      {/* Winnability */}
       {checkingWinnability && (
         <div className="rounded-xl border border-[#E8E8E4] bg-[#FAFAF8] p-4 mb-4 text-sm text-[#6B6B6B] flex items-center gap-2">
           <span className="inline-block w-3 h-3 rounded-full bg-orange-400 animate-pulse" />
@@ -138,8 +134,9 @@ function KeywordsPanel() {
       )}
       {winnability && !checkingWinnability && <WinnabilityCard result={winnability} />}
 
+      {/* Results */}
       {keywords.length > 0 && (
-        <div className="bg-white border border-[#E8E8E4] rounded-[10px] overflow-hidden">
+        <div className="bg-white border border-[#E8E8E4] rounded-[10px] overflow-hidden mb-6">
           <div className="px-4 py-3 border-b border-[#E8E8E4] flex items-center justify-between">
             <span className="text-sm font-semibold">{keywords.length} keywords found</span>
             <span className="text-xs text-[#6B6B6B]">Click &quot;Write article&quot; to open in Write</span>
@@ -177,35 +174,32 @@ function KeywordsPanel() {
           </div>
         </div>
       )}
+
+      {/* Also see */}
+      <div className="flex items-center gap-4 pt-2 border-t border-[#E8E8E4]">
+        <span className="text-xs text-[#9B9B9B]">Also:</span>
+        <Link href="/dashboard/keywords/topical-map" className="text-xs text-[#6B6B6B] hover:text-[#FF6B2C] transition-colors">
+          View topical map →
+        </Link>
+        <Link href="/dashboard/keywords/serp-intent" className="text-xs text-[#6B6B6B] hover:text-[#FF6B2C] transition-colors">
+          Analyse SERP intent →
+        </Link>
+        <Link href="/dashboard/keywords/discovery" className="text-xs text-[#6B6B6B] hover:text-[#FF6B2C] transition-colors">
+          Discover keywords →
+        </Link>
+      </div>
     </div>
   )
 }
 
-
 export default function KeywordsPage() {
-  const [activeTab, setActiveTab] = useState('keywords')
-
   return (
     <div className="flex h-screen bg-[#FAFAF8] text-[#0F0F0F] overflow-hidden" style={{ fontFamily: "'Outfit', sans-serif", fontSize: '15px' }}>
       <DashboardNav />
       <main className="flex-1 overflow-y-auto">
-        <div className="px-8 pt-6 bg-white border-b border-[#E8E8E4] sticky top-0 z-10">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-[#6B6B6B] mb-3">Keywords</h2>
-          <HubTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} />
-        </div>
-
-        {activeTab === 'keywords'    && <KeywordsPanel />}
-        {activeTab === 'topical-map' && <TopicalMapPage />}
-        {activeTab === 'discover' && (
-          <div style={{ overflow: 'hidden', width: '100%' }}>
-            <div style={{ marginLeft: '-224px', display: 'flex', width: 'calc(100% + 224px)' }}>
-              <Suspense fallback={<div className="p-8 text-[#6B6B6B]">Loading…</div>}>
-                <DiscoveryPage />
-              </Suspense>
-            </div>
-          </div>
-        )}
-        {activeTab === 'serp-intent' && <SERPIntentAnalyser />}
+        <Suspense fallback={<div className="p-8 text-[#6B6B6B]">Loading…</div>}>
+          <ResearchPanel />
+        </Suspense>
       </main>
     </div>
   )
