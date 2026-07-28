@@ -24,7 +24,9 @@ export interface RANKOIssue {
   risk: IssueRisk           // risk of implementing the fix
   autoFixable: boolean      // can RANKO fix this without user approval?
   estimatedGain: string     // e.g. "likely +2-5 positions on page 2 articles"
-  affectedItems?: string[]  // which articles/pages are affected
+  affectedItems?: string[]  // human-readable: article titles or the site URL
+  affectedArticleIds?: string[] // article IDs, for wiring a fix straight to /api/improve-article.
+                                // Empty for site-level issues (GEO/technical) that aren't tied to an article.
 }
 
 export interface RANKODiagnosis {
@@ -78,7 +80,8 @@ export async function runRANKODiagnosis(
         estimatedGain: signal.impact === 'critical'
           ? 'significant improvement in AI citation likelihood'
           : 'moderate improvement in search visibility',
-        affectedItems: [siteUrl]
+        affectedItems: [siteUrl],
+        affectedArticleIds: []   // site-level — not tied to any single article
       })
     }
   } catch { /* GEO audit failed — skip, don't crash */ }
@@ -88,7 +91,9 @@ export async function runRANKODiagnosis(
   // === Layer 2: Content analysis (for each article) ===
   const contentIssues: RANKOIssue[] = []
   const weakArticles: string[] = []
+  const weakArticleIds: string[] = []
   const stuckArticles: string[] = []
+  const stuckArticleIds: string[] = []
 
   for (const article of articles.slice(0, 20)) {
     if (!article.content) continue
@@ -102,6 +107,7 @@ export async function runRANKODiagnosis(
       const existing = contentIssues.find(i => i.id === 'content-headings')
       if (existing) {
         existing.affectedItems?.push(article.title)
+        existing.affectedArticleIds?.push(article.id)
       } else {
         contentIssues.push({
           id: 'content-headings',
@@ -114,7 +120,8 @@ export async function runRANKODiagnosis(
           risk: 'safe',
           autoFixable: true,
           estimatedGain: '+15–25% improvement in AI Overview inclusion likelihood',
-          affectedItems: [article.title]
+          affectedItems: [article.title],
+          affectedArticleIds: [article.id]
         })
       }
     }
@@ -124,6 +131,7 @@ export async function runRANKODiagnosis(
       const existing = contentIssues.find(i => i.id === 'content-authority-links')
       if (existing) {
         existing.affectedItems?.push(article.title)
+        existing.affectedArticleIds?.push(article.id)
       } else {
         contentIssues.push({
           id: 'content-authority-links',
@@ -136,7 +144,8 @@ export async function runRANKODiagnosis(
           risk: 'safe',
           autoFixable: true,
           estimatedGain: 'Moderate EEAT improvement; named entities increase AI citation rate by ~30%',
-          affectedItems: [article.title]
+          affectedItems: [article.title],
+          affectedArticleIds: [article.id]
         })
       }
     }
@@ -144,11 +153,13 @@ export async function runRANKODiagnosis(
     // Entity coverage
     if ((entityScore as any).grade === 'D' || (entityScore as any).grade === 'F') {
       weakArticles.push(article.title)
+      weakArticleIds.push(article.id)
     }
 
     // Stuck articles (ranked 11-30, not improving)
     if (article.current_position && article.current_position >= 11 && article.current_position <= 30) {
       stuckArticles.push(article.title)
+      stuckArticleIds.push(article.id)
     }
   }
 
@@ -167,7 +178,8 @@ export async function runRANKODiagnosis(
       risk: 'safe',
       autoFixable: true,
       estimatedGain: 'Up to 3× increase in AI citation likelihood for affected articles',
-      affectedItems: weakArticles
+      affectedItems: weakArticles,
+      affectedArticleIds: weakArticleIds
     })
   }
 
@@ -184,7 +196,8 @@ export async function runRANKODiagnosis(
       risk: 'low-risk',
       autoFixable: false,
       estimatedGain: '3-8 position improvement likely within 4-8 weeks for page 2 articles',
-      affectedItems: stuckArticles
+      affectedItems: stuckArticles,
+      affectedArticleIds: stuckArticleIds
     })
   }
 
@@ -206,7 +219,11 @@ export async function runRANKODiagnosis(
         risk: 'medium-risk',
         autoFixable: false,
         estimatedGain: 'Consolidating conflicts typically improves both articles\' positions by 5-15 places',
-        affectedItems: cannibResult.pairs.filter(p => p.severity === 'high').map(p => p.article1Title)
+        affectedItems: cannibResult.pairs.filter(p => p.severity === 'high').map(p => p.article1Title),
+        affectedArticleIds: cannibResult.pairs
+          .filter(p => p.severity === 'high')
+          .map(p => (p as any).article1Id)
+          .filter(Boolean)
       })
     }
   } catch { /* cannibalisation check failed */ }

@@ -12,27 +12,64 @@ export async function POST(req: NextRequest) {
       target,
       currentScore,
       keyword,
-      title
+      title,
+      instruction,
+      autoApply
     } = await req.json()
 
-    if (!articleContent || !target || !keyword) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
+
+    // Callers may pass the content directly (the Improve page pastes it), or
+    // pass only an articleId and let us load it (RANKO's one-click fixes).
+    let content = articleContent
+    let resolvedKeyword = keyword
+    let resolvedTitle = title
+
+    if (!content && articleId) {
+      const { data: article, error } = await supabase
+        .from('articles')
+        .select('content, keyword, title')
+        .eq('id', articleId)
+        .single()
+
+      if (error || !article) {
+        return NextResponse.json(
+          { error: 'Article not found', details: error?.message },
+          { status: 404 }
+        )
+      }
+
+      content = article.content
+      resolvedKeyword = resolvedKeyword || article.keyword
+      resolvedTitle = resolvedTitle || article.title
+    }
+
+    // A free-text instruction supplies its own direction, so `target` is only
+    // required for the canned improve passes.
+    if (!content || (!target && !instruction)) {
+      return NextResponse.json(
+        { error: 'Missing required fields: need articleContent or articleId, plus target or instruction' },
+        { status: 400 }
+      )
     }
 
     const result = await improveArticle({
-      articleContent,
-      target: target as ImproveTarget,
+      articleContent: content,
+      target: (target || 'all') as ImproveTarget,
       currentScore: currentScore || 0,
-      keyword,
-      title: title || ''
+      keyword: resolvedKeyword || '',
+      title: resolvedTitle || '',
+      instruction
     })
 
-    if (articleId) {
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-      )
+    // Only persist when the caller asked for it. autoApply defaults to true for
+    // legacy callers that pass an articleId and expect the old save behaviour.
+    const shouldSave = articleId && (autoApply ?? true)
 
+    if (shouldSave) {
       const { data: existing } = await supabase
         .from('articles')
         .select('improve_history')
@@ -41,7 +78,8 @@ export async function POST(req: NextRequest) {
 
       const history = Array.isArray(existing?.improve_history) ? existing.improve_history : []
       history.push({
-        target,
+        target: instruction ? 'targeted-fix' : target,
+        instruction: instruction || null,
         score_before: currentScore,
         changes: result.changesSummary,
         improved_at: new Date().toISOString()
@@ -59,6 +97,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      applied: Boolean(shouldSave),
       improvedContent: result.improvedContent,
       changesSummary: result.changesSummary,
       estimatedScoreGain: result.estimatedScoreGain

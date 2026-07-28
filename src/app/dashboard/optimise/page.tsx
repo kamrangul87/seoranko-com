@@ -1,5 +1,6 @@
 'use client'
 import { useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { HubTabs } from '@/components/HubTabs'
 import { DashboardNav } from '@/components/DashboardNav'
@@ -110,8 +111,13 @@ function ImagesPlaceholder() {
   )
 }
 
-export default function OptimisePage() {
-  const [activeTab, setActiveTab] = useState('humanize')
+function OptimiseContent() {
+  const searchParams = useSearchParams()
+  // RANKO's "Review & apply" links in with ?tab=improve
+  const requestedTab = searchParams.get('tab')
+  const [activeTab, setActiveTab] = useState(
+    TABS.some(t => t.id === requestedTab) ? requestedTab! : 'humanize'
+  )
 
   return (
     <div className="flex h-screen bg-[#FAFAF8] text-[#0F0F0F] overflow-hidden" style={{ fontFamily: "'Outfit', sans-serif", fontSize: '15px' }}>
@@ -142,5 +148,13 @@ export default function OptimisePage() {
         {activeTab === 'images' && <ImagesPlaceholder />}
       </main>
     </div>
+  )
+}
+
+export default function OptimisePage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-[#6B6B6B]">Loading…</div>}>
+      <OptimiseContent />
+    </Suspense>
   )
 }

@@ -9,6 +9,12 @@ export interface ImproveRequest {
   currentScore: number
   keyword: string
   title: string
+  /**
+   * Optional free-text instruction (e.g. a RANKO diagnosis `issue.fix`).
+   * When set, this single targeted fix replaces the canned IMPROVE_PROMPTS[target]
+   * pass so we change only what the diagnosis asked for.
+   */
+  instruction?: string
 }
 
 export interface ImproveResult {
@@ -139,11 +145,35 @@ At the end, add: <!-- CHANGES: [brief list of what you changed] -->`
 
 const client = new Anthropic()
 
-export async function improveArticle(request: ImproveRequest): Promise<ImproveResult> {
-  const systemPrompt = IMPROVE_PROMPTS[request.target]
-    .replace('{KEYWORD}', request.keyword)
+const TARGETED_PROMPT = `You are an expert SEO editor applying ONE specific, targeted fix to an article.
 
-  const userMessage = `Here is the article to improve. Current ${request.target} score: ${request.currentScore}/100. Target keyword: "${request.keyword}".
+You will be given a single instruction describing exactly what to change. Apply ONLY that change.
+
+Rules:
+- Make surgical edits. Do NOT rewrite the article, restructure it, or "improve" anything the instruction did not ask for.
+- Preserve the author's voice, formatting, and all existing content that is unrelated to the instruction.
+- If the instruction is already satisfied, return the article unchanged and say so in the CHANGES note.
+- Never invent facts, statistics, citations, or sources. If the fix requires an authoritative external link, use only well-known, real, verifiable sources (gov.uk, NHS, official regulators, established academic institutions).
+
+Return the complete article with your change applied.
+At the end, add: <!-- CHANGES: [brief list of what you changed] -->`
+
+export async function improveArticle(request: ImproveRequest): Promise<ImproveResult> {
+  const targeted = Boolean(request.instruction?.trim())
+
+  const systemPrompt = targeted
+    ? TARGETED_PROMPT
+    : IMPROVE_PROMPTS[request.target].replace('{KEYWORD}', request.keyword)
+
+  const userMessage = targeted
+    ? `Target keyword: "${request.keyword}".
+
+Apply ONLY this fix to the article below:
+${request.instruction!.trim()}
+
+ARTICLE:
+${request.articleContent}`
+    : `Here is the article to improve. Current ${request.target} score: ${request.currentScore}/100. Target keyword: "${request.keyword}".
 
 Apply the targeted improvements from your instructions. Return the complete improved article.
 

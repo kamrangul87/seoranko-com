@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 
 interface RANKOIssue {
   id: string
@@ -13,6 +14,7 @@ interface RANKOIssue {
   autoFixable: boolean
   estimatedGain: string
   affectedItems?: string[]
+  affectedArticleIds?: string[]
 }
 
 interface RANKODiagnosis {
@@ -65,6 +67,15 @@ function IconTarget({ className }: { className?: string }) {
     </svg>
   )
 }
+function IconCheckCircle({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10" strokeWidth={2} />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4" />
+    </svg>
+  )
+}
+
 function IconEye({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -75,9 +86,65 @@ function IconEye({ className }: { className?: string }) {
 }
 
 export function RANKODiagnosisPanel({ siteUrl }: Props) {
+  const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [diagnosis, setDiagnosis] = useState<RANKODiagnosis | null>(null)
   const [expandedIssue, setExpandedIssue] = useState<string | null>(null)
+  const [fixingId, setFixingId] = useState<string | null>(null)
+  const [fixedIds, setFixedIds] = useState<Record<string, string>>({})
+  const [fixErrors, setFixErrors] = useState<Record<string, string>>({})
+
+  // RANKO acts on its own only when the diagnosis says it may. `autoFixable` is
+  // the engine's explicit act/propose flag — note it is NOT the same as low risk
+  // (e.g. "stuck articles" is low-risk but deliberately not auto-fixable).
+  const canAutoFix = (issue: RANKOIssue) =>
+    issue.autoFixable && (issue.affectedArticleIds?.length ?? 0) > 0
+
+  async function handleAutoFix(issue: RANKOIssue) {
+    const articleId = issue.affectedArticleIds?.[0]
+    if (!articleId) return
+
+    setFixingId(issue.id)
+    setFixErrors(prev => { const next = { ...prev }; delete next[issue.id]; return next })
+
+    try {
+      const res = await fetch('/api/improve-article', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          articleId,
+          instruction: issue.fix,
+          autoApply: true
+        })
+      })
+      const data = await res.json()
+
+      if (!res.ok || !data.success) {
+        setFixErrors(prev => ({ ...prev, [issue.id]: data.error || 'Fix failed' }))
+        return
+      }
+
+      setFixedIds(prev => ({
+        ...prev,
+        [issue.id]: data.changesSummary || 'Fix applied'
+      }))
+
+      // Re-diagnose so the health score visibly reflects the fix
+      setTimeout(() => { runDiagnosis() }, 2000)
+    } catch (err) {
+      console.error('Auto-fix failed:', err)
+      setFixErrors(prev => ({ ...prev, [issue.id]: String(err) }))
+    } finally {
+      setFixingId(null)
+    }
+  }
+
+  function handleReviewFix(issue: RANKOIssue) {
+    const articleId = issue.affectedArticleIds?.[0]
+    const params = new URLSearchParams({ tab: 'improve', instruction: issue.fix })
+    if (articleId) params.set('articleId', articleId)
+    router.push(`/dashboard/optimise?${params.toString()}`)
+  }
 
   async function runDiagnosis() {
     setLoading(true)
@@ -94,6 +161,56 @@ export function RANKODiagnosisPanel({ siteUrl }: Props) {
     } finally {
       setLoading(false)
     }
+  }
+
+  // Action buttons for a single issue — act (auto-fix) vs propose (review).
+  function IssueActions({ issue }: { issue: RANKOIssue }) {
+    if (fixedIds[issue.id]) {
+      return (
+        <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 px-3 py-2 rounded-lg">
+          <IconCheckCircle className="w-4 h-4 flex-shrink-0" />
+          <span>Fixed — re-checking your score…</span>
+        </div>
+      )
+    }
+
+    const autoFix = canAutoFix(issue)
+    const noArticle = (issue.affectedArticleIds?.length ?? 0) === 0
+
+    return (
+      <div className="space-y-2">
+        <div className="flex gap-2 flex-wrap">
+          {autoFix ? (
+            <button
+              onClick={() => handleAutoFix(issue)}
+              disabled={fixingId === issue.id}
+              className="text-xs font-medium bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-50 transition-colors"
+            >
+              {fixingId === issue.id ? 'Fixing…' : '⚡ Fix automatically'}
+            </button>
+          ) : (
+            <button
+              onClick={() => handleReviewFix(issue)}
+              className="text-xs font-medium bg-white border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:border-gray-400 transition-colors"
+            >
+              👁 Review &amp; apply
+            </button>
+          )}
+        </div>
+
+        {noArticle && (
+          <p className="text-xs text-gray-400">
+            Site-level fix — apply this to your site directly, not to a single article.
+          </p>
+        )}
+
+        {fixErrors[issue.id] && (
+          <p className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-lg break-words">
+            {fixErrors[issue.id]}
+          </p>
+        )}
+      </div>
+    )
   }
 
   const healthColor = (health: string) => ({
@@ -150,6 +267,17 @@ export function RANKODiagnosisPanel({ siteUrl }: Props) {
 
   const color = healthColor(diagnosis.overallHealth)
 
+  // Highest-impact issue: honour the engine's own priorityQueue, falling back to
+  // critical-first then confidence when the queue is empty or stale.
+  const IMPACT_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
+  const topIssue =
+    diagnosis.issues.find(i => i.id === diagnosis.priorityQueue?.[0]) ??
+    [...diagnosis.issues].sort(
+      (a, b) =>
+        (IMPACT_ORDER[a.impact] ?? 9) - (IMPACT_ORDER[b.impact] ?? 9) ||
+        b.confidence - a.confidence
+    )[0]
+
   return (
     <div className="space-y-4">
       {/* Health score */}
@@ -176,6 +304,25 @@ export function RANKODiagnosisPanel({ siteUrl }: Props) {
           Expect meaningful rank movement in approximately <strong>{diagnosis.estimatedWeeksToImpact} weeks</strong> if you act on the priority fixes below.
         </p>
       </div>
+
+      {/* Top priority — do this first */}
+      {topIssue && (
+        <div className="bg-orange-50 border-2 border-orange-200 rounded-xl p-4">
+          <p className="text-xs font-semibold text-orange-700 mb-1">⭐ Do this first</p>
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${impactBadge(topIssue.impact)}`}>
+              {topIssue.impact}
+            </span>
+            <span className="text-xs text-gray-500">{topIssue.confidence}% confident</span>
+          </div>
+          <p className="text-sm font-medium text-gray-900 mb-1">{topIssue.title}</p>
+          <p className="text-xs text-gray-600 mb-2">{topIssue.whyItHurts}</p>
+          <p className="text-xs text-gray-500 mb-3">
+            Expected gain: <span className="text-gray-700 font-medium">{topIssue.estimatedGain}</span>
+          </p>
+          <IssueActions issue={topIssue} />
+        </div>
+      )}
 
       {/* Top 3 actions */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -270,6 +417,15 @@ export function RANKODiagnosisPanel({ siteUrl }: Props) {
                       )}
                     </div>
                   )}
+
+                  <IssueActions issue={issue} />
+                </div>
+              )}
+
+              {/* Fixed / error state stays visible when the row is collapsed */}
+              {expandedIssue !== issue.id && (fixedIds[issue.id] || fixErrors[issue.id]) && (
+                <div className="mt-3">
+                  <IssueActions issue={issue} />
                 </div>
               )}
             </div>

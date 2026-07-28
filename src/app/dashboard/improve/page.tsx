@@ -1,11 +1,17 @@
 'use client';
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { supabase } from '@/lib/supabase-client';
 
 export default function ImproveArticlePage() {
+  const searchParams = useSearchParams();
 
   const [articleInput, setArticleInput] = useState('');
   const [keyword, setKeyword] = useState('');
+  // Pre-loaded from a RANKO "Review & apply" hand-off
+  const [rankoInstruction, setRankoInstruction] = useState('');
+  const [prefilling, setPrefilling] = useState(false);
   const [market, setMarket] = useState('United Kingdom');
   const [tone, setTone] = useState('professional');
   const [loading, setLoading] = useState(false);
@@ -16,6 +22,32 @@ export default function ImproveArticlePage() {
   const [copied, setCopied] = useState(false);
 
   const wordCount = articleInput.trim().split(/\s+/).filter(Boolean).length;
+
+  // RANKO "Review & apply" hand-off: ?articleId=…&instruction=…
+  // Pre-fill the article and the requested fix so the user only has to click.
+  useEffect(() => {
+    const instruction = searchParams.get('instruction');
+    const articleId = searchParams.get('articleId');
+    if (instruction) setRankoInstruction(instruction);
+    if (!articleId) return;
+
+    let cancelled = false;
+    setPrefilling(true);
+    supabase
+      .from('articles')
+      .select('content, keyword')
+      .eq('id', articleId)
+      .single()
+      .then(({ data, error }: { data: any; error: any }) => {
+        if (cancelled) return;
+        if (error) console.error('Could not pre-load article for review:', error);
+        if (data?.content) setArticleInput(data.content);
+        if (data?.keyword) setKeyword(data.keyword);
+        setPrefilling(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [searchParams]);
 
   const stages = [
     { key: 'detecting', label: 'Detecting keyword...' },
@@ -276,6 +308,24 @@ export default function ImproveArticlePage() {
             <span style={{ fontSize: '12px', color: '#9B9B9B' }}>{wordCount} words</span>
           </div>
           <div style={s.panelBody}>
+            {rankoInstruction && (
+              <div style={{
+                background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: '10px',
+                padding: '12px 14px', marginBottom: '12px'
+              }}>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: '#C2410C', marginBottom: '4px' }}>
+                  ⭐ RANKO recommends this fix
+                </div>
+                <div style={{ fontSize: '13px', color: '#7C2D12', lineHeight: 1.5 }}>
+                  {rankoInstruction}
+                </div>
+                <div style={{ fontSize: '11px', color: '#9A3412', marginTop: '6px' }}>
+                  {prefilling
+                    ? 'Loading your article…'
+                    : 'Review the article below, then click Improve to apply.'}
+                </div>
+              </div>
+            )}
             <textarea
               style={s.textarea}
               placeholder="Paste your existing article here — HTML or plain text..."
