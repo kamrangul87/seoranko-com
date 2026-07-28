@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase-client'
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import { LOCATION_OPTIONS } from '@/lib/rank-tracker'
 import type { RANKODiagnosis, RANKOIssue } from '@/lib/ranko-diagnosis'
-import { loadArticleContentById, CONTENT_LOAD_FAILED_MESSAGE } from '@/lib/article-content-loader'
+import { resolveArticle, isWritable, EXTERNAL_NOT_WRITABLE_MESSAGE } from '@/lib/article-resolver'
 
 interface TrackedArticle {
   id: string
@@ -279,12 +279,11 @@ export function RankingAgentDashboard() {
     setFixIssueErrors(prev => { const next = { ...prev }; delete next[key]; return next })
 
     try {
-      // The id may point at a tracked external URL with no stored content, so
-      // resolve the actual text before asking the API to rewrite it.
-      const loaded = await loadArticleContentById(supabase, article.id)
+      // Universal resolver — the id may be a local article or a tracked URL.
+      const resolved = await resolveArticle(supabase, article.id)
 
-      if (!loaded) {
-        setFixIssueErrors(prev => ({ ...prev, [key]: CONTENT_LOAD_FAILED_MESSAGE }))
+      if (!resolved.content) {
+        setFixIssueErrors(prev => ({ ...prev, [key]: resolved.fetchError || 'Could not load this article.' }))
         setFixUnavailable(prev => ({ ...prev, [key]: true }))
         return
       }
@@ -292,11 +291,8 @@ export function RankingAgentDashboard() {
       // Content fetched from a live external page has no row to write back to,
       // so an "automatic" fix would improve the text and then discard it.
       // Hand off to Improve instead, where the user sees the result and can use it.
-      if (loaded.source === 'fetched') {
-        setFixIssueErrors(prev => ({
-          ...prev,
-          [key]: "This URL isn't hosted in SEORANKO, so RANKO can't write the fix back to it. Open it in Improve to get the rewritten version."
-        }))
+      if (!isWritable(resolved)) {
+        setFixIssueErrors(prev => ({ ...prev, [key]: EXTERNAL_NOT_WRITABLE_MESSAGE }))
         setFixUnavailable(prev => ({ ...prev, [key]: true }))
         return
       }
@@ -306,14 +302,21 @@ export function RankingAgentDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           articleId: article.id,
-          articleContent: loaded.content,
-          keyword: loaded.keyword || article.keyword,
-          title: article.title,
+          articleContent: resolved.content,
+          keyword: resolved.keyword || article.keyword,
+          title: resolved.title || article.title,
           instruction: issue.fix,
           autoApply: true
         })
       })
       const data = await res.json()
+
+      // Identity guard rejected the result — surface why, don't claim success.
+      if (data.blocked) {
+        setFixIssueErrors(prev => ({ ...prev, [key]: data.warning || 'Fix blocked — the result did not match the original article.' }))
+        setFixUnavailable(prev => ({ ...prev, [key]: true }))
+        return
+      }
 
       if (!res.ok || !data.success) {
         setFixIssueErrors(prev => ({ ...prev, [key]: data.error || 'Fix failed' }))

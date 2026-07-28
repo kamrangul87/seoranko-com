@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase-client';
-import { loadArticleContentById } from '@/lib/article-content-loader';
+import { resolveArticle } from '@/lib/article-resolver';
 
 export default function ImproveArticlePage() {
   const searchParams = useSearchParams();
@@ -14,6 +14,7 @@ export default function ImproveArticlePage() {
   const [rankoInstruction, setRankoInstruction] = useState('');
   const [prefilling, setPrefilling] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [sourceNote, setSourceNote] = useState('');
   const [market, setMarket] = useState('United Kingdom');
   const [tone, setTone] = useState('professional');
   const [loading, setLoading] = useState(false);
@@ -39,14 +40,17 @@ export default function ImproveArticlePage() {
     setPrefilling(true);
     setLoadError('');
 
-    loadArticleContentById(supabase, articleId)
-      .then(loaded => {
+    resolveArticle(supabase, articleId)
+      .then(resolved => {
         if (cancelled) return;
-        if (loaded) {
-          setArticleInput(loaded.content);
-          if (loaded.keyword) setKeyword(loaded.keyword);
+        if (resolved.content) {
+          setArticleInput(resolved.content);
+          if (resolved.keyword) setKeyword(resolved.keyword);
+          if (resolved.source === 'fetched-live') {
+            setSourceNote('Fetched from the live page — this was not originally generated in SEORANKO.');
+          }
         } else {
-          setLoadError('Could not load this article automatically — paste the content below and RANKO will apply the fix.');
+          setLoadError(resolved.fetchError || 'Could not load this article automatically — paste the content below and RANKO will apply the fix.');
         }
       })
       .catch(err => {
@@ -334,7 +338,9 @@ export default function ImproveArticlePage() {
                     ? 'Loading your article…'
                     : loadError
                       ? loadError
-                      : 'Review the article below, then click Improve to apply.'}
+                      : sourceNote
+                        ? `${sourceNote} Review it below, then click Improve to apply.`
+                        : 'Review the article below, then click Improve to apply.'}
                 </div>
               </div>
             )}

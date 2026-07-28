@@ -15,6 +15,7 @@ import { checkAndPatchFactSourcing } from '@/lib/fact-checker';
 import { calculateEEATScore, calculateReadabilityScore, calculateKeywordDensity } from '@/lib/content-scorer';
 import { MODEL_FOR } from '@/lib/model-router';
 import { runQualityGate } from '@/lib/article-quality-gate';
+import { checkContentIdentity } from '@/lib/content-identity-guard';
 
 // Fluid compute (default on Vercel) allows up to 300s on Hobby. The full
 // pipeline (audit + scraping + NLP + angle + 6000-token generation) needs
@@ -280,6 +281,28 @@ Return ONLY valid JSON no markdown:
             if (qr.autoFixedCount > 0) console.log(`[article-improve] quality-gate: auto-fixed ${qr.autoFixedCount} issues, score=${qr.score}`)
           } catch (qErr) {
             console.warn('[article-improve] quality gate failed, continuing:', qErr)
+          }
+
+          // Content identity guard — an "improve" that returns a different
+          // document must not be presented as an edit of this article.
+          const identityCheck = checkContentIdentity(article, null, finalHtml, null);
+          if (!identityCheck.isSameDocument) {
+            console.error('[article-improve] identity guard blocked result', {
+              similarityScore: identityCheck.similarityScore
+            });
+            send(`<!--SEORANKO_BLOCKED_START-->${JSON.stringify({
+              blocked: true,
+              warning: identityCheck.warning,
+              similarityScore: identityCheck.similarityScore
+            })}<!--SEORANKO_BLOCKED_END-->`);
+            controller.close();
+            return;
+          }
+          if (identityCheck.warning) {
+            send(`<!--SEORANKO_WARNING_START-->${JSON.stringify({
+              warning: identityCheck.warning,
+              similarityScore: identityCheck.similarityScore
+            })}<!--SEORANKO_WARNING_END-->`);
           }
 
           send(`<!--SEORANKO_HUMANIZED_START-->\n${finalHtml}\n<!--SEORANKO_HUMANIZED_END-->`);

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { humanizeArticle } from '@/lib/humanizer';
+import { checkContentIdentity } from '@/lib/content-identity-guard';
 
 export const maxDuration = 120;
 
@@ -21,7 +22,25 @@ export async function POST(req: NextRequest) {
       primaryKeyword: keyword,
     });
 
-    return NextResponse.json(result);
+    // Content identity guard — humanising must not swap in a different document.
+    const identityCheck = checkContentIdentity(html, null, result.humanizedHtml, null);
+
+    if (!identityCheck.isSameDocument) {
+      console.error('[humanize] identity guard blocked result', {
+        similarityScore: identityCheck.similarityScore
+      });
+      return NextResponse.json({
+        blocked: true,
+        warning: identityCheck.warning,
+        similarityScore: identityCheck.similarityScore
+      }, { status: 200 });
+    }
+
+    return NextResponse.json({
+      ...result,
+      warning: identityCheck.warning,
+      similarityScore: identityCheck.similarityScore
+    });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (err: any) {
     console.error('[humanize]', err);

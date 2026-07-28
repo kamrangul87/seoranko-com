@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { improveArticle, ImproveTarget } from '@/lib/article-improver'
+import { checkContentIdentity } from '@/lib/content-identity-guard'
 
 export const maxDuration = 120
 
@@ -65,6 +66,28 @@ export async function POST(req: NextRequest) {
       instruction
     })
 
+    // Content identity guard — an "edit" that comes back as a different
+    // document must never reach the database.
+    const identityCheck = checkContentIdentity(
+      content,
+      resolvedTitle || null,
+      result.improvedContent,
+      resolvedTitle || null
+    )
+
+    if (!identityCheck.isSameDocument) {
+      console.error('[improve-article] identity guard blocked save', {
+        articleId,
+        similarityScore: identityCheck.similarityScore
+      })
+      // 200, not 500 — an expected guard outcome, not a server error.
+      return NextResponse.json({
+        blocked: true,
+        warning: identityCheck.warning,
+        similarityScore: identityCheck.similarityScore
+      }, { status: 200 })
+    }
+
     // Only persist when the caller asked for it. autoApply defaults to true for
     // legacy callers that pass an articleId and expect the old save behaviour.
     const shouldSave = articleId && (autoApply ?? true)
@@ -100,7 +123,10 @@ export async function POST(req: NextRequest) {
       applied: Boolean(shouldSave),
       improvedContent: result.improvedContent,
       changesSummary: result.changesSummary,
-      estimatedScoreGain: result.estimatedScoreGain
+      estimatedScoreGain: result.estimatedScoreGain,
+      // Non-null when this was a heavy rewrite that passed but deserves a look
+      warning: identityCheck.warning,
+      similarityScore: identityCheck.similarityScore
     })
 
   } catch (error) {

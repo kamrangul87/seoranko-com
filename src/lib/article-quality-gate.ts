@@ -9,6 +9,8 @@
 // RULE DEFINITIONS
 // ============================================================
 
+import { validateSchema } from './schema-validator'
+
 // AI slop patterns — expanded from anti-slop GitHub repo
 const AI_SLOP_PATTERNS = [
   /\bin today's (world|landscape|digital age|fast-paced)/i,
@@ -280,54 +282,31 @@ export async function runQualityGate(
     }
   }
 
-  // ---- RULE 6: Schema validation ----
-  const hasArticleSchema = /"@type"\s*:\s*"Article"/.test(articleContent) ||
-    /"@type"\s*:\s*"BlogPosting"/.test(articleContent)
-  const hasFAQSchema = /"@type"\s*:\s*"FAQPage"/.test(articleContent)
-  const hasVisibleFAQ = /<h3>/.test(articleContent) || /class="faq/.test(articleContent)
-  const hasAuthorSchema = /"@type"\s*:\s*"Person"/.test(articleContent)
-  const hasDatePublished = /"datePublished"/.test(articleContent)
+  // ---- RULE 6: Schema validation (full schema.org property-level check) ----
+  const schemaResult = validateSchema(articleContent)
 
-  if (!hasArticleSchema) {
+  for (const schemaIssue of schemaResult.issues) {
     issues.push({
-      id: 'schema-article',
-      severity: 'critical',
+      id: `schema-${schemaIssue.schemaType}-${schemaIssue.property}`,
+      severity: schemaIssue.severity === 'error' ? 'critical' : 'warning',
       category: 'schema',
-      title: 'Article schema (JSON-LD) missing',
-      description: 'Article JSON-LD schema is required for Google and AI engine recognition.',
+      title: `${schemaIssue.schemaType}: ${schemaIssue.property}`,
+      description: schemaIssue.message,
       autoFixable: false
     })
   }
 
-  if (hasVisibleFAQ && !hasFAQSchema) {
+  // Schema/content parity — a visible FAQ with no FAQPage block. This is a
+  // cross-check against the rendered article, not a JSON-LD property rule,
+  // so it stays outside validateSchema().
+  const hasVisibleFAQ = /<h3>/.test(articleContent) || /class="faq/.test(articleContent)
+  if (hasVisibleFAQ && !schemaResult.schemasFound.includes('FAQPage')) {
     issues.push({
       id: 'schema-faq-parity',
       severity: 'critical',
       category: 'schema',
       title: 'FAQPage schema missing but FAQ content exists',
       description: 'Visible FAQ section found but no FAQPage JSON-LD schema. Schema must match visible content.',
-      autoFixable: false
-    })
-  }
-
-  if (!hasAuthorSchema) {
-    issues.push({
-      id: 'schema-author',
-      severity: 'warning',
-      category: 'schema',
-      title: 'Person/Author schema missing',
-      description: 'Named author schema is required — named authors are cited 2.3× more by AI engines.',
-      autoFixable: false
-    })
-  }
-
-  if (!hasDatePublished) {
-    issues.push({
-      id: 'schema-date',
-      severity: 'warning',
-      category: 'missing-date',
-      title: 'datePublished missing from Article schema',
-      description: 'Content freshness is a key AI citation signal — datePublished must be present.',
       autoFixable: false
     })
   }

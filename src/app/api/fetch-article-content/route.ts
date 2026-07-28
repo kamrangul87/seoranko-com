@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import { fetchPageContent, isSafePublicUrl } from '@/lib/fetch-page-content'
+import { fetchPageWithTitle, isSafePublicUrl } from '@/lib/fetch-page-content'
 
 export const maxDuration = 30
 
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const content = await fetchPageContent(url)
+  const { content, title } = await fetchPageWithTitle(url, 20000)
 
   if (!content) {
     return NextResponse.json(
@@ -41,5 +41,5 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  return NextResponse.json({ success: true, content })
+  return NextResponse.json({ success: true, content, title })
 }

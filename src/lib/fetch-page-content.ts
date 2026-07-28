@@ -26,6 +26,36 @@ export async function fetchPageContent(url: string, maxChars = 8000): Promise<st
 }
 
 /**
+ * Same fetch, but also pulls the <title> out before the tags are stripped.
+ */
+export async function fetchPageWithTitle(
+  url: string,
+  maxChars = 8000
+): Promise<{ content: string; title: string }> {
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'SEORANKO-Content-Fetcher/1.0' },
+      signal: AbortSignal.timeout(15000)
+    })
+    if (!res.ok) return { content: '', title: '' }
+    const html = await res.text()
+    const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
+    const content = html
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, maxChars)
+    return { content, title: titleMatch ? titleMatch[1].trim() : '' }
+  } catch {
+    return { content: '', title: '' }
+  }
+}
+
+/**
  * Guard for fetching user-supplied URLs server-side. Blocks non-HTTP schemes
  * and hosts that resolve to the local network, so this endpoint can't be used
  * to probe internal services.

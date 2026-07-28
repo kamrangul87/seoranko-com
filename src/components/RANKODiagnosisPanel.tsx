@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase-client'
-import { loadArticleContentById, CONTENT_LOAD_FAILED_MESSAGE } from '@/lib/article-content-loader'
+import { resolveArticle, isWritable, EXTERNAL_NOT_WRITABLE_MESSAGE } from '@/lib/article-resolver'
 
 interface RANKOIssue {
   id: string
@@ -111,20 +111,19 @@ export function RANKODiagnosisPanel({ siteUrl }: Props) {
     setFixErrors(prev => { const next = { ...prev }; delete next[issue.id]; return next })
 
     try {
-      // The id may reference a tracked external URL with no stored content.
-      const loaded = await loadArticleContentById(supabase, articleId)
+      // Universal resolver — the id may be a local article or a tracked URL.
+      const resolved = await resolveArticle(supabase, articleId)
 
-      if (!loaded) {
-        setFixErrors(prev => ({ ...prev, [issue.id]: CONTENT_LOAD_FAILED_MESSAGE }))
+      if (!resolved.content) {
+        setFixErrors(prev => ({ ...prev, [issue.id]: resolved.fetchError || 'Could not load this article.' }))
         setFixUnavailable(prev => ({ ...prev, [issue.id]: true }))
         return
       }
 
-      if (loaded.source === 'fetched') {
-        setFixErrors(prev => ({
-          ...prev,
-          [issue.id]: "This URL isn't hosted in SEORANKO, so RANKO can't write the fix back to it. Open it in Improve to get the rewritten version."
-        }))
+      // Fetched-live content has no row to write back to — don't generate a
+      // fix and silently discard it.
+      if (!isWritable(resolved)) {
+        setFixErrors(prev => ({ ...prev, [issue.id]: EXTERNAL_NOT_WRITABLE_MESSAGE }))
         setFixUnavailable(prev => ({ ...prev, [issue.id]: true }))
         return
       }
@@ -134,13 +133,21 @@ export function RANKODiagnosisPanel({ siteUrl }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           articleId,
-          articleContent: loaded.content,
-          keyword: loaded.keyword,
+          articleContent: resolved.content,
+          title: resolved.title,
+          keyword: resolved.keyword,
           instruction: issue.fix,
           autoApply: true
         })
       })
       const data = await res.json()
+
+      // Identity guard rejected the result — surface why, don't claim success.
+      if (data.blocked) {
+        setFixErrors(prev => ({ ...prev, [issue.id]: data.warning || 'Fix blocked — the result did not match the original article.' }))
+        setFixUnavailable(prev => ({ ...prev, [issue.id]: true }))
+        return
+      }
 
       if (!res.ok || !data.success) {
         setFixErrors(prev => ({ ...prev, [issue.id]: data.error || 'Fix failed' }))
