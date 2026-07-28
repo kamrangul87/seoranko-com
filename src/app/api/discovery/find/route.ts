@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import { createHash } from "crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import { parseJsonResponse } from "@/lib/anthropic";
 import { getCachedEntityPresence } from "@/lib/entity-checker";
@@ -132,18 +131,6 @@ async function fetchNews(niche: string): Promise<string[]> {
 
 async function checkAuth(): Promise<boolean> {
   const cookieStore = await cookies();
-
-  const masterToken = cookieStore.get("seoranko_master")?.value;
-  if (masterToken) {
-    const masterEmail = process.env.MASTER_EMAIL;
-    const masterPassword = process.env.MASTER_PASSWORD;
-    if (masterEmail && masterPassword) {
-      const expected = createHash("sha256")
-        .update(`${masterEmail}:${masterPassword}:master`)
-        .digest("hex");
-      if (masterToken === expected) return true;
-    }
-  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

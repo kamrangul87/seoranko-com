@@ -10,13 +10,13 @@
  * Body:  { "dryRun": true }  — lists what would be deleted without deleting
  *        { "dryRun": false } — actually deletes
  *
- * Auth:  master cookie required (server-side admin only).
+ * Auth:  a real Supabase session whose email matches MASTER_EMAIL (admin only).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import { createHash } from "crypto";
 
 export const maxDuration = 60;
 
@@ -31,21 +31,22 @@ function getSupabase() {
 }
 
 export async function POST(req: NextRequest) {
-  // Master-only endpoint
-  const cookieStore = cookies();
-  const masterToken = cookieStore.get("seoranko_master")?.value;
+  // Admin-only endpoint — requires a real Supabase session whose email
+  // matches MASTER_EMAIL. No cookie-only bypass.
   const masterEmail = process.env.MASTER_EMAIL;
-  const masterPassword = process.env.MASTER_PASSWORD;
-
-  if (!masterEmail || !masterPassword || !masterToken) {
+  if (!masterEmail) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const expected = createHash("sha256")
-    .update(`${masterEmail}:${masterPassword}:master`)
-    .digest("hex");
+  const cookieStore = cookies();
+  const authClient = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { cookies: { get(name: string) { return cookieStore.get(name)?.value; } } },
+  );
+  const { data: { user } } = await authClient.auth.getUser();
 
-  if (masterToken !== expected) {
+  if (!user || user.email !== masterEmail) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

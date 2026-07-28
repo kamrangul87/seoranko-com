@@ -188,6 +188,8 @@ export default function DiscoveryPage() {
   async function handleSignOut() {
     const supabase = createClient();
     await supabase.auth.signOut();
+    // Also hit the API route so the server clears the legacy master cookie
+    await fetch("/api/auth/signout", { method: "POST", redirect: "manual" }).catch(() => {});
     router.push("/login");
   }
 

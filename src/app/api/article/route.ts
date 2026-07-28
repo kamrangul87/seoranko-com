@@ -10,7 +10,6 @@ import {
 import type { VerifiedFact } from "@/lib/fact-verifier";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import { createHash } from "crypto";
 import type { ArticleRequest, ArticleOutput, NlpBrief, PipelineData } from "@/types";
 
 // Free plan: 1 article LIFETIME (checked via articles_used_month, never reset)
@@ -255,20 +254,6 @@ export async function POST(req: NextRequest) {
   let userId: string | undefined;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let supabase: any = null;
-
-  const masterToken = cookieStore.get("seoranko_master")?.value;
-  if (masterToken) {
-    const masterEmail = process.env.MASTER_EMAIL;
-    const masterPassword = process.env.MASTER_PASSWORD;
-    if (masterEmail && masterPassword) {
-      const expected = createHash("sha256")
-        .update(`${masterEmail}:${masterPassword}:master`)
-        .digest("hex");
-      if (masterToken === expected) {
-        master = true;
-      }
-    }
-  }
 
   if (!master) {
     supabase = createServerClient(

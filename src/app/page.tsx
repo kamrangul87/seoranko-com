@@ -17,8 +17,8 @@ export default function LandingPage() {
           ))}
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-          <Link href="/auth/login" style={{ fontSize: '13px', color: '#333', textDecoration: 'none', padding: '7px 16px', border: '1px solid #E8E8E4', borderRadius: '7px', background: '#fff' }}>Log in</Link>
-          <Link href="/auth/login" style={{ fontSize: '13px', fontWeight: 600, color: '#fff', textDecoration: 'none', padding: '8px 18px', background: '#FF6B2C', borderRadius: '7px' }}>Start free →</Link>
+          <Link href="/login" style={{ fontSize: '13px', color: '#333', textDecoration: 'none', padding: '7px 16px', border: '1px solid #E8E8E4', borderRadius: '7px', background: '#fff' }}>Log in</Link>
+          <Link href="/signup" style={{ fontSize: '13px', fontWeight: 600, color: '#fff', textDecoration: 'none', padding: '8px 18px', background: '#FF6B2C', borderRadius: '7px' }}>Start free →</Link>
         </div>
       </nav>
 
@@ -35,7 +35,7 @@ export default function LandingPage() {
           Research keywords, verify facts from live sources, and generate EEAT-compliant articles — all in one workflow. No hallucinations. No broken links.
         </p>
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginBottom: '14px' }}>
-          <Link href="/auth/login" style={{ fontSize: '15px', fontWeight: 600, color: '#fff', textDecoration: 'none', padding: '14px 32px', background: '#FF6B2C', borderRadius: '8px' }}>Start for free →</Link>
+          <Link href="/signup" style={{ fontSize: '15px', fontWeight: 600, color: '#fff', textDecoration: 'none', padding: '14px 32px', background: '#FF6B2C', borderRadius: '8px' }}>Start for free →</Link>
           <a href="#features" style={{ fontSize: '15px', color: '#333', textDecoration: 'none', padding: '13px 24px', background: '#fff', border: '1.5px solid #E8E8E4', borderRadius: '8px' }}>See how it works</a>
         </div>
         <p style={{ fontSize: '13px', color: '#9B9B9B' }}>No credit card required · Cancel anytime</p>
@@ -123,7 +123,7 @@ export default function LandingPage() {
                   </div>
                 ))}
               </div>
-              <Link href="/auth/login" style={{ display: 'block', textAlign: 'center', padding: '10px', borderRadius: '7px', fontSize: '13px', fontWeight: 600, textDecoration: 'none', background: p.featured ? '#FF6B2C' : 'transparent', color: p.featured ? '#fff' : '#333', border: p.featured ? 'none' : '1.5px solid #E8E8E4' }}>
+              <Link href="/signup" style={{ display: 'block', textAlign: 'center', padding: '10px', borderRadius: '7px', fontSize: '13px', fontWeight: 600, textDecoration: 'none', background: p.featured ? '#FF6B2C' : 'transparent', color: p.featured ? '#fff' : '#333', border: p.featured ? 'none' : '1.5px solid #E8E8E4' }}>
                 {p.plan === 'FREE' ? 'Start free' : 'Get started'}
               </Link>
             </div>
@@ -163,7 +163,7 @@ export default function LandingPage() {
       <section style={{ background: '#0F0F0F', padding: '80px 48px', textAlign: 'center' }}>
         <h2 style={{ fontSize: '40px', fontWeight: 800, color: '#fff', letterSpacing: '-1.5px', marginBottom: '14px' }}>Start ranking in days,<br />not months.</h2>
         <p style={{ fontSize: '16px', color: '#6B6B6B', marginBottom: '32px' }}>Join content teams generating verified, EEAT-compliant articles at scale.</p>
-        <Link href="/auth/login" style={{ fontSize: '15px', fontWeight: 600, color: '#fff', textDecoration: 'none', padding: '15px 36px', background: '#FF6B2C', borderRadius: '8px' }}>Get started free →</Link>
+        <Link href="/signup" style={{ fontSize: '15px', fontWeight: 600, color: '#fff', textDecoration: 'none', padding: '15px 36px', background: '#FF6B2C', borderRadius: '8px' }}>Get started free →</Link>
       </section>
 
       {/* FOOTER */}

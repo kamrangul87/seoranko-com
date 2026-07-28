@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import { createHash } from "crypto";
 import { callClaude, parseJsonResponse } from "@/lib/anthropic";
 import { MODEL_FOR } from "@/lib/model-router";
 import { calculateReadabilityScore } from "@/lib/content-scorer";
@@ -30,18 +29,6 @@ async function checkAuth(): Promise<boolean> {
   const cookieStore = await cookies();
 
   // Master bypass
-  const masterToken = cookieStore.get("seoranko_master")?.value;
-  if (masterToken) {
-    const masterEmail = process.env.MASTER_EMAIL;
-    const masterPassword = process.env.MASTER_PASSWORD;
-    if (masterEmail && masterPassword) {
-      const expected = createHash("sha256")
-        .update(`${masterEmail}:${masterPassword}:master`)
-        .digest("hex");
-      if (masterToken === expected) return true;
-    }
-  }
-
   // Supabase session check
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
