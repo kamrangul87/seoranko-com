@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase-client'
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import { LOCATION_OPTIONS } from '@/lib/rank-tracker'
-import type { RANKODiagnosis } from '@/lib/ranko-diagnosis'
+import type { RANKODiagnosis, RANKOIssue } from '@/lib/ranko-diagnosis'
 
 interface TrackedArticle {
   id: string
@@ -122,6 +122,10 @@ export function RankingAgentDashboard() {
   const [checking, setChecking] = useState<string | null>(null)
   const [diagnosing, setDiagnosing] = useState<string | null>(null)
   const [diagnoses, setDiagnoses] = useState<Record<string, RANKODiagnosis>>({})
+  // Keyed by `${articleId}:${issueId}` — an issue id repeats across articles
+  const [fixingIssue, setFixingIssue] = useState<string | null>(null)
+  const [fixedIssues, setFixedIssues] = useState<Record<string, boolean>>({})
+  const [fixIssueErrors, setFixIssueErrors] = useState<Record<string, string>>({})
   const [userId, setUserId] = useState<string | null>(null)
 
   const [showForm, setShowForm] = useState(false)
@@ -261,6 +265,51 @@ export function RankingAgentDashboard() {
     } finally {
       setChecking(null)
     }
+  }
+
+  // Apply a single RANKO issue's fix to this specific article.
+  // `article` is already in scope here, so we address it directly rather than
+  // going through issue.affectedArticleIds.
+  async function fixIssue(article: TrackedArticle, issue: RANKOIssue) {
+    const key = `${article.id}:${issue.id}`
+    setFixingIssue(key)
+    setFixIssueErrors(prev => { const next = { ...prev }; delete next[key]; return next })
+
+    try {
+      const res = await fetch('/api/improve-article', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          articleId: article.id,
+          instruction: issue.fix,
+          autoApply: true
+        })
+      })
+      const data = await res.json()
+
+      if (!res.ok || !data.success) {
+        setFixIssueErrors(prev => ({ ...prev, [key]: data.error || 'Fix failed' }))
+        return
+      }
+
+      setFixedIssues(prev => ({ ...prev, [key]: true }))
+      // Re-diagnose so the health score reflects the fix
+      setTimeout(() => { diagnoseArticle(article) }, 2000)
+    } catch (err) {
+      console.error('RANKO fix failed:', err)
+      setFixIssueErrors(prev => ({ ...prev, [key]: String(err) }))
+    } finally {
+      setFixingIssue(null)
+    }
+  }
+
+  function reviewIssue(article: TrackedArticle, issue: RANKOIssue) {
+    const params = new URLSearchParams({
+      tab: 'improve',
+      articleId: article.id,
+      instruction: issue.fix
+    })
+    window.location.href = `/dashboard/optimise?${params.toString()}`
   }
 
   async function diagnoseArticle(article: TrackedArticle) {
@@ -625,14 +674,54 @@ export function RankingAgentDashboard() {
                       ))}
                     </div>
                   )}
-                  {d.issues.slice(0, 3).map(issue => (
-                    <div key={issue.id} className="flex items-center gap-1.5 flex-wrap">
-                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${impactCls(issue.impact)}`}>{issue.impact}</span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${riskCls(issue.risk)}`}>{issue.risk}</span>
-                      <span className="text-xs text-gray-400">{issue.confidence}% confident</span>
-                      <span className="text-xs text-gray-700 truncate max-w-[200px]">{issue.title}</span>
-                    </div>
-                  ))}
+                  {d.issues.slice(0, 3).map(issue => {
+                    const key = `${article.id}:${issue.id}`
+                    const isFixed = fixedIssues[key]
+                    const isFixing = fixingIssue === key
+                    // RANKO acts alone only where the diagnosis says it may.
+                    const autoFix = issue.autoFixable && (issue.risk === 'safe' || issue.risk === 'low-risk')
+                    return (
+                      <div key={issue.id} className="space-y-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${impactCls(issue.impact)}`}>{issue.impact}</span>
+                          <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${riskCls(issue.risk)}`}>{issue.risk}</span>
+                          <span className="text-xs text-gray-400">{issue.confidence}% confident</span>
+                          <span className="text-xs text-gray-700 truncate max-w-[200px]">{issue.title}</span>
+                        </div>
+
+                        {isFixed ? (
+                          <div className="flex items-center gap-1.5 text-xs text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded">
+                            <span>✓</span> Fixed — re-checking your score…
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {autoFix ? (
+                              <button
+                                onClick={() => fixIssue(article, issue)}
+                                disabled={isFixing}
+                                className="text-xs font-medium bg-orange-500 hover:bg-orange-600 text-white px-2.5 py-1 rounded-md disabled:opacity-50 transition-colors"
+                              >
+                                {isFixing ? 'Fixing…' : '⚡ Fix automatically'}
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => reviewIssue(article, issue)}
+                                className="text-xs font-medium bg-white border border-gray-300 text-gray-700 px-2.5 py-1 rounded-md hover:border-gray-400 transition-colors"
+                              >
+                                Review &amp; apply
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        {fixIssueErrors[key] && (
+                          <p className="text-xs text-red-600 bg-red-50 border border-red-200 px-2 py-1 rounded break-words">
+                            {fixIssueErrors[key]}
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })}
                   <p className="text-xs text-orange-500 italic">
                     Expected impact: ~{d.estimatedWeeksToImpact} weeks if you act now
                   </p>
