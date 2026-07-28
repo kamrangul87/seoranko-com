@@ -116,6 +116,7 @@ function IconGlobe({ className }: { className?: string }) {
 export function RankingAgentDashboard() {
   const [articles, setArticles] = useState<TrackedArticle[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
   const [checking, setChecking] = useState<string | null>(null)
@@ -152,12 +153,36 @@ export function RankingAgentDashboard() {
 
   async function loadArticles(uid: string) {
     setLoading(true)
+    setLoadError(null)
 
-    const { data } = await supabase
+    let { data, error } = await supabase
       .from('ranking_agent_articles')
       .select('*, rank_history(position, checked_at)')
       .eq('user_id', uid)
       .order('created_at', { ascending: false })
+
+    // The embed depends on the rank_history → ranking_agent_articles foreign
+    // key. If that relationship is ever missing, PostgREST fails the whole
+    // query (PGRST200) and we'd render "no articles" despite rows existing.
+    // Fall back to the plain select so the list still loads without sparklines.
+    if (error) {
+      console.error('RANKO loadArticles (with history) failed:', error)
+      const fallback = await supabase
+        .from('ranking_agent_articles')
+        .select('*')
+        .eq('user_id', uid)
+        .order('created_at', { ascending: false })
+      data = fallback.data
+      error = fallback.error
+    }
+
+    if (error) {
+      console.error('RANKO loadArticles failed:', error)
+      setLoadError(error.message)
+      setArticles([])
+      setLoading(false)
+      return
+    }
 
     setArticles(data || [])
 
@@ -414,8 +439,22 @@ export function RankingAgentDashboard() {
         </div>
       )}
 
+      {/* Load error — never masquerade a failed query as "no articles" */}
+      {loadError && !loading && (
+        <div className="text-center py-12 border-2 border-dashed border-red-200 bg-red-50 rounded-2xl">
+          <p className="text-red-700 font-medium">Could not load your tracked articles</p>
+          <p className="text-sm text-red-600 mt-1 px-6 break-words">{loadError}</p>
+          <button
+            onClick={() => { if (userId) loadArticles(userId) }}
+            className="mt-4 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Empty state */}
-      {articles.length === 0 && (
+      {articles.length === 0 && !loading && !loadError && (
         <div className="text-center py-16 border-2 border-dashed border-gray-200 rounded-2xl">
           <IconTrendingUp className="w-10 h-10 text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500 font-medium">No articles tracked yet</p>
