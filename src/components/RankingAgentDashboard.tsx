@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase-client'
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import { LOCATION_OPTIONS } from '@/lib/rank-tracker'
 import type { RANKODiagnosis, RANKOIssue } from '@/lib/ranko-diagnosis'
+import { loadArticleContentById, CONTENT_LOAD_FAILED_MESSAGE } from '@/lib/article-content-loader'
 
 interface TrackedArticle {
   id: string
@@ -126,6 +127,8 @@ export function RankingAgentDashboard() {
   const [fixingIssue, setFixingIssue] = useState<string | null>(null)
   const [fixedIssues, setFixedIssues] = useState<Record<string, boolean>>({})
   const [fixIssueErrors, setFixIssueErrors] = useState<Record<string, string>>({})
+  // Auto-fix can't proceed for this issue — offer the Improve hand-off instead
+  const [fixUnavailable, setFixUnavailable] = useState<Record<string, boolean>>({})
   const [userId, setUserId] = useState<string | null>(null)
 
   const [showForm, setShowForm] = useState(false)
@@ -276,11 +279,36 @@ export function RankingAgentDashboard() {
     setFixIssueErrors(prev => { const next = { ...prev }; delete next[key]; return next })
 
     try {
+      // The id may point at a tracked external URL with no stored content, so
+      // resolve the actual text before asking the API to rewrite it.
+      const loaded = await loadArticleContentById(supabase, article.id)
+
+      if (!loaded) {
+        setFixIssueErrors(prev => ({ ...prev, [key]: CONTENT_LOAD_FAILED_MESSAGE }))
+        setFixUnavailable(prev => ({ ...prev, [key]: true }))
+        return
+      }
+
+      // Content fetched from a live external page has no row to write back to,
+      // so an "automatic" fix would improve the text and then discard it.
+      // Hand off to Improve instead, where the user sees the result and can use it.
+      if (loaded.source === 'fetched') {
+        setFixIssueErrors(prev => ({
+          ...prev,
+          [key]: "This URL isn't hosted in SEORANKO, so RANKO can't write the fix back to it. Open it in Improve to get the rewritten version."
+        }))
+        setFixUnavailable(prev => ({ ...prev, [key]: true }))
+        return
+      }
+
       const res = await fetch('/api/improve-article', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           articleId: article.id,
+          articleContent: loaded.content,
+          keyword: loaded.keyword || article.keyword,
+          title: article.title,
           instruction: issue.fix,
           autoApply: true
         })
@@ -695,7 +723,15 @@ export function RankingAgentDashboard() {
                           </div>
                         ) : (
                           <div className="flex items-center gap-2 flex-wrap">
-                            {autoFix ? (
+                            {fixUnavailable[key] ? (
+                              // Auto-fix couldn't run — never leave the user stuck
+                              <button
+                                onClick={() => reviewIssue(article, issue)}
+                                className="text-xs font-medium bg-orange-500 hover:bg-orange-600 text-white px-2.5 py-1 rounded-md transition-colors"
+                              >
+                                Open in Improve →
+                              </button>
+                            ) : autoFix ? (
                               <button
                                 onClick={() => fixIssue(article, issue)}
                                 disabled={isFixing}

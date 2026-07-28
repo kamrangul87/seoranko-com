@@ -1,6 +1,8 @@
 'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { supabase } from '@/lib/supabase-client'
+import { loadArticleContentById, CONTENT_LOAD_FAILED_MESSAGE } from '@/lib/article-content-loader'
 
 interface RANKOIssue {
   id: string
@@ -93,6 +95,7 @@ export function RANKODiagnosisPanel({ siteUrl }: Props) {
   const [fixingId, setFixingId] = useState<string | null>(null)
   const [fixedIds, setFixedIds] = useState<Record<string, string>>({})
   const [fixErrors, setFixErrors] = useState<Record<string, string>>({})
+  const [fixUnavailable, setFixUnavailable] = useState<Record<string, boolean>>({})
 
   // RANKO acts on its own only when the diagnosis says it may. `autoFixable` is
   // the engine's explicit act/propose flag — note it is NOT the same as low risk
@@ -108,11 +111,31 @@ export function RANKODiagnosisPanel({ siteUrl }: Props) {
     setFixErrors(prev => { const next = { ...prev }; delete next[issue.id]; return next })
 
     try {
+      // The id may reference a tracked external URL with no stored content.
+      const loaded = await loadArticleContentById(supabase, articleId)
+
+      if (!loaded) {
+        setFixErrors(prev => ({ ...prev, [issue.id]: CONTENT_LOAD_FAILED_MESSAGE }))
+        setFixUnavailable(prev => ({ ...prev, [issue.id]: true }))
+        return
+      }
+
+      if (loaded.source === 'fetched') {
+        setFixErrors(prev => ({
+          ...prev,
+          [issue.id]: "This URL isn't hosted in SEORANKO, so RANKO can't write the fix back to it. Open it in Improve to get the rewritten version."
+        }))
+        setFixUnavailable(prev => ({ ...prev, [issue.id]: true }))
+        return
+      }
+
       const res = await fetch('/api/improve-article', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           articleId,
+          articleContent: loaded.content,
+          keyword: loaded.keyword,
           instruction: issue.fix,
           autoApply: true
         })
@@ -180,7 +203,15 @@ export function RANKODiagnosisPanel({ siteUrl }: Props) {
     return (
       <div className="space-y-2">
         <div className="flex gap-2 flex-wrap">
-          {autoFix ? (
+          {fixUnavailable[issue.id] ? (
+            // Auto-fix couldn't run — never leave the user stuck
+            <button
+              onClick={() => handleReviewFix(issue)}
+              className="text-xs font-medium bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg transition-colors"
+            >
+              Open in Improve →
+            </button>
+          ) : autoFix ? (
             <button
               onClick={() => handleAutoFix(issue)}
               disabled={fixingId === issue.id}

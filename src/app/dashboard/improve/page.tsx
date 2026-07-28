@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase-client';
+import { loadArticleContentById } from '@/lib/article-content-loader';
 
 export default function ImproveArticlePage() {
   const searchParams = useSearchParams();
@@ -12,6 +13,7 @@ export default function ImproveArticlePage() {
   // Pre-loaded from a RANKO "Review & apply" hand-off
   const [rankoInstruction, setRankoInstruction] = useState('');
   const [prefilling, setPrefilling] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [market, setMarket] = useState('United Kingdom');
   const [tone, setTone] = useState('professional');
   const [loading, setLoading] = useState(false);
@@ -28,23 +30,31 @@ export default function ImproveArticlePage() {
   useEffect(() => {
     const instruction = searchParams.get('instruction');
     const articleId = searchParams.get('articleId');
+    // useSearchParams already decodes; don't decode a second time or a literal
+    // '%' in the instruction throws URIError.
     if (instruction) setRankoInstruction(instruction);
     if (!articleId) return;
 
     let cancelled = false;
     setPrefilling(true);
-    supabase
-      .from('articles')
-      .select('content, keyword')
-      .eq('id', articleId)
-      .single()
-      .then(({ data, error }: { data: any; error: any }) => {
+    setLoadError('');
+
+    loadArticleContentById(supabase, articleId)
+      .then(loaded => {
         if (cancelled) return;
-        if (error) console.error('Could not pre-load article for review:', error);
-        if (data?.content) setArticleInput(data.content);
-        if (data?.keyword) setKeyword(data.keyword);
-        setPrefilling(false);
-      });
+        if (loaded) {
+          setArticleInput(loaded.content);
+          if (loaded.keyword) setKeyword(loaded.keyword);
+        } else {
+          setLoadError('Could not load this article automatically — paste the content below and RANKO will apply the fix.');
+        }
+      })
+      .catch(err => {
+        if (cancelled) return;
+        console.error('Could not pre-load article for review:', err);
+        setLoadError('Could not load this article automatically — paste the content below and RANKO will apply the fix.');
+      })
+      .finally(() => { if (!cancelled) setPrefilling(false); });
 
     return () => { cancelled = true; };
   }, [searchParams]);
@@ -322,7 +332,9 @@ export default function ImproveArticlePage() {
                 <div style={{ fontSize: '11px', color: '#9A3412', marginTop: '6px' }}>
                   {prefilling
                     ? 'Loading your article…'
-                    : 'Review the article below, then click Improve to apply.'}
+                    : loadError
+                      ? loadError
+                      : 'Review the article below, then click Improve to apply.'}
                 </div>
               </div>
             )}

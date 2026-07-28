@@ -3,6 +3,7 @@
 // Gap vs HasData/python-for-seo N-gram analysis: SEORANKO closes the gap automatically
 
 import Anthropic from '@anthropic-ai/sdk'
+import { fetchPageContent } from './fetch-page-content'
 
 export interface CompetitorGapResult {
   keyword: string
@@ -20,24 +21,8 @@ export interface CompetitorGapResult {
 
 const client = new Anthropic()
 
-async function fetchArticleContent(url: string): Promise<string> {
-  try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'SEORANKO-Gap-Analyser/1.0' },
-      signal: AbortSignal.timeout(15000)
-    })
-    const html = await res.text()
-    return html
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 8000)
-  } catch {
-    return ''
-  }
-}
+// Shared with the RANKO fix flow — see src/lib/fetch-page-content.ts
+const fetchArticleContent = (url: string) => fetchPageContent(url)
 
 function extractH2s(html: string): string[] {
   const matches = html.match(/<h2[^>]*>([\s\S]*?)<\/h2>/gi) || []
