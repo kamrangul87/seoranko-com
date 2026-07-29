@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { QualityGatePanel } from '@/components/QualityGatePanel'
+import { ExportPackageButton } from '@/components/ExportPackageButton'
 import type { ArticleOutput, Tone, Country } from '@/types'
 
 const ALL_COUNTRIES: { value: Country; label: string }[] = [
@@ -318,6 +319,12 @@ export function ArticleWriter() {
                   </svg>
                   {copied ? '✅ Copied!' : 'Copy HTML'}
                 </button>
+
+                <ExportPackageButton
+                  articleHtml={article.article}
+                  title={keyword}
+                  className="flex items-center gap-2 bg-[#FF6B2C] hover:bg-[#E85A1E] text-white font-medium text-xs px-3 py-1.5 rounded-[6px] disabled:opacity-50 transition-colors"
+                />
               </div>
             </div>
             <div className="flex flex-wrap gap-6 justify-start">

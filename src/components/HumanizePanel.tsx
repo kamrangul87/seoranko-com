@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { ExportPackageButton } from '@/components/ExportPackageButton'
 
 interface HumanizeResult {
   humanizedHtml: string
@@ -190,20 +191,27 @@ export function HumanizePanel() {
           <div className="bg-white border border-[#E8E8E4] rounded-[10px] overflow-hidden">
             <div className="px-5 py-3 border-b border-[#E8E8E4] flex items-center justify-between">
               <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Humanized Article</p>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(result.humanizedHtml).then(() => {
-                    setCopied(true)
-                    setTimeout(() => setCopied(false), 2000)
-                  }).catch(() => {})
-                }}
-                className="flex items-center gap-1.5 text-xs text-[#6B6B6B] hover:text-[#FF6B2C] transition-colors"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                </svg>
-                {copied ? 'Copied!' : 'Copy HTML'}
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(result.humanizedHtml).then(() => {
+                      setCopied(true)
+                      setTimeout(() => setCopied(false), 2000)
+                    }).catch(() => {})
+                  }}
+                  className="flex items-center gap-1.5 text-xs text-[#6B6B6B] hover:text-[#FF6B2C] transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  {copied ? 'Copied!' : 'Copy HTML'}
+                </button>
+                <ExportPackageButton
+                  articleHtml={result.humanizedHtml}
+                  title={keyword}
+                  className="flex items-center gap-1.5 text-xs font-medium bg-[#FF6B2C] hover:bg-[#E85A1E] text-white px-3 py-1.5 rounded-[6px] disabled:opacity-50 transition-colors"
+                />
+              </div>
             </div>
             <div
               className="prose prose-sm max-w-none p-6"

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase-client';
 import { resolveArticle } from '@/lib/article-resolver';
+import { ExportPackageButton } from '@/components/ExportPackageButton';
 
 export default function ImproveArticlePage() {
   const searchParams = useSearchParams();
@@ -570,9 +571,16 @@ export default function ImproveArticlePage() {
           <div style={s.panel}>
             <div style={s.panelHead}>
               <span style={s.panelTitle}>📄 Improved article</span>
-              <button style={s.copyBtn} onClick={copyArticle}>
-                {copied ? '✓ Copied!' : '📋 Copy article'}
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button style={s.copyBtn} onClick={copyArticle}>
+                  {copied ? '✓ Copied!' : '📋 Copy article'}
+                </button>
+                <ExportPackageButton
+                  articleHtml={result.improvedArticle}
+                  title={result.keyword || keyword}
+                  className="flex items-center gap-1.5 text-xs font-medium bg-[#FF6B2C] hover:bg-[#E85A1E] text-white px-3 py-1.5 rounded-[6px] disabled:opacity-50 transition-colors"
+                />
+              </div>
             </div>
             <div style={s.panelBody}>
               <div
