@@ -22,13 +22,20 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await authClient.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const { siteId, domain, platform, credentials } = await req.json()
+    const { siteId, domain, platform: rawPlatform, credentials } = await req.json()
 
-    if (!siteId || !platform) {
+    if (!siteId || !rawPlatform) {
       return NextResponse.json({ success: false, message: 'Site and platform are required.' }, { status: 400 })
     }
+
+    // detectCMS returns 'unknown' when the site isn't WordPress/Shopify/Webflow.
+    // That is precisely the Universal Tag's job, so map the detection result to
+    // the adapter name rather than rejecting it — matching getAdapter()'s
+    // default case, which already routes anything unrecognised to that adapter.
+    const platform = rawPlatform === 'unknown' ? 'universal-tag' : rawPlatform
+
     if (!SUPPORTED_PLATFORMS.includes(platform)) {
-      return NextResponse.json({ success: false, message: `Unsupported platform: ${platform}` }, { status: 400 })
+      return NextResponse.json({ success: false, message: `Unsupported platform: ${rawPlatform}` }, { status: 400 })
     }
 
     const supabase = createClient(

@@ -18,7 +18,15 @@ function IconCheck({ className }: { className?: string }) {
   )
 }
 
-type Platform = 'wordpress' | 'shopify' | 'webflow' | 'unknown'
+// What detectCMS reports…
+type DetectedPlatform = 'wordpress' | 'shopify' | 'webflow' | 'unknown'
+// …vs the adapter name we persist. 'unknown' maps to 'universal-tag'.
+type ConnectPlatform = 'wordpress' | 'shopify' | 'webflow' | 'universal-tag'
+
+/** Narrows a detection result to the platforms that take credentials. */
+function takesCredentials(p: DetectedPlatform): p is Exclude<DetectedPlatform, 'unknown'> {
+  return p !== 'unknown'
+}
 
 interface Field { key: string; label: string; placeholder: string; secret?: boolean }
 
@@ -76,7 +84,7 @@ export function ConnectSiteModal({
   onConnected: () => void
 }) {
   const [detecting, setDetecting] = useState(true)
-  const [platform, setPlatform] = useState<Platform>('unknown')
+  const [platform, setPlatform] = useState<DetectedPlatform>('unknown')
   const [values, setValues] = useState<Record<string, string>>({})
   const [connecting, setConnecting] = useState(false)
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null)
@@ -99,7 +107,7 @@ export function ConnectSiteModal({
     return () => { cancelled = true }
   }, [domain])
 
-  async function handleConnect(target: Platform) {
+  async function handleConnect(target: ConnectPlatform) {
     setConnecting(true)
     setResult(null)
     try {
@@ -138,7 +146,7 @@ export function ConnectSiteModal({
 
   const config = PLATFORM_FIELDS[platform]
 
-  if (config) {
+  if (config && takesCredentials(platform)) {
     const allFilled = config.fields.every(f => values[f.key]?.trim())
     return shell(
       <>
@@ -228,7 +236,7 @@ export function ConnectSiteModal({
 
       <div className="flex gap-2 mt-4">
         <button
-          onClick={() => handleConnect('unknown')}
+          onClick={() => handleConnect('universal-tag')}
           disabled={connecting || !snippet}
           className="flex-1 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
         >
