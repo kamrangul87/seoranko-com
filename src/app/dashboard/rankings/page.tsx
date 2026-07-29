@@ -6,6 +6,8 @@ import { RankingAgentDashboard } from '@/components/RankingAgentDashboard'
 import { ContentROIDashboard } from '@/components/ContentROIDashboard'
 import { RANKODiagnosisPanel } from '@/components/RANKODiagnosisPanel'
 import { VelocityPredictor } from '@/components/VelocityPredictor'
+import { CannibalisationPanel } from '@/components/CannibalisationPanel'
+import { SiteSelector } from '@/components/SiteSelector'
 import { supabase } from '@/lib/supabase-client'
 import type { User } from '@supabase/supabase-js'
 
@@ -36,14 +38,7 @@ function AdvancedTab() {
         ))}
       </div>
       {section === 'velocity' && <VelocityPredictor />}
-      {section === 'cannibalisation' && (
-        <div className="text-center py-16 border-2 border-dashed border-[#E8E8E4] rounded-2xl">
-          <div className="text-5xl mb-4">⚠️</div>
-          <h2 className="text-xl font-bold text-[#0F0F0F] mb-2">Keyword Cannibalisation Detector</h2>
-          <p className="text-[#6B6B6B] text-sm mb-6">Find pages competing for the same keywords and get AI-powered merge or redirect recommendations.</p>
-          <span className="inline-block bg-[#FF6B2C]/10 text-[#FF6B2C] text-xs font-semibold px-3 py-1.5 rounded-full">Coming soon</span>
-        </div>
-      )}
+      {section === 'cannibalisation' && <CannibalisationPanel />}
     </div>
   )
 }
@@ -51,19 +46,12 @@ function AdvancedTab() {
 export default function RankingsPage() {
   const [activeTab, setActiveTab] = useState('track')
   const [userId, setUserId] = useState('')
-  const [siteUrl, setSiteUrl] = useState('https://yoursite.com')
+  // The domain chosen in the SiteSelector — no placeholder fallback.
+  const [selectedSite, setSelectedSite] = useState<string | null>(null)
 
   useEffect(() => {
-    supabase.auth.getUser().then(async ({ data: { user } }: { data: { user: User | null } }) => {
-      if (!user) return
-      setUserId(user.id)
-      const { data } = await supabase
-        .from('user_profiles')
-        .select('website_url, org_url')
-        .eq('id', user.id)
-        .single()
-      if (data?.website_url) setSiteUrl(data.website_url)
-      else if (data?.org_url) setSiteUrl(data.org_url)
+    supabase.auth.getUser().then(({ data: { user } }: { data: { user: User | null } }) => {
+      if (user) setUserId(user.id)
     })
   }, [])
 
@@ -91,7 +79,16 @@ export default function RankingsPage() {
         )}
         {activeTab === 'diagnose' && (
           <div className="max-w-3xl mx-auto px-8 py-8">
-            <RANKODiagnosisPanel userId={userId} siteUrl={siteUrl} />
+            <div className="mb-4">
+              <SiteSelector selectedDomain={selectedSite} onSelect={setSelectedSite} />
+            </div>
+            {selectedSite ? (
+              <RANKODiagnosisPanel userId={userId} siteUrl={`https://${selectedSite}`} />
+            ) : (
+              <div className="text-center py-12 text-gray-400 text-sm">
+                Connect a site above to run a diagnosis
+              </div>
+            )}
           </div>
         )}
         {activeTab === 'roi' && (

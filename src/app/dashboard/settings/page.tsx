@@ -4,6 +4,7 @@ import { DashboardNav } from '@/components/DashboardNav'
 import { OrganisationSchemaSettings } from '@/components/OrganisationSchemaSettings'
 import { InternalLinksPanel } from '@/components/InternalLinksPanel'
 import { LinkRegistryManager } from '@/components/LinkRegistryManager'
+import { SitesManager } from '@/components/SitesManager'
 import { createClient } from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
 import type { InternalLink } from '@/lib/article-master'
@@ -94,6 +95,10 @@ export default function SettingsPage() {
             </div>
           ) : (
             <div className="space-y-6">
+              {/* Connected sites — every diagnostic tool runs against these */}
+              <div id="sites" className="bg-white border border-[#E8E8E4] rounded-[10px] p-6">
+                <SitesManager />
+              </div>
               <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-6">
                 <OrganisationSchemaSettings initial={orgInitial} onSave={handleSaveOrg} />
               </div>

@@ -168,7 +168,14 @@ export function ContentROIDashboard() {
         </div>
         <div className="divide-y divide-gray-100">
           {articles.length === 0 && (
-            <p className="text-sm text-gray-400 text-center py-8">No articles yet — generate your first article to see ROI data.</p>
+            <p className="text-sm text-gray-400 text-center py-8 px-6">
+              Content ROI tracks articles written in SEORANKO. Tracked URLs in the
+              Track tab aren&rsquo;t counted here — they live on your own site, so
+              there are no generation stats to report.{' '}
+              <a href="/dashboard/write" className="text-orange-500 underline">
+                Write your first one
+              </a>.
+            </p>
           )}
           {articles.map(article => (
             <div key={article.id} className="flex items-center gap-3 px-4 py-3">

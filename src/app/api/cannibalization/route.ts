@@ -21,7 +21,20 @@ export async function POST() {
       .select('id, title, keyword')
       .eq('user_id', user.id)
 
-    const result = await detectCannibalization(articles || [])
+    if (!articles || articles.length < 2) {
+      return NextResponse.json({
+        success: true,
+        result: {
+          pairs: [],
+          totalConflicts: 0,
+          highSeverity: 0,
+          topAction: 'Write at least 2 articles in SEORANKO to check for cannibalisation.',
+          checkedAt: new Date().toISOString()
+        }
+      })
+    }
+
+    const result = await detectCannibalization(articles)
     return NextResponse.json({ success: true, result })
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 })
