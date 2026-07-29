@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase-client'
 import { resolveArticle, isWritable, EXTERNAL_NOT_WRITABLE_MESSAGE } from '@/lib/article-resolver'
 import type { SiteFixType } from '@/lib/site-autofix'
+import { ConnectSiteModal } from '@/components/ConnectSiteModal'
 
 interface RANKOIssue {
   id: string
@@ -110,23 +111,51 @@ export function RANKODiagnosisPanel({ siteUrl, siteId }: Props) {
   const [fixErrors, setFixErrors] = useState<Record<string, string>>({})
   const [fixUnavailable, setFixUnavailable] = useState<Record<string, boolean>>({})
   const [wpConnected, setWpConnected] = useState<boolean | null>(null)
+  const [tagToken, setTagToken] = useState<string | null>(null)
+  const [showConnectModal, setShowConnectModal] = useState(false)
 
-  // Is this site connected to WordPress? Determines whether site-level issues
-  // get a real "Apply to my site" button or a prompt to connect first.
-  useEffect(() => {
+  const domain = siteUrl.replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+
+  // Is this site connected to a CMS? Determines whether a site-level issue
+  // offers "Fix automatically" or "Connect & fix".
+  async function refreshConnection() {
     if (!siteId) { setWpConnected(false); return }
-    let cancelled = false
-    supabase
-      .from('site_connections')
-      .select('site_id')
-      .eq('site_id', siteId)
-      .eq('is_active', true)
-      .maybeSingle()
-      .then(({ data }: { data: unknown }) => {
-        if (!cancelled) setWpConnected(Boolean(data))
-      })
-    return () => { cancelled = true }
-  }, [siteId])
+
+    const [{ data: conn }, { data: site }] = await Promise.all([
+      supabase
+        .from('site_connections')
+        .select('site_id')
+        .eq('site_id', siteId)
+        .eq('is_active', true)
+        .maybeSingle(),
+      // Needed for the Universal Tag snippet if this site isn't WP/Shopify/Webflow
+      supabase
+        .from('connected_sites')
+        .select('universal_tag_token')
+        .eq('id', siteId)
+        .maybeSingle()
+    ])
+
+    setWpConnected(Boolean(conn))
+    setTagToken((site as { universal_tag_token?: string } | null)?.universal_tag_token ?? null)
+  }
+
+  useEffect(() => {
+    refreshConnection()
+  }, [siteId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * Site-level issues have no article to improve. If the site isn't connected
+   * yet, open the Connect Site modal in place rather than navigating away to
+   * the Article Improver — which is what the button used to do.
+   */
+  function handleSiteFixClick(issue: RANKOIssue) {
+    if (!wpConnected) {
+      setShowConnectModal(true)
+      return
+    }
+    handleApplySiteFix(issue)
+  }
 
   async function handleApplySiteFix(issue: RANKOIssue) {
     const fixType = siteFixTypeFor(issue)
@@ -274,18 +303,22 @@ export function RANKODiagnosisPanel({ siteUrl, siteId }: Props) {
     const noArticle = (issue.affectedArticleIds?.length ?? 0) === 0
     // Site-level issue we can genuinely fix on the live site
     const siteFix = noArticle ? siteFixTypeFor(issue) : null
-    const canApplyToSite = Boolean(siteFix && siteId && wpConnected)
+    const isSiteLevelFix = Boolean(siteFix && siteId)
 
     return (
       <div className="space-y-2">
         <div className="flex gap-2 flex-wrap">
-          {canApplyToSite ? (
+          {isSiteLevelFix ? (
+            // Site-level issue: connect the site or apply the fix to it.
+            // Never route these to the Article Improver — there is no article.
             <button
-              onClick={() => handleApplySiteFix(issue)}
+              onClick={() => handleSiteFixClick(issue)}
               disabled={fixingId === issue.id}
               className="text-xs font-medium bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-50 transition-colors"
             >
-              {fixingId === issue.id ? 'Applying to your site…' : '⚡ Apply to my site'}
+              {fixingId === issue.id
+                ? 'Applying to your site…'
+                : wpConnected ? '⚡ Fix automatically' : 'Connect & fix'}
             </button>
           ) : fixUnavailable[issue.id] ? (
             // Auto-fix couldn't run — never leave the user stuck
@@ -303,6 +336,10 @@ export function RANKODiagnosisPanel({ siteUrl, siteId }: Props) {
             >
               {fixingId === issue.id ? 'Fixing…' : '⚡ Fix automatically'}
             </button>
+          ) : noArticle ? (
+            // Site-level issue with no automated fix — there is no article to
+            // improve, so don't offer a button that navigates to the Improver.
+            null
           ) : (
             <button
               onClick={() => handleReviewFix(issue)}
@@ -313,21 +350,20 @@ export function RANKODiagnosisPanel({ siteUrl, siteId }: Props) {
           )}
         </div>
 
-        {noArticle && siteFix && wpConnected && (
+        {isSiteLevelFix && wpConnected && (
           <p className="text-xs text-gray-400">
-            Writes directly to your live WordPress site, then re-checks the page to confirm.
+            Writes directly to your live site, then re-checks the page to confirm.
           </p>
         )}
-        {noArticle && siteFix && wpConnected === false && (
+        {isSiteLevelFix && wpConnected === false && (
           <p className="text-xs text-gray-400">
-            Connect this site in{' '}
-            <a href="/dashboard/settings?tab=sites" className="text-orange-500 underline">Settings</a>
-            {' '}to apply this fix in one click.
+            {domain} isn&rsquo;t connected yet — we&rsquo;ll set that up first, then apply the fix.
           </p>
         )}
         {noArticle && !siteFix && (
           <p className="text-xs text-gray-400">
-            Site-level fix — apply this to your site directly, not to a single article.
+            Site-level fix with no automated path — apply this to your site directly.
+            See &ldquo;How to fix&rdquo; above.
           </p>
         )}
 
@@ -569,6 +605,16 @@ export function RANKODiagnosisPanel({ siteUrl, siteId }: Props) {
         <IconBrain className="w-4 h-4" />
         Re-run diagnosis
       </button>
+
+      {showConnectModal && siteId && (
+        <ConnectSiteModal
+          siteId={siteId}
+          domain={domain}
+          universalTagToken={tagToken}
+          onClose={() => setShowConnectModal(false)}
+          onConnected={refreshConnection}
+        />
+      )}
     </div>
   )
 }
