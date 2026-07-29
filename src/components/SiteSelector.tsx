@@ -31,9 +31,11 @@ function IconPlus({ className }: { className?: string }) {
 interface SiteSelectorProps {
   selectedDomain: string | null
   onSelect: (domain: string) => void
+  /** Also receive the full site record — callers needing the id for site-level fixes. */
+  onSelectSite?: (site: ConnectedSite) => void
 }
 
-export function SiteSelector({ selectedDomain, onSelect }: SiteSelectorProps) {
+export function SiteSelector({ selectedDomain, onSelect, onSelectSite }: SiteSelectorProps) {
   const [sites, setSites] = useState<ConnectedSite[]>([])
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -55,6 +57,7 @@ export function SiteSelector({ selectedDomain, onSelect }: SiteSelectorProps) {
       if (!selectedDomain && result.length > 0) {
         const primary = result.find(s => s.isPrimary) || result[0]
         onSelect(primary.domain)
+        onSelectSite?.(primary)
       }
       setLoading(false)
     }
@@ -106,7 +109,7 @@ export function SiteSelector({ selectedDomain, onSelect }: SiteSelectorProps) {
           {sites.map(site => (
             <button
               key={site.id}
-              onClick={() => { onSelect(site.domain); setOpen(false) }}
+              onClick={() => { onSelect(site.domain); onSelectSite?.(site); setOpen(false) }}
               className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between gap-3 hover:bg-gray-50 ${
                 selectedDomain === site.domain ? 'text-orange-600 font-medium' : 'text-gray-700'
               }`}

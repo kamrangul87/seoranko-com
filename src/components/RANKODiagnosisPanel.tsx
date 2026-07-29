@@ -1,8 +1,9 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase-client'
 import { resolveArticle, isWritable, EXTERNAL_NOT_WRITABLE_MESSAGE } from '@/lib/article-resolver'
+import type { SiteFixType } from '@/lib/site-autofix'
 
 interface RANKOIssue {
   id: string
@@ -34,6 +35,18 @@ interface RANKODiagnosis {
 interface Props {
   userId: string
   siteUrl: string
+  /** connected_sites.id — enables real one-click fixes on the live site. */
+  siteId?: string
+}
+
+// Map a RANKO issue to a WordPress fix we can actually perform.
+// Anything not listed here has no automated site-level fix.
+function siteFixTypeFor(issue: { id: string; category: string; title: string }): SiteFixType | null {
+  const haystack = `${issue.id} ${issue.title}`.toLowerCase()
+  if (haystack.includes('organization') || haystack.includes('organisation')) return 'schema-org-inject'
+  if (haystack.includes('schema')) return 'schema-article-inject'
+  if (haystack.includes('author') || haystack.includes('byline')) return 'author-bio-visible'
+  return null
 }
 
 // Inline SVG icons (lucide-react not installed)
@@ -87,7 +100,7 @@ function IconEye({ className }: { className?: string }) {
   )
 }
 
-export function RANKODiagnosisPanel({ siteUrl }: Props) {
+export function RANKODiagnosisPanel({ siteUrl, siteId }: Props) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [diagnosis, setDiagnosis] = useState<RANKODiagnosis | null>(null)
@@ -96,6 +109,59 @@ export function RANKODiagnosisPanel({ siteUrl }: Props) {
   const [fixedIds, setFixedIds] = useState<Record<string, string>>({})
   const [fixErrors, setFixErrors] = useState<Record<string, string>>({})
   const [fixUnavailable, setFixUnavailable] = useState<Record<string, boolean>>({})
+  const [wpConnected, setWpConnected] = useState<boolean | null>(null)
+
+  // Is this site connected to WordPress? Determines whether site-level issues
+  // get a real "Apply to my site" button or a prompt to connect first.
+  useEffect(() => {
+    if (!siteId) { setWpConnected(false); return }
+    let cancelled = false
+    supabase
+      .from('site_connections')
+      .select('site_id')
+      .eq('site_id', siteId)
+      .eq('is_active', true)
+      .maybeSingle()
+      .then(({ data }: { data: unknown }) => {
+        if (!cancelled) setWpConnected(Boolean(data))
+      })
+    return () => { cancelled = true }
+  }, [siteId])
+
+  async function handleApplySiteFix(issue: RANKOIssue) {
+    const fixType = siteFixTypeFor(issue)
+    if (!siteId || !fixType) return
+
+    setFixingId(issue.id)
+    setFixErrors(prev => { const next = { ...prev }; delete next[issue.id]; return next })
+
+    try {
+      const res = await fetch('/api/ranko/apply-site-fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteId, issueId: issue.id, fixType, targetUrl: siteUrl })
+      })
+      const data = await res.json()
+
+      if (!data.success) {
+        setFixErrors(prev => ({ ...prev, [issue.id]: data.message || 'Could not apply this fix.' }))
+        return
+      }
+
+      setFixedIds(prev => ({
+        ...prev,
+        [issue.id]: data.verified
+          ? `✓ Applied and verified — ${data.message}`
+          : `Applied, verification pending — ${data.message}`
+      }))
+
+      if (data.verified) setTimeout(() => { runDiagnosis() }, 2000)
+    } catch {
+      setFixErrors(prev => ({ ...prev, [issue.id]: 'Could not apply this fix — try again.' }))
+    } finally {
+      setFixingId(null)
+    }
+  }
 
   // RANKO acts on its own only when the diagnosis says it may. `autoFixable` is
   // the engine's explicit act/propose flag — note it is NOT the same as low risk
@@ -206,11 +272,22 @@ export function RANKODiagnosisPanel({ siteUrl }: Props) {
 
     const autoFix = canAutoFix(issue)
     const noArticle = (issue.affectedArticleIds?.length ?? 0) === 0
+    // Site-level issue we can genuinely fix on the live site
+    const siteFix = noArticle ? siteFixTypeFor(issue) : null
+    const canApplyToSite = Boolean(siteFix && siteId && wpConnected)
 
     return (
       <div className="space-y-2">
         <div className="flex gap-2 flex-wrap">
-          {fixUnavailable[issue.id] ? (
+          {canApplyToSite ? (
+            <button
+              onClick={() => handleApplySiteFix(issue)}
+              disabled={fixingId === issue.id}
+              className="text-xs font-medium bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-50 transition-colors"
+            >
+              {fixingId === issue.id ? 'Applying to your site…' : '⚡ Apply to my site'}
+            </button>
+          ) : fixUnavailable[issue.id] ? (
             // Auto-fix couldn't run — never leave the user stuck
             <button
               onClick={() => handleReviewFix(issue)}
@@ -236,7 +313,19 @@ export function RANKODiagnosisPanel({ siteUrl }: Props) {
           )}
         </div>
 
-        {noArticle && (
+        {noArticle && siteFix && wpConnected && (
+          <p className="text-xs text-gray-400">
+            Writes directly to your live WordPress site, then re-checks the page to confirm.
+          </p>
+        )}
+        {noArticle && siteFix && wpConnected === false && (
+          <p className="text-xs text-gray-400">
+            Connect this site in{' '}
+            <a href="/dashboard/settings?tab=sites" className="text-orange-500 underline">Settings</a>
+            {' '}to apply this fix in one click.
+          </p>
+        )}
+        {noArticle && !siteFix && (
           <p className="text-xs text-gray-400">
             Site-level fix — apply this to your site directly, not to a single article.
           </p>

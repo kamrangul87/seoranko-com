@@ -48,6 +48,7 @@ export default function RankingsPage() {
   const [userId, setUserId] = useState('')
   // The domain chosen in the SiteSelector — no placeholder fallback.
   const [selectedSite, setSelectedSite] = useState<string | null>(null)
+  const [selectedSiteId, setSelectedSiteId] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }: { data: { user: User | null } }) => {
@@ -80,10 +81,18 @@ export default function RankingsPage() {
         {activeTab === 'diagnose' && (
           <div className="max-w-3xl mx-auto px-8 py-8">
             <div className="mb-4">
-              <SiteSelector selectedDomain={selectedSite} onSelect={setSelectedSite} />
+              <SiteSelector
+                selectedDomain={selectedSite}
+                onSelect={setSelectedSite}
+                onSelectSite={site => setSelectedSiteId(site.id)}
+              />
             </div>
             {selectedSite ? (
-              <RANKODiagnosisPanel userId={userId} siteUrl={`https://${selectedSite}`} />
+              <RANKODiagnosisPanel
+                userId={userId}
+                siteUrl={`https://${selectedSite}`}
+                siteId={selectedSiteId}
+              />
             ) : (
               <div className="text-center py-12 text-gray-400 text-sm">
                 Connect a site above to run a diagnosis
