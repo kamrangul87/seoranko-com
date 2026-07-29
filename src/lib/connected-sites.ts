@@ -8,6 +8,8 @@ export interface ConnectedSite {
   domain: string
   brand: string
   isPrimary: boolean
+  /** Secret token for this site's Universal Tag snippet. */
+  universalTagToken?: string | null
 }
 
 /** Normalise user input to a bare host: strips scheme, path, www and trailing slash. */
@@ -26,7 +28,7 @@ export async function getConnectedSites(
 ): Promise<ConnectedSite[]> {
   const { data } = await supabase
     .from('connected_sites')
-    .select('id, domain, brand, is_primary')
+    .select('id, domain, brand, is_primary, universal_tag_token')
     .eq('user_id', userId)
     .order('is_primary', { ascending: false })
     .order('created_at', { ascending: true })
@@ -35,7 +37,8 @@ export async function getConnectedSites(
     id: d.id,
     domain: d.domain,
     brand: d.brand,
-    isPrimary: d.is_primary
+    isPrimary: d.is_primary,
+    universalTagToken: d.universal_tag_token
   }))
 }
 

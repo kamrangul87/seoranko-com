@@ -1,17 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // src/lib/site-autofix.ts
-// Applies a RANKO issue's fix to a connected WordPress site via the real REST
-// API, then RE-FETCHES the live public page to confirm the fix actually took
-// effect — rather than trusting that the write succeeded.
+// Applies a RANKO issue fix to a connected site via its platform adapter
+// (WordPress / Shopify / Webflow / Universal Tag), then re-fetches the live
+// page to confirm the fix took effect rather than trusting the write.
 
-import {
-  WPConnection,
-  verifyConnection,
-  findPostByUrl,
-  injectSchemaIntoPost,
-  appendContentFix,
-  normaliseSiteUrl
-} from './wordpress-connector'
+import { normaliseSiteUrl } from './wordpress-connector'
+import { getAdapter } from './site-adapters'
 import { validateSchema } from './schema-validator'
 
 export type SiteFixType = 'schema-org-inject' | 'schema-article-inject' | 'author-bio-visible'
@@ -50,7 +44,7 @@ export async function applySiteAutoFix(
       success: false,
       applied: false,
       verified: false,
-      message: 'No WordPress connection found for this site. Connect it in Settings → Your Sites first.'
+      message: 'No CMS connection found for this site. Connect it in Settings → Your Sites first.'
     }
   }
 
@@ -59,50 +53,56 @@ export async function applySiteAutoFix(
     return { success: false, applied: false, verified: false, message: 'That site URL cannot be reached.' }
   }
 
-  const conn: WPConnection = {
+  const platform = connRow.cms_type || 'wordpress'
+  const adapter = getAdapter(platform, supabase)
+
+  // credentials JSONB is the generic store; fall back to the original
+  // WordPress columns for connections made before that column existed.
+  const creds = {
     siteUrl,
-    username: connRow.wp_username,
-    appPassword: connRow.wp_app_password
+    siteId,
+    ...(connRow.credentials || {}),
+    ...(platform === 'wordpress' && !connRow.credentials?.appPassword
+      ? { username: connRow.wp_username, appPassword: connRow.wp_app_password }
+      : {})
   }
 
-  const check = await verifyConnection(conn)
+  const check = await adapter.verifyConnection(creds)
   if (!check.success) {
     return { success: false, applied: false, verified: false, message: check.error || 'Connection failed' }
   }
 
-  const post = await findPostByUrl(conn, targetUrl)
-  if (!post) {
+  const page = await adapter.findPageContent(creds, targetUrl)
+  if (!page) {
     return {
       success: false,
       applied: false,
       verified: false,
-      message: 'Could not find a matching WordPress post or page for this URL. It may not be a standard post, or the slug format differs.'
+      message: `Could not find this page on the connected ${platform} site. The URL may not map to an editable page, or the slug format differs.`
     }
   }
 
   let applyResult: { success: boolean; error?: string; skipped?: boolean }
 
   if (fixType === 'schema-org-inject') {
-    applyResult = await injectSchemaIntoPost(conn, post, {
+    applyResult = await adapter.injectSchema(creds, page, {
       '@context': 'https://schema.org',
       '@type': 'Organization',
       name: brandName,
-      url: conn.siteUrl,
+      url: siteUrl,
       ...(brandDescription ? { description: brandDescription } : {})
     })
   } else if (fixType === 'schema-article-inject') {
-    applyResult = await injectSchemaIntoPost(conn, post, {
+    applyResult = await adapter.injectSchema(creds, page, {
       '@context': 'https://schema.org',
       '@type': 'Article',
-      headline: post.title,
-      // Today's date is the publish date only if we genuinely don't know it;
-      // WordPress owns the real value, so prefer nothing over a wrong claim.
+      headline: page.title || brandName,
       datePublished: new Date().toISOString().split('T')[0],
       author: { '@type': 'Organization', name: brandName }
     })
   } else if (fixType === 'author-bio-visible') {
-    applyResult = await appendContentFix(
-      conn, post,
+    applyResult = await adapter.appendContent(
+      creds, page,
       `<p class="seoranko-added-byline"><em>Published by ${brandName}</em></p>\n`,
       'start'
     )
@@ -121,8 +121,25 @@ export async function applySiteAutoFix(
       verified: true,
       alreadyPresent: true,
       message: 'This fix is already present on the page — nothing needed changing.',
-      liveUrl: post.link
+      liveUrl: page.url
     }
+  }
+
+  // The Universal Tag injects via JavaScript, so a server-side fetch will never
+  // see it. Reporting "not verified" would imply something went wrong; say what
+  // is actually true instead.
+  if (!adapter.serverVerifiable) {
+    const detail = 'Fix queued on the Universal Tag. It applies in the browser when the page loads, so it cannot be confirmed by a server-side fetch — check with Google Rich Results Test, which renders JavaScript.'
+    await supabase.from('site_autofix_log').insert({
+      user_id: userId,
+      site_id: siteId,
+      issue_id: issueId,
+      fix_type: fixType,
+      target_url: targetUrl,
+      verified: false,
+      verification_result: { detail, platform, jsInjected: true }
+    })
+    return { success: true, applied: true, verified: false, message: detail, liveUrl: page.url }
   }
 
   // VERIFICATION LOOP — re-fetch the LIVE public page (not the API response)
@@ -132,7 +149,7 @@ export async function applySiteAutoFix(
 
   try {
     await new Promise(r => setTimeout(r, 1500))  // brief pause for cache/CDN
-    const liveRes = await fetch(post.link, {
+    const liveRes = await fetch(page.url, {
       headers: { 'User-Agent': 'SEORANKO-Verifier/1.0', 'Cache-Control': 'no-cache' },
       signal: AbortSignal.timeout(20000)
     })
@@ -146,7 +163,7 @@ export async function applySiteAutoFix(
       verified = schemaCheck.schemasFound.includes(wanted)
       verificationDetail = verified
         ? `Confirmed: ${wanted} schema is now live on the page (found: ${schemaCheck.schemasFound.join(', ')}).`
-        : `Fix was written to WordPress, but ${wanted} schema was not detected on re-fetch — the page may be cached. Check again in a few minutes.`
+        : `Fix was written, but ${wanted} schema was not detected on re-fetch — the page may be cached. Check again in a few minutes.`
     } else {
       verified = liveHtml.includes('seoranko-added-byline')
       verificationDetail = verified
@@ -154,7 +171,7 @@ export async function applySiteAutoFix(
         : 'Fix was written, but is not yet visible — likely a cache delay.'
     }
   } catch {
-    verificationDetail = 'Fix was written to WordPress, but the live page could not be re-fetched to verify it.'
+    verificationDetail = 'Fix was written, but the live page could not be re-fetched to verify it.'
   }
 
   await supabase.from('site_autofix_log').insert({
@@ -164,7 +181,7 @@ export async function applySiteAutoFix(
     fix_type: fixType,
     target_url: targetUrl,
     verified,
-    verification_result: { detail: verificationDetail, postId: post.id, postType: post.type }
+    verification_result: { detail: verificationDetail, pageId: page.id, platform }
   })
 
   return {
@@ -172,6 +189,6 @@ export async function applySiteAutoFix(
     applied: true,
     verified,
     message: verificationDetail,
-    liveUrl: post.link
+    liveUrl: page.url
   }
 }

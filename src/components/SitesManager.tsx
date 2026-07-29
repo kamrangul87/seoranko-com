@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase-client'
+import { ConnectSiteModal } from '@/components/ConnectSiteModal'
 import {
   getConnectedSites, addConnectedSite, setPrimarySite, removeConnectedSite,
   ConnectedSite
@@ -12,7 +13,7 @@ const BRAND_OPTIONS = ['autodun', 'seoranko', 'fitford', 'other']
 // role at the database level, so selecting it here would error.
 interface SiteConnection {
   site_id: string
-  wp_username: string
+  cms_type: string
   detected_seo_plugin: string | null
   last_verified_at: string | null
 }
@@ -49,120 +50,6 @@ function IconStar({ className }: { className?: string }) {
   )
 }
 
-function ConnectWordPressButton({
-  siteId, domain, connection, onConnected
-}: {
-  siteId: string
-  domain: string
-  connection?: SiteConnection
-  onConnected: () => void
-}) {
-  const [showModal, setShowModal] = useState(false)
-  const [username, setUsername] = useState('')
-  const [appPassword, setAppPassword] = useState('')
-  const [connecting, setConnecting] = useState(false)
-  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null)
-
-  async function handleConnect() {
-    setConnecting(true)
-    setResult(null)
-    try {
-      const res = await fetch('/api/ranko/connect-wordpress', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ siteId, domain, username, appPassword })
-      })
-      const data = await res.json()
-      setResult({ success: Boolean(data.success), message: data.message || data.error || 'Connection failed' })
-      if (data.success) {
-        setAppPassword('')   // don't keep the credential in component state
-        onConnected()
-        setTimeout(() => setShowModal(false), 1500)
-      }
-    } catch {
-      setResult({ success: false, message: 'Could not reach SEORANKO — try again.' })
-    } finally {
-      setConnecting(false)
-    }
-  }
-
-  return (
-    <>
-      <button
-        onClick={() => setShowModal(true)}
-        className={`text-xs transition-colors ${connection
-          ? 'text-green-600 hover:text-green-700'
-          : 'text-blue-600 hover:text-blue-700'}`}
-      >
-        {connection ? '✓ WordPress connected' : 'Connect WordPress'}
-      </button>
-
-      {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-5 w-full max-w-md">
-            <h3 className="text-sm font-semibold mb-1">Connect {domain} via WordPress</h3>
-            <p className="text-xs text-gray-500 mb-3">
-              Uses WordPress&rsquo;s built-in Application Passwords — no plugin needed.
-              In your WP Admin: <strong>Users → Profile → Application Passwords</strong> → create one named &ldquo;SEORANKO&rdquo;.
-            </p>
-            <p className="text-xs text-gray-500 mb-4">
-              The account needs <strong>Editor</strong> or <strong>Administrator</strong> permissions so RANKO can write fixes.
-              Revoke access any time from that same WordPress screen.
-            </p>
-
-            {connection && (
-              <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 mb-3">
-                Currently connected as <strong>{connection.wp_username}</strong>
-                {connection.detected_seo_plugin ? ` · ${connection.detected_seo_plugin} detected` : ''}.
-                Re-entering credentials will replace them.
-              </p>
-            )}
-
-            <input
-              type="text"
-              placeholder="WordPress username"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              autoComplete="off"
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg mb-2 focus:outline-none focus:border-orange-400"
-            />
-            <input
-              type="password"
-              placeholder="xxxx xxxx xxxx xxxx xxxx xxxx"
-              value={appPassword}
-              onChange={e => setAppPassword(e.target.value)}
-              autoComplete="off"
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg mb-3 font-mono focus:outline-none focus:border-orange-400"
-            />
-
-            {result && (
-              <p className={`text-xs mb-2 ${result.success ? 'text-green-600' : 'text-red-600'}`}>
-                {result.message}
-              </p>
-            )}
-
-            <div className="flex gap-2">
-              <button
-                onClick={handleConnect}
-                disabled={connecting || !username || !appPassword}
-                className="flex-1 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
-              >
-                {connecting ? 'Verifying…' : 'Connect'}
-              </button>
-              <button
-                onClick={() => { setShowModal(false); setAppPassword(''); setResult(null) }}
-                className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  )
-}
-
 export function SitesManager() {
   const [sites, setSites] = useState<ConnectedSite[]>([])
   const [connections, setConnections] = useState<Record<string, SiteConnection>>({})
@@ -172,6 +59,7 @@ export function SitesManager() {
   const [brand, setBrand] = useState('autodun')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [connectTarget, setConnectTarget] = useState<{ id: string; domain: string; token?: string | null } | null>(null)
 
   useEffect(() => { load() }, [])
 
@@ -184,7 +72,7 @@ export function SitesManager() {
 
     const { data: conns } = await supabase
       .from('site_connections')
-      .select('site_id, wp_username, detected_seo_plugin, last_verified_at')
+      .select('site_id, cms_type, detected_seo_plugin, last_verified_at')
       .eq('user_id', session.user.id)
       .eq('is_active', true)
 
@@ -293,12 +181,16 @@ export function SitesManager() {
               )}
             </div>
             <div className="flex items-center gap-3 flex-shrink-0">
-              <ConnectWordPressButton
-                siteId={site.id}
-                domain={site.domain}
-                connection={connections[site.id]}
-                onConnected={load}
-              />
+              <button
+                onClick={() => setConnectTarget({ id: site.id, domain: site.domain, token: site.universalTagToken })}
+                className={`text-xs transition-colors ${connections[site.id]
+                  ? 'text-green-600 hover:text-green-700'
+                  : 'text-blue-600 hover:text-blue-700'}`}
+              >
+                {connections[site.id]
+                  ? `✓ ${connections[site.id].cms_type === 'universal-tag' ? 'Tag installed' : connections[site.id].cms_type} connected`
+                  : 'Connect site'}
+              </button>
               {!site.isPrimary && (
                 <button
                   onClick={async () => {
@@ -321,6 +213,16 @@ export function SitesManager() {
           </div>
         ))}
       </div>
+
+      {connectTarget && (
+        <ConnectSiteModal
+          siteId={connectTarget.id}
+          domain={connectTarget.domain}
+          universalTagToken={connectTarget.token}
+          onClose={() => setConnectTarget(null)}
+          onConnected={load}
+        />
+      )}
     </div>
   )
 }
