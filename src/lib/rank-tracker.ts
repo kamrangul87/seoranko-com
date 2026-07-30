@@ -42,6 +42,8 @@ export interface RankCheckResult {
   checkedAt: string
   serpFeatures: string[]
   topCompetitor: string | null
+  /** Other domains ranking for this keyword, for drop analysis. */
+  competitorUrls: string[]
   /** §10 item 1 — populated for the rank_checks log. */
   diagnostics?: RankCheckDiagnostics
 }
@@ -175,6 +177,11 @@ export async function checkKeywordRank(
       checkedAt: new Date().toISOString(),
       serpFeatures,
       topCompetitor,
+      competitorUrls: organicItems
+        .filter(r => normalizeDomain(r.url || r.domain) !== targetDomain)
+        .slice(0, 4)
+        .map(r => r.url)
+        .filter(Boolean),
       diagnostics: {
         rankGroup: ourResult?.rankGroup ?? null,
         rankAbsolute: ourResult?.rankAbsolute ?? null,
@@ -198,6 +205,7 @@ export async function checkKeywordRank(
       checkedAt: new Date().toISOString(),
       serpFeatures: [],
       topCompetitor: null,
+      competitorUrls: [],
       diagnostics: {
         rankGroup: null,
         rankAbsolute: null,

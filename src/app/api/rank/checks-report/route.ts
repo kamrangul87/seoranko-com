@@ -64,6 +64,58 @@ export async function GET(req: NextRequest) {
 
   const locales = Array.from(new Set(rows.map(r => `${r.location_code}/${r.language_code}/${r.device}`)))
 
+  // Item 2/3 — compare each recorded manual observation against the nearest
+  // agent check for the same keyword + locale. This is the actual data-in test.
+  const { data: truth } = await supabase
+    .from('rank_ground_truth')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('observed_at', { ascending: false })
+
+  const comparisons = (truth || []).map((t: any) => {
+    const candidates = rows.filter(r =>
+      r.keyword?.toLowerCase() === t.keyword?.toLowerCase() &&
+      r.location_code === t.location_code
+    )
+    // Nearest check in time to the manual observation.
+    const nearest = candidates.sort((a, b) =>
+      Math.abs(+new Date(a.checked_at) - +new Date(t.observed_at)) -
+      Math.abs(+new Date(b.checked_at) - +new Date(t.observed_at))
+    )[0]
+
+    if (!nearest) {
+      return { keyword: t.keyword, verdict: 'no-matching-check', observed: t.observed_position }
+    }
+
+    const observed = t.observed_position
+    const group = nearest.raw_rank_group
+    const absolute = nearest.raw_rank_absolute
+
+    let verdict: string
+    if (observed == null && group == null) verdict = 'agree-both-absent'
+    else if (observed == null || group == null) verdict = 'DISAGREE-presence'
+    else if (observed === group) verdict = 'agree-on-rank_group'
+    else if (observed === absolute) verdict = 'WRONG-FIELD-should-read-rank_group'
+    else verdict = 'DISAGREE-position'
+
+    return {
+      keyword: t.keyword,
+      locationCode: t.location_code,
+      observed,
+      rankGroup: group,
+      rankAbsolute: absolute,
+      adsAbove: t.ads_above,
+      absoluteMinusGroup: (absolute != null && group != null) ? absolute - group : null,
+      matchMethod: nearest.match_method,
+      verdict
+    }
+  })
+
+  const verdictCounts = comparisons.reduce((acc: Record<string, number>, c: any) => {
+    acc[c.verdict] = (acc[c.verdict] || 0) + 1
+    return acc
+  }, {})
+
   return NextResponse.json({
     windowDays: days,
     totalChecks: n,
@@ -71,6 +123,15 @@ export async function GET(req: NextRequest) {
     // Item 2/3 — request parameters actually sent. Compare against the locale
     // you check manually; a mismatch here explains any disagreement.
     localesSent: locales,
+
+    item2_groundTruth: {
+      observationsRecorded: (truth || []).length,
+      verdicts: verdictCounts,
+      comparisons: comparisons.slice(0, 30),
+      note: (truth || []).length === 0
+        ? 'No manual observations recorded yet. POST to /api/rank/ground-truth with { keyword, targetUrl, locationCode, observedPosition, adsAbove } for 10-20 keywords checked in incognito, then re-read this.'
+        : 'WRONG-FIELD-should-read-rank_group means the agent is reporting rank_absolute where you observed the organic position — that is item 3\'s answer.'
+    },
 
     item3_dataIn: {
       rankFieldsDisagree: rankFieldsDisagree.length,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { checkKeywordRank } from '@/lib/rank-tracker'
 import { logRankCheck } from '@/lib/rank-check-log'
+import { evaluateTrigger, type RankObservation, type TriggerDecision } from '@/lib/rank-trigger'
 
 export const maxDuration = 60
 
@@ -42,13 +43,36 @@ export async function POST(req: NextRequest) {
       ownerId = owner?.user_id ?? null
     }
 
+    // §6.4 / item 5 — evaluate the trigger against the full history including
+    // this check, and log the real decision. The log is worthless for the day-8
+    // review if trigger_fired is hardcoded.
+    let decision: TriggerDecision | null = null
+    if (articleId) {
+      const { data: history } = await supabase
+        .from('rank_history')
+        .select('position, checked_at')
+        .eq('ranking_article_id', articleId)
+        .order('checked_at', { ascending: true })
+        .limit(60)
+
+      const observations: RankObservation[] = [
+        ...(history || []).map((h: { position: number | null; checked_at: string }) => ({
+          position: h.position,
+          checkedAt: h.checked_at
+        })),
+        { position: result.position, checkedAt: result.checkedAt }
+      ]
+      decision = evaluateTrigger(observations)
+    }
+
     await logRankCheck(supabase, {
       userId: ownerId,
       articleId: articleId ?? null,
       result,
-      triggerFired: false,
-      triggerReason: null,
-      actionTaken: null
+      triggerFired: decision?.fired ?? false,
+      triggerReason: decision?.reason ?? null,
+      // Item 6 records what actually happened; auto-diagnose is dispatched below.
+      actionTaken: decision?.fired ? 'diagnose-dispatched' : 'none'
     })
 
     if (articleId) {
@@ -77,8 +101,10 @@ export async function POST(req: NextRequest) {
         .eq('id', articleId)
     }
 
-    // Auto-diagnose if position changed or outside top 20 — fire and forget
-    if (articleId && (change !== null || (result.position && result.position > 20))) {
+    // §6.4 — dispatch only when the band-aware trigger actually fired. The old
+    // condition (any change at all, or merely being outside the top 20) fired on
+    // normal noise, which is a large share of the current false triggers.
+    if (articleId && decision?.fired) {
       fetch(`${req.nextUrl.origin}/api/rank/diagnose`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

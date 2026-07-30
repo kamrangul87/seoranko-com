@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { checkKeywordRank as sharedCheckKeywordRank } from '@/lib/rank-tracker';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { getLatestCitationResult } from '@/lib/citation-tester';
@@ -20,76 +21,21 @@ function getSupabase() {
 export const maxDuration = 60;
 
 // ── Check current rank for a keyword ──────────────────────────────────────────
+// §10 items 3+4 — this route had its OWN copy of checkKeywordRank that sent a
+// different request (live/advanced, location 2826, depth 50, no device) and
+// matched with a BIDIRECTIONAL substring test:
+//     itemDomain.includes(targetDomain) || targetDomain.includes(itemDomain)
+// so "autodun.com" would match a site called "dun.com". It also kept the LAST
+// match in the loop rather than the best. Two request shapes for one keyword is
+// exactly the locale/engine divergence item 3 tells us to eliminate, so this now
+// delegates to the single shared implementation.
 async function checkKeywordRank(
   keyword: string,
   targetUrl: string,
   locationCode: number = 2826
 ): Promise<{ position: number | null; competitorUrls: string[] }> {
-  const login = process.env.DATAFORSEO_EMAIL;
-  const password = process.env.DATAFORSEO_PASSWORD;
-  if (!login || !password) return { position: null, competitorUrls: [] };
-
-  try {
-    const response = await fetch(
-      'https://api.dataforseo.com/v3/serp/google/organic/live/advanced',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: 'Basic ' + Buffer.from(`${login}:${password}`).toString('base64'),
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify([{
-          keyword,
-          location_code: locationCode,
-          language_code: 'en',
-          depth: 50,
-        }]),
-        signal: AbortSignal.timeout(15000),
-      }
-    );
-
-    const data = await response.json();
-    const items = data?.tasks?.[0]?.result?.[0]?.items ?? [];
-
-    const competitorUrls: string[] = [];
-    let position: number | null = null;
-
-    const targetDomain = targetUrl
-      .replace('https://', '')
-      .replace('http://', '')
-      .replace('www.', '')
-      .split('/')[0];
-
-    console.log('[rank-check] keyword:', keyword, 'target:', targetUrl, 'targetDomain:', targetDomain);
-    console.log('[rank-check] total items found:', items.length);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    console.log('[rank-check] organic items:', items.filter((i: any) => i.type === 'organic').length);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const item of items as any[]) {
-      if (item.type !== 'organic') continue;
-
-      const itemUrl = item.url || '';
-      const itemDomain = item.domain?.replace('www.', '') || '';
-
-      // Check if target domain appears anywhere in the URL
-      if (
-        itemDomain.includes(targetDomain) ||
-        targetDomain.includes(itemDomain) ||
-        itemUrl.includes(targetDomain)
-      ) {
-        position = item.rank_absolute;
-        console.log('[rank-check] found at position:', position, 'url:', itemUrl);
-      } else if (item.url) {
-        competitorUrls.push(item.url);
-      }
-    }
-
-    return { position, competitorUrls: competitorUrls.slice(0, 4) };
-  } catch (err) {
-    console.error('[rank-check] error:', err);
-    return { position: null, competitorUrls: [] };
-  }
+  const result = await sharedCheckKeywordRank(keyword, targetUrl, locationCode);
+  return { position: result.position, competitorUrls: result.competitorUrls };
 }
 
 // ── Analyse rank drop with Claude ─────────────────────────────────────────────
