@@ -1,10 +1,15 @@
 // src/lib/rank-guard.ts
-// Fires when rank drops 3+ positions
-// Picks the weakest score dimension and runs a targeted improve pass
+// Picks the weakest score dimension and runs a targeted improve pass.
+//
+// §10 item 5: the fixed "drop >= 3" gate is replaced by evaluateTrigger()
+// (src/lib/rank-trigger.ts) — a fitted slope, a band-dependent noise
+// threshold, and two consecutive worsening checks. Callers should pass
+// `history` so that decision can be made; `drop` alone cannot express it.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { improveArticle } from './article-improver'
 import { createClient } from '@supabase/supabase-js'
+import { evaluateTrigger, type RankObservation, type TriggerDecision } from './rank-trigger'
 
 export interface RankDropEvent {
   articleId: string
@@ -12,6 +17,8 @@ export interface RankDropEvent {
   previousPosition: number
   currentPosition: number
   drop: number
+  /** Full rank history for this unit. Required for a band-aware decision. */
+  history?: RankObservation[]
 }
 
 export interface ReoptimiseResult {
@@ -51,11 +58,22 @@ export async function handleRankDrop(
     factDensity?: number
   }
 ): Promise<ReoptimiseResult> {
-  if (event.drop < 3) {
+  // §6.4 — decide from the trend, not a single delta against a fixed constant.
+  const decision: TriggerDecision = event.history?.length
+    ? evaluateTrigger(event.history)
+    : {
+        // No history supplied: refuse rather than fall back to the old
+        // last-minus-first behaviour this item exists to remove.
+        fired: false,
+        reason: 'No rank history supplied — cannot assess whether this is a sustained decline or normal noise.',
+        slope: null, band: null, consecutiveWorsening: 0, noiseThreshold: null, totalDrop: null
+      }
+
+  if (!decision.fired) {
     return {
       articleId: event.articleId,
       triggered: false,
-      reason: `Drop of ${event.drop} positions is below threshold`,
+      reason: decision.reason,
       improveTarget: 'none'
     }
   }

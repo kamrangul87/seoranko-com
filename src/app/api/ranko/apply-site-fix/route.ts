@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { applySiteAutoFix, SiteFixType } from '@/lib/site-autofix'
 
-export const maxDuration = 60
+export const maxDuration = 120
 
 const VALID_FIX_TYPES: SiteFixType[] = [
   'schema-org-inject',

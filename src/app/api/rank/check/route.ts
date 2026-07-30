@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { checkKeywordRank } from '@/lib/rank-tracker'
+import { logRankCheck } from '@/lib/rank-check-log'
 
 export const maxDuration = 60
 
@@ -28,6 +29,27 @@ export async function POST(req: NextRequest) {
     const change = previousPosition != null && result.position != null
       ? previousPosition - result.position
       : null
+
+    // §10 item 1 — record the check before anything acts on it. Resolve the
+    // owner so item 2's ground-truth comparison can be scoped to one site.
+    let ownerId: string | null = null
+    if (articleId) {
+      const { data: owner } = await supabase
+        .from('ranking_agent_articles')
+        .select('user_id')
+        .eq('id', articleId)
+        .maybeSingle()
+      ownerId = owner?.user_id ?? null
+    }
+
+    await logRankCheck(supabase, {
+      userId: ownerId,
+      articleId: articleId ?? null,
+      result,
+      triggerFired: false,
+      triggerReason: null,
+      actionTaken: null
+    })
 
     if (articleId) {
       await supabase.from('rank_history').insert({

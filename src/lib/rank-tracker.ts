@@ -4,6 +4,9 @@
 // Default: US/Global (2840)
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+// §8: normalizeUrl() before every URL comparison / Supabase write.
+import { normalizeUrl, normalizeDomain } from './supabase/audit-db'
+
 export const LOCATION_CODES: Record<string, { code: number; name: string; flag: string }> = {
   global: { code: 2840, name: 'Global / US',   flag: '🌍' },
   us:     { code: 2840, name: 'United States',  flag: '🇺🇸' },
@@ -39,10 +42,28 @@ export interface RankCheckResult {
   checkedAt: string
   serpFeatures: string[]
   topCompetitor: string | null
+  /** §10 item 1 — populated for the rank_checks log. */
+  diagnostics?: RankCheckDiagnostics
+}
+
+export type MatchMethod = 'exact-url' | 'same-domain' | 'none'
+
+/** §10 item 1 — everything the rank_checks log needs from a single check. */
+export interface RankCheckDiagnostics {
+  rankGroup: number | null
+  rankAbsolute: number | null
+  matchedUrl: string | null
+  matchedDomain: string | null
+  storedUrlNormalised: string
+  matchMethod: MatchMethod
+  organicCount: number
+  apiError: string | null
 }
 
 export interface SERPItem {
   position: number
+  rankGroup: number | null
+  rankAbsolute: number | null
   url: string
   domain: string
   title: string
@@ -69,49 +90,69 @@ async function fetchDataForSEO(endpoint: string, body: object): Promise<any> {
   return res.json()
 }
 
+// §10 item 1 — the exact request parameters, surfaced so the log records what
+// was actually sent rather than what we assume was sent (item 3, data-in check).
+export const RANK_CHECK_PARAMS = {
+  endpoint: 'serp/google/organic/live/regular',
+  language_code: 'en',
+  device: 'desktop',
+  os: 'windows',
+  depth: 100
+} as const
+
 export async function checkKeywordRank(
   keyword: string,
   targetUrl: string,
   locationCode: number = 2840
 ): Promise<RankCheckResult> {
-  const targetDomain = (() => {
-    try {
-      return new URL(targetUrl.startsWith('http') ? targetUrl : `https://${targetUrl}`)
-        .hostname.replace('www.', '')
-    } catch {
-      return targetUrl.replace('www.', '').split('/')[0]
-    }
-  })()
+  // §8: normalizeUrl() on our side of the comparison. The previous code used
+  // .replace('www.', '') — an unanchored replace that mangles hosts like
+  // "my-www-site.com" — and never normalised at all.
+  const storedNormalised = normalizeUrl(targetUrl)
+  const targetDomain = normalizeDomain(targetUrl)
 
   const locationEntry = Object.values(LOCATION_CODES).find(l => l.code === locationCode)
   const locationName = locationEntry?.name || 'Global'
 
   try {
-    const data = await fetchDataForSEO('serp/google/organic/live/regular', [{
+    const data = await fetchDataForSEO(RANK_CHECK_PARAMS.endpoint, [{
       keyword,
       location_code: locationCode,
-      language_code: 'en',
-      device: 'desktop',
-      os: 'windows',
-      depth: 100
+      language_code: RANK_CHECK_PARAMS.language_code,
+      device: RANK_CHECK_PARAMS.device,
+      os: RANK_CHECK_PARAMS.os,
+      depth: RANK_CHECK_PARAMS.depth
     }])
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const allItems = data?.tasks?.[0]?.result?.[0]?.items || []
 
+    // Keep BOTH rank fields. rank_group is the organic position; rank_absolute
+    // counts ads and snippets too, so it reads higher than what a user sees.
+    // Item 2/3 ground truth decides which we report — until then, log both.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const organicItems: SERPItem[] = allItems
       .filter((item: any) => item.type === 'organic')
       .map((item: any) => ({
-        position: item.rank_absolute,
+        position: item.rank_group ?? item.rank_absolute,
+        rankGroup: item.rank_group ?? null,
+        rankAbsolute: item.rank_absolute ?? null,
         url: item.url || '',
         domain: item.domain || '',
         title: item.title || ''
       }))
 
-    const ourResult = organicItems.find(r =>
-      r.domain.includes(targetDomain) || r.url.includes(targetDomain)
-    )
+    // §10 item 4 — matching. Prefer the exact tracked page; fall back to the
+    // same registered domain. The old `domain.includes(targetDomain)` test
+    // matched "notautodun.com" for "autodun.com", and matched the homepage
+    // when a specific article was being tracked.
+    let ourResult = organicItems.find(r => normalizeUrl(r.url) === storedNormalised)
+    let matchMethod: MatchMethod = ourResult ? 'exact-url' : 'none'
+
+    if (!ourResult) {
+      ourResult = organicItems.find(r => normalizeDomain(r.url || r.domain) === targetDomain)
+      if (ourResult) matchMethod = 'same-domain'
+    }
 
     const serpFeatures = Array.from(new Set(
       allItems
@@ -120,22 +161,32 @@ export async function checkKeywordRank(
     )) as string[]
 
     const topCompetitor = organicItems.find(r =>
-      r.position === 1 && !r.domain.includes(targetDomain)
+      r.position === 1 && normalizeDomain(r.url || r.domain) !== targetDomain
     )?.domain || null
 
     return {
       keyword,
       articleUrl: targetUrl,
-      position: ourResult?.position || null,
+      position: ourResult?.position ?? null,
       previousPosition: null,
       positionChange: null,
       locationCode,
       locationName,
       checkedAt: new Date().toISOString(),
       serpFeatures,
-      topCompetitor
+      topCompetitor,
+      diagnostics: {
+        rankGroup: ourResult?.rankGroup ?? null,
+        rankAbsolute: ourResult?.rankAbsolute ?? null,
+        matchedUrl: ourResult?.url ?? null,
+        matchedDomain: ourResult?.domain ?? null,
+        storedUrlNormalised: storedNormalised,
+        matchMethod,
+        organicCount: organicItems.length,
+        apiError: null
+      }
     }
-  } catch {
+  } catch (err) {
     return {
       keyword,
       articleUrl: targetUrl,
@@ -146,7 +197,18 @@ export async function checkKeywordRank(
       locationName,
       checkedAt: new Date().toISOString(),
       serpFeatures: [],
-      topCompetitor: null
+      topCompetitor: null,
+      diagnostics: {
+        rankGroup: null,
+        rankAbsolute: null,
+        matchedUrl: null,
+        matchedDomain: null,
+        storedUrlNormalised: storedNormalised,
+        matchMethod: 'none',
+        organicCount: 0,
+        // A null rank from an API failure is not the same as "not ranking".
+        apiError: err instanceof Error ? err.message : String(err)
+      }
     }
   }
 }
