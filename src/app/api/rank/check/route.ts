@@ -45,8 +45,10 @@ export async function POST(req: NextRequest) {
     const locationCode = storedLocation ?? requestedLocation ?? 2840
     const result = await checkKeywordRank(keyword, articleUrl, locationCode)
 
+    // §10 item 10 / §6.4: negative Δposition = good. current − previous, so an
+    // improvement (15 → 12) yields −3, a decline (12 → 15) yields +3.
     const change = previousPosition != null && result.position != null
-      ? previousPosition - result.position
+      ? result.position - previousPosition
       : null
 
     // §6.4 / item 5 — evaluate the trigger against the full history including

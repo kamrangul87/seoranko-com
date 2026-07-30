@@ -8,6 +8,7 @@ import { normaliseSiteUrl } from './wordpress-connector'
 import { getAdapter } from './site-adapters'
 import type { FixApplyResult } from './site-adapters/types'
 import { validateSchema } from './schema-validator'
+import { checkSiteWashout } from './treatment-log'
 
 export type SiteFixType = 'schema-org-inject' | 'schema-article-inject' | 'author-bio-visible'
 
@@ -52,6 +53,13 @@ export async function applySiteAutoFix(
   const siteUrl = normaliseSiteUrl(targetUrl)
   if (!siteUrl) {
     return { success: false, applied: false, verified: false, message: 'That site URL cannot be reached.' }
+  }
+
+  // §10 item 9 / §7.3 / §7.8: "one live treatment per unit, no exceptions."
+  // Checked before touching the adapter so a blocked request costs nothing.
+  const washout = await checkSiteWashout(supabase, siteId, targetUrl)
+  if (!washout.allowed) {
+    return { success: false, applied: false, verified: false, message: washout.reason }
   }
 
   const platform = connRow.cms_type || 'wordpress'
@@ -141,6 +149,7 @@ export async function applySiteAutoFix(
       fix_type: fixType,
       target_url: targetUrl,
       verified: false,
+      legacy_target: fixType,
       verification_result: { detail, platform, pending: true, url: applyResult.url ?? null }
     })
     return {
@@ -164,6 +173,7 @@ export async function applySiteAutoFix(
       fix_type: fixType,
       target_url: targetUrl,
       verified: false,
+      legacy_target: fixType,
       verification_result: { detail, platform, jsInjected: true }
     })
     return { success: true, applied: true, verified: false, message: detail, liveUrl: page.url }
@@ -208,6 +218,7 @@ export async function applySiteAutoFix(
     fix_type: fixType,
     target_url: targetUrl,
     verified,
+    legacy_target: fixType,
     verification_result: { detail: verificationDetail, pageId: page.id, platform }
   })
 

@@ -228,8 +228,9 @@ export async function POST(req: NextRequest) {
       );
 
       const previousPosition = article.current_position;
+      // §10 item 10 / §6.4: negative Δposition = good (current − previous).
       const positionChange = previousPosition && position
-        ? previousPosition - position
+        ? position - previousPosition
         : 0;
 
       const freshnessScore = calculateFreshnessScore(

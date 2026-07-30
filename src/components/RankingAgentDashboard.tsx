@@ -5,6 +5,7 @@ import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import { LOCATION_OPTIONS } from '@/lib/rank-tracker'
 import type { RANKODiagnosis, RANKOIssue } from '@/lib/ranko-diagnosis'
 import { resolveArticle, isWritable, EXTERNAL_NOT_WRITABLE_MESSAGE } from '@/lib/article-resolver'
+import { enterAtPublish } from '@/lib/pages'
 
 interface TrackedArticle {
   id: string
@@ -235,6 +236,15 @@ export function RankingAgentDashboard() {
       return
     }
 
+    // §10 item 8 — a tracked URL entering RANKO is the closest thing this
+    // codebase has to a Publish (6) / Monitor (7) gate today. Instrumentation
+    // only; never blocks the add flow if it fails.
+    enterAtPublish(supabase, {
+      userId: session.user.id,
+      keyword: form.keyword,
+      url: form.articleUrl
+    }).catch(() => {})
+
     setForm({ keyword: '', articleUrl: '', locationCode: 2840 })
     setShowForm(false)
     setAdding(false)
@@ -362,11 +372,13 @@ export function RankingAgentDashboard() {
     }
   }
 
+  // §10 item 10 — aligned to canonical bands (§7.1): 1-3 / 4-10 / 11-20 / 21-50 / 51+.
   function positionColor(pos: number | null) {
     if (!pos) return 'text-gray-400'
     if (pos <= 3) return 'text-green-600'
     if (pos <= 10) return 'text-blue-600'
-    if (pos <= 30) return 'text-amber-600'
+    if (pos <= 20) return 'text-amber-600'
+    if (pos <= 50) return 'text-orange-600'
     return 'text-red-500'
   }
 
@@ -562,19 +574,20 @@ export function RankingAgentDashboard() {
                   <div className={`text-2xl font-bold leading-none ${positionColor(article.current_position)}`}>
                     {article.current_position ? `#${article.current_position}` : '—'}
                   </div>
+                  {/* §10 item 10 / §6.4: negative position_change = improved (moved up the SERP) */}
                   <div className="flex items-center justify-end gap-0.5 mt-0.5">
                     {article.position_change === null ? (
                       <IconMinus className="w-3 h-3 text-gray-300" />
-                    ) : article.position_change > 0 ? (
-                      <IconTrendingUp className="w-3 h-3 text-green-500" />
                     ) : article.position_change < 0 ? (
+                      <IconTrendingUp className="w-3 h-3 text-green-500" />
+                    ) : article.position_change > 0 ? (
                       <IconTrendingDown className="w-3 h-3 text-red-500" />
                     ) : (
                       <IconMinus className="w-3 h-3 text-gray-400" />
                     )}
                     {article.position_change !== null && article.position_change !== 0 && (
-                      <span className={`text-xs font-medium ${article.position_change > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                        {article.position_change > 0 ? `+${article.position_change}` : article.position_change}
+                      <span className={`text-xs font-medium ${article.position_change < 0 ? 'text-green-600' : 'text-red-500'}`}>
+                        {article.position_change < 0 ? `+${Math.abs(article.position_change)}` : `-${article.position_change}`}
                       </span>
                     )}
                   </div>

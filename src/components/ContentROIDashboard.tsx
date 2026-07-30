@@ -112,11 +112,13 @@ export function ContentROIDashboard() {
     .filter(a => a.positions_gained !== null && a.positions_gained > 0)
     .reduce((sum, a) => sum + (a.positions_gained || 0), 0)
 
+  // §10 item 10 — aligned to canonical bands (§7.1): 1-3 / 4-10 / 11-20 / 21-50 / 51+.
   function positionColor(pos: number | null) {
     if (!pos) return 'text-gray-400'
     if (pos <= 3) return 'text-green-600'
     if (pos <= 10) return 'text-blue-600'
-    if (pos <= 30) return 'text-amber-600'
+    if (pos <= 20) return 'text-amber-600'
+    if (pos <= 50) return 'text-orange-600'
     return 'text-red-500'
   }
 

@@ -8,6 +8,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { runGEOAudit } from './geo-auditor'
 import { detectCannibalization } from './cannibalization-detector'
 import { scoreEntityCoverage, auditHeadingStructure, auditAuthorityLinks } from './aeo-signals'
+import { bandFor } from './rank-trigger'
 
 export type IssueImpact = 'critical' | 'high' | 'medium' | 'low'
 export type IssueRisk = 'safe' | 'low-risk' | 'medium-risk' | 'high-risk'
@@ -156,8 +157,10 @@ export async function runRANKODiagnosis(
       weakArticleIds.push(article.id)
     }
 
-    // Stuck articles (ranked 11-30, not improving)
-    if (article.current_position && article.current_position >= 11 && article.current_position <= 30) {
+    // Stuck articles — §10 item 10: the old 11-30 range straddled the canonical
+    // 11-20 and 21-50 bands (§6.4: "pooling bands produces a meaningless
+    // average"). Scoped to the 11-20 band, which is what "almost page 1" means.
+    if (bandFor(article.current_position ?? null) === '11-20') {
       stuckArticles.push(article.title)
       stuckArticleIds.push(article.id)
     }

@@ -11,6 +11,7 @@ import type { VerifiedFact } from "@/lib/fact-verifier";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import type { ArticleRequest, ArticleOutput, NlpBrief, PipelineData } from "@/types";
+import { startPage, stampStage, completePage, blockPage, STAGE } from "@/lib/pages";
 
 // Free plan: 1 article LIFETIME (checked via articles_used_month, never reset)
 // Paid plans: monthly quota
@@ -384,6 +385,15 @@ Return only valid JSON.`;
     contentGaps: [],
   };
 
+  // §10 item 8 — stamp the pages shadow record as this (already-existing)
+  // generation flow moves through stations. This route collapses Plan (2)
+  // into whatever `cluster` the caller already computed client-side (nothing
+  // persists a Plan stage today — Station 2 has no durable record to stamp
+  // through yet), so it goes straight from Keywords (1) to Brief (3).
+  const pageId = (!master && supabase && userId)
+    ? await startPage(supabase, { userId, primaryKeyword: keyword, intent: research.intent })
+    : null;
+
   const stream = new ReadableStream({
     async start(controller) {
       try {
@@ -392,6 +402,8 @@ Return only valid JSON.`;
           pipelineLog.push(msg);
           controller.enqueue(sseEvent({ stage: msg }));
         };
+
+        await stampStage(supabase, pageId, STAGE.BRIEF);
 
         // ── STEP 1: Classify topic risk ──────────────────────────
         log("Step 1/5: Classifying topic and risk level...");
@@ -426,6 +438,7 @@ Return only valid JSON.`;
         }
 
         // ── STEP 4: Write article ────────────────────────────────
+        await stampStage(supabase, pageId, STAGE.WRITE);
         log("Step 4/5: Writing article with verified facts...");
 
         const factsInjection = verifiedFacts.length > 0
@@ -468,6 +481,7 @@ Return only valid JSON.`;
         log(`Article written — ${articleOutput.wordCount ?? 0} words`);
 
         // ── STEP 5: Editorial audit ──────────────────────────────
+        await stampStage(supabase, pageId, STAGE.QA);
         log("Step 5/5: Running editorial and fact audit...");
 
         let publishedPages: string[] = [];
@@ -496,7 +510,7 @@ Return only valid JSON.`;
 
         // ── Save to Supabase ─────────────────────────────────────
         if (!master && supabase && userId) {
-          await Promise.all([
+          const [{ data: savedArticle }] = await Promise.all([
             supabase.from("articles").insert({
               user_id: userId,
               title: articleOutput.seoTitle,
@@ -508,12 +522,22 @@ Return only valid JSON.`;
               readability_score: articleOutput.readabilityScore,
               keyword_density: String(articleOutput.keywordDensity),
               status: "draft",
-            }),
+            }).select("id").single(),
             supabase.from("user_profiles").update({
               articles_used_today: (profile?.articles_used_today ?? 0) + 1,
               articles_used_month: (profile?.articles_used_month ?? 0) + 1,
             }).eq("id", userId),
           ]);
+
+          // The flow stops here today — there is no Station 6 Publish step in
+          // this route (nothing sets a live url/published_at). completePage()
+          // marks the QA stage done rather than claiming Publish was reached.
+          await completePage(supabase, pageId, {
+            article_id: savedArticle?.id ?? null,
+            content: articleOutput.article,
+            eeat_score: articleOutput.eeaScore ?? null,
+            last_action: "generated",
+          });
         }
 
         controller.enqueue(
@@ -522,6 +546,7 @@ Return only valid JSON.`;
       } catch (err) {
         const message = err instanceof Error ? err.message : "Generation failed";
         console.error("[article] error:", message);
+        await blockPage(supabase, pageId, message);
         controller.enqueue(sseEvent({ error: message }));
       } finally {
         controller.close();

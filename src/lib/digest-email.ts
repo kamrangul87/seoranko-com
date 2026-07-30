@@ -38,13 +38,14 @@ export function buildDigestHTML(data: DigestData): string {
         <span style="font-size:14px;font-weight:600;color:${a.rankScore >= 80 ? '#1D9E75' : a.rankScore >= 60 ? '#BA7517' : '#E24B4A'}">${a.rankScore}</span>
       </td>
       <td style="padding:10px 8px;text-align:center;font-size:13px">
+        <!-- §10 item 10 / §6.4: negative positionChange = improved -->
         ${a.currentPosition
           ? `<span style="font-weight:600">#${a.currentPosition}</span>${
               a.positionChange
-                ? a.positionChange > 0
-                  ? `<span style="color:#1D9E75;font-size:11px"> ↑${a.positionChange}</span>`
-                  : a.positionChange < 0
-                    ? `<span style="color:#E24B4A;font-size:11px"> ↓${Math.abs(a.positionChange)}</span>`
+                ? a.positionChange < 0
+                  ? `<span style="color:#1D9E75;font-size:11px"> ↑${Math.abs(a.positionChange)}</span>`
+                  : a.positionChange > 0
+                    ? `<span style="color:#E24B4A;font-size:11px"> ↓${a.positionChange}</span>`
                     : ''
                 : ''
             }`
@@ -131,12 +132,13 @@ export function buildDigestHTML(data: DigestData): string {
 }
 
 export function computeTopAction(articles: DigestArticle[]): string {
+  // §10 item 10 / §6.4: negative Δposition = good, so a drop is positionChange > 3.
   const droppedArticles = articles.filter(
-    a => a.positionChange !== null && a.positionChange < -3
+    a => a.positionChange !== null && a.positionChange > 3
   )
   if (droppedArticles.length > 0) {
     const worst = droppedArticles.sort((a, b) =>
-      (a.positionChange || 0) - (b.positionChange || 0)
+      (b.positionChange || 0) - (a.positionChange || 0)
     )[0]
     return `"${worst.title}" dropped ${Math.abs(worst.positionChange!)} positions this week — auto-fix has been applied. Check the article and consider a manual review.`
   }

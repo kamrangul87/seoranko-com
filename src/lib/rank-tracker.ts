@@ -36,7 +36,7 @@ export interface RankCheckResult {
   articleUrl: string
   position: number | null       // null = not in top 100
   previousPosition: number | null
-  positionChange: number | null // positive = improved, negative = dropped
+  positionChange: number | null // §6.4: negative = improved, positive = dropped
   locationCode: number
   locationName: string
   checkedAt: string
@@ -242,7 +242,8 @@ export async function checkBatchRanks(
       const prev = batch[idx].previousPosition ?? null
       result.previousPosition = prev
       if (result.position !== null && prev !== null) {
-        result.positionChange = prev - result.position
+        // §10 item 10 / §6.4: negative Δposition = good.
+        result.positionChange = result.position - prev
       }
     })
 
@@ -256,19 +257,22 @@ export async function checkBatchRanks(
   return results
 }
 
+// §10 item 10 — aligned to the canonical bands (§7.1): 1-3 / 4-10 / 11-20 / 21-50 / 51+.
+// The old cutoff at 30 fell inside the 21-50 band rather than at its edge.
 export function positionLabel(position: number | null): string {
   if (position === null) return 'Not ranked'
   if (position === 1) return '#1 🏆'
   if (position <= 3) return `#${position} Top 3`
   if (position <= 10) return `#${position} Page 1`
   if (position <= 20) return `#${position} Page 2`
-  if (position <= 30) return `#${position} Page 3`
+  if (position <= 50) return `#${position} Page 3+`
   return `#${position}`
 }
 
+// §10 item 10 / §6.4: negative change = improved (moved up the SERP).
 export function movementLabel(change: number | null): string {
   if (change === null) return '—'
-  if (change > 0) return `↑${change}`
-  if (change < 0) return `↓${Math.abs(change)}`
+  if (change < 0) return `↑${Math.abs(change)}`
+  if (change > 0) return `↓${change}`
   return '→'
 }

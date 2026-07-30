@@ -44,7 +44,7 @@ Article ranking context:
 - Target keyword: "${context.keyword}"
 - Current Google position: ${context.currentPosition ? `#${context.currentPosition}` : 'Not in top 100'}
 - Previous position: ${context.previousPosition ? `#${context.previousPosition}` : 'Unknown'}
-- Position change: ${context.positionChange !== null ? (context.positionChange > 0 ? `Improved by ${context.positionChange}` : `Dropped by ${Math.abs(context.positionChange)}`) : 'Unknown'}
+- Position change: ${context.positionChange !== null ? (context.positionChange < 0 ? `Improved by ${Math.abs(context.positionChange)}` : `Dropped by ${context.positionChange}`) : 'Unknown'}
 - RANK score: ${context.rankScore}/100
 - EEAT score: ${context.eeatScore}/100
 - Readability score: ${context.readabilityScore}/100
@@ -100,8 +100,9 @@ export async function generateWeeklySummary(
 ): Promise<string> {
   const ranked = articles.filter(a => a.currentPosition !== null)
   const page1 = ranked.filter(a => a.currentPosition! <= 10)
-  const dropped = articles.filter(a => a.positionChange !== null && a.positionChange < -3)
-  const improved = articles.filter(a => a.positionChange !== null && a.positionChange > 3)
+  // §10 item 10 / §6.4: negative Δposition = good.
+  const dropped = articles.filter(a => a.positionChange !== null && a.positionChange > 3)
+  const improved = articles.filter(a => a.positionChange !== null && a.positionChange < -3)
 
   if (articles.length === 0) return 'No articles tracked yet — add your first article to the Ranking Agent.'
 

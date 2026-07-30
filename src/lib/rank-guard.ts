@@ -10,6 +10,7 @@
 import { improveArticle } from './article-improver'
 import { createClient } from '@supabase/supabase-js'
 import { evaluateTrigger, type RankObservation, type TriggerDecision } from './rank-trigger'
+import { checkWashout, logPageTreatment } from './treatment-log'
 
 export interface RankDropEvent {
   articleId: string
@@ -80,6 +81,39 @@ export async function handleRankDrop(
 
   const target = chooseImproveTarget(event.drop, currentScores)
 
+  const supabaseEarly = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+
+  // §10 item 9 / §7.3 / §7.8: "one live treatment per unit, no exceptions."
+  // The unit for washout purposes is the ranking_agent_articles row, not the
+  // articles row the rest of this function updates.
+  const { data: unit } = await supabaseEarly
+    .from('ranking_agent_articles')
+    .select('id, user_id')
+    .eq('article_id', event.articleId)
+    .maybeSingle()
+
+  if (!unit?.id) {
+    return {
+      articleId: event.articleId,
+      triggered: false,
+      reason: 'Could not resolve the tracked unit for this article — washout cannot be verified, so no treatment was applied.',
+      improveTarget: 'none'
+    }
+  }
+
+  const washout = await checkWashout(supabaseEarly, unit.id)
+  if (!washout.allowed) {
+    return {
+      articleId: event.articleId,
+      triggered: false,
+      reason: washout.reason,
+      improveTarget: 'none'
+    }
+  }
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await improveArticle({
@@ -92,12 +126,7 @@ export async function handleRankDrop(
       title: articleTitle
     })
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
-
-    await supabase
+    await supabaseEarly
       .from('articles')
       .update({
         content: result.improvedContent,
@@ -107,10 +136,22 @@ export async function handleRankDrop(
       })
       .eq('id', event.articleId)
 
-    await supabase
+    await supabaseEarly
       .from('ranking_agent_articles')
       .update({ last_reoptimise_at: new Date().toISOString() })
       .eq('article_id', event.articleId)
+
+    // §10 item 9 — record the treatment. `legacyTarget` because the current
+    // improveTarget vocabulary (eeat/readability/human_score/fact_sourcing/all)
+    // doesn't map 1:1 onto §7.1's T01-T10 catalog yet (item 12, deferred).
+    await logPageTreatment(supabaseEarly, {
+      userId: unit.user_id,
+      unitId: unit.id,
+      legacyTarget: target,
+      keyword: event.keyword,
+      triggerReason: decision.reason,
+      changesSummary: result.changesSummary
+    })
 
     return {
       articleId: event.articleId,

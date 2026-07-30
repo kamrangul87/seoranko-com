@@ -65,7 +65,8 @@ export async function GET(req: NextRequest) {
 
       const prevPos = article_record.current_position
       const newPos = rank.position
-      const change = prevPos != null && newPos != null ? prevPos - newPos : null
+      // §10 item 10 / §6.4: negative Δposition = good (current − previous).
+      const change = prevPos != null && newPos != null ? newPos - prevPos : null
 
       // Save to rank history
       await supabase.from('rank_history').insert({
@@ -94,16 +95,35 @@ export async function GET(req: NextRequest) {
         })
         .eq('id', article_record.id)
 
-      // Auto re-optimise if dropped 3+ positions
-      if (change !== null && change <= -3 && article?.content) {
-        results.rankDrops++
+      // §10 item 5/10 — this was the fixed "drop >= 3" gate that item 5 replaced
+      // inside handleRankDrop() with a band-aware fitted-slope trigger. But this
+      // is the ONLY production caller of handleRankDrop (the weekly cron), and
+      // it never passed `history` — so evaluateTrigger always saw an empty
+      // array and refused every time, silently turning auto-reoptimise into a
+      // permanent no-op. Fetching the real history here is what makes item 5's
+      // trigger fix actually take effect. The old naive `change <= -3` pre-filter
+      // is removed in favour of letting the internal trigger decide.
+      if (article?.content) {
+        const { data: unitHistory } = await supabase
+          .from('rank_history')
+          .select('position, checked_at')
+          .eq('ranking_article_id', article_record.id)
+          .order('checked_at', { ascending: true })
+          .limit(60)
+
         const reopt = await handleRankDrop(
           {
             articleId: article.id,
             keyword: rank.keyword,
             previousPosition: prevPos!,
             currentPosition: newPos!,
-            drop: Math.abs(change)
+            drop: change != null ? Math.abs(change) : 0,
+            history: (unitHistory || [])
+              .filter((h: { position: number | null }) => h.position != null)
+              .map((h: { position: number | null; checked_at: string }) => ({
+                position: h.position,
+                checkedAt: h.checked_at
+              }))
           },
           article.content,
           article_record.title || rank.keyword,
@@ -114,7 +134,10 @@ export async function GET(req: NextRequest) {
             factDensity: article.fact_density_score
           }
         )
-        if (reopt.triggered) results.reoptimised++
+        if (reopt.triggered) {
+          results.rankDrops++
+          results.reoptimised++
+        }
       }
     }
 
