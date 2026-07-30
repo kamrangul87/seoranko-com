@@ -24,6 +24,15 @@ export interface FixApplyResult {
   error?: string
   /** Fix was already present; nothing was written. */
   skipped?: boolean
+  /**
+   * Written, but not live yet — awaiting a rebuild or a human merge.
+   * Verification should report "pending", not "failed".
+   */
+  pending?: boolean
+  /** Human-readable note for a successful outcome (e.g. "Pull Request opened"). */
+  detail?: string
+  /** Link for the user to follow (e.g. the PR). */
+  url?: string
 }
 
 export interface CMSAdapter {
@@ -36,6 +45,13 @@ export interface CMSAdapter {
    * misleading rather than informative.
    */
   serverVerifiable: boolean
+
+  /**
+   * Changes go live only after an external step (a static-site rebuild, a PR
+   * merge), so re-fetching immediately would always look like a failure.
+   * The fix flow reports "applied, pending" instead of blocking on a sleep.
+   */
+  deferredVerification?: boolean
 
   verifyConnection(creds: SiteCredentials): Promise<{ success: boolean; detail?: string; error?: string }>
 

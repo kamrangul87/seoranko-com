@@ -21,16 +21,11 @@ function IconCheck({ className }: { className?: string }) {
 // What detectCMS reports…
 type DetectedPlatform = 'wordpress' | 'shopify' | 'webflow' | 'unknown'
 // …vs the adapter name we persist. 'unknown' maps to 'universal-tag'.
-type ConnectPlatform = 'wordpress' | 'shopify' | 'webflow' | 'universal-tag'
+type ConnectPlatform = 'wordpress' | 'shopify' | 'webflow' | 'github' | 'universal-tag'
 
-/** Narrows a detection result to the platforms that take credentials. */
-function takesCredentials(p: DetectedPlatform): p is Exclude<DetectedPlatform, 'unknown'> {
-  return p !== 'unknown'
-}
+interface Field { key: string; label: string; placeholder: string; secret?: boolean; optional?: boolean }
 
-interface Field { key: string; label: string; placeholder: string; secret?: boolean }
-
-const PLATFORM_FIELDS: Record<string, { label: string; help: React.ReactNode; fields: Field[] }> = {
+const PLATFORM_FIELDS: Record<string, { label: string; help: React.ReactNode; fields: Field[]; footnote?: string }> = {
   wordpress: {
     label: 'WordPress',
     help: (
@@ -58,6 +53,26 @@ const PLATFORM_FIELDS: Record<string, { label: string; help: React.ReactNode; fi
       { key: 'shopDomain', label: 'Store domain', placeholder: 'your-store.myshopify.com' },
       { key: 'accessToken', label: 'Admin API access token', placeholder: 'shpat_…', secret: true }
     ]
+  },
+  github: {
+    label: 'GitHub',
+    help: (
+      <>
+        Create a token at{' '}
+        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
+          github.com/settings/personal-access-tokens/new
+        </a>{' '}
+        — fine-grained, scoped to this one repository, with{' '}
+        <strong>Contents: Read and write</strong> and <strong>Pull requests: Read and write</strong>.
+      </>
+    ),
+    fields: [
+      { key: 'owner', label: 'Owner', placeholder: 'kamrangul87' },
+      { key: 'repo', label: 'Repository', placeholder: 'autodun-site' },
+      { key: 'branch', label: 'Branch', placeholder: 'main', optional: true },
+      { key: 'accessToken', label: 'Access token', placeholder: 'github_pat_…', secret: true }
+    ],
+    footnote: 'Safe fixes (schema) commit directly. Visible content changes open a Pull Request for you to review and merge.'
   },
   webflow: {
     label: 'Webflow',
@@ -89,6 +104,8 @@ export function ConnectSiteModal({
   const [connecting, setConnecting] = useState(false)
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null)
   const [copied, setCopied] = useState(false)
+  // GitHub can't be detected from a live page, so it's always a manual choice.
+  const [manualPlatform, setManualPlatform] = useState<ConnectPlatform | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -144,15 +161,16 @@ export function ConnectSiteModal({
     )
   }
 
-  const config = PLATFORM_FIELDS[platform]
+  const effective: string = manualPlatform ?? platform
+  const config = PLATFORM_FIELDS[effective]
 
-  if (config && takesCredentials(platform)) {
-    const allFilled = config.fields.every(f => values[f.key]?.trim())
+  if (config) {
+    const allFilled = config.fields.every(f => f.optional || values[f.key]?.trim())
     return shell(
       <>
         <h3 className="text-sm font-semibold mb-1">Connect {domain}</h3>
         <p className="text-xs text-gray-500 mb-1">
-          Detected <strong>{config.label}</strong>.
+          {manualPlatform ? <>Connecting via <strong>{config.label}</strong>.</> : <>Detected <strong>{config.label}</strong>.</>}
         </p>
         <p className="text-xs text-gray-500 mb-4">{config.help}</p>
 
@@ -176,7 +194,7 @@ export function ConnectSiteModal({
 
         <div className="flex gap-2 mt-3">
           <button
-            onClick={() => handleConnect(platform)}
+            onClick={() => handleConnect(effective as ConnectPlatform)}
             disabled={connecting || !allFilled}
             className="flex-1 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
           >
@@ -185,11 +203,13 @@ export function ConnectSiteModal({
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
         </div>
 
+        {config.footnote && <p className="text-xs text-gray-400 mt-3">{config.footnote}</p>}
+
         <button
-          onClick={() => setPlatform('unknown')}
-          className="mt-3 text-xs text-gray-400 hover:text-gray-600 underline"
+          onClick={() => { setManualPlatform(null); setPlatform('unknown'); setValues({}); setResult(null) }}
+          className="mt-3 text-xs text-gray-400 hover:text-gray-600 underline block"
         >
-          Not {config.label}? Use the Universal Tag instead
+          Not {config.label}? Choose another method
         </button>
       </>
     )
@@ -203,6 +223,22 @@ export function ConnectSiteModal({
   return shell(
     <>
       <h3 className="text-sm font-semibold mb-1">Connect {domain}</h3>
+
+      {/* GitHub isn't detectable from a live page, so offer it explicitly. */}
+      <div className="flex gap-2 mb-4 mt-2">
+        <button
+          className="text-xs px-3 py-1.5 rounded-lg border bg-orange-500 text-white border-orange-500"
+        >
+          Paste a script tag
+        </button>
+        <button
+          onClick={() => { setManualPlatform('github'); setValues({}); setResult(null) }}
+          className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:border-gray-300"
+        >
+          My site is on GitHub
+        </button>
+      </div>
+
       <p className="text-xs text-gray-500 mb-4">
         We couldn&rsquo;t detect WordPress, Shopify or Webflow — no problem.
         Paste this one line into your site&rsquo;s <code>&lt;head&gt;</code>

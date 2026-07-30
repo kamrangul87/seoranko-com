@@ -6,6 +6,7 @@
 
 import { normaliseSiteUrl } from './wordpress-connector'
 import { getAdapter } from './site-adapters'
+import type { FixApplyResult } from './site-adapters/types'
 import { validateSchema } from './schema-validator'
 
 export type SiteFixType = 'schema-org-inject' | 'schema-article-inject' | 'author-bio-visible'
@@ -82,7 +83,7 @@ export async function applySiteAutoFix(
     }
   }
 
-  let applyResult: { success: boolean; error?: string; skipped?: boolean }
+  let applyResult: FixApplyResult
 
   if (fixType === 'schema-org-inject') {
     applyResult = await adapter.injectSchema(creds, page, {
@@ -122,6 +123,32 @@ export async function applySiteAutoFix(
       alreadyPresent: true,
       message: 'This fix is already present on the page — nothing needed changing.',
       liveUrl: page.url
+    }
+  }
+
+  // Some fixes are written but not live yet — a static-site rebuild after a
+  // commit, or a Pull Request awaiting a human merge. Blocking the request
+  // long enough for a rebuild would exceed maxDuration and surface as an error
+  // even though the fix landed, so report the real state and let the user
+  // re-run the diagnosis once it's live.
+  if (applyResult.pending || adapter.deferredVerification) {
+    const detail = applyResult.detail
+      || 'Change written, but not live yet — re-run the diagnosis once your site has rebuilt.'
+    await supabase.from('site_autofix_log').insert({
+      user_id: userId,
+      site_id: siteId,
+      issue_id: issueId,
+      fix_type: fixType,
+      target_url: targetUrl,
+      verified: false,
+      verification_result: { detail, platform, pending: true, url: applyResult.url ?? null }
+    })
+    return {
+      success: true,
+      applied: true,
+      verified: false,
+      message: detail,
+      liveUrl: applyResult.url || page.url
     }
   }
 
