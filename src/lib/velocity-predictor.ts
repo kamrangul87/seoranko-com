@@ -2,6 +2,7 @@
 // Gap: no open source or affordable tool forecasts position over time
 
 import { createClient } from '@supabase/supabase-js'
+import { fittedSlopePerWeek } from './rank-trigger'
 
 export interface VelocityPrediction {
   keyword: string
@@ -22,25 +23,22 @@ export interface WhatIfScenario {
   newPredictedWeeks: number | null
 }
 
+// §10 item 5 / §6.4 — this used to average consecutive deltas, which telescopes
+// to (first - last)/(n-1): [20,17,14,11], [20,9,22,11] and [20,20,20,11] all
+// returned exactly 3.00 despite completely different trajectories. It also
+// regressed on index rather than time, so a manual check between weekly cron
+// runs inflated the rate.
+//
+// Now a least-squares slope of position on elapsed time. fittedSlopePerWeek
+// follows §6.4 (positive = worsening); this module's contract is the opposite
+// (positive = improving, positions gained per week), so the sign is inverted
+// here. Reconciling the convention project-wide is §10 item 10.
 function computeVelocity(history: Array<{ position: number | null; checked_at: string }>): number {
-  const validHistory = history
-    .filter(h => h.position !== null)
-    .sort((a, b) => new Date(a.checked_at).getTime() - new Date(b.checked_at).getTime())
-
-  if (validHistory.length < 2) return 0
-
-  const recent = validHistory.slice(-4)
-  let totalChange = 0
-  let periods = 0
-
-  for (let i = 1; i < recent.length; i++) {
-    const prev = recent[i - 1].position!
-    const curr = recent[i].position!
-    totalChange += prev - curr
-    periods++
-  }
-
-  return periods > 0 ? totalChange / periods : 0
+  const slope = fittedSlopePerWeek(
+    history.map(h => ({ position: h.position, checkedAt: h.checked_at }))
+  )
+  if (slope === null) return 0
+  return -slope
 }
 
 export async function predictRankingVelocity(

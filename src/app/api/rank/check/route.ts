@@ -13,35 +13,41 @@ export async function POST(req: NextRequest) {
       articleUrl,
       articleId,
       previousPosition,
-      locationCode = 2840
+      locationCode: requestedLocation
     } = await req.json()
 
     if (!keyword || !articleUrl) {
       return NextResponse.json({ error: 'keyword and articleUrl required' }, { status: 400 })
     }
 
-    const result = await checkKeywordRank(keyword, articleUrl, locationCode)
-
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
 
+    // §10 item 3 — locale is a per-unit property, not a global default. The
+    // article is TRACKED at a location_code; checking it at a different one
+    // returns a different SERP and guarantees disagreement with ground truth.
+    // This route defaulted to 2840 (US) while the weekly agent used 2826 (UK),
+    // so the same keyword had two answers. Prefer the stored value.
+    let ownerId: string | null = null
+    let storedLocation: number | null = null
+    if (articleId) {
+      const { data: row } = await supabase
+        .from('ranking_agent_articles')
+        .select('user_id, location_code')
+        .eq('id', articleId)
+        .maybeSingle()
+      ownerId = row?.user_id ?? null
+      storedLocation = row?.location_code ?? null
+    }
+
+    const locationCode = storedLocation ?? requestedLocation ?? 2840
+    const result = await checkKeywordRank(keyword, articleUrl, locationCode)
+
     const change = previousPosition != null && result.position != null
       ? previousPosition - result.position
       : null
-
-    // §10 item 1 — record the check before anything acts on it. Resolve the
-    // owner so item 2's ground-truth comparison can be scoped to one site.
-    let ownerId: string | null = null
-    if (articleId) {
-      const { data: owner } = await supabase
-        .from('ranking_agent_articles')
-        .select('user_id')
-        .eq('id', articleId)
-        .maybeSingle()
-      ownerId = owner?.user_id ?? null
-    }
 
     // §6.4 / item 5 — evaluate the trigger against the full history including
     // this check, and log the real decision. The log is worthless for the day-8

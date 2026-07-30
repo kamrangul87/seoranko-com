@@ -87,6 +87,42 @@ export function fittedSlope(history: RankObservation[], window = 6): number | nu
   return den === 0 ? null : num / den
 }
 
+/**
+ * Least-squares slope of position against ELAPSED TIME, in positions per week.
+ * Positive = worsening, per §6.4.
+ *
+ * The per-check variant above is what the trigger uses, because its noise
+ * thresholds are declared in per-check units. This one is for forecasting,
+ * where irregular intervals matter: a manual "Check now" between weekly cron
+ * runs compresses the index spacing and would otherwise inflate the rate.
+ */
+export function fittedSlopePerWeek(history: RankObservation[], window = 8): number | null {
+  const pts = history
+    .filter(h => h.position != null)
+    .sort((a, b) => new Date(a.checkedAt).getTime() - new Date(b.checkedAt).getTime())
+    .slice(-window)
+
+  if (pts.length < 3) return null
+
+  const t0 = new Date(pts[0].checkedAt).getTime()
+  const xs = pts.map(p => (new Date(p.checkedAt).getTime() - t0) / 86400_000)  // days
+  const ys = pts.map(p => p.position!)
+
+  const n = pts.length
+  const meanX = xs.reduce((a, b) => a + b, 0) / n
+  const meanY = ys.reduce((a, b) => a + b, 0) / n
+
+  let num = 0
+  let den = 0
+  for (let i = 0; i < n; i++) {
+    num += (xs[i] - meanX) * (ys[i] - meanY)
+    den += (xs[i] - meanX) ** 2
+  }
+  // All observations on the same day — no time span to regress against.
+  if (den === 0) return null
+  return (num / den) * 7
+}
+
 export interface TriggerDecision {
   fired: boolean
   reason: string
