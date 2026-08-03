@@ -7,12 +7,15 @@ import { DashboardNav } from '@/components/DashboardNav'
 import { HumanizePanel } from '@/components/HumanizePanel'
 
 const ImproveTab = dynamic(() => import('../improve/page'), { ssr: false })
-const NLPTab     = dynamic(() => import('../nlp/page'),     { ssr: false })
 
+// §10 item 16 — NLP is a Station-3 Brief input (§4: "SERP Intent Matcher /
+// Entity Density Analyser | 3 | Instrument"), not a post-write QA activity,
+// so it no longer lives here. It's reachable from Write instead, and its
+// output (entities/topicalGaps) now actually feeds generation — see
+// ArticleWriter.tsx's nlp_brief_data handling.
 const TABS = [
   { id: 'humanize', label: 'Make it human', icon: '✍️' },
   { id: 'improve',  label: 'Boost scores',  icon: '⚡' },
-  { id: 'nlp',      label: 'NLP analysis',  icon: '🧠' },
   { id: 'images',   label: 'Images',        icon: '🖼️' },
 ]
 
@@ -135,15 +138,6 @@ function OptimiseContent() {
               <ImproveTab />
             </div>
           </Suspense>
-        )}
-        {activeTab === 'nlp' && (
-          <div style={{ overflow: 'hidden', width: '100%' }}>
-            <div style={{ marginLeft: '-224px', display: 'flex', width: 'calc(100% + 224px)' }}>
-              <Suspense fallback={<div className="p-8 text-[#6B6B6B]">Loading…</div>}>
-                <NLPTab />
-              </Suspense>
-            </div>
-          </div>
         )}
         {activeTab === 'images' && <ImagesPlaceholder />}
       </main>

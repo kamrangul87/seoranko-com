@@ -53,8 +53,28 @@ export function ArticleWriter() {
   const [brand, setBrand]           = useState('autodun')
   const [loading, setLoading]       = useState(false)
 
+  // §10 item 16 — NLP moves from a standalone Optimise tab to a Station-3
+  // Brief input. Its output was already being written to localStorage
+  // ('nlp_brief_data') but nothing ever read it — article-v2 has accepted
+  // `entities`/`topicalGaps` as generation inputs all along, they were just
+  // hardcoded to [] below. This is what actually makes NLP a brief input
+  // rather than a dead-end analysis tool.
+  const [nlpBrief, setNlpBrief] = useState<{ entities: string[]; topicalGaps: string[] } | null>(null)
+
   useEffect(() => {
     const kw = searchParams.get('keyword')
+
+    const stored = localStorage.getItem('nlp_brief_data')
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored)
+        setNlpBrief({ entities: parsed.entities ?? [], topicalGaps: parsed.topicalGaps ?? [] })
+        if (!kw && parsed.recommendedH1) setKeyword(parsed.recommendedH1)
+      } catch { /* malformed — ignore, don't block generation */ }
+      // Consumed — don't silently reapply to an unrelated later generation.
+      localStorage.removeItem('nlp_brief_data')
+    }
+
     if (kw) setKeyword(kw)
   }, [searchParams])
   const [error, setError]           = useState('')
@@ -79,8 +99,8 @@ export function ArticleWriter() {
           tone,
           market: country,
           secondaryKeywords: [keyword.trim()],
-          entities: [],
-          topicalGaps: [],
+          entities: nlpBrief?.entities ?? [],
+          topicalGaps: nlpBrief?.topicalGaps ?? [],
           internalLinks: [],
           brand,
           userId: '',
@@ -211,6 +231,11 @@ export function ArticleWriter() {
               placeholder="e.g. best EV chargers UK"
               className="w-full bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-4 py-2.5 text-sm focus:outline-none focus:border-[#FF6B2C]/50 transition-colors"
             />
+            {nlpBrief && (nlpBrief.entities.length > 0 || nlpBrief.topicalGaps.length > 0) && (
+              <p className="text-xs text-[#1D9E75] mt-1.5">
+                ✓ Using your NLP brief — {nlpBrief.entities.length} entities, {nlpBrief.topicalGaps.length} topical gaps will guide generation
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-xs font-semibold text-[#374151] mb-1.5">Market</label>

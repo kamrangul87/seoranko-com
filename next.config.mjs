@@ -12,8 +12,11 @@ const nextConfig = {
       { source: '/dashboard/humanize',       destination: '/dashboard/optimise',     permanent: false },
       { source: '/dashboard/improve',        destination: '/dashboard/optimise',     permanent: false },
       { source: '/dashboard/improve-article',destination: '/dashboard/optimise',     permanent: false },
-      { source: '/dashboard/nlp',            destination: '/dashboard/optimise',     permanent: false },
-      { source: '/dashboard/nlp-analyser',   destination: '/dashboard/optimise',     permanent: false },
+      // §10 item 16: NLP is no longer embedded in Optimise. The old
+      // '/dashboard/nlp -> optimise' redirect matched NLP's own real route,
+      // which made the page unreachable outside the (now-removed) Optimise
+      // tab. '/dashboard/nlp-analyser' is an alias, not a real route.
+      { source: '/dashboard/nlp-analyser',   destination: '/dashboard/nlp',          permanent: false },
       { source: '/dashboard/images',         destination: '/dashboard/optimise',     permanent: false },
       { source: '/dashboard/site-audit',     destination: '/dashboard/intelligence', permanent: false },
       // §10 item 13: topical-map (Plan) and discovery (Discover) are now real
