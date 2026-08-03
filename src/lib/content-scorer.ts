@@ -90,26 +90,62 @@ export function calculateReadabilityScore(html: string): number {
   return Math.max(0, Math.min(100, score));
 }
 
-export function calculateKeywordDensity(html: string, keyword: string): number {
-  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').toLowerCase().trim();
-  const totalWords = text.split(/\s+/).filter(Boolean).length;
-  if (totalWords === 0 || !keyword) return 0;
+export interface KeywordDensityDetail {
+  density: number;            // percentage, e.g. 1.2 meaning 1.2%
+  occurrences: number;        // raw match count for the keyword/phrase
+  totalWords: number;
+  score: number;              // 0-100 quality score derived from density (NOT the raw percentage)
+  possibleScoringBug: boolean; // score looks broken given how often the keyword actually appears
+}
 
+function countKeywordOccurrences(text: string, keyword: string): number {
   const kw = keyword.toLowerCase().trim();
   const kwWords = kw.split(/\s+/);
-  let count = 0;
-
   if (kwWords.length === 1) {
     // Single-word keyword: whole-word boundary match
     const wordRe = new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
-    count = (text.match(wordRe) || []).length;
-  } else {
-    // Multi-word phrase: substring match across words
-    const phraseRe = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-    count = (text.match(phraseRe) || []).length;
+    return (text.match(wordRe) || []).length;
+  }
+  // Multi-word phrase: substring match across words
+  const phraseRe = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  return (text.match(phraseRe) || []).length;
+}
+
+// Density itself isn't a 0-100 "quality" number — 0.5%-2.5% is the
+// industry-standard healthy range, so it needs its own scoring curve
+// rather than being displayed as-is against a /100 ring (that mismatch
+// was the "7/100" bug: a healthy 0.7% density rendered as if it were a
+// near-zero score).
+export function keywordDensityScore(densityPct: number): number {
+  if (densityPct <= 0) return 0;
+  const IDEAL_MIN = 0.5;
+  const IDEAL_MAX = 2.5;
+  if (densityPct >= IDEAL_MIN && densityPct <= IDEAL_MAX) return 100;
+  if (densityPct < IDEAL_MIN) {
+    return Math.round((densityPct / IDEAL_MIN) * 100);
+  }
+  // Above ideal — over-optimisation risk, taper down but don't collapse to 0
+  const over = densityPct - IDEAL_MAX;
+  return Math.max(20, Math.round(100 - over * 15));
+}
+
+export function analyzeKeywordDensity(html: string, keyword: string): KeywordDensityDetail {
+  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').toLowerCase().trim();
+  const totalWords = text.split(/\s+/).filter(Boolean).length;
+  if (totalWords === 0 || !keyword) {
+    return { density: 0, occurrences: 0, totalWords, score: 0, possibleScoringBug: false };
   }
 
-  return Math.round((count / totalWords) * 1000) / 10; // one decimal, as a percentage
+  const occurrences = countKeywordOccurrences(text, keyword);
+  const density = Math.round((occurrences / totalWords) * 1000) / 10; // one decimal, as a percentage
+  const score = keywordDensityScore(density);
+  const possibleScoringBug = score < 30 && occurrences >= 5;
+
+  return { density, occurrences, totalWords, score, possibleScoringBug };
+}
+
+export function calculateKeywordDensity(html: string, keyword: string): number {
+  return analyzeKeywordDensity(html, keyword).density;
 }
 
 export function scoreHtmlLocally(

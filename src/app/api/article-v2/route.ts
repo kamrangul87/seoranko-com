@@ -14,7 +14,7 @@ import { checkAndPatchFactSourcing } from '@/lib/fact-checker';
 import {
   calculateEEATScore,
   calculateReadabilityScore,
-  calculateKeywordDensity,
+  analyzeKeywordDensity,
   scoreHtmlLocally,
 } from '@/lib/content-scorer';
 import { MODEL_FOR } from '@/lib/model-router';
@@ -229,7 +229,15 @@ Do not write generic angles. Be specific and surprising.`
           const { searchScore, aiScore } = scoreHtmlLocally(fullArticle, keyword);
           const eeatScore = calculateEEATScore(fullArticle);
           const readabilityScore = calculateReadabilityScore(fullArticle);
-          const keywordDensity = calculateKeywordDensity(fullArticle, keyword);
+          const keywordDensityDetail = analyzeKeywordDensity(fullArticle, keyword);
+          const keywordDensity = keywordDensityDetail.density;
+          const keywordDensityScore = keywordDensityDetail.score;
+          if (keywordDensityDetail.possibleScoringBug) {
+            console.warn(
+              `[article-v2] keyword density score (${keywordDensityScore}/100) looks too low given ` +
+              `${keywordDensityDetail.occurrences} occurrences of "${keyword}" in ${keywordDensityDetail.totalWords} words — check content-scorer.ts for a scoring bug.`
+            );
+          }
           const rankScore = computeRankScore({
             eeat: eeatScore,
             readability: readabilityScore,
@@ -336,7 +344,7 @@ Do not write generic angles. Be specific and surprising.`
 
           // Append score metadata as a parseable HTML comment — client strips this
           const scoreMeta = JSON.stringify({
-            searchScore, aiScore, eeatScore, readabilityScore, keywordDensity,
+            searchScore, aiScore, eeatScore, readabilityScore, keywordDensity, keywordDensityScore,
             factSourcingScore, factPatchedCount, llmsTxtEntry, humanScore, bannedWordsRemoved, passesDetection,
             rankScore,
             factDensity: {

@@ -1,7 +1,7 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { DashboardNav } from '@/components/DashboardNav'
 import { WinnabilityCard } from '@/components/WinnabilityCard'
@@ -28,6 +28,7 @@ function KdBadge({ kd }: { kd: number }) {
 
 function ResearchPanel() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const initialQ = searchParams.get('q') || ''
 
   const [seed, setSeed]                       = useState(initialQ)
@@ -37,6 +38,49 @@ function ResearchPanel() {
   const [error, setError]                     = useState('')
   const [winnability, setWinnability]         = useState<WinnabilityResult | null>(null)
   const [checkingWinnability, setCheckingWinnability] = useState(false)
+  const [selected, setSelected]               = useState<Set<string>>(new Set())
+  const [buildingBrief, setBuildingBrief]     = useState(false)
+
+  function toggleSelected(keyword: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(keyword)) next.delete(keyword)
+      else next.add(keyword)
+      return next
+    })
+  }
+
+  // §10 FEATURE — Plan (Station 2) should produce one Page per CLUSTER, not
+  // one Page per keyword (§3). Groups the checked keywords into a single
+  // primary/secondary keyword brief and hands it to Write.
+  async function buildBriefFromSelected() {
+    const chosen = keywords.filter((k: any) => selected.has(k.keyword))
+    if (chosen.length < 2) return
+    setBuildingBrief(true)
+    setError('')
+    try {
+      const res = await fetch('/api/keywords/build-page', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keywords: chosen.map((k: any) => ({ keyword: k.keyword, volume: k.volume, intent: k.intent })),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to build cluster brief')
+
+      localStorage.setItem('cluster_brief_data', JSON.stringify({
+        primaryKeyword: data.primaryKeyword,
+        secondaryKeywords: data.secondaryKeywords,
+        pageId: data.pageId,
+      }))
+      router.push(`/dashboard/write?keyword=${encodeURIComponent(data.primaryKeyword)}`)
+    } catch (e: any) {
+      setError(e.message || 'Failed to build cluster brief')
+    } finally {
+      setBuildingBrief(false)
+    }
+  }
 
   async function checkWinnability(keyword: string) {
     if (!keyword.trim()) return
@@ -64,6 +108,7 @@ function ResearchPanel() {
     setLoading(true)
     setError('')
     setKeywords([])
+    setSelected(new Set())
     const [, keywordsRes] = await Promise.allSettled([
       checkWinnability(term),
       fetch('/api/keywords', {
@@ -137,14 +182,25 @@ function ResearchPanel() {
       {/* Results */}
       {keywords.length > 0 && (
         <div className="bg-white border border-[#E8E8E4] rounded-[10px] overflow-hidden mb-6">
-          <div className="px-4 py-3 border-b border-[#E8E8E4] flex items-center justify-between">
+          <div className="px-4 py-3 border-b border-[#E8E8E4] flex items-center justify-between gap-3">
             <span className="text-sm font-semibold">{keywords.length} keywords found</span>
-            <span className="text-xs text-[#6B6B6B]">Click &quot;Write article&quot; to open in Write</span>
+            {selected.size >= 2 ? (
+              <button
+                onClick={buildBriefFromSelected}
+                disabled={buildingBrief}
+                className="bg-[#FF6B2C] hover:bg-[#E85A1E] disabled:opacity-50 text-[#0a0a0a] font-semibold text-xs px-4 py-2 rounded-[8px] whitespace-nowrap transition-colors"
+              >
+                {buildingBrief ? 'Building brief…' : `Build brief from ${selected.size} selected keywords →`}
+              </button>
+            ) : (
+              <span className="text-xs text-[#6B6B6B]">Select 2+ keywords to cluster, or click &quot;Write article&quot; for one</span>
+            )}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-[#E8E8E4] bg-[#FAFAF8]">
+                  <th className="px-4 py-3 w-8"></th>
                   <th className="text-left text-xs font-medium text-[#6B6B6B] px-4 py-3">Keyword</th>
                   <th className="text-right text-xs font-medium text-[#6B6B6B] px-4 py-3">Volume</th>
                   <th className="text-right text-xs font-medium text-[#6B6B6B] px-4 py-3">KD</th>
@@ -153,22 +209,37 @@ function ResearchPanel() {
                 </tr>
               </thead>
               <tbody>
-                {keywords.slice(0, 50).map((k: any, i: number) => (
-                  <tr key={i} className="border-b border-[#F5F4F1] hover:bg-[#FAFAF8]">
-                    <td className="px-4 py-2.5 text-sm text-[#0F0F0F]">{k.keyword}</td>
-                    <td className="px-4 py-2.5 text-sm text-right text-[#6B6B6B]">{k.volume?.toLocaleString()}</td>
-                    <td className="px-4 py-2.5 text-right"><KdBadge kd={k.kd} /></td>
-                    <td className="px-4 py-2.5 text-xs text-[#6B6B6B] capitalize">{k.intent}</td>
-                    <td className="px-4 py-2.5">
-                      <Link
-                        href={`/dashboard/write?keyword=${encodeURIComponent(k.keyword)}`}
-                        className="text-xs text-[#FF6B2C] hover:text-[#E85A1E] font-medium whitespace-nowrap"
-                      >
-                        Write article →
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                {keywords.slice(0, 50).map((k: any, i: number) => {
+                  const isChecked = selected.has(k.keyword)
+                  return (
+                    <tr key={i} className="border-b border-[#F5F4F1] hover:bg-[#FAFAF8]">
+                      <td className="px-4 py-2.5">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleSelected(k.keyword)}
+                          className="w-3.5 h-3.5 accent-[#FF6B2C]"
+                        />
+                      </td>
+                      <td className="px-4 py-2.5 text-sm text-[#0F0F0F]">{k.keyword}</td>
+                      <td className="px-4 py-2.5 text-sm text-right text-[#6B6B6B]">{k.volume?.toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-right"><KdBadge kd={k.kd} /></td>
+                      <td className="px-4 py-2.5 text-xs text-[#6B6B6B] capitalize">{k.intent}</td>
+                      <td className="px-4 py-2.5">
+                        {isChecked && selected.size >= 2 ? (
+                          <span className="text-xs text-[#9B9B9B] whitespace-nowrap">In cluster ✓</span>
+                        ) : (
+                          <Link
+                            href={`/dashboard/write?keyword=${encodeURIComponent(k.keyword)}`}
+                            className="text-xs text-[#FF6B2C] hover:text-[#E85A1E] font-medium whitespace-nowrap"
+                          >
+                            Write article →
+                          </Link>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

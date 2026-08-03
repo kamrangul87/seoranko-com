@@ -88,6 +88,22 @@ const COPY_ERROR_PATTERNS = [
   },
 ]
 
+// RULE 1's regexes are typo/copy-error checks meant for prose. Run against
+// raw HTML they also match inside attribute values (e.g. style="border-radius:0
+// 8px 8px 0" reads as a duplicate word "8px 8px"). Strip markup and attribute
+// values first so only visible text is checked.
+function stripHtmlForTextChecks(html: string): string {
+  return html
+    .replace(/href="[^"]*"/gi, '')
+    .replace(/src="[^"]*"/gi, '')
+    .replace(/style="[^"]*"/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function countTypically(content: string): number {
   return (content.match(/\btypically\b/gi) || []).length
 }
@@ -173,11 +189,14 @@ export async function runQualityGate(
   let autoFixedCount = 0
 
   // ---- RULE 1: Typos and copy errors ----
+  // Checked against visible text only (see stripHtmlForTextChecks) so these
+  // never false-positive on markup or attribute values like style="...8px 8px...".
+  const textForCopyChecks = stripHtmlForTextChecks(articleContent)
   for (const rule of COPY_ERROR_PATTERNS) {
-    const matches = articleContent.match(rule.pattern)
+    const matches = textForCopyChecks.match(rule.pattern)
     if (matches && matches.length > 0) {
-      const idx = articleContent.search(rule.pattern)
-      const context = articleContent.slice(Math.max(0, idx - 30), idx + 60)
+      const idx = textForCopyChecks.search(rule.pattern)
+      const context = textForCopyChecks.slice(Math.max(0, idx - 30), idx + 60)
       issues.push({
         id: `copy-${rule.category}-${issues.length}`,
         severity: rule.severity,

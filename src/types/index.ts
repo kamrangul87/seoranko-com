@@ -176,6 +176,7 @@ export interface ArticleOutput {
   eeaScore: number;
   readabilityScore: number;
   keywordDensity: string | number;
+  keywordDensityScore?: number;
   improvements: string[];
   searchScore?: number;
   aiScore?: number;

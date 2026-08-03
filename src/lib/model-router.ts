@@ -21,4 +21,5 @@ export const MODEL_FOR = {
   bannedWordDetection: MODELS.HAIKU,
   platformDetection: MODELS.HAIKU,
   keywordExtraction: MODELS.HAIKU,
+  keywordCluster: MODELS.HAIKU,
 } as const

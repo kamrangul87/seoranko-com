@@ -21,8 +21,12 @@ const ALL_COUNTRIES: { value: Country; label: string }[] = [
   { value: 'PK',     label: 'Pakistan' },
 ]
 
-function ScoreRing({ score, label, color }: { score: number; label: string; color: string }) {
-  const displayScore = score < 15 ? score * 10 : score
+function ScoreRing({ score, label, color, raw }: { score: number; label: string; color: string; raw?: boolean }) {
+  // Some upstream scores occasionally arrive on a 0-10 scale instead of
+  // 0-100; this heuristic rescales those. Scores that are already a proper
+  // 0-100 value (raw: true) must skip it — applying it to keyword density's
+  // score, for example, turned a legitimately low 7/100 into a false 70/100.
+  const displayScore = !raw && score < 15 ? score * 10 : score
   const r = 28
   const circ = 2 * Math.PI * r
   const offset = circ - (displayScore / 100) * circ
@@ -61,6 +65,13 @@ export function ArticleWriter() {
   // rather than a dead-end analysis tool.
   const [nlpBrief, setNlpBrief] = useState<{ entities: string[]; topicalGaps: string[] } | null>(null)
 
+  // Station 2 (Plan) — when the Keywords screen clusters 2+ selected
+  // keywords into one page brief, it stores the result here before routing
+  // to Write. Previously this had no consumer, so Write always sent
+  // secondaryKeywords: [keyword] (the primary keyword duplicated as its own
+  // "secondary" — a no-op) regardless of what was selected.
+  const [clusterBrief, setClusterBrief] = useState<{ secondaryKeywords: string[]; pageId: string | null } | null>(null)
+
   useEffect(() => {
     const kw = searchParams.get('keyword')
 
@@ -73,6 +84,16 @@ export function ArticleWriter() {
       } catch { /* malformed — ignore, don't block generation */ }
       // Consumed — don't silently reapply to an unrelated later generation.
       localStorage.removeItem('nlp_brief_data')
+    }
+
+    const storedCluster = localStorage.getItem('cluster_brief_data')
+    if (storedCluster) {
+      try {
+        const parsed = JSON.parse(storedCluster)
+        setClusterBrief({ secondaryKeywords: parsed.secondaryKeywords ?? [], pageId: parsed.pageId ?? null })
+        if (!kw && parsed.primaryKeyword) setKeyword(parsed.primaryKeyword)
+      } catch { /* malformed — ignore, don't block generation */ }
+      localStorage.removeItem('cluster_brief_data')
     }
 
     if (kw) setKeyword(kw)
@@ -98,7 +119,7 @@ export function ArticleWriter() {
           wordCount,
           tone,
           market: country,
-          secondaryKeywords: [keyword.trim()],
+          secondaryKeywords: clusterBrief?.secondaryKeywords ?? [],
           entities: nlpBrief?.entities ?? [],
           topicalGaps: nlpBrief?.topicalGaps ?? [],
           internalLinks: [],
@@ -144,7 +165,7 @@ export function ArticleWriter() {
 
       // Parse scores
       let qualityGate: ArticleOutput['qualityGate']
-      let eeat = 0, readability = 0, kwDensity = 0, humanScore: number | undefined
+      let eeat = 0, readability = 0, kwDensity = 0, kwDensityScore = 0, humanScore: number | undefined
       let searchScore: number | undefined, aiScore: number | undefined
       let passesDetection: boolean | undefined, bannedWords: string[] | undefined
       let llmsTxtEntry: string | undefined, rankScore: number | undefined
@@ -157,6 +178,11 @@ export function ArticleWriter() {
           eeat = p.eeatScore ?? 0
           readability = p.readabilityScore ?? 0
           kwDensity = p.keywordDensity ?? 0
+          // keywordDensity is a raw percentage (e.g. 1.2 for 1.2%), not a /100
+          // score — keywordDensityScore is the actual quality score. Fall back
+          // to the old (broken) *10 behaviour only if an older API response
+          // without the field is ever replayed.
+          kwDensityScore = p.keywordDensityScore ?? Math.min(100, Math.round(kwDensity * 10))
           humanScore = p.humanScore
           searchScore = p.searchScore
           aiScore = p.aiScore
@@ -188,6 +214,7 @@ export function ArticleWriter() {
         eeaScore: eeat,
         readabilityScore: readability,
         keywordDensity: kwDensity,
+        keywordDensityScore: kwDensityScore,
         improvements: [],
         searchScore,
         aiScore,
@@ -234,6 +261,11 @@ export function ArticleWriter() {
             {nlpBrief && (nlpBrief.entities.length > 0 || nlpBrief.topicalGaps.length > 0) && (
               <p className="text-xs text-[#1D9E75] mt-1.5">
                 ✓ Using your NLP brief — {nlpBrief.entities.length} entities, {nlpBrief.topicalGaps.length} topical gaps will guide generation
+              </p>
+            )}
+            {clusterBrief && clusterBrief.secondaryKeywords.length > 0 && (
+              <p className="text-xs text-[#1D9E75] mt-1.5">
+                ✓ Cluster brief — will also weave in: {clusterBrief.secondaryKeywords.join(', ')}
               </p>
             )}
           </div>
@@ -355,7 +387,10 @@ export function ArticleWriter() {
             <div className="flex flex-wrap gap-6 justify-start">
               <ScoreRing score={article.eeaScore}        label="E-E-A-T"       color="#FF6B2C" />
               <ScoreRing score={article.readabilityScore} label="Readability"   color="#7C3AED" />
-              <ScoreRing score={Number(article.keywordDensity)}  label="Keyword Density" color="#16a34a" />
+              <div className="flex flex-col items-center gap-1">
+                <ScoreRing score={article.keywordDensityScore ?? 0} raw label="Keyword Density" color="#16a34a" />
+                <span className="text-[9px] text-[#9B9B9B] -mt-1">{Number(article.keywordDensity).toFixed(1)}% actual</span>
+              </div>
               {article.humanScore != null && (
                 <ScoreRing score={article.humanScore}    label="Human Score"   color="#0ea5e9" />
               )}
