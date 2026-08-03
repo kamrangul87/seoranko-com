@@ -70,7 +70,7 @@ export function ArticleWriter() {
   // to Write. Previously this had no consumer, so Write always sent
   // secondaryKeywords: [keyword] (the primary keyword duplicated as its own
   // "secondary" — a no-op) regardless of what was selected.
-  const [clusterBrief, setClusterBrief] = useState<{ secondaryKeywords: string[]; pageId: string | null } | null>(null)
+  const [clusterBrief, setClusterBrief] = useState<{ secondaryKeywords: string[]; longTailKeywords: string[]; pageId: string | null } | null>(null)
 
   useEffect(() => {
     const kw = searchParams.get('keyword')
@@ -90,7 +90,11 @@ export function ArticleWriter() {
     if (storedCluster) {
       try {
         const parsed = JSON.parse(storedCluster)
-        setClusterBrief({ secondaryKeywords: parsed.secondaryKeywords ?? [], pageId: parsed.pageId ?? null })
+        setClusterBrief({
+          secondaryKeywords: parsed.secondaryKeywords ?? [],
+          longTailKeywords: parsed.longTailKeywords ?? [],
+          pageId: parsed.pageId ?? null,
+        })
         if (!kw && parsed.primaryKeyword) setKeyword(parsed.primaryKeyword)
       } catch { /* malformed — ignore, don't block generation */ }
       localStorage.removeItem('cluster_brief_data')
@@ -120,6 +124,7 @@ export function ArticleWriter() {
           tone,
           market: country,
           secondaryKeywords: clusterBrief?.secondaryKeywords ?? [],
+          longTailKeywords: clusterBrief?.longTailKeywords ?? [],
           entities: nlpBrief?.entities ?? [],
           topicalGaps: nlpBrief?.topicalGaps ?? [],
           internalLinks: [],
@@ -266,6 +271,11 @@ export function ArticleWriter() {
             {clusterBrief && clusterBrief.secondaryKeywords.length > 0 && (
               <p className="text-xs text-[#1D9E75] mt-1.5">
                 ✓ Cluster brief — will also weave in: {clusterBrief.secondaryKeywords.join(', ')}
+              </p>
+            )}
+            {clusterBrief && clusterBrief.longTailKeywords.length > 0 && (
+              <p className="text-xs text-[#1D9E75] mt-1">
+                ✓ + {clusterBrief.longTailKeywords.length} long-tail terms (1-2 mentions each): {clusterBrief.longTailKeywords.join(', ')}
               </p>
             )}
           </div>

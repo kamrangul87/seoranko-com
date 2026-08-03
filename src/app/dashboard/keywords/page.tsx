@@ -26,6 +26,19 @@ function KdBadge({ kd }: { kd: number }) {
   return <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-semibold ${color}`}>{kd}</span>
 }
 
+interface LongTailKeyword {
+  keyword: string
+  volume: number
+  difficulty: number
+  parentKeyword: string
+}
+
+interface PendingCluster {
+  pageId: string
+  primaryKeyword: string
+  secondaryKeywords: string[]
+}
+
 function ResearchPanel() {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -40,6 +53,10 @@ function ResearchPanel() {
   const [checkingWinnability, setCheckingWinnability] = useState(false)
   const [selected, setSelected]               = useState<Set<string>>(new Set())
   const [buildingBrief, setBuildingBrief]     = useState(false)
+  const [pendingCluster, setPendingCluster]   = useState<PendingCluster | null>(null)
+  const [longTailSuggestions, setLongTailSuggestions] = useState<LongTailKeyword[]>([])
+  const [includedLongTail, setIncludedLongTail] = useState<Set<string>>(new Set())
+  const [expandingKeyword, setExpandingKeyword] = useState<string | null>(null)
 
   function toggleSelected(keyword: string) {
     setSelected(prev => {
@@ -50,9 +67,20 @@ function ResearchPanel() {
     })
   }
 
+  function toggleLongTail(keyword: string) {
+    setIncludedLongTail(prev => {
+      const next = new Set(prev)
+      if (next.has(keyword)) next.delete(keyword)
+      else next.add(keyword)
+      return next
+    })
+  }
+
   // §10 FEATURE — Plan (Station 2) should produce one Page per CLUSTER, not
   // one Page per keyword (§3). Groups the checked keywords into a single
-  // primary/secondary keyword brief and hands it to Write.
+  // primary/secondary keyword brief, auto-suggests easier-to-rank long-tail
+  // variants of the primary keyword, and holds for confirmation before
+  // handing off to Write.
   async function buildBriefFromSelected() {
     const chosen = keywords.filter((k: any) => selected.has(k.keyword))
     if (chosen.length < 2) return
@@ -64,21 +92,74 @@ function ResearchPanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           keywords: chosen.map((k: any) => ({ keyword: k.keyword, volume: k.volume, intent: k.intent })),
+          country,
         }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to build cluster brief')
 
-      localStorage.setItem('cluster_brief_data', JSON.stringify({
-        primaryKeyword: data.primaryKeyword,
-        secondaryKeywords: data.secondaryKeywords,
-        pageId: data.pageId,
-      }))
-      router.push(`/dashboard/write?keyword=${encodeURIComponent(data.primaryKeyword)}`)
+      const suggestions: LongTailKeyword[] = data.longTailSuggestions || []
+      setPendingCluster({ pageId: data.pageId, primaryKeyword: data.primaryKeyword, secondaryKeywords: data.secondaryKeywords || [] })
+      setLongTailSuggestions(suggestions)
+      setIncludedLongTail(new Set(suggestions.map(s => s.keyword))) // all included by default
     } catch (e: any) {
       setError(e.message || 'Failed to build cluster brief')
     } finally {
       setBuildingBrief(false)
+    }
+  }
+
+  function continueToWrite() {
+    if (!pendingCluster) return
+    localStorage.setItem('cluster_brief_data', JSON.stringify({
+      primaryKeyword: pendingCluster.primaryKeyword,
+      secondaryKeywords: pendingCluster.secondaryKeywords,
+      longTailKeywords: longTailSuggestions.filter(lt => includedLongTail.has(lt.keyword)).map(lt => lt.keyword),
+      pageId: pendingCluster.pageId,
+    }))
+    router.push(`/dashboard/write?keyword=${encodeURIComponent(pendingCluster.primaryKeyword)}`)
+  }
+
+  function cancelCluster() {
+    setPendingCluster(null)
+    setLongTailSuggestions([])
+    setIncludedLongTail(new Set())
+  }
+
+  // Manual per-keyword expansion (Step 5) — for a single selected keyword
+  // rather than a full cluster. Inserts variants as grouped rows right under
+  // the parent so they're selectable via the same checkboxes.
+  async function expandSingleKeyword(keyword: string) {
+    setExpandingKeyword(keyword)
+    setError('')
+    try {
+      const res = await fetch('/api/keywords/expand', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyword, country }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to expand keyword')
+
+      const variants: LongTailKeyword[] = data.variants || []
+      if (variants.length === 0) {
+        setError(`No long-tail variants found for "${keyword}"`)
+        return
+      }
+
+      setKeywords(prev => {
+        const idx = prev.findIndex((k: any) => k.keyword === keyword)
+        const newRows = variants.map(v => ({
+          keyword: v.keyword, volume: v.volume, kd: v.difficulty, intent: undefined,
+          isLongTail: true, parentKeyword: keyword,
+        }))
+        if (idx === -1) return [...prev, ...newRows]
+        return [...prev.slice(0, idx + 1), ...newRows, ...prev.slice(idx + 1)]
+      })
+    } catch (e: any) {
+      setError(e.message || 'Failed to expand keyword')
+    } finally {
+      setExpandingKeyword(null)
     }
   }
 
@@ -109,6 +190,7 @@ function ResearchPanel() {
     setError('')
     setKeywords([])
     setSelected(new Set())
+    cancelCluster()
     const [, keywordsRes] = await Promise.allSettled([
       checkWinnability(term),
       fetch('/api/keywords', {
@@ -212,7 +294,7 @@ function ResearchPanel() {
                 {keywords.slice(0, 50).map((k: any, i: number) => {
                   const isChecked = selected.has(k.keyword)
                   return (
-                    <tr key={i} className="border-b border-[#F5F4F1] hover:bg-[#FAFAF8]">
+                    <tr key={i} className={`border-b border-[#F5F4F1] hover:bg-[#FAFAF8] ${k.isLongTail ? 'bg-[#FAFAF8]/60' : ''}`}>
                       <td className="px-4 py-2.5">
                         <input
                           type="checkbox"
@@ -221,27 +303,97 @@ function ResearchPanel() {
                           className="w-3.5 h-3.5 accent-[#FF6B2C]"
                         />
                       </td>
-                      <td className="px-4 py-2.5 text-sm text-[#0F0F0F]">{k.keyword}</td>
+                      <td className="px-4 py-2.5 text-sm text-[#0F0F0F]">
+                        {k.isLongTail && <span className="text-[#C4C4C0] mr-1">↳</span>}
+                        {k.keyword}
+                        {k.isLongTail && <span className="ml-2 text-[10px] text-[#9B9B9B]">long-tail of &quot;{k.parentKeyword}&quot;</span>}
+                      </td>
                       <td className="px-4 py-2.5 text-sm text-right text-[#6B6B6B]">{k.volume?.toLocaleString()}</td>
                       <td className="px-4 py-2.5 text-right"><KdBadge kd={k.kd} /></td>
                       <td className="px-4 py-2.5 text-xs text-[#6B6B6B] capitalize">{k.intent}</td>
                       <td className="px-4 py-2.5">
-                        {isChecked && selected.size >= 2 ? (
-                          <span className="text-xs text-[#9B9B9B] whitespace-nowrap">In cluster ✓</span>
-                        ) : (
-                          <Link
-                            href={`/dashboard/write?keyword=${encodeURIComponent(k.keyword)}`}
-                            className="text-xs text-[#FF6B2C] hover:text-[#E85A1E] font-medium whitespace-nowrap"
-                          >
-                            Write article →
-                          </Link>
-                        )}
+                        <div className="flex items-center justify-end gap-3">
+                          {!k.isLongTail && (
+                            <button
+                              onClick={() => expandSingleKeyword(k.keyword)}
+                              disabled={expandingKeyword === k.keyword}
+                              title="Find long-tail variants of this keyword"
+                              className="text-xs text-blue-500 hover:text-blue-700 disabled:opacity-50 whitespace-nowrap"
+                            >
+                              {expandingKeyword === k.keyword ? 'Expanding…' : '✨ Expand'}
+                            </button>
+                          )}
+                          {isChecked && selected.size >= 2 ? (
+                            <span className="text-xs text-[#9B9B9B] whitespace-nowrap">In cluster ✓</span>
+                          ) : (
+                            <Link
+                              href={`/dashboard/write?keyword=${encodeURIComponent(k.keyword)}`}
+                              className="text-xs text-[#FF6B2C] hover:text-[#E85A1E] font-medium whitespace-nowrap"
+                            >
+                              Write article →
+                            </Link>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Cluster brief confirmation — shown before handing off to Write */}
+      {pendingCluster && (
+        <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-4 mb-6">
+          <p className="text-sm font-semibold text-[#0F0F0F] mb-1">
+            Brief ready: <span className="text-[#FF6B2C]">{pendingCluster.primaryKeyword}</span>
+          </p>
+          {pendingCluster.secondaryKeywords.length > 0 && (
+            <p className="text-xs text-[#6B6B6B] mb-3">
+              Secondary keywords: {pendingCluster.secondaryKeywords.join(', ')}
+            </p>
+          )}
+
+          {longTailSuggestions.length > 0 && (
+            <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl mb-4">
+              <p className="text-sm font-semibold text-blue-800 mb-2">
+                RANKO added {longTailSuggestions.length} easier-to-rank long-tail terms to this brief:
+              </p>
+              <div className="space-y-1.5">
+                {longTailSuggestions.map(lt => (
+                  <label key={lt.keyword} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={includedLongTail.has(lt.keyword)}
+                      onChange={() => toggleLongTail(lt.keyword)}
+                      className="accent-[#FF6B2C]"
+                    />
+                    <span className="text-gray-700">{lt.keyword}</span>
+                    <span className="text-xs text-gray-400">{lt.volume} vol · KD {lt.difficulty}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-blue-600 mt-2">
+                Each appears 1-2 times max — won&apos;t dilute your primary keyword&apos;s density.
+              </p>
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            <button
+              onClick={continueToWrite}
+              className="bg-[#FF6B2C] hover:bg-[#E85A1E] text-[#0a0a0a] font-semibold text-sm px-5 py-2.5 rounded-[8px] transition-colors"
+            >
+              Continue to Write →
+            </button>
+            <button
+              onClick={cancelCluster}
+              className="text-sm text-[#6B6B6B] hover:text-[#0F0F0F] px-3 py-2.5"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}

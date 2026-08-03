@@ -86,6 +86,7 @@ export interface ArticleMasterParams {
   mode: ArticleMode;
   keyword: string;
   secondaryKeywords?: string[];
+  longTailKeywords?: string[];
   entities?: string[];
   topicalGaps?: string[];
   wordCount?: number;
@@ -111,6 +112,7 @@ export function buildMasterPrompt(params: ArticleMasterParams): string {
     mode,
     keyword,
     secondaryKeywords = [],
+    longTailKeywords = [],
     entities = [],
     topicalGaps = [],
     wordCount = 1500,
@@ -132,6 +134,7 @@ export function buildMasterPrompt(params: ArticleMasterParams): string {
 
   const safeWordCount = Math.min(wordCount, 1800);
   const secondaryList = secondaryKeywords.slice(0, 12).join(', ');
+  const longTailList = longTailKeywords.slice(0, 6).join(', ');
   const entitiesList = entities.slice(0, 8).join(', ');
   const gapsList = topicalGaps.slice(0, 6).join(', ');
   const competitorList = competitorTopics.slice(0, 5).join(', ');
@@ -468,6 +471,9 @@ AUTHORITY LINKS RULE (mandatory):
 - If the topic involves UK regulations, always link to the specific gov.uk page, not the homepage
 
 SECONDARY KEYWORDS: each used at least once naturally in body text
+PRIMARY KEYWORD DENSITY: weave "${keyword}" naturally, aiming for roughly 0.5-1.5% of body text — do not force it beyond that.${longTailList ? `
+LONG-TAIL KEYWORDS (ranking surface area, not primary-keyword substitutes): ${longTailList}
+Each long-tail term above should appear 1-2 times total — ideally as a natural subheading, FAQ question, or a single sentence addressing that specific angle. Never repeat a long-tail term more than twice; that dilutes the primary keyword's relevance signal and reads as stuffing.` : ''}
 HEADING HIERARCHY: Exactly one H1. 6-8 H2 sections minimum. H3 subsections where needed.
 INTERNAL LINKS: Use links specified above. Descriptive anchor text only. Max 3 links.
 AI CRAWLERS: Add this meta tag at the top of every generated HTML article (as the second line, right after the META comment):
