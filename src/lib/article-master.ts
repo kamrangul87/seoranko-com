@@ -216,6 +216,14 @@ The very first line of output must be the <!-- META: --> comment.
 The very last elements must be the two JSON-LD schema scripts.
 If you output any markdown the article will be broken and unpublishable.
 
+CRITICAL — NO TRUNCATED WORDS OR MERGED SENTENCES:
+Never truncate a word mid-way through (e.g. "significant" becoming
+"ificant"). Never merge two sentences without a space or the correct
+punctuation between them (e.g. "reinforcement.t network" should be
+"reinforcement. The network"). Before finalising each paragraph,
+re-read it as a human would and confirm every word is complete and
+every sentence boundary has proper spacing and capitalisation.
+
 ════════════════════════════════════════
 MASTER SEO ARTICLE PROMPT — GOOGLE ${currentYear}
 Applies to: Fresh generation | Competitor-beating | Article improvement
@@ -470,10 +478,28 @@ AUTHORITY LINKS RULE (mandatory):
 - Format: <a href="URL" rel="noopener">Descriptive anchor text</a>
 - If the topic involves UK regulations, always link to the specific gov.uk page, not the homepage
 
+FINANCIAL FIGURES RULE:
+Any time you state a specific grant amount, percentage, or £ figure
+that could change (government grants, tax rates, official caps),
+either link directly to the GOV.UK source in the same sentence, or
+add "(verify at GOV.UK)" immediately after the figure. A figure with
+no source and no verification note will be flagged as a publishing
+blocker.
+
 SECONDARY KEYWORDS: each used at least once naturally in body text
 PRIMARY KEYWORD DENSITY: weave "${keyword}" naturally, aiming for roughly 0.5-1.5% of body text — do not force it beyond that.${longTailList ? `
 LONG-TAIL KEYWORDS (ranking surface area, not primary-keyword substitutes): ${longTailList}
 Each long-tail term above should appear 1-2 times total — ideally as a natural subheading, FAQ question, or a single sentence addressing that specific angle. Never repeat a long-tail term more than twice; that dilutes the primary keyword's relevance signal and reads as stuffing.` : ''}
+
+HEDGING WORD LIMIT — ENFORCE WHILE WRITING:
+Do not use "typically" more than 4 times in the entire article.
+Do not use "generally", "usually", "often", or "may" more than
+3 times each. When you're about to write a hedge word, first check:
+can this be a direct, confident statement instead? Prefer "A 7kW
+charger requires a dedicated circuit" over "A 7kW charger typically
+requires a dedicated circuit" wherever the fact is well-established.
+Count your hedge words as you write — if you're approaching the
+limit, rewrite the sentence to be direct instead.
 HEADING HIERARCHY: Exactly one H1. 6-8 H2 sections minimum. H3 subsections where needed.
 INTERNAL LINKS: Use links specified above. Descriptive anchor text only. Max 3 links.
 AI CRAWLERS: Add this meta tag at the top of every generated HTML article (as the second line, right after the META comment):

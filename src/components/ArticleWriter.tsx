@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation'
 import { QualityGatePanel } from '@/components/QualityGatePanel'
 import { ExportPackageButton } from '@/components/ExportPackageButton'
 import type { ArticleOutput, Tone, Country } from '@/types'
+import type { RecurringIssueAlert } from '@/lib/recurring-issue-detector'
 
 const ALL_COUNTRIES: { value: Country; label: string }[] = [
   { value: 'Global', label: 'Global' },
@@ -106,6 +107,19 @@ export function ArticleWriter() {
   const [article, setArticle]       = useState<ArticleOutput | null>(null)
   const [copied, setCopied]         = useState(false)
   const [progressLabel, setProgressLabel] = useState('')
+  const [recurringAlerts, setRecurringAlerts] = useState<RecurringIssueAlert[]>([])
+
+  // Fix 5 (recurring-issue tracker) — after a generation completes, check
+  // whether any Quality Gate issue category has shown up in 3+ of the last 5
+  // articles. That pattern means the generation prompt itself needs fixing,
+  // not that this one article had a fluke.
+  useEffect(() => {
+    if (!article) return
+    fetch('/api/quality-gate/recurring-check')
+      .then(r => r.json())
+      .then(data => setRecurringAlerts(data.alerts || []))
+      .catch(() => {})
+  }, [article])
 
   async function generate() {
     if (!keyword.trim()) return
@@ -425,6 +439,21 @@ export function ArticleWriter() {
               )}
             </div>
           </div>
+
+          {/* Recurring pipeline-bug alert — shown above Quality Gate since it's
+              about the pipeline that produced this article, not this article alone */}
+          {recurringAlerts.length > 0 && (
+            <div className="p-4 bg-purple-50 border-2 border-purple-200 rounded-xl mb-3">
+              <p className="text-sm font-semibold text-purple-800 mb-2">
+                ⚠ Recurring pattern detected — likely a pipeline bug
+              </p>
+              {recurringAlerts.map(alert => (
+                <p key={alert.category} className="text-xs text-purple-700 mb-1">
+                  {alert.message}
+                </p>
+              ))}
+            </div>
+          )}
 
           {/* Quality Gate */}
           {article.qualityGate && (

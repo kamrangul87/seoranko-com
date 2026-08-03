@@ -10,6 +10,7 @@
 // ============================================================
 
 import { validateSchema } from './schema-validator'
+import { createClient } from '@supabase/supabase-js'
 
 // AI slop patterns — expanded from anti-slop GitHub repo
 const AI_SLOP_PATTERNS = [
@@ -34,30 +35,45 @@ const AI_SLOP_PATTERNS = [
   /\bto conclude,/i,
 ]
 
+// A grant/financial figure followed by a GOV.UK source (or an explicit
+// verify-at-GOV.UK note) is properly sourced — flagging it as critical
+// alongside genuinely uncited figures created false urgency and trained
+// nobody to actually add citations, since cited and uncited figures looked
+// identical in the gate.
+function hasNearbyGovUkCitation(content: string, matchIndex: number): boolean {
+  const nearbyText = content.slice(matchIndex, matchIndex + 300)
+  return /href=["'][^"']*\.gov\.uk[^"']*["']/i.test(nearbyText) ||
+         /verify (this |the current |at )?(figure |amount |rate )?at gov\.uk/i.test(nearbyText)
+}
+
 const DANGEROUS_FACT_PATTERNS = [
   {
     pattern: /\bup to \d+%\s+(of|off|reduction|discount|grant|cover)/i,
     message: 'Specific percentage claim detected — verify this is current and accurate before publishing',
     severity: 'critical' as const,
     category: 'grant-figure' as const,
+    checkCitation: hasNearbyGovUkCitation,
   },
   {
     pattern: /\bup to £\d+\b/i,
     message: 'Specific monetary cap stated — verify this figure is current (grant amounts change frequently)',
     severity: 'critical' as const,
     category: 'grant-figure' as const,
+    checkCitation: hasNearbyGovUkCitation,
   },
   {
     pattern: /\bup to \$\d+\b/i,
     message: 'Specific monetary cap stated — verify this figure is current',
     severity: 'critical' as const,
     category: 'grant-figure' as const,
+    checkCitation: hasNearbyGovUkCitation,
   },
   {
     pattern: /\b(as of|from) (january|february|march|april|may|june|july|august|september|october|november|december) 20\d{2}\b.*?(grant|scheme|fund|subsid)/i,
     message: 'Dated grant/scheme claim — confirm this is still current policy',
     severity: 'warning' as const,
     category: 'dated-policy' as const,
+    checkCitation: undefined as ((content: string, matchIndex: number) => boolean) | undefined,
   },
 ]
 
@@ -83,6 +99,12 @@ const COPY_ERROR_PATTERNS = [
   {
     pattern: /\.\s*[a-z]{1,4}\.\s+[A-Z]/g,
     message: 'Possible broken paragraph merge — short fragment between sentences',
+    severity: 'critical' as const,
+    category: 'merge-artifact' as const,
+  },
+  {
+    pattern: /\b[a-z]{2,6}\.\s?[a-z]\s[a-z]{2,}/g,
+    message: 'Likely truncated word or merged sentence — a word appears to be cut off mid-way',
     severity: 'critical' as const,
     category: 'merge-artifact' as const,
   },
@@ -164,6 +186,32 @@ export interface QualityGateResult {
 // MAIN QUALITY GATE FUNCTION
 // ============================================================
 
+// Fire-and-forget — logs every issue found so recurring-issue-detector.ts can
+// tell "this keeps happening" (a pipeline/prompt bug) apart from "this one
+// article had a typo" (a content fluke). Never throws, never blocks the
+// response; a missing userId (article-v2 is not yet auth-gated) just means
+// this run isn't logged.
+async function logQualityGateRun(userId: string | undefined, articleId: string | undefined, issues: QualityIssue[]): Promise<void> {
+  if (!userId || issues.length === 0) return
+  try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
+    await supabase.from('quality_gate_history').insert(
+      issues.map(issue => ({
+        user_id: userId,
+        article_id: articleId ?? null,
+        issue_category: issue.category,
+        issue_id: issue.id,
+        severity: issue.severity,
+      }))
+    )
+  } catch (err) {
+    console.error('[article-quality-gate] logQualityGateRun failed:', err)
+  }
+}
+
 export async function runQualityGate(
   articleContent: string,
   options: {
@@ -173,6 +221,8 @@ export async function runQualityGate(
     registeredLinkDomains: string[]
     minWordCount?: number
     maxTypically?: number
+    userId?: string
+    articleId?: string
   }
 ): Promise<QualityGateResult> {
 
@@ -181,7 +231,9 @@ export async function runQualityGate(
     authorName,
     registeredLinkDomains,
     minWordCount = 800,
-    maxTypically = 5
+    maxTypically = 5,
+    userId,
+    articleId,
   } = options
 
   const issues: QualityIssue[] = []
@@ -215,15 +267,24 @@ export async function runQualityGate(
     if (match) {
       const idx = articleContent.search(rule.pattern)
       const context = articleContent.slice(Math.max(0, idx - 20), idx + 80)
+      // A grant-figure with a nearby GOV.UK citation is properly sourced —
+      // downgrade to a warning instead of flagging it identically to an
+      // uncited figure.
+      const isCited = rule.checkCitation ? rule.checkCitation(articleContent, idx) : false
+      const severity = isCited ? 'warning' : rule.severity
       issues.push({
         id: `fact-${rule.category}-${issues.length}`,
-        severity: rule.severity,
+        severity,
         category: rule.category,
-        title: rule.message,
-        description: `Found: "${match[0]}" — ${rule.severity === 'critical' ? 'Verify before publishing.' : 'Double-check this claim.'}`,
+        title: isCited
+          ? 'Financial figure detected — properly sourced, just double-check it\'s current'
+          : rule.message,
+        description: isCited
+          ? `Found: "${match[0]}" with a nearby GOV.UK citation. Good practice — just confirm the figure is still accurate.`
+          : `Found: "${match[0]}" — ${rule.severity === 'critical' ? 'no nearby source citation found. Add a GOV.UK link or "(verify at GOV.UK)" next to this figure.' : 'Double-check this claim.'}`,
         location: context.trim().slice(0, 100),
-        autoFixable: rule.category === 'grant-figure',
-        autoFixDescription: rule.category === 'grant-figure'
+        autoFixable: rule.category === 'grant-figure' && !isCited,
+        autoFixDescription: rule.category === 'grant-figure' && !isCited
           ? 'Auto-fix adds "(verify at GOV.UK)" after the figure'
           : undefined
       })
@@ -407,6 +468,8 @@ export async function runQualityGate(
   const blockers = issues
     .filter(i => i.severity === 'critical')
     .map(i => `[${i.category.toUpperCase()}] ${i.title}`)
+
+  void logQualityGateRun(userId, articleId, issues)
 
   return { passed, score, issues, criticalCount, warningCount, autoFixedCount, articleAfterAutoFix, readyToPublish, blockers }
 }

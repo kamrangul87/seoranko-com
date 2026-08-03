@@ -145,6 +145,31 @@ function validateBlock(block: any, issues: SchemaIssue[]): void {
   }
 }
 
+// The generation prompt has Claude write its own Article/BlogPosting JSON-LD
+// during generation, before any hero image exists — so it can never know a
+// real image URL to embed. This patches the missing `image` property in
+// after image generation completes, once a real URL exists, and runs before
+// the Quality Gate scores the schema — fixing this in the prompt template
+// alone can't work since the URL genuinely doesn't exist at that point.
+export function injectMissingArticleImage(html: string, imageUrl: string | undefined): string {
+  if (!imageUrl) return html
+  const regex = /<script([^>]*type=["']application\/ld\+json["'][^>]*)>([\s\S]*?)<\/script>/gi
+  return html.replace(regex, (fullMatch, attrs, jsonText) => {
+    try {
+      const parsed = JSON.parse(jsonText.trim())
+      const rawType = parsed['@type']
+      const type = Array.isArray(rawType) ? rawType[0] : rawType
+      if ((type === 'Article' || type === 'BlogPosting') && !parsed.image) {
+        parsed.image = { '@type': 'ImageObject', url: imageUrl }
+        return `<script${attrs}>${JSON.stringify(parsed)}</script>`
+      }
+      return fullMatch
+    } catch {
+      return fullMatch
+    }
+  })
+}
+
 export function validateSchema(articleHtml: string): SchemaValidationResult {
   const blocks = extractJsonLdBlocks(articleHtml)
   const issues: SchemaIssue[] = []

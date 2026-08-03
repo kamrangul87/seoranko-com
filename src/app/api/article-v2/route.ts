@@ -19,6 +19,7 @@ import {
 } from '@/lib/content-scorer';
 import { MODEL_FOR } from '@/lib/model-router';
 import { runQualityGate } from '@/lib/article-quality-gate';
+import { injectMissingArticleImage } from '@/lib/schema-validator';
 
 export const maxDuration = 300;
 
@@ -262,6 +263,7 @@ Do not write generic angles. Be specific and surprising.`
           let factSourcingScore: number | undefined;
           let factPatchedCount = 0;
           let articleQualityGate: object | undefined;
+          let heroImageUrl: string | undefined;
           try {
             const [humanized, imageSet] = await Promise.all([
               humanizeArticle(fullArticle, { level: 'medium', primaryKeyword: keyword }),
@@ -294,6 +296,14 @@ Do not write generic angles. Be specific and surprising.`
               console.warn('[article-v2] fact-sourcing check failed, continuing:', factErr);
             }
 
+            // The model wrote its own Article schema during generation, before
+            // any hero image existed — patch the real URL in now, before the
+            // Quality Gate scores the schema, so it isn't flagged every time.
+            if (imageSet?.hero?.url) {
+              heroImageUrl = imageSet.hero.url;
+              finalHtml = injectMissingArticleImage(finalHtml, heroImageUrl);
+            }
+
             // Quality gate — runs after humanization + fact-sourcing; auto-fixes applied to finalHtml
           try {
             const brandDomains: Record<string, string[]> = {
@@ -306,6 +316,8 @@ Do not write generic angles. Be specific and surprising.`
               registeredLinkDomains: brandDomains[brand] || ['autodun.com'],
               minWordCount: 800,
               maxTypically: 5,
+              userId: (userId as string) || undefined,
+              articleId: crypto.randomUUID(),
             })
             finalHtml = qr.articleAfterAutoFix
             articleQualityGate = {
@@ -358,7 +370,7 @@ Do not write generic angles. Be specific and surprising.`
             faqs,
             answerFirst,
             hasSchema: true,
-            schemaScriptTag: schemaResult.combinedScriptTag,
+            schemaScriptTag: injectMissingArticleImage(schemaResult.combinedScriptTag, heroImageUrl),
             linkAudit,
             qualityGate: articleQualityGate,
           });
