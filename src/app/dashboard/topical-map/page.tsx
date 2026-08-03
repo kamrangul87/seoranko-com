@@ -2,6 +2,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase-client'
+import { DashboardNav } from '@/components/DashboardNav'
+import { CannibalisationPanel } from '@/components/CannibalisationPanel'
 
 function Loader2({ className }: { className?: string }) {
   return (
@@ -27,7 +29,46 @@ function RefreshCw({ className }: { className?: string }) {
   )
 }
 
-export default function TopicalMapPage() {
+// §10 item 13 / §5 — this page is now the "Plan" nav screen (Station 2).
+// It previously had no shell of its own (it was embedded content, only ever
+// reached via a redirect into Keywords). Cannibalisation moved in here too,
+// since §3 frames it as a Station 2 gate ("route it to Station 3 as a
+// revision" — preventing cannibalisation, not just detecting it later).
+export default function PlanPage() {
+  const [section, setSection] = useState<'topical-map' | 'cannibalisation'>('topical-map')
+
+  return (
+    <div className="flex h-screen bg-[#FAFAF8] text-[#0F0F0F] overflow-hidden" style={{ fontFamily: "'Outfit', sans-serif", fontSize: '15px' }}>
+      <DashboardNav />
+      <main className="flex-1 overflow-y-auto">
+        <div className="max-w-3xl mx-auto px-4 pt-8">
+          <div className="flex gap-3 mb-2">
+            {(['topical-map', 'cannibalisation'] as const).map(s => (
+              <button
+                key={s}
+                onClick={() => setSection(s)}
+                className={`text-sm px-4 py-1.5 rounded-full font-medium transition-colors ${
+                  section === s
+                    ? 'bg-[#FF6B2C] text-white'
+                    : 'bg-white border border-[#E8E8E4] text-[#6B6B6B] hover:text-[#0F0F0F]'
+                }`}
+              >
+                {s === 'topical-map' ? 'Topical Map' : 'Cannibalisation'}
+              </button>
+            ))}
+          </div>
+        </div>
+        {section === 'topical-map' ? <TopicalMapContent /> : (
+          <div className="max-w-3xl mx-auto px-4 py-8">
+            <CannibalisationPanel />
+          </div>
+        )}
+      </main>
+    </div>
+  )
+}
+
+function TopicalMapContent() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)

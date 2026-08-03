@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
 import { DashboardNav } from '@/components/DashboardNav'
+import { STAGE_NAME } from '@/lib/pages'
 
 interface RecentArticle {
   id: string
@@ -13,6 +14,9 @@ interface RecentArticle {
   article_url?: string
   current_position?: number | null
   created_at?: string
+  // §10 item 13 — this screen is now "Pipeline" (§2/§5): the station a page
+  // sits at, sourced from the pages shadow record (item 7/8) keyed by article_id.
+  stage?: number | null
 }
 
 function OnboardingSteps() {
@@ -85,6 +89,11 @@ function RecentArticles({ articles, loading }: { articles: RecentArticle[]; load
               <p className="text-sm font-medium text-[#0F0F0F] truncate">{art.title || art.keyword}</p>
               <p className="text-xs text-[#9B9B9B] truncate">{art.keyword}</p>
             </div>
+            {art.stage != null && (
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#F5F4F1] text-[#6B6B6B] flex-shrink-0">
+                {STAGE_NAME[art.stage] ?? art.stage}
+              </span>
+            )}
             {art.current_position != null && (
               <span
                 className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
@@ -133,7 +142,23 @@ export default function DashboardPage() {
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(10)
-      setArticles(data || [])
+
+      const articleIds = (data || []).map((a: RecentArticle) => a.id)
+      const stageByArticle: Record<string, number> = {}
+      if (articleIds.length > 0) {
+        const { data: pageRows } = await supabase
+          .from('pages')
+          .select('article_id, stage')
+          .in('article_id', articleIds)
+        for (const p of pageRows || []) {
+          if (p.article_id) stageByArticle[p.article_id] = p.stage
+        }
+      }
+
+      setArticles((data || []).map((a: RecentArticle) => ({
+        ...a,
+        stage: stageByArticle[a.id] ?? null
+      })))
       setLoading(false)
     })
   }, [])

@@ -21,11 +21,16 @@ const PLAN_LIMITS = {
   agency:  { label: 'Agency',  keywords: Infinity,  articles: Infinity, kPeriod: 'month', aPeriod: 'month' },
 }
 
+// §10 item 13 / §5 — collapsed to exactly the six screens the doc names.
+// Keywords, Optimise and Intelligence still exist as routes (linked from the
+// screen closest to their station — Plan, Write, Rankings respectively) but
+// are no longer top-level nav, per §9 rule 3: a derived/instrument feature
+// doesn't get its own menu item.
 const NAV_ITEMS = [
   {
     href: '/dashboard',
     exact: true,
-    label: 'Home',
+    label: 'Pipeline',
     description: '',
     icon: (
       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -34,12 +39,22 @@ const NAV_ITEMS = [
     ),
   },
   {
-    href: '/dashboard/keywords',
-    label: 'Research',
+    href: '/dashboard/discovery',
+    label: 'Discover',
     description: '',
     icon: (
       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      </svg>
+    ),
+  },
+  {
+    href: '/dashboard/topical-map',
+    label: 'Plan',
+    description: '',
+    icon: (
+      <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
       </svg>
     ),
   },
@@ -54,32 +69,12 @@ const NAV_ITEMS = [
     ),
   },
   {
-    href: '/dashboard/optimise',
-    label: 'Improve',
-    description: '',
-    icon: (
-      <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-      </svg>
-    ),
-  },
-  {
     href: '/dashboard/rankings',
-    label: 'RANKO',
+    label: 'Rankings',
     description: '',
     icon: (
       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-      </svg>
-    ),
-  },
-  {
-    href: '/dashboard/intelligence',
-    label: 'Audit',
-    description: '',
-    icon: (
-      <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
       </svg>
     ),
   },

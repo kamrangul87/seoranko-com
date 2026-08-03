@@ -5,43 +5,20 @@ import { DashboardNav } from '@/components/DashboardNav'
 import { RankingAgentDashboard } from '@/components/RankingAgentDashboard'
 import { ContentROIDashboard } from '@/components/ContentROIDashboard'
 import { RANKODiagnosisPanel } from '@/components/RANKODiagnosisPanel'
-import { VelocityPredictor } from '@/components/VelocityPredictor'
-import { CannibalisationPanel } from '@/components/CannibalisationPanel'
 import { SiteSelector } from '@/components/SiteSelector'
 import { supabase } from '@/lib/supabase-client'
 import type { User } from '@supabase/supabase-js'
 
+// §10 item 13 / §5: "Velocity and decay become COLUMNS in Rankings, not
+// screens." Velocity moved into the Track tab's article rows
+// (RankingAgentDashboard.tsx). Decay has no built implementation yet —
+// nothing to move for it. Cannibalisation moved to Plan (topical-map),
+// since §3 frames it as a Station 2 gate, not a Rankings/Monitor concern.
 const TABS = [
   { id: 'track',    label: 'Track',    icon: '📈' },
   { id: 'diagnose', label: 'Diagnose', icon: '🧠' },
   { id: 'roi',      label: 'ROI',      icon: '💰' },
-  { id: 'advanced', label: 'Advanced', icon: '⚙️' },
 ]
-
-function AdvancedTab() {
-  const [section, setSection] = useState<'velocity' | 'cannibalisation'>('velocity')
-  return (
-    <div className="max-w-3xl mx-auto px-8 py-8">
-      <div className="flex gap-3 mb-6">
-        {(['velocity', 'cannibalisation'] as const).map(s => (
-          <button
-            key={s}
-            onClick={() => setSection(s)}
-            className={`text-sm px-4 py-1.5 rounded-full font-medium capitalize transition-colors ${
-              section === s
-                ? 'bg-[#FF6B2C] text-white'
-                : 'bg-white border border-[#E8E8E4] text-[#6B6B6B] hover:text-[#0F0F0F]'
-            }`}
-          >
-            {s === 'velocity' ? 'Velocity' : 'Cannibalisation'}
-          </button>
-        ))}
-      </div>
-      {section === 'velocity' && <VelocityPredictor />}
-      {section === 'cannibalisation' && <CannibalisationPanel />}
-    </div>
-  )
-}
 
 export default function RankingsPage() {
   const [activeTab, setActiveTab] = useState('track')
@@ -105,9 +82,13 @@ export default function RankingsPage() {
             <Suspense fallback={<div className="text-[#6B6B6B]">Loading…</div>}>
               <ContentROIDashboard />
             </Suspense>
+            <div className="max-w-4xl mx-auto mt-2">
+              <a href="/dashboard/intelligence" className="text-xs text-[#FF6B2C] hover:underline">
+                Site Audit (GEO signals) →
+              </a>
+            </div>
           </div>
         )}
-        {activeTab === 'advanced' && <AdvancedTab />}
       </main>
     </div>
   )

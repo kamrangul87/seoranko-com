@@ -26,6 +26,11 @@ interface TrackedArticle {
   needs_refresh: boolean
   last_diagnosis?: RANKODiagnosis | null
   rank_history?: Array<{ position: number | null; checked_at: string }>
+  // §10 item 13 — velocity is a column here now, not its own screen.
+  // Sign convention differs from position_change: this field's own contract
+  // is positive = improving (see rank-trigger.ts fittedSlopePerWeek comment).
+  weekly_velocity?: number | null
+  predicted_weeks_to_page1?: number | null
 }
 
 interface AddForm {
@@ -595,6 +600,30 @@ export function RankingAgentDashboard() {
                 {miniChart(article.rank_history)}
               </div>
             </div>
+
+            {/* Row 1b: velocity — §10 item 13, folded in as a column rather
+                than its own screen. Positive = improving (this field's own
+                contract, distinct from position_change's negative-is-good). */}
+            {(article.weekly_velocity != null || article.predicted_weeks_to_page1 != null) && (
+              <div className="flex items-center gap-3 text-xs -mt-1">
+                {article.weekly_velocity != null && (
+                  <span className={
+                    article.weekly_velocity > 0 ? 'text-green-600 font-medium'
+                    : article.weekly_velocity < 0 ? 'text-red-500 font-medium'
+                    : 'text-gray-400'
+                  }>
+                    {article.weekly_velocity > 0 ? `↑${article.weekly_velocity}/wk`
+                      : article.weekly_velocity < 0 ? `↓${Math.abs(article.weekly_velocity)}/wk`
+                      : '→ stable'}
+                  </span>
+                )}
+                {article.predicted_weeks_to_page1 != null && (
+                  <span className="text-gray-400">
+                    ~{article.predicted_weeks_to_page1}w to Page 1
+                  </span>
+                )}
+              </div>
+            )}
 
             {/* Row 2: keyword + location + competitor */}
             <div className="flex items-center gap-2 flex-wrap">

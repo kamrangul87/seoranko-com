@@ -16,8 +16,8 @@ const nextConfig = {
       { source: '/dashboard/nlp-analyser',   destination: '/dashboard/optimise',     permanent: false },
       { source: '/dashboard/images',         destination: '/dashboard/optimise',     permanent: false },
       { source: '/dashboard/site-audit',     destination: '/dashboard/intelligence', permanent: false },
-      { source: '/dashboard/topical-map',    destination: '/dashboard/keywords',     permanent: false },
-      { source: '/dashboard/discovery',      destination: '/dashboard/keywords',     permanent: false },
+      // §10 item 13: topical-map (Plan) and discovery (Discover) are now real
+      // top-nav screens per §5 — no longer aliases into Keywords.
       { source: '/dashboard/content-roi',    destination: '/dashboard/rankings',     permanent: false },
       { source: '/dashboard/roi',            destination: '/dashboard/rankings',     permanent: false },
     ];

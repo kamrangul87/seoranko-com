@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { DashboardNav } from "@/components/DashboardNav";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -118,57 +117,11 @@ function PipelineBar({ step }: { step: "discovery" | "nlp" | "keywords" | "artic
   );
 }
 
-// ─── Sidebar ──────────────────────────────────────────────────────────────────
-
-function Sidebar({ onSignOut }: { onSignOut: () => void }) {
-  const navItems = [
-    { label: "Keywords",     href: "/dashboard",           icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg> },
-    { label: "Articles",     href: "/dashboard",           icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> },
-    { label: "Discovery",    href: "/dashboard/discovery", icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg> },
-    { label: "NLP Analyser", href: "/dashboard/nlp",       icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg> },
-  ];
-  return (
-    <aside className="w-56 flex-shrink-0 bg-[#FAFAF8] border-r border-[#E8E8E4] flex flex-col">
-      <div className="p-4 border-b border-[#E8E8E4]">
-        <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-7 h-7 bg-[#FF6B2C] rounded-[6px] flex items-center justify-center">
-            <span className="text-[#0a0a0a] font-extrabold text-xs">S</span>
-          </div>
-          <span className="font-bold text-base tracking-tight text-[#0F0F0F]">Seoranko</span>
-        </Link>
-      </div>
-      <nav className="flex-1 p-3 space-y-0.5">
-        {navItems.map(({ label, href, icon }) => {
-          const active = label === "Discovery";
-          return (
-            <Link
-              key={label}
-              href={href}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-[8px] text-sm font-medium transition-colors ${
-                active ? "bg-[#FF6B2C]/10 text-[#FF6B2C]" : "text-[#6B6B6B] hover:text-[#0F0F0F] hover:bg-[#F5F4F1]"
-              }`}
-            >
-              {icon}{label}
-            </Link>
-          );
-        })}
-      </nav>
-      <div className="p-3 border-t border-[#E8E8E4]">
-        <button
-          onClick={onSignOut}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[8px] text-sm font-medium text-[#6B6B6B] hover:text-[#0F0F0F] hover:bg-[#F5F4F1] transition-colors"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-          </svg>
-          Sign Out
-        </button>
-      </div>
-    </aside>
-  );
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
+// §10 item 13 / §5 — Discover is now a real top-nav screen. It previously had
+// its own stale, page-local Sidebar (wrong labels, a dead link to
+// /dashboard/nlp) predating the shared DashboardNav — replaced below so this
+// screen matches every other screen's nav instead of drifting from it.
 
 export default function DiscoveryPage() {
   const router = useRouter();
@@ -184,14 +137,6 @@ export default function DiscoveryPage() {
   const [entityPresence, setEntityPresence] = useState<EntityPresence | null>(null);
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState<number | null>(null);
-
-  async function handleSignOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    // Also hit the API route so the server clears the legacy master cookie
-    await fetch("/api/auth/signout", { method: "POST", redirect: "manual" }).catch(() => {});
-    router.push("/login");
-  }
 
   function clearPipeline() {
     localStorage.removeItem("discovery_opportunity");
@@ -316,7 +261,7 @@ export default function DiscoveryPage() {
       className="flex h-screen bg-[#FAFAF8] text-[#0F0F0F] overflow-hidden"
       style={{ fontFamily: "'Outfit', sans-serif" }}
     >
-      <Sidebar onSignOut={handleSignOut} />
+      <DashboardNav />
 
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-5xl mx-auto px-8 py-8">
