@@ -260,6 +260,7 @@ export type IssueCategory =
   | 'missing-date'
   | 'word-count'
   | 'fact-density'
+  | 'image-completeness'
 
 export interface QualityIssue {
   id: string
@@ -282,6 +283,28 @@ export interface QualityGateResult {
   articleAfterAutoFix: string
   readyToPublish: boolean
   blockers: string[]
+}
+
+// Every image is meant to be validated (uploaded + resolvable) before
+// injection — this catches the case where the whole provider chain
+// (Gemini → Pexels → pollinations.ai → Replicate) failed for a slot, which
+// silently omits that figure rather than shipping a broken <img>. This rule
+// only runs when a caller actually generated images and tells the gate how
+// many to expect; callers that don't touch images (Improve, etc.) skip it.
+export function checkImageCompleteness(articleContent: string, expectedImageCount: number): QualityIssue[] {
+  const actualImageCount = (articleContent.match(/<img[^>]+src=/gi) || []).length
+
+  if (actualImageCount < expectedImageCount) {
+    return [{
+      id: 'image-count-mismatch',
+      severity: 'warning',
+      category: 'image-completeness',
+      title: `${expectedImageCount - actualImageCount} image(s) failed to generate`,
+      description: `This article was supposed to have ${expectedImageCount} images but only has ${actualImageCount}. Every image provider (Gemini, Pexels, pollinations.ai) failed for at least one slot — check API keys and daily rate limits, or manually add an image for the missing section.`,
+      autoFixable: false
+    }]
+  }
+  return []
 }
 
 // ============================================================
@@ -325,6 +348,7 @@ export async function runQualityGate(
     maxTypically?: number
     userId?: string
     articleId?: string
+    expectedImageCount?: number
   }
 ): Promise<QualityGateResult> {
 
@@ -336,6 +360,7 @@ export async function runQualityGate(
     maxTypically = 5,
     userId,
     articleId,
+    expectedImageCount,
   } = options
 
   const issues: QualityIssue[] = []
@@ -507,6 +532,11 @@ export async function runQualityGate(
       description: 'Short articles rank below the recommended threshold for comprehensive topic coverage.',
       autoFixable: false
     })
+  }
+
+  // ---- RULE 9: Image completeness — every provider in the image chain failed for at least one slot ----
+  if (expectedImageCount != null) {
+    issues.push(...checkImageCompleteness(articleContent, expectedImageCount))
   }
 
   // ---- AUTO-FIX PASS ----

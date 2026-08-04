@@ -1,6 +1,7 @@
 import sharp from 'sharp';
 import { createClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenAI } from '@google/genai';
 import { MODEL_FOR } from '@/lib/model-router';
 
 // ── Blog-standard size presets ────────────────────────────────────────────────
@@ -216,6 +217,66 @@ function isSafetyError(err: unknown): boolean {
   return SAFETY_SIGNALS.some(k => msg.includes(k));
 }
 
+// TIER 0 — Gemini 2.5 Flash Image (Google AI Studio, free tier: daily rate
+// limits, no per-image cost). Note: the deployment doc that requested this
+// named "Gemini 2.0 Flash" via the `@google/generative-ai` package — that
+// package is legacy and 2.0 Flash's image mode was an experimental preview.
+// Verified current (Aug 2026): `@google/genai` + model `gemini-2.5-flash-image`
+// is the production-GA free-tier successor; used here instead.
+// Width/height aren't passed to Gemini — the existing pipeline already
+// resizes/crops every provider's output to the target size via sharp below.
+export async function generateImageGemini(prompt: string): Promise<Buffer> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY not configured');
+
+  const ai = new GoogleGenAI({ apiKey });
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash-image',
+    contents: prompt,
+  });
+
+  const parts = response.candidates?.[0]?.content?.parts || [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const imagePart = parts.find((p: any) => p.inlineData?.data);
+  if (!imagePart?.inlineData?.data) {
+    throw new Error('Gemini returned no image data (possible safety block or unsupported prompt)');
+  }
+
+  return Buffer.from(imagePart.inlineData.data, 'base64');
+}
+
+// TIER — Pexels stock photo fallback (free, no attribution required for
+// commercial use). Returns raw bytes like the other providers so it flows
+// through the same resize/upload/storage pipeline below, rather than
+// depending on Pexels' own CDN staying up forever.
+function simplifyPromptForStockSearch(fullPrompt: string): string {
+  const firstClause = fullPrompt.split(',')[0];
+  return firstClause
+    .replace(/close-up of|wide angle|overhead view|detail shot of/gi, '')
+    .trim();
+}
+
+export async function generateImagePexels(prompt: string, width: number, height: number): Promise<Buffer> {
+  const apiKey = process.env.PEXELS_API_KEY;
+  if (!apiKey) throw new Error('PEXELS_API_KEY not configured');
+
+  const searchQuery = simplifyPromptForStockSearch(prompt);
+  const res = await fetch(
+    `https://api.pexels.com/v1/search?query=${encodeURIComponent(searchQuery)}&per_page=3&orientation=${width > height ? 'landscape' : 'square'}`,
+    { headers: { Authorization: apiKey }, signal: AbortSignal.timeout(10_000) }
+  );
+  if (!res.ok) throw new Error(`Pexels search failed: ${res.status}`);
+
+  const data = await res.json();
+  const photo = data.photos?.[0];
+  const imageUrl = photo?.src?.large2x || photo?.src?.large;
+  if (!imageUrl) throw new Error(`Pexels found no photo for "${searchQuery}"`);
+
+  const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(15_000) });
+  if (!imgRes.ok) throw new Error(`Pexels image fetch failed: ${imgRes.status}`);
+  return Buffer.from(await imgRes.arrayBuffer());
+}
+
 export async function generateImagePollinations(
   prompt: string,
   width: number,
@@ -275,7 +336,33 @@ export async function generateImageReplicate(
   }
 }
 
-// ── Retry + cross-tier fallback wrapper ───────────────────────────────────────
+// ── Provider chain ─────────────────────────────────────────────────────────
+// Ordered by cost: Gemini (free, primary) → Pexels (free stock fallback) →
+// pollinations.ai (free, unauthenticated, always available — the existing
+// zero-config safety net) → Replicate (paid, opt-in, only tried on the
+// 'premium' tier and only if a token is configured). Gemini/Pexels are
+// skipped automatically when their API keys aren't set, so nothing breaks
+// before those keys are added — the pipeline just runs pollinations.ai
+// exactly as it did before this change.
+
+interface ImageProvider {
+  name: 'gemini' | 'pexels' | 'pollinations' | 'replicate';
+  tier: ImageTier;
+  available: boolean;
+  fn: (prompt: string, width: number, height: number) => Promise<Buffer>;
+}
+
+function buildProviderChain(tier: ImageTier): ImageProvider[] {
+  const chain: ImageProvider[] = [
+    { name: 'gemini', tier: 'free', available: !!process.env.GEMINI_API_KEY, fn: (p) => generateImageGemini(p) },
+    { name: 'pexels', tier: 'free', available: !!process.env.PEXELS_API_KEY, fn: generateImagePexels },
+    { name: 'pollinations', tier: 'free', available: true, fn: generateImagePollinations },
+  ];
+  if (tier === 'premium') {
+    chain.push({ name: 'replicate', tier: 'premium', available: !!process.env.REPLICATE_API_TOKEN, fn: generateImageReplicate });
+  }
+  return chain.filter(p => p.available);
+}
 
 async function generateWithRetryAndFallback(
   prompt: string,
@@ -285,22 +372,21 @@ async function generateWithRetryAndFallback(
   niche: ArticleNiche,
   sizeKey: BlogSizeKey,
   keyword: string,
-): Promise<{ buffer: Buffer; tierUsed: ImageTier } | ImageFailure> {
-  const primaryFn  = tier === 'premium' ? generateImageReplicate : generateImagePollinations;
-  const fallbackFn = tier === 'premium' ? generateImagePollinations : generateImageReplicate;
-  const fallbackTier: ImageTier = tier === 'premium' ? 'free' : 'premium';
+): Promise<{ buffer: Buffer; tierUsed: ImageTier; providerUsed: string } | ImageFailure> {
+  const providers = buildProviderChain(tier);
+  let lastReason = 'no image providers configured';
 
-  // Primary tier — up to 2 attempts
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (const provider of providers) {
     const t0 = Date.now();
     try {
-      const buffer = await primaryFn(prompt, width, height);
-      void logGeneration({ tier, niche, success: true, duration_ms: Date.now() - t0, keyword, size_key: sizeKey });
-      return { buffer, tierUsed: tier };
+      const buffer = await provider.fn(prompt, width, height);
+      void logGeneration({ tier: provider.tier, niche, success: true, duration_ms: Date.now() - t0, keyword, size_key: sizeKey });
+      return { buffer, tierUsed: provider.tier, providerUsed: provider.name };
     } catch (err) {
       const duration_ms = Date.now() - t0;
       const reason = err instanceof Error ? err.message : String(err);
-      void logGeneration({ tier, niche, success: false, duration_ms, keyword, size_key: sizeKey, error_reason: reason });
+      lastReason = reason;
+      void logGeneration({ tier: provider.tier, niche, success: false, duration_ms, keyword, size_key: sizeKey, error_reason: reason });
 
       if (isSafetyError(err)) {
         return {
@@ -308,34 +394,11 @@ async function generateWithRetryAndFallback(
           reason: 'Image generation was blocked by content safety filters — try rephrasing your topic',
         };
       }
-      if (attempt < 2) {
-        console.warn(`[image-generator] ${tier} attempt ${attempt} failed, retrying:`, reason);
-      }
+      console.warn(`[image-generator] ${provider.name} failed, trying next provider:`, reason);
     }
   }
 
-  // Cross-tier fallback — skip if fallback is premium and token is missing
-  if (fallbackTier === 'premium' && !process.env.REPLICATE_API_TOKEN) {
-    return { failed: true, reason: `Image generation failed after 2 attempts on ${tier} tier` };
-  }
-
-  console.warn(`[image-generator] falling back from ${tier} → ${fallbackTier}`);
-  const t0 = Date.now();
-  try {
-    const buffer = await fallbackFn(prompt, width, height);
-    void logGeneration({ tier: fallbackTier, niche, success: true, duration_ms: Date.now() - t0, keyword, size_key: sizeKey });
-    return { buffer, tierUsed: fallbackTier };
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    void logGeneration({ tier: fallbackTier, niche, success: false, duration_ms: Date.now() - t0, keyword, size_key: sizeKey, error_reason: reason });
-    if (isSafetyError(err)) {
-      return {
-        failed: true,
-        reason: 'Image generation was blocked by content safety filters — try rephrasing your topic',
-      };
-    }
-    return { failed: true, reason: `Both ${tier} and ${fallbackTier} tiers failed: ${reason}` };
-  }
+  return { failed: true, reason: `All image providers failed: ${lastReason}` };
 }
 
 // ── Resize + WebP optimise via sharp ─────────────────────────────────────────

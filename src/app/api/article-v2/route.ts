@@ -18,7 +18,7 @@ import {
   scoreHtmlLocally,
 } from '@/lib/content-scorer';
 import { MODEL_FOR } from '@/lib/model-router';
-import { runQualityGate } from '@/lib/article-quality-gate';
+import { runQualityGate, type QualityIssue } from '@/lib/article-quality-gate';
 import { injectMissingArticleImage } from '@/lib/schema-validator';
 import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
 
@@ -263,7 +263,10 @@ Do not write generic angles. Be specific and surprising.`
           let passesDetection = false;
           let factSourcingScore: number | undefined;
           let factPatchedCount = 0;
-          let articleQualityGate: object | undefined;
+          let articleQualityGate: {
+            passed: boolean; score: number; criticalCount: number; warningCount: number;
+            autoFixedCount: number; issues: QualityIssue[]; blockers: string[]; readyToPublish: boolean;
+          } | undefined;
           let heroImageUrl: string | undefined;
           try {
             const [humanized, imageSet] = await Promise.all([
@@ -351,6 +354,30 @@ Do not write generic angles. Be specific and surprising.`
 
             if (imageSet) {
               const withImages = injectImagesIntoArticle(finalHtml, imageSet);
+
+              // Images are injected AFTER the Quality Gate already ran (finalHtml
+              // never has <img> tags at that point — they're streamed separately
+              // for progressive UX), so image completeness is checked here instead.
+              // imageSet.imageStats.failures is the authoritative signal for "every
+              // provider failed this slot" — counting <img> tags in the final HTML
+              // wouldn't catch it, because a failed slot still gets a pollinations.ai
+              // fallback URL injected (existing behaviour, unrelated to this change)
+              // rather than being left empty.
+              if (imageSet.imageStats.failures.length > 0 && articleQualityGate) {
+                const imageIssue: QualityIssue = {
+                  id: 'image-count-mismatch',
+                  severity: 'warning',
+                  category: 'image-completeness',
+                  title: `${imageSet.imageStats.failures.length} image(s) failed to generate`,
+                  description: `This article was supposed to have ${imageSet.imageStats.requested} images but only ${imageSet.imageStats.generated} generated successfully. Every image provider (Gemini, Pexels, pollinations.ai) failed for at least one slot — check API keys and daily rate limits: ${imageSet.imageStats.failures.join('; ')}`,
+                  autoFixable: false,
+                };
+                articleQualityGate.issues = [...articleQualityGate.issues, imageIssue];
+                articleQualityGate.warningCount += 1;
+                articleQualityGate.score = Math.max(0, articleQualityGate.score - 5);
+                articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2;
+              }
+
               controller.enqueue(encoder.encode(
                 `\n<!--SEORANKO_WITH_IMAGES_START-->\n${withImages}\n<!--SEORANKO_WITH_IMAGES_END-->`
               ));
