@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { runQualityGate } from './article-quality-gate'
+import { repairAllMergeArtifacts } from './merge-artifact-repair'
 
 export type ImproveTarget = 'eeat' | 'readability' | 'human_score' | 'fact_sourcing' | 'keyword_density' | 'heading_structure' | 'authority_links' | 'all'
 
@@ -190,7 +191,19 @@ ${request.articleContent}`
   const improved = response.content[0].type === 'text' ? response.content[0].text : ''
   const changesMatch = improved.match(/<!--\s*CHANGES:\s*([\s\S]*?)\s*-->/)
   const changesSummary = changesMatch ? changesMatch[1].trim() : 'Improvements applied'
-  const cleanedContent = improved.replace(/<!--\s*CHANGES:[\s\S]*?-->/g, '').trim()
+  let cleanedContent = improved.replace(/<!--\s*CHANGES:[\s\S]*?-->/g, '').trim()
+
+  // The Improve rewrite can introduce the same truncated-word/merged-sentence
+  // artifacts as generation — repair before the Quality Gate scores it.
+  try {
+    const repairResult = await repairAllMergeArtifacts(cleanedContent)
+    cleanedContent = repairResult.content
+    if (repairResult.repairsMade > 0) {
+      console.log(`[article-improver] merge-artifact repair: fixed ${repairResult.repairsMade} broken sentence(s)`)
+    }
+  } catch (err) {
+    console.warn('[article-improver] merge-artifact repair failed, continuing:', err)
+  }
 
   const scoreGainMap: Record<ImproveTarget, number> = {
     eeat: 10, readability: 12, human_score: 15, fact_sourcing: 8,

@@ -22,4 +22,5 @@ export const MODEL_FOR = {
   platformDetection: MODELS.HAIKU,
   keywordExtraction: MODELS.HAIKU,
   keywordCluster: MODELS.HAIKU,
+  mergeArtifactRepair: MODELS.HAIKU,
 } as const

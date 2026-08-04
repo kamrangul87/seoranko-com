@@ -20,6 +20,7 @@ import {
 import { MODEL_FOR } from '@/lib/model-router';
 import { runQualityGate } from '@/lib/article-quality-gate';
 import { injectMissingArticleImage } from '@/lib/schema-validator';
+import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
 
 export const maxDuration = 300;
 
@@ -294,6 +295,20 @@ Do not write generic angles. Be specific and surprising.`
               }
             } catch (factErr) {
               console.warn('[article-v2] fact-sourcing check failed, continuing:', factErr);
+            }
+
+            // Fact-sourcing patches can introduce their own merge artifacts —
+            // repair before the Quality Gate scores the article. humanizeArticle
+            // already ran its own repair pass on humanized.humanizedHtml; this
+            // catches anything the fact-sourcing patch introduced afterward.
+            try {
+              const repairResult = await repairAllMergeArtifacts(finalHtml);
+              finalHtml = repairResult.content;
+              if (repairResult.repairsMade > 0) {
+                console.log(`[article-v2] merge-artifact repair: fixed ${repairResult.repairsMade} broken sentence(s)`);
+              }
+            } catch (repairErr) {
+              console.warn('[article-v2] merge-artifact repair failed, continuing:', repairErr);
             }
 
             // The model wrote its own Article schema during generation, before

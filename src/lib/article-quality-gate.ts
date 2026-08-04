@@ -35,47 +35,149 @@ const AI_SLOP_PATTERNS = [
   /\bto conclude,/i,
 ]
 
-// A grant/financial figure followed by a GOV.UK source (or an explicit
-// verify-at-GOV.UK note) is properly sourced — flagging it as critical
-// alongside genuinely uncited figures created false urgency and trained
-// nobody to actually add citations, since cited and uncited figures looked
-// identical in the gate.
-function hasNearbyGovUkCitation(content: string, matchIndex: number): boolean {
-  const nearbyText = content.slice(matchIndex, matchIndex + 300)
-  return /href=["'][^"']*\.gov\.uk[^"']*["']/i.test(nearbyText) ||
-         /verify (this |the current |at )?(figure |amount |rate )?at gov\.uk/i.test(nearbyText)
-}
-
+// Grant-figure claims are evaluated separately by evaluateGrantFigureClaims()
+// below — document-level claim-citation binding, not proximity matching.
+// A fixed character window ("nearby") misses citations that appear earlier
+// in the article, and matching only the word "verify" misses "confirm at
+// GOV.UK" / "see GOV.UK" / etc. DANGEROUS_FACT_PATTERNS now only covers
+// dated-policy claims, which don't need citation binding.
 const DANGEROUS_FACT_PATTERNS = [
-  {
-    pattern: /\bup to \d+%\s+(of|off|reduction|discount|grant|cover)/i,
-    message: 'Specific percentage claim detected — verify this is current and accurate before publishing',
-    severity: 'critical' as const,
-    category: 'grant-figure' as const,
-    checkCitation: hasNearbyGovUkCitation,
-  },
-  {
-    pattern: /\bup to £\d+\b/i,
-    message: 'Specific monetary cap stated — verify this figure is current (grant amounts change frequently)',
-    severity: 'critical' as const,
-    category: 'grant-figure' as const,
-    checkCitation: hasNearbyGovUkCitation,
-  },
-  {
-    pattern: /\bup to \$\d+\b/i,
-    message: 'Specific monetary cap stated — verify this figure is current',
-    severity: 'critical' as const,
-    category: 'grant-figure' as const,
-    checkCitation: hasNearbyGovUkCitation,
-  },
   {
     pattern: /\b(as of|from) (january|february|march|april|may|june|july|august|september|october|november|december) 20\d{2}\b.*?(grant|scheme|fund|subsid)/i,
     message: 'Dated grant/scheme claim — confirm this is still current policy',
     severity: 'warning' as const,
     category: 'dated-policy' as const,
-    checkCitation: undefined as ((content: string, matchIndex: number) => boolean) | undefined,
   },
 ]
+
+// ============================================================
+// CLAIM-CITATION BINDING (grant-figure claims)
+// ============================================================
+// Coarse proximity-window citation checking is the wrong technique — it
+// misses citations placed earlier in the article and depends on exact
+// wording near the claim. The correct approach (per RARR, Gao et al. ACL
+// 2023, and "Ground Every Sentence", NAACL 2025) is document-level
+// claim-to-citation binding: does ANY citation anywhere in the article
+// topically support this specific claim, not "is there a citation within
+// N characters."
+
+interface Citation {
+  url: string
+  anchorText: string
+  position: number
+  topicTerms: Set<string>   // extracted entities/topic words near this citation
+}
+
+interface Claim {
+  text: string
+  position: number
+  topicTerms: Set<string>   // entities/topic words in and around the claim
+}
+
+// Extract meaningful topic words (strip stopwords) for entity-level matching
+function extractTopicTerms(text: string): Set<string> {
+  const stopwords = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'have', 'been', 'will'])
+  return new Set(
+    text
+      .toLowerCase()
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 3 && !stopwords.has(w))
+  )
+}
+
+// Find every citation link in the document with its surrounding topic context
+function extractCitations(articleContent: string): Citation[] {
+  const citations: Citation[] = []
+  const linkRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>([^<]*)<\/a>/gi
+  let match
+
+  while ((match = linkRegex.exec(articleContent)) !== null) {
+    const url = match[1]
+    // Only count authoritative citation sources — gov.uk, legislation.gov.uk, ofgem, official regulators
+    const isAuthoritative = /\.(gov\.uk|legislation\.gov\.uk|ofgem\.gov\.uk)/i.test(url)
+    if (!isAuthoritative) continue
+
+    const contextStart = Math.max(0, match.index - 400)
+    const contextEnd = Math.min(articleContent.length, match.index + 400)
+    const surroundingContext = articleContent.slice(contextStart, contextEnd)
+
+    citations.push({
+      url,
+      anchorText: match[2],
+      position: match.index,
+      topicTerms: extractTopicTerms(surroundingContext)
+    })
+  }
+  return citations
+}
+
+// Find every financial figure claim in the document with its own topic context
+function extractFinancialClaims(articleContent: string): Claim[] {
+  const claims: Claim[] = []
+  const claimPattern = /\bup to (\d+%|£\d+)\b/gi
+  let match
+
+  while ((match = claimPattern.exec(articleContent)) !== null) {
+    const contextStart = Math.max(0, match.index - 200)
+    const contextEnd = Math.min(articleContent.length, match.index + 200)
+    const surroundingContext = articleContent.slice(contextStart, contextEnd)
+
+    claims.push({
+      text: match[0],
+      position: match.index,
+      topicTerms: extractTopicTerms(surroundingContext)
+    })
+  }
+  return claims
+}
+
+// The core binding check: does ANY citation in the whole document share
+// meaningful topic overlap with this claim? This is the fix — document-wide
+// entity matching, not character-distance proximity.
+function isClaimBoundToCitation(claim: Claim, allCitations: Citation[]): boolean {
+  for (const citation of allCitations) {
+    const sharedTerms = Array.from(claim.topicTerms).filter(t => citation.topicTerms.has(t))
+    // Require at least 2 shared meaningful topic words (e.g. "ozev", "grant",
+    // "charger") between the claim's context and a citation's context anywhere
+    // in the document — this is the claim-to-citation binding
+    if (sharedTerms.length >= 2) return true
+  }
+  return false
+}
+
+function evaluateGrantFigureClaims(articleContent: string): QualityIssue[] {
+  const issues: QualityIssue[] = []
+  const citations = extractCitations(articleContent)
+  const claims = extractFinancialClaims(articleContent)
+
+  for (const claim of claims) {
+    const localContext = articleContent.slice(
+      Math.max(0, claim.position - 150),
+      Math.min(articleContent.length, claim.position + 150)
+    )
+    const hasInlineVerification = /\b(verify|confirm|check|see|refer to)\b.{0,40}\b(gov\.uk|government|official)/i.test(localContext)
+    const isBoundToCitation = isClaimBoundToCitation(claim, citations)
+
+    const isCited = hasInlineVerification || isBoundToCitation
+
+    issues.push({
+      id: `fact-grant-figure-${claim.position}`,
+      severity: isCited ? 'warning' : 'critical',
+      category: 'grant-figure',
+      title: isCited
+        ? 'Financial figure detected — properly sourced, just double-check it\'s current'
+        : 'Specific monetary cap stated — verify this figure is current (grant amounts change frequently)',
+      description: isCited
+        ? `Found: "${claim.text}" — a citation to an official source exists in this article covering the same topic. Good practice, just confirm the figure is still accurate.`
+        : `Found: "${claim.text}" — no citation to an official source found anywhere in the article on this topic. Add a GOV.UK link or "(verify at GOV.UK)" next to this figure.`,
+      autoFixable: !isCited,
+      autoFixDescription: !isCited ? 'Auto-fix adds "(verify at GOV.UK)" after the figure' : undefined
+    })
+  }
+  return issues
+}
 
 const COPY_ERROR_PATTERNS = [
   {
@@ -261,35 +363,27 @@ export async function runQualityGate(
     }
   }
 
-  // ---- RULE 2: Dangerous fact patterns ----
+  // ---- RULE 2: Dangerous fact patterns (dated-policy only — grant figures
+  // are evaluated separately below via document-level claim-citation binding) ----
   for (const rule of DANGEROUS_FACT_PATTERNS) {
     const match = articleContent.match(rule.pattern)
     if (match) {
       const idx = articleContent.search(rule.pattern)
       const context = articleContent.slice(Math.max(0, idx - 20), idx + 80)
-      // A grant-figure with a nearby GOV.UK citation is properly sourced —
-      // downgrade to a warning instead of flagging it identically to an
-      // uncited figure.
-      const isCited = rule.checkCitation ? rule.checkCitation(articleContent, idx) : false
-      const severity = isCited ? 'warning' : rule.severity
       issues.push({
         id: `fact-${rule.category}-${issues.length}`,
-        severity,
+        severity: rule.severity,
         category: rule.category,
-        title: isCited
-          ? 'Financial figure detected — properly sourced, just double-check it\'s current'
-          : rule.message,
-        description: isCited
-          ? `Found: "${match[0]}" with a nearby GOV.UK citation. Good practice — just confirm the figure is still accurate.`
-          : `Found: "${match[0]}" — ${rule.severity === 'critical' ? 'no nearby source citation found. Add a GOV.UK link or "(verify at GOV.UK)" next to this figure.' : 'Double-check this claim.'}`,
+        title: rule.message,
+        description: `Found: "${match[0]}" — Double-check this claim.`,
         location: context.trim().slice(0, 100),
-        autoFixable: rule.category === 'grant-figure' && !isCited,
-        autoFixDescription: rule.category === 'grant-figure' && !isCited
-          ? 'Auto-fix adds "(verify at GOV.UK)" after the figure'
-          : undefined
+        autoFixable: false,
       })
     }
   }
+
+  // ---- RULE 2b: Grant-figure claims — document-level claim-citation binding ----
+  issues.push(...evaluateGrantFigureClaims(articleContent))
 
   // ---- RULE 3: AI slop patterns ----
   for (const pattern of AI_SLOP_PATTERNS) {

@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { MODEL_FOR } from './model-router';
+import { repairAllMergeArtifacts } from './merge-artifact-repair';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 3 });
 
@@ -221,6 +222,18 @@ ${preprocessed}`;
         humanizedHtml += '\n' + schema;
       }
     }
+  }
+
+  // The humanization rewrite can introduce the same truncated-word/merged-
+  // sentence artifacts as generation — repair before scoring/returning.
+  try {
+    const repairResult = await repairAllMergeArtifacts(humanizedHtml);
+    humanizedHtml = repairResult.content;
+    if (repairResult.repairsMade > 0) {
+      console.log(`[humanizer] merge-artifact repair: fixed ${repairResult.repairsMade} broken sentence(s)`);
+    }
+  } catch (err) {
+    console.warn('[humanizer] merge-artifact repair failed, continuing:', err);
   }
 
   const finalSignals = extractSeoSignals(humanizedHtml, primaryKeyword);
