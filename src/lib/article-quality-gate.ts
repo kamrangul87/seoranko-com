@@ -223,8 +223,16 @@ function stripHtmlForTextChecks(html: string): string {
     .replace(/style="[^"]*"/gi, '')
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<style[\s\S]*?<\/style>/gi, '')
+    // Two visually-separated lines (e.g. an "About the Author" label
+    // followed by <br> then the bio text) shouldn't glue into a run-on
+    // sentence once tags are stripped — that read as a merge-artifact
+    // false-positive. Insert a sentence boundary at line/block breaks
+    // before the generic tag-strip below removes that structure.
+    .replace(/<br\s*\/?>/gi, '. ')
+    .replace(/<\/(p|div|h[1-6]|li)>/gi, '. ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
+    .replace(/\.\s*\./g, '.')
     .trim()
 }
 

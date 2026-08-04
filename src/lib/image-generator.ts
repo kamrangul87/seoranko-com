@@ -315,6 +315,36 @@ export async function generateImagePexels(prompt: string, width: number, height:
   return Buffer.from(await imgRes.arrayBuffer());
 }
 
+// TIER — Unsplash, the second independent real-photo database. Queried in
+// parallel with Pexels (see queryStockParallel below) so a topic having zero
+// results on one stock source doesn't sink the whole slot — a plain database
+// lookup against millions of pre-approved photos carries essentially none of
+// the failure risk generation does (no safety filters, no quota, no timeout
+// risk beyond a slow network). Free tier: 50 requests/hour, no credit card —
+// worth watching if generation volume grows, since that's a tighter budget
+// than Pexels' (200/hour). Skipped automatically if the key isn't set.
+export async function generateImageUnsplash(prompt: string, width: number, height: number): Promise<Buffer> {
+  const accessKey = process.env.UNSPLASH_ACCESS_KEY;
+  if (!accessKey) throw new Error('UNSPLASH_ACCESS_KEY not configured');
+
+  const searchQuery = simplifyPromptForStockSearch(prompt);
+  console.log(`[image-generator] Unsplash search query: "${searchQuery}"`);
+  const res = await fetch(
+    `https://api.unsplash.com/search/photos?query=${encodeURIComponent(searchQuery)}&per_page=3&orientation=${width > height ? 'landscape' : 'squarish'}`,
+    { headers: { Authorization: `Client-ID ${accessKey}` }, signal: AbortSignal.timeout(10_000) }
+  );
+  if (!res.ok) throw new Error(`Unsplash search failed: ${res.status}`);
+
+  const data = await res.json();
+  const photo = data.results?.[0];
+  const imageUrl = photo?.urls?.regular;
+  if (!imageUrl) throw new Error(`Unsplash found no photo for "${searchQuery}"`);
+
+  const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(15_000) });
+  if (!imgRes.ok) throw new Error(`Unsplash image fetch failed: ${imgRes.status}`);
+  return Buffer.from(await imgRes.arrayBuffer());
+}
+
 export async function generateImagePollinations(
   prompt: string,
   width: number,
@@ -374,37 +404,106 @@ export async function generateImageReplicate(
   }
 }
 
-// ── Provider chain ─────────────────────────────────────────────────────────
-// Ordered by cost: Gemini (free, primary) → Pexels (free stock fallback) →
-// pollinations.ai (free, unauthenticated, always available — the existing
-// zero-config safety net) → Replicate (paid, opt-in, only tried on the
-// 'premium' tier and only if a token is configured). Gemini/Pexels are
-// skipped automatically when their API keys aren't set, so nothing breaks
-// before those keys are added — the pipeline just runs pollinations.ai
-// exactly as it did before this change.
+// ── Stock-first provider strategy ───────────────────────────────────────────
+// Real-photo stock search (Pexels + Unsplash) is the PRIMARY path for every
+// image: a database lookup against millions of pre-approved photos carries
+// none of generation's failure modes (safety filters, quota, rate limits).
+// Gemini is an OPTIONAL, non-blocking enhancement tried only for the hero
+// image, racing in parallel against stock with a short timeout — if it wins
+// within budget and isn't safety-blocked it's preferred for the hero only;
+// any Gemini failure just means the stock result (already in flight) is
+// used. Content images never touch generation at all. pollinations.ai
+// (zero-config, no key needed) and Replicate (paid, opt-in) remain as a
+// sequential last-resort tail if both stock sources come up empty.
+//
+// This replaced an earlier "Gemini-first, stock-fallback" design after
+// production logs showed Gemini's free-tier quota was exhausted (limit: 0)
+// on every single call for this account — meaning 3 of 4 images per article
+// were paying Gemini's latency only to fail every time before ever reaching
+// Pexels.
 
 interface ImageProvider {
-  name: 'gemini' | 'pexels' | 'pollinations' | 'replicate';
+  name: string;
   tier: ImageTier;
   available: boolean;
   fn: (prompt: string, width: number, height: number) => Promise<Buffer>;
 }
 
-function buildProviderChain(tier: ImageTier): ImageProvider[] {
-  const chain: ImageProvider[] = [
-    { name: 'gemini', tier: 'free', available: !!process.env.GEMINI_API_KEY, fn: (p) => generateImageGemini(p) },
-    { name: 'pexels', tier: 'free', available: !!process.env.PEXELS_API_KEY, fn: generateImagePexels },
-    { name: 'pollinations', tier: 'free', available: true, fn: generateImagePollinations },
-  ];
-  if (tier === 'premium') {
-    chain.push({ name: 'replicate', tier: 'premium', available: !!process.env.REPLICATE_API_TOKEN, fn: generateImageReplicate });
+interface ProviderAttempt {
+  buffer: Buffer;
+  provider: string;
+}
+
+async function tryProvider(
+  name: string,
+  tier: ImageTier,
+  fn: () => Promise<Buffer>,
+  niche: ArticleNiche,
+  sizeKey: BlogSizeKey,
+  keyword: string,
+): Promise<ProviderAttempt | null> {
+  const t0 = Date.now();
+  try {
+    const buffer = await fn();
+    void logGeneration({ tier, provider: name, niche, success: true, duration_ms: Date.now() - t0, keyword, size_key: sizeKey });
+    return { buffer, provider: name };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    void logGeneration({ tier, provider: name, niche, success: false, duration_ms: Date.now() - t0, keyword, size_key: sizeKey, error_reason: reason });
+    console.warn(`[image-generator] ${name} failed:`, reason);
+    return null;
   }
-  const active = chain.filter(p => p.available);
-  const skipped = chain.filter(p => !p.available).map(p => p.name);
-  if (skipped.length > 0) {
-    console.log(`[image-generator] providers skipped (no API key configured): ${skipped.join(', ')}`);
+}
+
+// PRIMARY: Pexels + Unsplash queried concurrently (only the ones with a key
+// configured). Pexels is preferred when both return a result — an arbitrary
+// but deterministic tie-break, not a race — either succeeding is enough.
+async function queryStockParallel(
+  prompt: string,
+  width: number,
+  height: number,
+  niche: ArticleNiche,
+  sizeKey: BlogSizeKey,
+  keyword: string,
+): Promise<ProviderAttempt | null> {
+  const jobs: Promise<ProviderAttempt | null>[] = [];
+  if (process.env.PEXELS_API_KEY) {
+    jobs.push(tryProvider('pexels', 'free', () => generateImagePexels(prompt, width, height), niche, sizeKey, keyword));
   }
-  return active;
+  if (process.env.UNSPLASH_ACCESS_KEY) {
+    jobs.push(tryProvider('unsplash', 'free', () => generateImageUnsplash(prompt, width, height), niche, sizeKey, keyword));
+  }
+  if (jobs.length === 0) return null;
+  const results = await Promise.all(jobs);
+  return results.find((r): r is ProviderAttempt => r !== null) ?? null;
+}
+
+const GEMINI_HERO_TIMEOUT_MS = 12_000;
+
+// ENHANCEMENT (hero only, non-blocking): races against the timeout, not
+// against stock — stock is already running concurrently in the caller, so
+// Gemini succeeding or failing here never adds latency beyond its own budget.
+async function tryGeminiForHero(
+  prompt: string,
+  niche: ArticleNiche,
+  keyword: string,
+): Promise<ProviderAttempt | null> {
+  if (!process.env.GEMINI_API_KEY) return null;
+  const t0 = Date.now();
+  try {
+    const buffer = await Promise.race([
+      generateImageGemini(prompt),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Gemini hero enhancement timed out')), GEMINI_HERO_TIMEOUT_MS)),
+    ]);
+    void logGeneration({ tier: 'free', provider: 'gemini', niche, success: true, duration_ms: Date.now() - t0, keyword, size_key: 'hero' });
+    return { buffer, provider: 'gemini' };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    void logGeneration({ tier: 'free', provider: 'gemini', niche, success: false, duration_ms: Date.now() - t0, keyword, size_key: 'hero', error_reason: reason });
+    console.warn('[image-generator] Gemini hero enhancement failed, stock result wins:', reason);
+    return null;
+  }
 }
 
 async function generateWithRetryAndFallback(
@@ -416,11 +515,30 @@ async function generateWithRetryAndFallback(
   sizeKey: BlogSizeKey,
   keyword: string,
 ): Promise<{ buffer: Buffer; tierUsed: ImageTier; providerUsed: string } | ImageFailure> {
-  const providers = buildProviderChain(tier);
-  let lastReason = 'no image providers configured';
+  const isHero = sizeKey === 'hero';
+
+  const stockPromise = queryStockParallel(prompt, width, height, niche, sizeKey, keyword);
+  const winner = isHero
+    ? await Promise.all([stockPromise, tryGeminiForHero(prompt, niche, keyword)]).then(([stock, gemini]) => gemini || stock)
+    : await stockPromise;
+
+  if (winner) {
+    return { buffer: winner.buffer, tierUsed: 'free', providerUsed: winner.provider };
+  }
+
+  // FALLBACK TAIL — both stock sources (and Gemini, for hero) came up empty.
+  // Tried sequentially since these are genuinely last-resort, not primary.
+  const tailChain: ImageProvider[] = [
+    { name: 'pollinations', tier: 'free', available: true, fn: generateImagePollinations },
+  ];
+  if (tier === 'premium') {
+    tailChain.push({ name: 'replicate', tier: 'premium', available: !!process.env.REPLICATE_API_TOKEN, fn: generateImageReplicate });
+  }
+
+  let lastReason = `Pexels, Unsplash${isHero ? ', and Gemini' : ''} all failed or returned no results`;
   let lastWasSafetyBlock = false;
 
-  for (const provider of providers) {
+  for (const provider of tailChain.filter(p => p.available)) {
     const t0 = Date.now();
     try {
       const buffer = await provider.fn(prompt, width, height);
@@ -432,13 +550,6 @@ async function generateWithRetryAndFallback(
       lastReason = reason;
       lastWasSafetyBlock = isSafetyError(err);
       void logGeneration({ tier: provider.tier, provider: provider.name, niche, success: false, duration_ms, keyword, size_key: sizeKey, error_reason: reason });
-
-      // A safety block on ONE provider doesn't mean every provider would
-      // block it — Gemini's filter is stricter than Pexels' stock-photo
-      // search or pollinations.ai's. Move to the next provider instead of
-      // aborting the whole chain (this used to abort immediately, which is
-      // how a Gemini quota error masquerading as a safety block ended up
-      // skipping Pexels and pollinations.ai entirely).
       console.warn(`[image-generator] ${provider.name} failed, trying next provider:`, reason);
     }
   }
@@ -499,6 +610,14 @@ export async function generateArticleImages(opts: {
   // Step 1: Detect niche + build shared style descriptor (single Haiku call)
   const { niche, styleDescriptor } = await detectNicheAndStyle(keyword, topic);
   console.log(`[image-generator] niche=${niche} style="${styleDescriptor}"`);
+
+  const configured = [
+    process.env.PEXELS_API_KEY && 'pexels',
+    process.env.UNSPLASH_ACCESS_KEY && 'unsplash',
+    process.env.GEMINI_API_KEY && 'gemini(hero-only)',
+    process.env.REPLICATE_API_TOKEN && tier === 'premium' && 'replicate',
+  ].filter(Boolean);
+  console.log(`[image-generator] providers configured: ${configured.join(', ') || 'none — pollinations.ai only'}`);
 
   // Step 2: Build niche-aware, style-consistent prompts
   const prompts = await buildImagePrompts(keyword, topic, count, niche, styleDescriptor);
