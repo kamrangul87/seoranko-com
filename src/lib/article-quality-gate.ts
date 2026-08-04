@@ -307,6 +307,30 @@ export function checkImageCompleteness(articleContent: string, expectedImageCoun
   return []
 }
 
+function consolidateDuplicateIssues(issues: QualityIssue[]): QualityIssue[] {
+  const grouped = new Map<string, QualityIssue[]>()
+
+  for (const issue of issues) {
+    const key = `${issue.category}-${issue.title}`
+    if (!grouped.has(key)) grouped.set(key, [])
+    grouped.get(key)!.push(issue)
+  }
+
+  const consolidated: QualityIssue[] = []
+  for (const group of Array.from(grouped.values())) {
+    if (group.length === 1) {
+      consolidated.push(group[0])
+    } else {
+      consolidated.push({
+        ...group[0],
+        title: `${group[0].title} (appears ${group.length} times)`,
+        description: `${group[0].description} This same figure is restated ${group.length} times throughout the article — confirm it's accurate everywhere it appears.`,
+      })
+    }
+  }
+  return consolidated
+}
+
 // ============================================================
 // MAIN QUALITY GATE FUNCTION
 // ============================================================
@@ -363,7 +387,7 @@ export async function runQualityGate(
     expectedImageCount,
   } = options
 
-  const issues: QualityIssue[] = []
+  let issues: QualityIssue[] = []
   let articleAfterAutoFix = articleContent
   let autoFixedCount = 0
 
@@ -582,6 +606,13 @@ export async function runQualityGate(
   }
 
   articleAfterAutoFix = articleAfterAutoFix.replace(/\s{2,}/g, ' ').trim()
+
+  // The same fact (e.g. a grant figure) can legitimately be restated several
+  // times across an article — each restatement earns its own issue from the
+  // rules above, but showing 5 identical cards is a display problem, not 5
+  // separate defects. Consolidate before scoring so one real issue doesn't
+  // cost 5x the score penalty or produce 5 rows in the recurring-issue log.
+  issues = consolidateDuplicateIssues(issues)
 
   // ---- COMPUTE FINAL SCORE ----
   const criticalCount = issues.filter(i => i.severity === 'critical').length

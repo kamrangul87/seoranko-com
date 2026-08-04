@@ -81,6 +81,7 @@ function getSupabase() {
 
 async function logGeneration(entry: {
   tier: ImageTier;
+  provider?: string;
   niche: ArticleNiche;
   success: boolean;
   duration_ms: number;
@@ -209,11 +210,21 @@ Rules:
 
 // ── Low-level fetchers ────────────────────────────────────────────────────────
 
-const SAFETY_SIGNALS = ['safety', 'policy', 'content', 'nsfw', 'prohibited', 'blocked', 'refused', 'violation', 'moderat'];
+// Deliberately specific phrases, not bare words like "content" or "policy" —
+// those substring-match unrelated errors. Case in point: Gemini's quota
+// error body repeats "generate_content_free_tier_requests" many times,
+// which matched a bare "content" and made a 429 RESOURCE_EXHAUSTED get
+// misclassified as a safety block (bug found 2026-08-05). Quota/rate-limit
+// signals are excluded explicitly so this can't happen again even if a
+// future error message happens to contain one of these phrases too.
+const SAFETY_SIGNALS = ['safety filter', 'content policy', 'nsfw', 'prohibited content', 'blocked by', 'content violation', 'moderation'];
+const NON_SAFETY_OVERRIDE = ['resource_exhausted', 'quota', 'rate limit', 'rate_limit', '429'];
 
 function isSafetyError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const msg = err.message.toLowerCase();
+  if (msg.startsWith('safety_blocked:')) return true;
+  if (NON_SAFETY_OVERRIDE.some(k => msg.includes(k))) return false;
   return SAFETY_SIGNALS.some(k => msg.includes(k));
 }
 
@@ -225,7 +236,18 @@ function isSafetyError(err: unknown): boolean {
 // is the production-GA free-tier successor; used here instead.
 // Width/height aren't passed to Gemini — the existing pipeline already
 // resizes/crops every provider's output to the target size via sharp below.
-export async function generateImageGemini(prompt: string): Promise<Buffer> {
+// Strips brand names / dramatic wording that trip Gemini's (stricter than
+// Flux's) safety filter, and drops down to the core subject clause only.
+function softenPromptForSafety(prompt: string): string {
+  return prompt
+    .replace(/\bTesla\b/gi, 'electric vehicle')
+    .replace(/\b(crisis|emergency|danger(ous)?|risk|threat)\b/gi, 'situation')
+    .replace(/\bgrid\b/gi, 'power network')
+    .split(',').slice(0, 2).join(',')
+    .trim();
+}
+
+export async function generateImageGemini(prompt: string, isRetry = false): Promise<Buffer> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY not configured');
 
@@ -235,11 +257,26 @@ export async function generateImageGemini(prompt: string): Promise<Buffer> {
     contents: prompt,
   });
 
+  // Structured safety signals — check these directly rather than sniffing
+  // error message text, which is how a quota error got misclassified as a
+  // safety block before (see isSafetyError above).
+  const blockReason = response.promptFeedback?.blockReason;
+  const finishReason = response.candidates?.[0]?.finishReason;
+  const wasBlocked = !!blockReason || finishReason === 'SAFETY';
+
+  if (wasBlocked && !isRetry) {
+    console.warn(`[image-generator] Gemini safety-blocked (${blockReason || finishReason}), retrying with softened prompt`);
+    return generateImageGemini(softenPromptForSafety(prompt), true);
+  }
+  if (wasBlocked) {
+    throw new Error(`SAFETY_BLOCKED: Gemini blocked this prompt twice (${blockReason || finishReason})`);
+  }
+
   const parts = response.candidates?.[0]?.content?.parts || [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const imagePart = parts.find((p: any) => p.inlineData?.data);
   if (!imagePart?.inlineData?.data) {
-    throw new Error('Gemini returned no image data (possible safety block or unsupported prompt)');
+    throw new Error('Gemini returned no image data (unrecognised response shape)');
   }
 
   return Buffer.from(imagePart.inlineData.data, 'base64');
@@ -261,6 +298,7 @@ export async function generateImagePexels(prompt: string, width: number, height:
   if (!apiKey) throw new Error('PEXELS_API_KEY not configured');
 
   const searchQuery = simplifyPromptForStockSearch(prompt);
+  console.log(`[image-generator] Pexels search query: "${searchQuery}" (from prompt: "${prompt.slice(0, 80)}...")`);
   const res = await fetch(
     `https://api.pexels.com/v1/search?query=${encodeURIComponent(searchQuery)}&per_page=3&orientation=${width > height ? 'landscape' : 'square'}`,
     { headers: { Authorization: apiKey }, signal: AbortSignal.timeout(10_000) }
@@ -361,7 +399,12 @@ function buildProviderChain(tier: ImageTier): ImageProvider[] {
   if (tier === 'premium') {
     chain.push({ name: 'replicate', tier: 'premium', available: !!process.env.REPLICATE_API_TOKEN, fn: generateImageReplicate });
   }
-  return chain.filter(p => p.available);
+  const active = chain.filter(p => p.available);
+  const skipped = chain.filter(p => !p.available).map(p => p.name);
+  if (skipped.length > 0) {
+    console.log(`[image-generator] providers skipped (no API key configured): ${skipped.join(', ')}`);
+  }
+  return active;
 }
 
 async function generateWithRetryAndFallback(
@@ -375,29 +418,37 @@ async function generateWithRetryAndFallback(
 ): Promise<{ buffer: Buffer; tierUsed: ImageTier; providerUsed: string } | ImageFailure> {
   const providers = buildProviderChain(tier);
   let lastReason = 'no image providers configured';
+  let lastWasSafetyBlock = false;
 
   for (const provider of providers) {
     const t0 = Date.now();
     try {
       const buffer = await provider.fn(prompt, width, height);
-      void logGeneration({ tier: provider.tier, niche, success: true, duration_ms: Date.now() - t0, keyword, size_key: sizeKey });
+      void logGeneration({ tier: provider.tier, provider: provider.name, niche, success: true, duration_ms: Date.now() - t0, keyword, size_key: sizeKey });
       return { buffer, tierUsed: provider.tier, providerUsed: provider.name };
     } catch (err) {
       const duration_ms = Date.now() - t0;
       const reason = err instanceof Error ? err.message : String(err);
       lastReason = reason;
-      void logGeneration({ tier: provider.tier, niche, success: false, duration_ms, keyword, size_key: sizeKey, error_reason: reason });
+      lastWasSafetyBlock = isSafetyError(err);
+      void logGeneration({ tier: provider.tier, provider: provider.name, niche, success: false, duration_ms, keyword, size_key: sizeKey, error_reason: reason });
 
-      if (isSafetyError(err)) {
-        return {
-          failed: true,
-          reason: 'Image generation was blocked by content safety filters — try rephrasing your topic',
-        };
-      }
+      // A safety block on ONE provider doesn't mean every provider would
+      // block it — Gemini's filter is stricter than Pexels' stock-photo
+      // search or pollinations.ai's. Move to the next provider instead of
+      // aborting the whole chain (this used to abort immediately, which is
+      // how a Gemini quota error masquerading as a safety block ended up
+      // skipping Pexels and pollinations.ai entirely).
       console.warn(`[image-generator] ${provider.name} failed, trying next provider:`, reason);
     }
   }
 
+  if (lastWasSafetyBlock) {
+    return {
+      failed: true,
+      reason: 'Image generation was blocked by content safety filters on every available provider — try rephrasing your topic',
+    };
+  }
   return { failed: true, reason: `All image providers failed: ${lastReason}` };
 }
 
