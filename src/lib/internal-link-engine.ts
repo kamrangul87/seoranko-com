@@ -42,13 +42,42 @@ export interface InternalLinkEngineResult {
   totalSkipped: number
 }
 
+// Composite relevance scoring — entity overlap, topic-cluster match (when
+// available), and anchor naturalness, instead of raw tag/word-overlap
+// alone. Raw overlap can't distinguish "technically eligible" from
+// "actually useful here". Scored against keyword/title/angle text, NOT
+// full article content: getEligibleLinks runs BEFORE the article is
+// written (its output is fed into the write prompt so the model places
+// links naturally as it writes) — the article body doesn't exist yet.
+const STOPWORDS = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'have', 'been', 'will', 'your', 'you', 'are', 'was', 'were']);
+
+function extractEntityTerms(text: string): Set<string> {
+  return new Set(
+    text.toLowerCase()
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 3 && !STOPWORDS.has(w))
+  )
+}
+
+// Does the link's preferred anchor text share real topic words with the
+// article's own terms, or would inserting it read as generic/forced?
+function scoreAnchorNaturalness(anchorText: string, articleTerms: Set<string>): number {
+  const anchorWords = extractEntityTerms(anchorText)
+  if (anchorWords.size === 0) return 50
+  const overlap = Array.from(anchorWords).filter(w => articleTerms.has(w)).length
+  return Math.round((overlap / anchorWords.size) * 100)
+}
+
 // Fetch eligible links from registry — only brand-matched + topic-relevant entries
 export async function getEligibleLinks(
   userId: string,
   articleBrand: string,
   articleKeyword: string,
   articleTitle: string,
-  maxLinks = 5
+  maxLinks = 5,
+  clusterTopicTerms?: string[]   // optional: from Topical Map, when it's been run for this brand
 ): Promise<RegisteredLink[]> {
   if (!userId || !articleBrand) return []
 
@@ -67,42 +96,60 @@ export async function getEligibleLinks(
 
   if (!data?.length) return []
 
-  // Score each link by topic relevance
-  const articleTokens = new Set(
-    `${articleKeyword} ${articleTitle}`
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, '')
-      .split(/\s+/)
-      .filter(w => w.length > 3)
-  )
+  const articleTerms = extractEntityTerms(`${articleKeyword} ${articleTitle}`)
 
   const scored = data.map((link: any) => {
-    const linkTokens = new Set([
-      ...(link.topic_tags || []),
-      ...link.page_title.toLowerCase().split(/\s+/),
-      ...(link.page_description || '').toLowerCase().split(/\s+/)
-    ].filter((w: string) => w.length > 3))
+    const linkTerms = new Set([
+      ...(link.topic_tags || []).map((t: string) => t.toLowerCase()),
+      ...Array.from(extractEntityTerms(link.page_title)),
+      ...Array.from(extractEntityTerms(link.page_description || ''))
+    ])
 
-    const overlap = Array.from(articleTokens).filter(t => linkTokens.has(t)).length
-    const score = overlap / Math.max(articleTokens.size, 1)
+    const sharedEntities = Array.from(articleTerms).filter(t => linkTerms.has(t))
+    const entityOverlap = Math.min(100, sharedEntities.length * 25)
 
-    return { link, score, overlap }
+    const topicClusterMatch = clusterTopicTerms?.length
+      ? Math.min(100, clusterTopicTerms.filter(t => linkTerms.has(t.toLowerCase())).length * 25)
+      : entityOverlap // no cluster data available yet — fall back to entity overlap
+
+    const anchorNaturalness = scoreAnchorNaturalness(link.anchor_text, articleTerms)
+
+    const compositeScore = Math.round(
+      entityOverlap * 0.45 +
+      topicClusterMatch * 0.35 +
+      anchorNaturalness * 0.20
+    )
+
+    return { link, compositeScore, breakdown: { entityOverlap, topicClusterMatch, anchorNaturalness } }
   })
 
-  return scored
-    .filter((s: any) => s.score > 0 || s.overlap > 0)
-    .sort((a: any, b: any) => b.score - a.score)
+  // Keep only candidates with a real, non-trivial relevance score — a
+  // near-zero score means "technically tagged for this brand" but not
+  // actually relevant to what this article is about.
+  const ranked = scored
+    .filter((s: any) => s.compositeScore >= 15)
+    .sort((a: any, b: any) => b.compositeScore - a.compositeScore)
     .slice(0, maxLinks)
-    .map((s: any) => ({
-      id: s.link.id,
-      brand: s.link.brand,
-      siteUrl: s.link.site_url,
-      pageUrl: s.link.page_url,
-      pageTitle: s.link.page_title,
-      pageDescription: s.link.page_description,
-      topicTags: s.link.topic_tags || [],
-      anchorText: s.link.anchor_text
-    }))
+
+  if (ranked.length > 0) {
+    console.log(
+      `[internal-link-engine] eligible links for "${articleKeyword}": ` +
+      ranked.map((r: any) => `${r.link.page_url} (score=${r.compositeScore})`).join(', ')
+    )
+  } else if (data.length > 0) {
+    console.log(`[internal-link-engine] ${data.length} brand-matched link(s) in registry, none scored relevant enough for "${articleKeyword}"`);
+  }
+
+  return ranked.map((s: any) => ({
+    id: s.link.id,
+    brand: s.link.brand,
+    siteUrl: s.link.site_url,
+    pageUrl: s.link.page_url,
+    pageTitle: s.link.page_title,
+    pageDescription: s.link.page_description,
+    topicTags: s.link.topic_tags || [],
+    anchorText: s.link.anchor_text
+  }))
 }
 
 // Build the injection prompt for Claude — only eligible links can be placed
