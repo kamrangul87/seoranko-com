@@ -270,7 +270,13 @@ Do not write generic angles. Be specific and surprising.`
           let heroImageUrl: string | undefined;
           try {
             const [humanized, imageSet] = await Promise.all([
-              humanizeArticle(fullArticle, { level: 'medium', primaryKeyword: keyword }),
+              // 'light' reuses humanizer.ts's existing cost path: skip Claude
+              // entirely if the article already scores >=72 with no banned
+              // words, otherwise rewrite with Haiku instead of Sonnet. The
+              // automatic pipeline previously hardcoded 'medium' (always a
+              // full Sonnet rewrite) even though this cheaper path already
+              // existed for exactly this purpose — never wired in here.
+              humanizeArticle(fullArticle, { level: 'light', primaryKeyword: keyword }),
               generateArticleImages({
                 topic: fullArticle.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 400),
                 keyword,
