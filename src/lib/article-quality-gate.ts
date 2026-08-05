@@ -51,6 +51,17 @@ const DANGEROUS_FACT_PATTERNS = [
   },
 ]
 
+// A regulation's effective date ("enforced from June 2022") is a fixed
+// historical fact — it doesn't go stale. What genuinely goes stale is a
+// changeable FIGURE (a grant amount, rate, or cap) stated alongside a date.
+// The pattern above matches on the word "grant"/"scheme" appearing anywhere
+// in the sentence, which false-positives on claims that just reference
+// eligibility for a grant without stating any amount that could change —
+// e.g. "...doesn't qualify for the OZEV grant" has no £/% figure at all.
+function hasChangeableFigureNearby(matchContext: string): boolean {
+  return /[£$€]\s?\d|\d+\s?%/.test(matchContext)
+}
+
 // ============================================================
 // CLAIM-CITATION BINDING (grant-figure claims)
 // ============================================================
@@ -432,6 +443,7 @@ export async function runQualityGate(
     if (match) {
       const idx = articleContent.search(rule.pattern)
       const context = articleContent.slice(Math.max(0, idx - 20), idx + 80)
+      if (!hasChangeableFigureNearby(context)) continue // fixed regulatory date, not a changeable claim
       issues.push({
         id: `fact-${rule.category}-${issues.length}`,
         severity: rule.severity,
@@ -636,6 +648,24 @@ export async function runQualityGate(
   }
 
   articleAfterAutoFix = articleAfterAutoFix.replace(/\s{2,}/g, ' ').trim()
+
+  // The "typically" auto-fix above already runs automatically and silently
+  // reduces the count in articleAfterAutoFix — but issues/score were computed
+  // against the PRE-fix article and never recomputed, so the returned result
+  // still showed "7 instances, unresolved" even when the published text had
+  // already been corrected to 5. Re-check against the actual fixed text.
+  if (typIssue) {
+    const remainingCount = countTypically(articleAfterAutoFix)
+    if (remainingCount <= maxTypically) {
+      issues = issues.filter(i => i.id !== 'hedging-typically')
+    } else {
+      const stillFlagged = issues.find(i => i.id === 'hedging-typically')
+      if (stillFlagged) {
+        stillFlagged.title = `"Typically" auto-fixed to ${remainingCount} (target ${maxTypically}) — still above target`
+        stillFlagged.description = `Auto-fix already ran and reduced this from the original count, but ${remainingCount} instances remain above the ${maxTypically} target.`
+      }
+    }
+  }
 
   // The same fact (e.g. a grant figure) can legitimately be restated several
   // times across an article — each restatement earns its own issue from the

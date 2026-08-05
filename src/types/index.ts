@@ -216,6 +216,12 @@ export interface ArticleOutput {
     blockers: string[]
     readyToPublish: boolean
   }
+  linkAudit?: {
+    placed: string[]
+    skipped: string[]
+    totalPlaced: number
+    note?: string
+  }
 }
 
 export interface ArticleResponse {

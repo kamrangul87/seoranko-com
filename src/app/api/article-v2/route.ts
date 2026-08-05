@@ -22,6 +22,7 @@ import { runQualityGate, type QualityIssue } from '@/lib/article-quality-gate';
 import { injectMissingArticleImage } from '@/lib/schema-validator';
 import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
 import { insertTableOfContents } from '@/lib/table-of-contents';
+import { autoSplitDenseParagraphs } from '@/lib/scannability-fixer';
 import { validateArticleStructure } from '@/lib/structure-validator';
 
 export const maxDuration = 300;
@@ -142,10 +143,20 @@ Do not write generic angles. Be specific and surprising.`
 
     // ── STEP C — Centralised master prompt (shared across all 3 article routes)
     // Brand-aware link registry takes priority over user-provided panel links.
-    // Only links that match the article brand AND have topic tag overlap are eligible.
+    // Only links that match the article brand AND score relevant are eligible.
+    //
+    // linksRequestedFromModel tracks whichever list actually got fed into the
+    // write prompt, so the post-write audit checks placement against the
+    // REAL request — it used to unconditionally audit userInternalLinks even
+    // when the registry path was the one actually used, which made a
+    // successful registry-link placement report as if nothing had happened.
     let resolvedLinksStr = ''
+    let linksRequestedFromModel: InternalLink[] = []
+    let linkUnavailableNote = ''
     if (brand && userId) {
+      console.log(`[internal-links] brand="${brand}" userId="${userId}" keyword="${keyword}"`)
       const eligibleLinks = await getEligibleLinks(userId, brand, keyword, angle.unique_angle || keyword)
+      console.log(`[internal-links] ${eligibleLinks.length} eligible link(s) from registry after scoring`)
       if (eligibleLinks.length > 0) {
         const registryLinksAsInternal: InternalLink[] = eligibleLinks.map(l => ({
           url: l.pageUrl,
@@ -153,11 +164,21 @@ Do not write generic angles. Be specific and surprising.`
           context: l.pageDescription || l.pageTitle
         }))
         resolvedLinksStr = buildInternalLinksPrompt(registryLinksAsInternal, keyword, angle.unique_angle || keyword)
+        linksRequestedFromModel = registryLinksAsInternal
+      } else {
+        linkUnavailableNote = `No links in the registry scored relevant enough for brand "${brand}" on "${keyword}". Check Settings → Link Registry — either it's empty for this brand, or no entries are topically close enough to this article.`
       }
+    } else {
+      linkUnavailableNote = 'No brand or user context for this generation — internal linking from the registry was skipped.'
     }
     // Fall back to user-provided links from InternalLinksPanel only if no registry links found
-    if (!resolvedLinksStr && (userInternalLinks as InternalLink[]).length > 0) {
+    if (linksRequestedFromModel.length === 0 && (userInternalLinks as InternalLink[]).length > 0) {
       resolvedLinksStr = buildInternalLinksPrompt(userInternalLinks as InternalLink[], keyword, angle.unique_angle || keyword)
+      linksRequestedFromModel = userInternalLinks as InternalLink[]
+      linkUnavailableNote = ''
+    }
+    if (linksRequestedFromModel.length === 0 && !linkUnavailableNote) {
+      linkUnavailableNote = 'No internal links were available for this article — neither the registry nor the manual link panel had any entries.'
     }
     const prompt = buildMasterPrompt({
       mode: 'generate',
@@ -270,6 +291,17 @@ Do not write generic angles. Be specific and surprising.`
             autoFixedCount: number; issues: QualityIssue[]; blockers: string[]; readyToPublish: boolean;
           } | undefined;
           let heroImageUrl: string | undefined;
+          // Hoisted so the link audit below (and anything else after this
+          // try block) can check the actual final text, not the pre-
+          // humanization draft — falls back to fullArticle if the try block
+          // below fails before reassigning it.
+          let finalHtml = fullArticle;
+          // One id for this whole generation request — used both as the
+          // image storage folder's uniqueness suffix (so two articles on
+          // the same keyword never overwrite each other's images, see
+          // buildStoragePath) and as the Quality Gate's articleId, so the
+          // two logs can be cross-referenced for the same generation.
+          const articleInstanceId = crypto.randomUUID();
           try {
             const [humanized, imageSet] = await Promise.all([
               // 'light' reuses humanizer.ts's existing cost path: skip Claude
@@ -284,6 +316,7 @@ Do not write generic angles. Be specific and surprising.`
                 keyword,
                 tier: 'free',
                 count: adaptiveImageCount,
+                articleInstanceId,
               }).catch((err) => {
                 console.warn('[article-v2] auto image generation failed:', err?.message);
                 return null;
@@ -295,7 +328,7 @@ Do not write generic angles. Be specific and surprising.`
             passesDetection = humanized.passesDetection;
 
             // Fact-sourcing check + auto-patch on humanized HTML
-            let finalHtml = humanized.humanizedHtml;
+            finalHtml = humanized.humanizedHtml;
             try {
               const factResult = await checkAndPatchFactSourcing(humanized.humanizedHtml, keyword, market);
               finalHtml = factResult.article;
@@ -330,6 +363,12 @@ Do not write generic angles. Be specific and surprising.`
               finalHtml = injectMissingArticleImage(finalHtml, heroImageUrl);
             }
 
+            // Mechanical scannability safety net — the write prompt's
+            // SCANNABILITY RULE is a request, not a guarantee. Split any
+            // paragraph the model still wrote as 7+ sentences before the
+            // Quality Gate's scannability check scores it.
+            finalHtml = autoSplitDenseParagraphs(finalHtml);
+
             // Table of contents — only kicks in above the word threshold;
             // this template currently targets ~1,340 words, so it won't
             // fire on typical output today unless wordCount settings change.
@@ -348,7 +387,7 @@ Do not write generic angles. Be specific and surprising.`
               minWordCount: 800,
               maxTypically: 5,
               userId: (userId as string) || undefined,
-              articleId: crypto.randomUUID(),
+              articleId: articleInstanceId,
             })
             finalHtml = qr.articleAfterAutoFix
             articleQualityGate = {
@@ -429,8 +468,19 @@ Do not write generic angles. Be specific and surprising.`
             console.warn('[article-v2] humanization/images failed, continuing without:', err);
           }
 
-          // Audit which user-provided internal links were placed vs skipped
-          const linkAudit = auditPlacedLinks(fullArticle, userInternalLinks as InternalLink[]);
+          // Audit against whichever list was actually requested from the
+          // model (registry-sourced links take priority — see STEP C), not
+          // unconditionally the user-provided panel list, and against the
+          // final processed text so placement reflects what's really shipping.
+          const placementResult = auditPlacedLinks(finalHtml, linksRequestedFromModel);
+          const linkAudit = {
+            ...placementResult,
+            totalPlaced: placementResult.placed.length,
+            note: placementResult.placed.length === 0
+              ? (linkUnavailableNote || 'Links were requested but none were placed naturally in the article text — check the skipped list for reasons.')
+              : undefined,
+          };
+          console.log(`[internal-links] placed=${linkAudit.totalPlaced} skipped=${placementResult.skipped.length}${linkAudit.note ? ` note="${linkAudit.note}"` : ''}`);
 
           // Append score metadata as a parseable HTML comment — client strips this
           const scoreMeta = JSON.stringify({

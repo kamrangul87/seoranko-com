@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import { randomUUID } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenAI } from '@google/genai';
@@ -287,13 +288,20 @@ export async function generateImageGemini(prompt: string, isRetry = false): Prom
 // through the same resize/upload/storage pipeline below, rather than
 // depending on Pexels' own CDN staying up forever.
 function simplifyPromptForStockSearch(fullPrompt: string): string {
-  const firstClause = fullPrompt.split(',')[0];
-  return firstClause
-    .replace(/close-up of|wide angle|overhead view|detail shot of/gi, '')
-    .trim();
+  // Keep the first two clauses, not just the first — a single clause like
+  // "DC fast charger display screen" is specific, but many prompts need the
+  // second clause to disambiguate the actual subject from generic style
+  // descriptors. Capped to a real search phrase, not a full sentence.
+  const clauses = fullPrompt.split(',').slice(0, 2).join(' ');
+  return clauses
+    .replace(/close-up of|wide angle|overhead view|detail shot of|modern|professional|residential/gi, '')
+    .trim()
+    .slice(0, 80);
 }
 
-export async function generateImagePexels(prompt: string, width: number, height: number): Promise<Buffer> {
+interface StockPhotoResult { buffer: Buffer; altText: string }
+
+async function fetchPexelsPhoto(prompt: string, width: number, height: number): Promise<StockPhotoResult> {
   const apiKey = process.env.PEXELS_API_KEY;
   if (!apiKey) throw new Error('PEXELS_API_KEY not configured');
 
@@ -312,7 +320,11 @@ export async function generateImagePexels(prompt: string, width: number, height:
 
   const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(15_000) });
   if (!imgRes.ok) throw new Error(`Pexels image fetch failed: ${imgRes.status}`);
-  return Buffer.from(await imgRes.arrayBuffer());
+  return { buffer: Buffer.from(await imgRes.arrayBuffer()), altText: photo?.alt || searchQuery };
+}
+
+export async function generateImagePexels(prompt: string, width: number, height: number): Promise<Buffer> {
+  return (await fetchPexelsPhoto(prompt, width, height)).buffer;
 }
 
 // TIER — Unsplash, the second independent real-photo database. Queried in
@@ -323,7 +335,7 @@ export async function generateImagePexels(prompt: string, width: number, height:
 // risk beyond a slow network). Free tier: 50 requests/hour, no credit card —
 // worth watching if generation volume grows, since that's a tighter budget
 // than Pexels' (200/hour). Skipped automatically if the key isn't set.
-export async function generateImageUnsplash(prompt: string, width: number, height: number): Promise<Buffer> {
+async function fetchUnsplashPhoto(prompt: string, width: number, height: number): Promise<StockPhotoResult> {
   const accessKey = process.env.UNSPLASH_ACCESS_KEY;
   if (!accessKey) throw new Error('UNSPLASH_ACCESS_KEY not configured');
 
@@ -342,7 +354,11 @@ export async function generateImageUnsplash(prompt: string, width: number, heigh
 
   const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(15_000) });
   if (!imgRes.ok) throw new Error(`Unsplash image fetch failed: ${imgRes.status}`);
-  return Buffer.from(await imgRes.arrayBuffer());
+  return { buffer: Buffer.from(await imgRes.arrayBuffer()), altText: photo?.alt_description || photo?.description || searchQuery };
+}
+
+export async function generateImageUnsplash(prompt: string, width: number, height: number): Promise<Buffer> {
+  return (await fetchUnsplashPhoto(prompt, width, height)).buffer;
 }
 
 export async function generateImagePollinations(
@@ -434,30 +450,22 @@ interface ProviderAttempt {
   provider: string;
 }
 
-async function tryProvider(
-  name: string,
-  tier: ImageTier,
-  fn: () => Promise<Buffer>,
-  niche: ArticleNiche,
-  sizeKey: BlogSizeKey,
-  keyword: string,
-): Promise<ProviderAttempt | null> {
-  const t0 = Date.now();
-  try {
-    const buffer = await fn();
-    void logGeneration({ tier, provider: name, niche, success: true, duration_ms: Date.now() - t0, keyword, size_key: sizeKey });
-    return { buffer, provider: name };
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    void logGeneration({ tier, provider: name, niche, success: false, duration_ms: Date.now() - t0, keyword, size_key: sizeKey, error_reason: reason });
-    console.warn(`[image-generator] ${name} failed:`, reason);
-    return null;
-  }
+// Rough relevance signal: does the stock photo's own alt/description text
+// share real subject words with what the image is actually meant to show?
+// A caption about "DC fast charger display screen" pairing with an
+// unrelated pylon photo is a symptom of taking whichever result comes back
+// first with no relevance check at all — this scores both candidates
+// instead of blindly trusting position 1.
+function stockRelevanceScore(altText: string, intentTerms: Set<string>): number {
+  if (!altText || intentTerms.size === 0) return 0;
+  const altTerms = new Set(altText.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+  return Array.from(intentTerms).filter(t => altTerms.has(t)).length;
 }
 
 // PRIMARY: Pexels + Unsplash queried concurrently (only the ones with a key
-// configured). Pexels is preferred when both return a result — an arbitrary
-// but deterministic tie-break, not a race — either succeeding is enough.
+// configured). When both return a result, the one whose alt text actually
+// shares subject words with the intended prompt/keyword wins — not just
+// "Pexels always wins if present". Either succeeding alone is still enough.
 async function queryStockParallel(
   prompt: string,
   width: number,
@@ -466,16 +474,44 @@ async function queryStockParallel(
   sizeKey: BlogSizeKey,
   keyword: string,
 ): Promise<ProviderAttempt | null> {
-  const jobs: Promise<ProviderAttempt | null>[] = [];
+  const intentTerms = new Set(
+    `${keyword} ${prompt}`.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 3)
+  );
+
+  async function attempt(name: string, fn: () => Promise<StockPhotoResult>): Promise<(ProviderAttempt & { relevance: number }) | null> {
+    const t0 = Date.now();
+    try {
+      const { buffer, altText } = await fn();
+      void logGeneration({ tier: 'free', provider: name, niche, success: true, duration_ms: Date.now() - t0, keyword, size_key: sizeKey });
+      return { buffer, provider: name, relevance: stockRelevanceScore(altText, intentTerms) };
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      void logGeneration({ tier: 'free', provider: name, niche, success: false, duration_ms: Date.now() - t0, keyword, size_key: sizeKey, error_reason: reason });
+      console.warn(`[image-generator] ${name} failed:`, reason);
+      return null;
+    }
+  }
+
+  const jobs: Promise<(ProviderAttempt & { relevance: number }) | null>[] = [];
   if (process.env.PEXELS_API_KEY) {
-    jobs.push(tryProvider('pexels', 'free', () => generateImagePexels(prompt, width, height), niche, sizeKey, keyword));
+    jobs.push(attempt('pexels', () => fetchPexelsPhoto(prompt, width, height)));
   }
   if (process.env.UNSPLASH_ACCESS_KEY) {
-    jobs.push(tryProvider('unsplash', 'free', () => generateImageUnsplash(prompt, width, height), niche, sizeKey, keyword));
+    jobs.push(attempt('unsplash', () => fetchUnsplashPhoto(prompt, width, height)));
   }
   if (jobs.length === 0) return null;
-  const results = await Promise.all(jobs);
-  return results.find((r): r is ProviderAttempt => r !== null) ?? null;
+
+  const results = (await Promise.all(jobs)).filter((r): r is ProviderAttempt & { relevance: number } => r !== null);
+  if (results.length === 0) return null;
+
+  // Never reject down to nothing over a weak relevance score — an
+  // imperfect stock match still beats falling through to the pollinations
+  // tail. Just prefer whichever candidate actually matches better.
+  results.sort((a, b) => b.relevance - a.relevance);
+  if (results.length > 1) {
+    console.log(`[image-generator] stock relevance: ${results.map(r => `${r.provider}=${r.relevance}`).join(', ')} — picked ${results[0].provider}`);
+  }
+  return { buffer: results[0].buffer, provider: results[0].provider };
 }
 
 const GEMINI_HERO_TIMEOUT_MS = 12_000;
@@ -577,13 +613,22 @@ export async function resizeAndOptimize(
     .toBuffer();
 }
 
-// ── Storage path: article-images/{YYYY-MM}/{siteId}/{slug}/{size}.webp ────────
+// ── Storage path: article-images/{YYYY-MM}/{siteId}/{slug}-{instanceId}/{size}.webp
+//
+// The slug alone used to be the whole folder key, with no per-article
+// uniqueness at all — every article generated for the same (or a similar)
+// keyword landed at the exact same path, and since uploads use upsert:true,
+// each new generation silently overwrote the previous one's images.
+// Confirmed happening in practice: "ev charger station" was regenerated
+// across 5+ separate sessions this project and every one of them reused
+// literally the same 4 files. articleInstanceId disambiguates each
+// generation while keeping the slug for human-browsability in the Storage UI.
 
-function buildStoragePath(keyword: string, sizeKey: string, siteId: string): string {
+function buildStoragePath(keyword: string, sizeKey: string, siteId: string, articleInstanceId: string): string {
   const now = new Date();
   const yyyyMM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const slug = keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
-  return `${yyyyMM}/${siteId}/${slug}/${sizeKey}.webp`;
+  return `${yyyyMM}/${siteId}/${slug}-${articleInstanceId.slice(0, 8)}/${sizeKey}.webp`;
 }
 
 async function uploadToStorage(buffer: Buffer, storagePath: string): Promise<string> {
@@ -604,8 +649,9 @@ export async function generateArticleImages(opts: {
   tier: ImageTier;
   count?: number;
   siteId?: string;
+  articleInstanceId?: string; // uniquely disambiguates this generation's storage folder — see buildStoragePath
 }): Promise<ArticleImageSet> {
-  const { topic, keyword, tier, count = 3, siteId = 'shared' } = opts;
+  const { topic, keyword, tier, count = 3, siteId = 'shared', articleInstanceId = randomUUID() } = opts;
 
   // Step 1: Detect niche + build shared style descriptor (single Haiku call)
   const { niche, styleDescriptor } = await detectNicheAndStyle(keyword, topic);
@@ -677,8 +723,8 @@ export async function generateArticleImages(opts: {
       resizeAndOptimize(heroResult.buffer, 'mobile', 80),
     ]);
     [heroUrl, mobileUrl] = await Promise.all([
-      uploadToStorage(heroWebP, buildStoragePath(keyword, 'hero', siteId)).catch(() => ''),
-      uploadToStorage(mobileWebP, buildStoragePath(keyword, 'mobile', siteId)).catch(() => ''),
+      uploadToStorage(heroWebP, buildStoragePath(keyword, 'hero', siteId, articleInstanceId)).catch(() => ''),
+      uploadToStorage(mobileWebP, buildStoragePath(keyword, 'mobile', siteId, articleInstanceId)).catch(() => ''),
     ]);
     // Fallback to Pollinations URL when storage upload fails
     if (!heroUrl) {
@@ -740,7 +786,7 @@ export async function generateArticleImages(opts: {
           const webp = await resizeAndOptimize(result.buffer, 'content');
           const url = await uploadToStorage(
             webp,
-            buildStoragePath(keyword, `content-${i + 1}`, siteId),
+            buildStoragePath(keyword, `content-${i + 1}`, siteId, articleInstanceId),
           ).catch(() => '');
           const img: GeneratedImage = {
             id: `content-${i + 1}`,

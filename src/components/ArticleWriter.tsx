@@ -189,6 +189,7 @@ export function ArticleWriter() {
       let passesDetection: boolean | undefined, bannedWords: string[] | undefined
       let llmsTxtEntry: string | undefined, rankScore: number | undefined
       let factSourcingScore: number | undefined, factPatchedCount: number | undefined
+      let linkAudit: ArticleOutput['linkAudit']
 
       const scoresMatch = full.match(/\n<!-- SEORANKO_SCORES:(\{[\s\S]*?\}) -->/)
       if (scoresMatch) {
@@ -212,6 +213,7 @@ export function ArticleWriter() {
           factSourcingScore = p.factSourcingScore
           factPatchedCount = p.factPatchedCount
           if (p.qualityGate) qualityGate = p.qualityGate
+          if (p.linkAudit) linkAudit = p.linkAudit
         } catch { /* keep defaults */ }
         full = full.replace(/\n<!-- SEORANKO_SCORES:\{[\s\S]*?\} -->/, '')
       }
@@ -245,6 +247,7 @@ export function ArticleWriter() {
         factSourcingScore,
         factPatchedCount,
         qualityGate,
+        linkAudit,
       })
     } catch (err: unknown) {
       setError(`Request failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
@@ -458,6 +461,19 @@ export function ArticleWriter() {
           {/* Quality Gate */}
           {article.qualityGate && (
             <QualityGatePanel result={article.qualityGate} />
+          )}
+
+          {/* Internal links — always visible, success or not, so a zero-link
+              article is never silent about why */}
+          {article.linkAudit && (
+            <div className={`text-xs px-3 py-2 rounded-lg ${
+              article.linkAudit.totalPlaced > 0 ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'
+            }`}>
+              {article.linkAudit.totalPlaced > 0
+                ? `✓ ${article.linkAudit.totalPlaced} internal link${article.linkAudit.totalPlaced > 1 ? 's' : ''} added`
+                : `⚠ No internal links added — ${article.linkAudit.note || 'reason unknown, check logs'}`
+              }
+            </div>
           )}
 
           {/* Alerts */}
