@@ -21,6 +21,8 @@ import { MODEL_FOR } from '@/lib/model-router';
 import { runQualityGate, type QualityIssue } from '@/lib/article-quality-gate';
 import { injectMissingArticleImage } from '@/lib/schema-validator';
 import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
+import { insertTableOfContents } from '@/lib/table-of-contents';
+import { validateArticleStructure } from '@/lib/structure-validator';
 
 export const maxDuration = 300;
 
@@ -328,6 +330,11 @@ Do not write generic angles. Be specific and surprising.`
               finalHtml = injectMissingArticleImage(finalHtml, heroImageUrl);
             }
 
+            // Table of contents — only kicks in above the word threshold;
+            // this template currently targets ~1,340 words, so it won't
+            // fire on typical output today unless wordCount settings change.
+            finalHtml = insertTableOfContents(finalHtml, articleWordCount);
+
             // Quality gate — runs after humanization + fact-sourcing; auto-fixes applied to finalHtml
           try {
             const brandDomains: Record<string, string[]> = {
@@ -381,6 +388,27 @@ Do not write generic angles. Be specific and surprising.`
                 articleQualityGate.issues = [...articleQualityGate.issues, imageIssue];
                 articleQualityGate.warningCount += 1;
                 articleQualityGate.score = Math.max(0, articleQualityGate.score - 5);
+                articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2;
+              }
+
+              // image-placement structure issues (figure right after a heading,
+              // no lead-in text) can only be checked now that images actually
+              // exist in the HTML — runQualityGate's RULE 10 ran on finalHtml
+              // before injection, so that category is always trivially empty
+              // there. Same timing pattern as the imageStats merge above.
+              const placementIssues = validateArticleStructure(withImages).filter(i => i.category === 'image-placement');
+              if (placementIssues.length > 0 && articleQualityGate) {
+                const mapped: QualityIssue[] = placementIssues.map((si, i) => ({
+                  id: `structure-image-placement-post-${i}`,
+                  severity: si.severity,
+                  category: si.category,
+                  title: si.message,
+                  description: si.message,
+                  autoFixable: false,
+                }));
+                articleQualityGate.issues = [...articleQualityGate.issues, ...mapped];
+                articleQualityGate.warningCount += mapped.length;
+                articleQualityGate.score = Math.max(0, articleQualityGate.score - mapped.length * 5);
                 articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2;
               }
 

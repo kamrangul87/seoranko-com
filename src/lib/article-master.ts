@@ -472,6 +472,26 @@ HEADING STRUCTURE RULE (mandatory):
 - Minimum 4 of 6 H2 headings must be question-format
 - Never skip heading levels: H1 → H2 → H3 only, never H1 → H3
 
+HEADING RHYTHM RULE (mandatory):
+Do not let more than 2 H2 headings open with the same question word.
+Vary across How, What, Why, When, Should, Which — question-format still
+satisfies the rule above with any of these, not just "What". Example:
+instead of two headings both starting "What Is..." and "What Are...",
+write one as "What Is..." and the other as "How Can You Avoid..." —
+same information, varied rhythm.
+
+SCANNABILITY RULE (mandatory) — apply to every H2 section:
+Within the 130-150 word budget per section, break the section into 2-3
+short paragraphs rather than one dense block, OR use an actual <ul>/<ol>
+list where the section naturally contains a list of items, steps, or
+comparable options (e.g. "the three most common mistakes," "eligibility
+criteria," "X vs Y"). Bold (<strong>) the 1-2 most important terms or
+figures per section — the specific numbers, named entities, or key terms
+a reader scanning quickly should catch even without reading every
+sentence. Readers arrive from AI Overviews, social links, and newsletters
+as often as from classic search — each section must work on a fast scan,
+not only on a full read.
+
 AUTHORITY LINKS RULE (mandatory):
 - Every article MUST include at least 2 external links to authoritative sources (.gov, .gov.uk, .ac.uk, .org, official regulatory bodies)
 - Link text must be descriptive — never use "click here", "here", "read more", or "this"
@@ -566,11 +586,11 @@ PASSAGE CITABILITY — apply to every H2 section below:
 <h2>[Section 4 phrased as question — the gap competitors miss]</h2>
 <p>[130-150 words. This is your competitive advantage — include a concrete, specific fact nobody else mentions.]</p>
 
-<h2>[Section 5 phrased as question — e.g. "What Are the Most Common Mistakes With [topic]?"]</h2>
+<h2>[Section 5 phrased as question — e.g. "How Can You Avoid the Most Common Mistakes With [topic]?"]</h2>
 <p>[130-150 words.]</p>
 ${uniqueDataSection ? uniqueDataSection : ''}
 
-<h2>What Do Official Sources Say About This?</h2>
+<h2>How Do Official Sources Back This Up?</h2>
 <p>[100 words. Reference 2 official ${market} sources with full URLs. Use format: "According to [Source] at [URL]..."]</p>
 
 FAQ SECTION RULE (mandatory):

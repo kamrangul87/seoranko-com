@@ -10,6 +10,7 @@
 // ============================================================
 
 import { validateSchema } from './schema-validator'
+import { validateArticleStructure } from './structure-validator'
 import { createClient } from '@supabase/supabase-js'
 
 // AI slop patterns — expanded from anti-slop GitHub repo
@@ -269,6 +270,10 @@ export type IssueCategory =
   | 'word-count'
   | 'fact-density'
   | 'image-completeness'
+  | 'heading-hierarchy'
+  | 'image-placement'
+  | 'scannability'
+  | 'heading-rhythm'
 
 export interface QualityIssue {
   id: string
@@ -569,6 +574,23 @@ export async function runQualityGate(
   // ---- RULE 9: Image completeness — every provider in the image chain failed for at least one slot ----
   if (expectedImageCount != null) {
     issues.push(...checkImageCompleteness(articleContent, expectedImageCount))
+  }
+
+  // ---- RULE 10: Article structure — heading hierarchy, scannability, heading rhythm ----
+  // image-placement is deliberately NOT expected to fire from this call: images
+  // haven't been injected into articleContent yet at this point in the pipeline
+  // (same timing as RULE 9 — see article-v2/route.ts, which runs a second,
+  // targeted validateArticleStructure() call against the post-injection HTML
+  // specifically for that category).
+  for (const structureIssue of validateArticleStructure(articleContent)) {
+    issues.push({
+      id: `structure-${structureIssue.category}-${issues.length}`,
+      severity: structureIssue.severity,
+      category: structureIssue.category,
+      title: structureIssue.message,
+      description: structureIssue.message,
+      autoFixable: false,
+    })
   }
 
   // ---- AUTO-FIX PASS ----

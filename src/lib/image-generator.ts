@@ -814,12 +814,29 @@ export function injectImagesIntoArticle(html: string, imageSet: ArticleImageSet)
 
   // Insert content images evenly distributed across H2 sections
   if (content.length > 0) {
-    const h2Regex = /<\/h2>/gi;
+    const h2Regex = /<h2[^>]*>([\s\S]*?)<\/h2>/gi;
     let match: RegExpExecArray | null;
     const h2Positions: number[] = [];
 
+    // Land after the section's first paragraph, not immediately after the
+    // heading — a figure between a heading and any body text breaks the
+    // "heading introduces text" flow. Falls back to right-after-heading
+    // only if the section has no <p> at all, so an image is never dropped.
+    // The FAQ section is excluded entirely: it's immediately followed by a
+    // disclaimer <p>, so the same after-first-paragraph rule would still
+    // land an image between that disclaimer and the first FAQ item — FAQs
+    // are meant to be scanned immediately, not interrupted.
     while ((match = h2Regex.exec(result)) !== null) {
-      h2Positions.push(match.index + match[0].length);
+      const headingText = match[1].replace(/<[^>]+>/g, '').trim().toLowerCase();
+      if (headingText === 'frequently asked questions') continue;
+
+      const afterHeading = match.index + match[0].length;
+      const nextH2 = result.indexOf('<h2', afterHeading);
+      const searchEnd = nextH2 === -1 ? result.length : nextH2;
+      const pEnd = result.indexOf('</p>', afterHeading);
+
+      const pos = (pEnd !== -1 && pEnd < searchEnd) ? pEnd + 4 : afterHeading;
+      h2Positions.push(pos);
     }
 
     const insertions: { pos: number; figure: string }[] = [];
