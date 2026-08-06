@@ -286,6 +286,7 @@ export type IssueCategory =
   | 'scannability'
   | 'heading-rhythm'
   | 'brief-coverage'
+  | 'secondary-keyword-coverage'
 
 export interface QualityIssue {
   id: string
@@ -392,6 +393,53 @@ export function checkBriefCoverage(
   }]
 }
 
+// The write prompt marks secondary/cluster keywords MANDATORY (see
+// buildMasterPrompt's SECONDARY KEYWORDS line), but a prompt instruction is
+// a request, not a guarantee — same lesson as merge-artifact-repair.ts and
+// scannability-fixer.ts. Confirmed in production: a 14-term cluster for "ev
+// charger" silently lost several terms with no warning anywhere. This
+// checks the actual output and names exactly which ones are missing, rather
+// than the UI's previous blanket "✓ will also weave in [full list]" promise.
+const STEM_SUFFIXES = /(ations?|ing|ers?|ed|es|s)$/
+function stem(word: string): string {
+  return word.length > 5 ? word.replace(STEM_SUFFIXES, '') : word
+}
+
+export function checkSecondaryKeywordCoverage(articleContent: string, secondaryKeywords: string[]): QualityIssue[] {
+  if (!secondaryKeywords || secondaryKeywords.length === 0) return []
+
+  const plainText = articleContent.replace(/<[^>]+>/g, ' ').toLowerCase()
+  const articleWordStems = new Set(
+    plainText.split(/[^a-z0-9]+/).filter(w => w.length > 3).map(stem)
+  )
+
+  const missing: string[] = []
+  for (const kw of secondaryKeywords) {
+    const kwLower = kw.toLowerCase().trim()
+    if (!kwLower) continue
+    if (plainText.includes(kwLower)) continue // exact phrase present
+
+    // Natural-variant tolerance: covered if every significant word of the
+    // phrase (stemmed) appears somewhere in the article, regardless of
+    // order or intervening words — "installing an EV charger" satisfies
+    // "ev charger installation" this way without requiring an exact match.
+    const sigWords = kwLower.split(/\s+/).filter(w => w.length > 3)
+    const covered = sigWords.length > 0 && sigWords.every(w => articleWordStems.has(stem(w)))
+    if (!covered) missing.push(kw)
+  }
+
+  if (missing.length === 0) return []
+
+  return [{
+    id: 'secondary-keyword-coverage',
+    severity: 'warning',
+    category: 'secondary-keyword-coverage',
+    title: `${missing.length}/${secondaryKeywords.length} secondary keyword(s) missing from the article`,
+    description: `Requested but not found (as an exact phrase or a natural variant): ${missing.join(', ')}. The write prompt marks these mandatory — consider running Improve to work them in, or confirm they're not actually relevant to this article's angle.`,
+    autoFixable: false,
+  }]
+}
+
 // ============================================================
 // MAIN QUALITY GATE FUNCTION
 // ============================================================
@@ -435,6 +483,7 @@ export async function runQualityGate(
     articleId?: string
     expectedImageCount?: number
     brief?: { entities: string[]; topicalGaps: string[] }
+    secondaryKeywords?: string[]
   }
 ): Promise<QualityGateResult> {
 
@@ -448,6 +497,7 @@ export async function runQualityGate(
     articleId,
     expectedImageCount,
     brief,
+    secondaryKeywords,
   } = options
 
   let issues: QualityIssue[] = []
@@ -646,6 +696,11 @@ export async function runQualityGate(
 
   // ---- RULE 11: NLP gap-analysis brief coverage (only when a brief was provided) ----
   issues.push(...checkBriefCoverage(articleContent, brief))
+
+  // ---- RULE 12: Secondary/cluster keyword coverage (mandatory per the write prompt) ----
+  if (secondaryKeywords?.length) {
+    issues.push(...checkSecondaryKeywordCoverage(articleContent, secondaryKeywords))
+  }
 
   // ---- AUTO-FIX PASS ----
   // Fix 1: Remove cross-brand links

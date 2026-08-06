@@ -478,6 +478,18 @@ async function queryStockParallel(
     `${keyword} ${prompt}`.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 3)
   );
 
+  // Confirmed from production logs: Pexels times out ("operation was
+  // aborted due to timeout") on some requests with no retry — a single
+  // transient network blip was killing that slot outright. Retry once,
+  // but only for timeout-flavored errors; retrying "no photo found" or a
+  // missing API key wouldn't fix anything and just wastes the time budget.
+  function isTimeoutError(err: unknown): boolean {
+    if (err instanceof Error) {
+      return err.name === 'TimeoutError' || /timeout|aborted/i.test(err.message);
+    }
+    return false;
+  }
+
   async function attempt(name: string, fn: () => Promise<StockPhotoResult>): Promise<(ProviderAttempt & { relevance: number }) | null> {
     const t0 = Date.now();
     try {
@@ -487,6 +499,22 @@ async function queryStockParallel(
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       void logGeneration({ tier: 'free', provider: name, niche, success: false, duration_ms: Date.now() - t0, keyword, size_key: sizeKey, error_reason: reason });
+
+      if (isTimeoutError(err)) {
+        console.warn(`[image-generator] ${name} timed out, retrying once:`, reason);
+        const t1 = Date.now();
+        try {
+          const { buffer, altText } = await fn();
+          void logGeneration({ tier: 'free', provider: name, niche, success: true, duration_ms: Date.now() - t1, keyword, size_key: sizeKey });
+          return { buffer, provider: name, relevance: stockRelevanceScore(altText, intentTerms) };
+        } catch (retryErr) {
+          const retryReason = retryErr instanceof Error ? retryErr.message : String(retryErr);
+          void logGeneration({ tier: 'free', provider: name, niche, success: false, duration_ms: Date.now() - t1, keyword, size_key: sizeKey, error_reason: retryReason });
+          console.warn(`[image-generator] ${name} retry also failed:`, retryReason);
+          return null;
+        }
+      }
+
       console.warn(`[image-generator] ${name} failed:`, reason);
       return null;
     }
@@ -641,6 +669,27 @@ async function uploadToStorage(buffer: Buffer, storagePath: string): Promise<str
   return data.publicUrl;
 }
 
+// A Storage upload failure after a SUCCESSFUL generation is a different,
+// usually more transient problem than generation itself failing — retrying
+// the same upload once is the right response, not silently substituting a
+// completely different image from another provider (which is what the old
+// pollinations.ai URL "fallback" here actually did, and never verified the
+// replacement image would even load).
+async function uploadToStorageWithRetry(buffer: Buffer, storagePath: string): Promise<string | null> {
+  try {
+    return await uploadToStorage(buffer, storagePath);
+  } catch (err) {
+    console.warn(`[image-generator] upload failed for ${storagePath}, retrying once:`, err);
+    await new Promise(r => setTimeout(r, 1000));
+    try {
+      return await uploadToStorage(buffer, storagePath);
+    } catch (retryErr) {
+      console.warn(`[image-generator] upload retry also failed for ${storagePath}:`, retryErr);
+      return null;
+    }
+  }
+}
+
 // ── Main entry point ──────────────────────────────────────────────────────────
 
 export async function generateArticleImages(opts: {
@@ -714,7 +763,15 @@ export async function generateArticleImages(opts: {
     failureReasons: imageStats.failures,
   });
 
-  // Step 4: Process hero — resize to hero + mobile in parallel, upload in parallel
+  // Step 4: Process hero — resize to hero + mobile in parallel, upload in parallel.
+  // No pollinations.ai URL fallback here anymore — that used to construct a
+  // live external prompt URL that was never actually verified to resolve,
+  // including when the entire provider chain (which already tries
+  // pollinations.ai as a real, buffer-fetched tail provider) had already
+  // failed, meaning it was betting on the same already-failing service
+  // succeeding a second time under a different code path. An empty URL is
+  // tracked in imageStats.failures below and surfaced through the existing
+  // Quality Gate image-completeness check instead of silently patched over.
   let heroUrl = '';
   let mobileUrl = '';
   if (!('failed' in heroResult)) {
@@ -722,21 +779,18 @@ export async function generateArticleImages(opts: {
       resizeAndOptimize(heroResult.buffer, 'hero'),
       resizeAndOptimize(heroResult.buffer, 'mobile', 80),
     ]);
-    [heroUrl, mobileUrl] = await Promise.all([
-      uploadToStorage(heroWebP, buildStoragePath(keyword, 'hero', siteId, articleInstanceId)).catch(() => ''),
-      uploadToStorage(mobileWebP, buildStoragePath(keyword, 'mobile', siteId, articleInstanceId)).catch(() => ''),
+    const [heroUploaded, mobileUploaded] = await Promise.all([
+      uploadToStorageWithRetry(heroWebP, buildStoragePath(keyword, 'hero', siteId, articleInstanceId)),
+      uploadToStorageWithRetry(mobileWebP, buildStoragePath(keyword, 'mobile', siteId, articleInstanceId)),
     ]);
-    // Fallback to Pollinations URL when storage upload fails
+    heroUrl = heroUploaded ?? '';
+    mobileUrl = mobileUploaded ?? '';
     if (!heroUrl) {
-      heroUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(heroPrompt.prompt)}?width=${BLOG_SIZES.hero.width}&height=${BLOG_SIZES.hero.height}&nologo=true&model=flux`;
-    }
-    if (!mobileUrl) {
-      mobileUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(heroPrompt.prompt)}?width=${BLOG_SIZES.mobile.width}&height=${BLOG_SIZES.mobile.height}&nologo=true&model=flux`;
+      imageStats.failures.push('hero: generated successfully but Storage upload failed twice');
+      imageStats.generated -= 1;
     }
   } else {
     console.warn(`[image-generator] hero failed: ${heroResult.reason}`);
-    // Even if generation failed, provide a Pollinations URL so injection works
-    heroUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(heroPrompt.prompt)}?width=${BLOG_SIZES.hero.width}&height=${BLOG_SIZES.hero.height}&nologo=true&model=flux`;
   }
 
   const hero: GeneratedImage = {
@@ -761,19 +815,21 @@ export async function generateArticleImages(opts: {
     prompt: heroPrompt.prompt,
   };
 
-  // Step 5: Process content images in parallel
+  // Step 5: Process content images in parallel. Same principle as the hero
+  // above — no pollinations.ai URL fallback; a slot that fails generation or
+  // fails Storage upload (after one retry) gets an empty url, tracked in
+  // imageStats.failures, surfaced through the Quality Gate rather than
+  // silently patched with an unverified external URL.
   const contentImages: GeneratedImage[] = (
     await Promise.all(
       contentResults.map(async (result, i) => {
         const cp = contentPrompts[i];
-        const fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cp.prompt)}?width=${BLOG_SIZES.content.width}&height=${BLOG_SIZES.content.height}&nologo=true&model=flux`;
 
         if ('failed' in result) {
           console.warn(`[image-generator] content ${i + 1} failed: ${result.reason}`);
-          // Use Pollinations fallback even when generation reported failure
           return {
             id: `content-${i + 1}`,
-            url: fallbackUrl,
+            url: '',
             width: BLOG_SIZES.content.width as number,
             height: BLOG_SIZES.content.height as number,
             alt: cp.alt,
@@ -784,13 +840,17 @@ export async function generateArticleImages(opts: {
         }
         try {
           const webp = await resizeAndOptimize(result.buffer, 'content');
-          const url = await uploadToStorage(
+          const url = await uploadToStorageWithRetry(
             webp,
             buildStoragePath(keyword, `content-${i + 1}`, siteId, articleInstanceId),
-          ).catch(() => '');
+          );
+          if (!url) {
+            imageStats.failures.push(`content image ${i + 1}: generated successfully but Storage upload failed twice`);
+            imageStats.generated -= 1;
+          }
           const img: GeneratedImage = {
             id: `content-${i + 1}`,
-            url: url || fallbackUrl,
+            url: url ?? '',
             width: BLOG_SIZES.content.width as number,
             height: BLOG_SIZES.content.height as number,
             alt: cp.alt,
@@ -801,9 +861,11 @@ export async function generateArticleImages(opts: {
           return img;
         } catch (err) {
           console.warn(`[image-generator] content ${i + 1} resize/upload failed:`, err);
+          imageStats.failures.push(`content image ${i + 1}: resize/upload threw — ${err instanceof Error ? err.message : String(err)}`);
+          imageStats.generated -= 1;
           return {
             id: `content-${i + 1}`,
-            url: fallbackUrl,
+            url: '',
             width: BLOG_SIZES.content.width as number,
             height: BLOG_SIZES.content.height as number,
             alt: cp.alt,

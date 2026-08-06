@@ -175,8 +175,8 @@ Do not write generic angles. Be specific and surprising.`
     let linkUnavailableNote = ''
     if (brand && userId) {
       console.log(`[internal-links] brand="${brand}" userId="${userId}" keyword="${keyword}"`)
-      const eligibleLinks = await getEligibleLinks(userId, brand, keyword, angle.unique_angle || keyword)
-      console.log(`[internal-links] ${eligibleLinks.length} eligible link(s) from registry after scoring`)
+      const { links: eligibleLinks, registryRowCount } = await getEligibleLinks(userId, brand, keyword, angle.unique_angle || keyword)
+      console.log(`[internal-links] ${registryRowCount} active row(s) in registry for this user+brand, ${eligibleLinks.length} scored relevant`)
       if (eligibleLinks.length > 0) {
         const registryLinksAsInternal: InternalLink[] = eligibleLinks.map(l => ({
           url: l.pageUrl,
@@ -185,8 +185,15 @@ Do not write generic angles. Be specific and surprising.`
         }))
         resolvedLinksStr = buildInternalLinksPrompt(registryLinksAsInternal, keyword, angle.unique_angle || keyword)
         linksRequestedFromModel = registryLinksAsInternal
+      } else if (registryRowCount === 0) {
+        // Distinguish from the "scored too low" case below — this is a
+        // data/account problem (zero rows for this user+brand), not a
+        // relevance-scoring problem. Confirmed in production: this message
+        // used to be identical to the low-score case, which made a wrong-
+        // Supabase-account data issue look like a scoring bug.
+        linkUnavailableNote = `No internal links are registered for brand "${brand}" on this account. Add entries in Settings → Link Registry — the registry is empty for this user+brand combination.`
       } else {
-        linkUnavailableNote = `No links in the registry scored relevant enough for brand "${brand}" on "${keyword}". Check Settings → Link Registry — either it's empty for this brand, or no entries are topically close enough to this article.`
+        linkUnavailableNote = `${registryRowCount} link(s) are registered for brand "${brand}", but none scored relevant enough for "${keyword}". Check Settings → Link Registry — the entries may need better topic tags, or genuinely aren't close enough to this article.`
       }
     } else {
       console.warn(`[internal-links] SKIPPED — missing context. brand="${brand}" userId="${userId}". This should not happen if the caller is correctly wired — check that the client is sending both.`)
@@ -418,6 +425,7 @@ Do not write generic angles. Be specific and surprising.`
               brief: (entities as string[]).length > 0 || (topicalGaps as string[]).length > 0
                 ? { entities: entities as string[], topicalGaps: topicalGaps as string[] }
                 : undefined,
+              secondaryKeywords: secondaryKeywords as string[],
             })
             finalHtml = qr.articleAfterAutoFix
             articleQualityGate = {

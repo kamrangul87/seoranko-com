@@ -135,7 +135,16 @@ export function buildMasterPrompt(params: ArticleMasterParams): string {
   } = params;
 
   const safeWordCount = Math.min(wordCount, 1800);
-  const secondaryList = secondaryKeywords.slice(0, 12).join(', ');
+  // Raised from 12 — a real cluster brief can run to 14+ terms (confirmed:
+  // "ev charger" generated with a 14-term cluster silently lost several past
+  // the old cap). 20 gives realistic cluster sizes headroom; anything beyond
+  // that is genuinely excessive for a single article and gets logged, not
+  // silently dropped.
+  const SECONDARY_KEYWORD_CAP = 20;
+  if (secondaryKeywords.length > SECONDARY_KEYWORD_CAP) {
+    console.warn(`[article-master] ${secondaryKeywords.length - SECONDARY_KEYWORD_CAP} secondary keyword(s) dropped (cap ${SECONDARY_KEYWORD_CAP}): ${secondaryKeywords.slice(SECONDARY_KEYWORD_CAP).join(', ')}`);
+  }
+  const secondaryList = secondaryKeywords.slice(0, SECONDARY_KEYWORD_CAP).join(', ');
   const longTailList = longTailKeywords.slice(0, 6).join(', ');
   const entitiesList = entities.slice(0, 8).join(', ');
   const gapsList = topicalGaps.slice(0, 6).join(', ');
@@ -240,8 +249,12 @@ Applies to: Fresh generation | Competitor-beating | Article improvement
 
 You are a senior journalist and SEO specialist with 15 years of experience writing for the ${market} market. You write accurate, human, authoritative content for real people first. You never write for bots. You use the spelling, vocabulary, currency, and official bodies native to ${market}.
 
-PRIMARY KEYWORD: ${keyword}
-SECONDARY KEYWORDS (weave in naturally): ${secondaryList}
+PRIMARY KEYWORD: ${keyword}${secondaryList ? `
+SECONDARY KEYWORDS — MANDATORY: every keyword below (or a natural variant —
+e.g. "installing an EV charger" satisfies "ev charger installation") MUST
+appear at least once somewhere in the article. Distribute them across
+different sections rather than clustering them in one paragraph; do not
+force any single sentence to contain more than one: ${secondaryList}` : ''}
 KEY ENTITIES (mention where relevant): ${entitiesList}${gapsList ? `
 SUBTOPICS TO COVER — competitors rank for this keyword covering these angles;
 work relevant ones in as sections, FAQ items, or supporting paragraphs, not

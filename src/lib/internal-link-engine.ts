@@ -71,6 +71,18 @@ function scoreAnchorNaturalness(anchorText: string, articleTerms: Set<string>): 
 }
 
 // Fetch eligible links from registry — only brand-matched + topic-relevant entries
+// registryRowCount distinguishes "zero active rows exist for this user+brand"
+// from "rows exist but none scored above the relevance threshold" — these are
+// different problems (a data/account issue vs a scoring/tagging issue) and
+// collapsing them into the same empty array made a data problem look like a
+// scoring bug. Confirmed in production: all internal_link_registry rows
+// belonged to a different Supabase user_id than the one article generation
+// was running under — genuinely zero matching rows, not a low-relevance case.
+export interface EligibleLinksResult {
+  links: RegisteredLink[]
+  registryRowCount: number
+}
+
 export async function getEligibleLinks(
   userId: string,
   articleBrand: string,
@@ -78,8 +90,8 @@ export async function getEligibleLinks(
   articleTitle: string,
   maxLinks = 5,
   clusterTopicTerms?: string[]   // optional: from Topical Map, when it's been run for this brand
-): Promise<RegisteredLink[]> {
-  if (!userId || !articleBrand) return []
+): Promise<EligibleLinksResult> {
+  if (!userId || !articleBrand) return { links: [], registryRowCount: 0 }
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -94,7 +106,7 @@ export async function getEligibleLinks(
     .eq('is_active', true)
     .limit(20)
 
-  if (!data?.length) return []
+  if (!data?.length) return { links: [], registryRowCount: 0 }
 
   const articleTerms = extractEntityTerms(`${articleKeyword} ${articleTitle}`)
 
@@ -140,16 +152,19 @@ export async function getEligibleLinks(
     console.log(`[internal-link-engine] ${data.length} brand-matched link(s) in registry, none scored relevant enough for "${articleKeyword}"`);
   }
 
-  return ranked.map((s: any) => ({
-    id: s.link.id,
-    brand: s.link.brand,
-    siteUrl: s.link.site_url,
-    pageUrl: s.link.page_url,
-    pageTitle: s.link.page_title,
-    pageDescription: s.link.page_description,
-    topicTags: s.link.topic_tags || [],
-    anchorText: s.link.anchor_text
-  }))
+  return {
+    links: ranked.map((s: any) => ({
+      id: s.link.id,
+      brand: s.link.brand,
+      siteUrl: s.link.site_url,
+      pageUrl: s.link.page_url,
+      pageTitle: s.link.page_title,
+      pageDescription: s.link.page_description,
+      topicTags: s.link.topic_tags || [],
+      anchorText: s.link.anchor_text
+    })),
+    registryRowCount: data.length,
+  }
 }
 
 // Build the injection prompt for Claude — only eligible links can be placed
@@ -277,6 +292,6 @@ export async function runInternalLinkPipeline(
   articleKeyword: string,
   articleTitle: string
 ): Promise<InternalLinkEngineResult> {
-  const eligibleLinks = await getEligibleLinks(userId, articleBrand, articleKeyword, articleTitle)
+  const { links: eligibleLinks } = await getEligibleLinks(userId, articleBrand, articleKeyword, articleTitle)
   return injectInternalLinks(articleContent, eligibleLinks, articleBrand, articleKeyword)
 }

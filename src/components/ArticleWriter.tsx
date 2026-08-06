@@ -353,7 +353,8 @@ export function ArticleWriter() {
             )}
             {clusterBrief && clusterBrief.secondaryKeywords.length > 0 && (
               <p className="text-xs text-[#1D9E75] mt-1.5">
-                ✓ Cluster brief — will also weave in: {clusterBrief.secondaryKeywords.join(', ')}
+                ✓ Cluster brief — targeting {clusterBrief.secondaryKeywords.length} keyword{clusterBrief.secondaryKeywords.length > 1 ? 's' : ''}: {clusterBrief.secondaryKeywords.join(', ')}
+                <span className="text-[#9B9B9B]"> (Quality Gate will flag any that don&apos;t make it in)</span>
               </p>
             )}
             {clusterBrief && clusterBrief.longTailKeywords.length > 0 && (
