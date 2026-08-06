@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { QualityGatePanel } from '@/components/QualityGatePanel'
 import { ExportPackageButton } from '@/components/ExportPackageButton'
+import { supabase } from '@/lib/supabase-client'
 import type { ArticleOutput, Tone, Country } from '@/types'
 import type { RecurringIssueAlert } from '@/lib/recurring-issue-detector'
 
@@ -129,6 +130,16 @@ export function ArticleWriter() {
     setProgressLabel('Starting…')
 
     try {
+      // userId was previously hardcoded to '' here, which made
+      // article-v2/route.ts's `if (brand && userId)` gate always fail and
+      // skip the registry-backed internal-link pipeline on every single
+      // article generated from this page — brand was always sent correctly,
+      // only userId was missing. dashboard/layout.tsx already redirects to
+      // /login before this component can render without a session, so this
+      // should always resolve; the empty-string fallback is defensive only.
+      const { data: { session } } = await supabase.auth.getSession()
+      const userId = session?.user?.id || ''
+
       const res = await fetch('/api/article-v2', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -143,7 +154,7 @@ export function ArticleWriter() {
           topicalGaps: nlpBrief?.topicalGaps ?? [],
           internalLinks: [],
           brand,
-          userId: '',
+          userId,
         }),
       })
 

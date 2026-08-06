@@ -169,6 +169,7 @@ Do not write generic angles. Be specific and surprising.`
         linkUnavailableNote = `No links in the registry scored relevant enough for brand "${brand}" on "${keyword}". Check Settings → Link Registry — either it's empty for this brand, or no entries are topically close enough to this article.`
       }
     } else {
+      console.warn(`[internal-links] SKIPPED — missing context. brand="${brand}" userId="${userId}". This should not happen if the caller is correctly wired — check that the client is sending both.`)
       linkUnavailableNote = 'No brand or user context for this generation — internal linking from the registry was skipped.'
     }
     // Fall back to user-provided links from InternalLinksPanel only if no registry links found
