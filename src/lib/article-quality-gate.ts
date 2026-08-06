@@ -285,6 +285,7 @@ export type IssueCategory =
   | 'image-placement'
   | 'scannability'
   | 'heading-rhythm'
+  | 'brief-coverage'
 
 export interface QualityIssue {
   id: string
@@ -355,6 +356,42 @@ function consolidateDuplicateIssues(issues: QualityIssue[]): QualityIssue[] {
   return consolidated
 }
 
+// Proves the NLP gap-analysis brief (entities + subtopics fed into the write
+// prompt — see buildMasterPrompt's KEY ENTITIES / SUBTOPICS TO COVER lines)
+// was genuinely used, not just passed through and ignored: closes the loop
+// the same way checkImageCompleteness proves image generation actually ran.
+export function checkBriefCoverage(
+  articleContent: string,
+  brief?: { entities: string[]; topicalGaps: string[] },
+): QualityIssue[] {
+  if (!brief || (brief.entities.length === 0 && brief.topicalGaps.length === 0)) return []
+
+  const plainText = articleContent.replace(/<[^>]+>/g, ' ').toLowerCase()
+  const entitiesCovered = brief.entities.filter(e => plainText.includes(e.toLowerCase()))
+  // A subtopic is a phrase ("permit fees and inspection costs") — treat it as
+  // covered if any one of its own significant words shows up, not the exact
+  // phrase verbatim (the article will paraphrase, not quote the gap label).
+  const subtopicsCovered = brief.topicalGaps.filter(s =>
+    s.toLowerCase().split(/\s+/).some(word => word.length > 4 && plainText.includes(word))
+  )
+
+  const totalTargets = brief.entities.length + brief.topicalGaps.length
+  const coveragePercent = totalTargets === 0
+    ? 100
+    : Math.round(((entitiesCovered.length + subtopicsCovered.length) / totalTargets) * 100)
+
+  return [{
+    id: 'brief-coverage',
+    severity: coveragePercent < 40 ? 'warning' : 'info',
+    category: 'brief-coverage',
+    title: `Gap-analysis coverage: ${coveragePercent}% (${entitiesCovered.length}/${brief.entities.length} entities, ${subtopicsCovered.length}/${brief.topicalGaps.length} subtopics)`,
+    description: coveragePercent < 40
+      ? 'This article covers less than half of the identified gap-analysis targets from the NLP brief. Consider running Improve to work in more of the missing entities/subtopics.'
+      : 'Good coverage of the identified content gaps from the NLP brief.',
+    autoFixable: false,
+  }]
+}
+
 // ============================================================
 // MAIN QUALITY GATE FUNCTION
 // ============================================================
@@ -397,6 +434,7 @@ export async function runQualityGate(
     userId?: string
     articleId?: string
     expectedImageCount?: number
+    brief?: { entities: string[]; topicalGaps: string[] }
   }
 ): Promise<QualityGateResult> {
 
@@ -409,6 +447,7 @@ export async function runQualityGate(
     userId,
     articleId,
     expectedImageCount,
+    brief,
   } = options
 
   let issues: QualityIssue[] = []
@@ -604,6 +643,9 @@ export async function runQualityGate(
       autoFixable: false,
     })
   }
+
+  // ---- RULE 11: NLP gap-analysis brief coverage (only when a brief was provided) ----
+  issues.push(...checkBriefCoverage(articleContent, brief))
 
   // ---- AUTO-FIX PASS ----
   // Fix 1: Remove cross-brand links

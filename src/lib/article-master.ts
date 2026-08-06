@@ -89,6 +89,7 @@ export interface ArticleMasterParams {
   longTailKeywords?: string[];
   entities?: string[];
   topicalGaps?: string[];
+  gapAnalysis?: { gapScore?: number; volume?: number; competitionLevel?: string; serpFeatures?: string[] };
   wordCount?: number;
   tone?: string;
   market?: string;
@@ -115,6 +116,7 @@ export function buildMasterPrompt(params: ArticleMasterParams): string {
     longTailKeywords = [],
     entities = [],
     topicalGaps = [],
+    gapAnalysis,
     wordCount = 1500,
     tone = 'professional',
     market = 'United Kingdom',
@@ -137,6 +139,13 @@ export function buildMasterPrompt(params: ArticleMasterParams): string {
   const longTailList = longTailKeywords.slice(0, 6).join(', ');
   const entitiesList = entities.slice(0, 8).join(', ');
   const gapsList = topicalGaps.slice(0, 6).join(', ');
+  // Ranking-opportunity framing from the NLP Analyser's gap analysis, when
+  // the article was generated from that brief — entities/topicalGaps above
+  // already flow in regardless; this adds the WHY (volume, competition,
+  // gap score) and target SERP features on top, when available.
+  const gapAnalysisNote = gapAnalysis && (gapAnalysis.gapScore != null || gapAnalysis.volume != null)
+    ? `\nRANKING OPPORTUNITY: this keyword has ${gapAnalysis.volume != null ? `${gapAnalysis.volume.toLocaleString()}/month search volume` : 'search volume'}${gapAnalysis.competitionLevel ? ` with ${gapAnalysis.competitionLevel} competition` : ''}${gapAnalysis.gapScore != null ? ` (gap score ${gapAnalysis.gapScore}/100)` : ''} — a genuine ranking opportunity if the content is comprehensive enough to close the gap above.${gapAnalysis.serpFeatures?.length ? `\nTARGET SERP FEATURES: structure content to be eligible for: ${gapAnalysis.serpFeatures.join(', ')}.` : ''}`
+    : '';
   const competitorList = competitorTopics.slice(0, 5).join(', ');
   const questionsList = questionsAnswered.slice(0, 5).join(' | ');
   const links = internalLinks || '';
@@ -233,7 +242,11 @@ You are a senior journalist and SEO specialist with 15 years of experience writi
 
 PRIMARY KEYWORD: ${keyword}
 SECONDARY KEYWORDS (weave in naturally): ${secondaryList}
-KEY ENTITIES (mention where relevant): ${entitiesList}
+KEY ENTITIES (mention where relevant): ${entitiesList}${gapsList ? `
+SUBTOPICS TO COVER — competitors rank for this keyword covering these angles;
+work relevant ones in as sections, FAQ items, or supporting paragraphs, not
+forced in artificially, but this is what closes the content gap rather than
+just targeting the keyword phrase itself: ${gapsList}` : ''}${gapAnalysisNote}
 TONE: ${tone}
 MARKET: ${market}
 TARGET WORD COUNT: ${safeWordCount} words

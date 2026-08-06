@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
       longTailKeywords = [],
       entities = [],
       topicalGaps = [],
+      gapAnalysis = undefined,
       domain: rawDomain = '',
       internalLinks: userInternalLinks = [],
       brand = '',
@@ -188,6 +189,7 @@ Do not write generic angles. Be specific and surprising.`
       longTailKeywords: longTailKeywords as string[],
       entities: entities as string[],
       topicalGaps: topicalGaps as string[],
+      gapAnalysis: gapAnalysis as { gapScore?: number; volume?: number; competitionLevel?: string; serpFeatures?: string[] } | undefined,
       wordCount: safeWordCount,
       tone,
       market,
@@ -389,6 +391,9 @@ Do not write generic angles. Be specific and surprising.`
               maxTypically: 5,
               userId: (userId as string) || undefined,
               articleId: articleInstanceId,
+              brief: (entities as string[]).length > 0 || (topicalGaps as string[]).length > 0
+                ? { entities: entities as string[], topicalGaps: topicalGaps as string[] }
+                : undefined,
             })
             finalHtml = qr.articleAfterAutoFix
             articleQualityGate = {

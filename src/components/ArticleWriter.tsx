@@ -65,7 +65,20 @@ export function ArticleWriter() {
   // `entities`/`topicalGaps` as generation inputs all along, they were just
   // hardcoded to [] below. This is what actually makes NLP a brief input
   // rather than a dead-end analysis tool.
-  const [nlpBrief, setNlpBrief] = useState<{ entities: string[]; topicalGaps: string[] } | null>(null)
+  //
+  // The NLP page was already writing intent/serpFeatures/lsiTerms into this
+  // same payload, plus gapScore/volume/competitionLevel once it started
+  // capturing those from Discovery — none of it was being read here until
+  // now, only entities/topicalGaps.
+  const [nlpBrief, setNlpBrief] = useState<{
+    entities: string[]
+    topicalGaps: string[]
+    intent?: string
+    serpFeatures?: string[]
+    gapScore?: number
+    volume?: number
+    competitionLevel?: string
+  } | null>(null)
 
   // Station 2 (Plan) — when the Keywords screen clusters 2+ selected
   // keywords into one page brief, it stores the result here before routing
@@ -81,7 +94,15 @@ export function ArticleWriter() {
     if (stored) {
       try {
         const parsed = JSON.parse(stored)
-        setNlpBrief({ entities: parsed.entities ?? [], topicalGaps: parsed.topicalGaps ?? [] })
+        setNlpBrief({
+          entities: parsed.entities ?? [],
+          topicalGaps: parsed.topicalGaps ?? [],
+          intent: parsed.intent,
+          serpFeatures: parsed.serpFeatures,
+          gapScore: parsed.gapScore,
+          volume: parsed.volume,
+          competitionLevel: parsed.competitionLevel,
+        })
         if (!kw && parsed.recommendedH1) setKeyword(parsed.recommendedH1)
       } catch { /* malformed — ignore, don't block generation */ }
       // Consumed — don't silently reapply to an unrelated later generation.
@@ -152,6 +173,12 @@ export function ArticleWriter() {
           longTailKeywords: clusterBrief?.longTailKeywords ?? [],
           entities: nlpBrief?.entities ?? [],
           topicalGaps: nlpBrief?.topicalGaps ?? [],
+          gapAnalysis: nlpBrief ? {
+            gapScore: nlpBrief.gapScore,
+            volume: nlpBrief.volume,
+            competitionLevel: nlpBrief.competitionLevel,
+            serpFeatures: nlpBrief.serpFeatures ?? [],
+          } : undefined,
           internalLinks: [],
           brand,
           userId,
@@ -292,9 +319,31 @@ export function ArticleWriter() {
               className="w-full bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-4 py-2.5 text-sm focus:outline-none focus:border-[#FF6B2C]/50 transition-colors"
             />
             {nlpBrief && (nlpBrief.entities.length > 0 || nlpBrief.topicalGaps.length > 0) && (
-              <p className="text-xs text-[#1D9E75] mt-1.5">
-                ✓ Using your NLP brief — {nlpBrief.entities.length} entities, {nlpBrief.topicalGaps.length} topical gaps will guide generation
-              </p>
+              <div className="mt-2 p-3 bg-[#1D9E75]/5 border border-[#1D9E75]/20 rounded-[8px] text-xs space-y-1.5">
+                <p className="text-[#1D9E75] font-medium">
+                  ✓ Using your NLP gap analysis for this article
+                  {nlpBrief.gapScore != null && ` — gap score ${nlpBrief.gapScore}/100`}
+                  {nlpBrief.volume != null && ` · ${nlpBrief.volume.toLocaleString()}/mo volume`}
+                  {nlpBrief.competitionLevel && ` · ${nlpBrief.competitionLevel} competition`}
+                </p>
+                {nlpBrief.entities.length > 0 && (
+                  <p className="text-[#6B6B6B]">
+                    <span className="font-medium text-[#374151]">Entities ({nlpBrief.entities.length}):</span>{' '}
+                    {nlpBrief.entities.slice(0, 8).join(', ')}{nlpBrief.entities.length > 8 ? '…' : ''}
+                  </p>
+                )}
+                {nlpBrief.topicalGaps.length > 0 && (
+                  <p className="text-[#6B6B6B]">
+                    <span className="font-medium text-[#374151]">Subtopics to cover ({nlpBrief.topicalGaps.length}):</span>{' '}
+                    {nlpBrief.topicalGaps.slice(0, 6).join(', ')}{nlpBrief.topicalGaps.length > 6 ? '…' : ''}
+                  </p>
+                )}
+                {nlpBrief.serpFeatures && nlpBrief.serpFeatures.length > 0 && (
+                  <p className="text-[#6B6B6B]">
+                    <span className="font-medium text-[#374151]">SERP targets:</span> {nlpBrief.serpFeatures.join(', ')}
+                  </p>
+                )}
+              </div>
             )}
             {clusterBrief && clusterBrief.secondaryKeywords.length > 0 && (
               <p className="text-xs text-[#1D9E75] mt-1.5">

@@ -405,6 +405,30 @@ function NlpPageInner() {
     router.push(`/dashboard/keywords?q=${encodeURIComponent(shortKeyword)}`);
   }
 
+  // Shared by both the direct-entry "Write This Article" button and the
+  // Discovery-flow "Write Directly" option — previously only entities and
+  // topicalGaps were captured here even though intent/serpFeatures/lsiTerms
+  // were already sitting in `results`, and gapScore/volume/competition
+  // (available via discoveryOpportunity when this analysis came from
+  // Discovery) were never captured anywhere in this payload at all.
+  function buildNlpBriefPayload() {
+    if (!results?.brief) return null
+    return {
+      recommendedH1: results.brief.recommendedH1,
+      structure:     results.brief.structure,
+      wordCount:     results.brief.wordCount,
+      tone:          results.brief.tone,
+      entities:      results.entities ?? [],
+      lsiTerms:      results.lsiTerms ?? [],
+      topicalGaps:   results.topicalGaps ?? [],
+      intent:        results.intent?.type ?? "informational",
+      serpFeatures:  (results.serpFeatures ?? []).filter(f => f.available).map(f => f.name),
+      gapScore:          discoveryOpportunity?.gapScore,
+      volume:            discoveryOpportunity?.volume,
+      competitionLevel:  discoveryOpportunity?.competition,
+    }
+  }
+
   return (
     <div className="flex h-screen bg-[#FAFAF8]" style={{ fontFamily: "'Outfit', sans-serif" }}>
       <DashboardNav />
@@ -549,15 +573,38 @@ function NlpPageInner() {
 
               {/* Pipeline CTA — shown when from discovery */}
               {fromDiscovery && (
-                <button
-                  onClick={handleResearchKeywords}
-                  className="w-full flex items-center justify-between bg-[#FF6B2C] hover:bg-[#E85A1E] text-[#0a0a0a] font-bold text-sm px-5 py-3.5 rounded-[10px] transition-colors"
-                >
-                  <span>→ Research Keywords with Full Pipeline Data</span>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                  </svg>
-                </button>
+                <div className="space-y-2">
+                  <button
+                    onClick={handleResearchKeywords}
+                    className="w-full flex items-center justify-between bg-[#FF6B2C] hover:bg-[#E85A1E] text-[#0a0a0a] font-bold text-sm px-5 py-3.5 rounded-[10px] transition-colors"
+                  >
+                    <span>→ Research Keywords with Full Pipeline Data</span>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                    </svg>
+                  </button>
+                  {/* This flow previously had no direct path to Write at all —
+                      only the route through Keywords/clustering above. Not
+                      every article needs clustering; this skips straight to
+                      Write with the same gap-analysis brief (entities,
+                      subtopics, gap score, volume, competition) attached. */}
+                  {results.brief && (
+                    <button
+                      onClick={() => {
+                        const payload = buildNlpBriefPayload();
+                        if (!payload) return;
+                        localStorage.setItem("nlp_brief_data", JSON.stringify(payload));
+                        router.push(`/dashboard/write?keyword=${encodeURIComponent(results.brief.recommendedH1)}`);
+                      }}
+                      className="w-full flex items-center justify-between bg-white border border-[#E8E8E4] hover:border-[#FF6B2C]/50 text-[#0F0F0F] font-medium text-sm px-5 py-2.5 rounded-[10px] transition-colors"
+                    >
+                      <span>Or skip straight to Write with this brief →</span>
+                      <span className="text-xs text-[#9B9B9B]">
+                        {(results.entities?.length ?? 0)} entities · {(results.topicalGaps?.length ?? 0)} gaps
+                      </span>
+                    </button>
+                  )}
+                </div>
               )}
 
               {/* Score summary bar */}
@@ -844,17 +891,8 @@ function NlpPageInner() {
                     {!fromDiscovery && (
                       <button
                         onClick={() => {
-                          const payload = {
-                            recommendedH1: results.brief.recommendedH1,
-                            structure:     results.brief.structure,
-                            wordCount:     results.brief.wordCount,
-                            tone:          results.brief.tone,
-                            entities:      results.entities ?? [],
-                            lsiTerms:      results.lsiTerms ?? [],
-                            topicalGaps:   results.topicalGaps ?? [],
-                            intent:        results.intent?.type ?? "informational",
-                            serpFeatures:  results.serpFeatures ?? [],
-                          };
+                          const payload = buildNlpBriefPayload();
+                          if (!payload) return;
                           localStorage.setItem("nlp_brief_data", JSON.stringify(payload));
                           // §10 item 16 — this used to route to /dashboard?from=nlp,
                           // a param the dashboard page never actually handled. Write
