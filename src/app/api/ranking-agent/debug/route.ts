@@ -8,7 +8,10 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
-  const { keyword, url } = body;
+  // Was hardcoded to 2826 (UK) unconditionally, so debugging rank-checking
+  // for a non-UK keyword silently checked the wrong market. Accepts an
+  // optional location_code, defaulting to global (2840) rather than UK.
+  const { keyword, url, location_code: locationCode = 2840 } = body as { keyword?: string; url?: string; location_code?: number };
 
   const login = process.env.DATAFORSEO_EMAIL;
   const password = process.env.DATAFORSEO_PASSWORD;
@@ -28,7 +31,7 @@ export async function POST(req: NextRequest) {
         },
         body: JSON.stringify([{
           keyword,
-          location_code: 2826,
+          location_code: locationCode,
           language_code: 'en',
           depth: 50,
         }]),

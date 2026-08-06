@@ -15,7 +15,8 @@ export async function POST(req: NextRequest) {
       keyword,
       title,
       instruction,
-      autoApply
+      autoApply,
+      brand: rawBrand
     } = await req.json()
 
     const supabase = createClient(
@@ -28,11 +29,12 @@ export async function POST(req: NextRequest) {
     let content = articleContent
     let resolvedKeyword = keyword
     let resolvedTitle = title
+    let resolvedBrand = rawBrand
 
     if (!content && articleId) {
       const { data: article, error } = await supabase
         .from('articles')
-        .select('content, keyword, title')
+        .select('content, keyword, title, brand')
         .eq('id', articleId)
         .single()
 
@@ -46,6 +48,7 @@ export async function POST(req: NextRequest) {
       content = article.content
       resolvedKeyword = resolvedKeyword || article.keyword
       resolvedTitle = resolvedTitle || article.title
+      resolvedBrand = resolvedBrand || article.brand
     }
 
     // A free-text instruction supplies its own direction, so `target` is only
@@ -63,7 +66,8 @@ export async function POST(req: NextRequest) {
       currentScore: currentScore || 0,
       keyword: resolvedKeyword || '',
       title: resolvedTitle || '',
-      instruction
+      instruction,
+      brand: resolvedBrand || undefined
     })
 
     // Content identity guard — an "edit" that comes back as a different

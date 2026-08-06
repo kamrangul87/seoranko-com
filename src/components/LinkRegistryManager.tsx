@@ -69,7 +69,7 @@ export function LinkRegistryManager() {
   const [saving, setSaving] = useState(false)
   const [filterBrand, setFilterBrand] = useState<string>('all')
   const [form, setForm] = useState({
-    brand: 'autodun',
+    brand: '',
     site_url: '',
     page_url: '',
     page_title: '',
@@ -125,7 +125,7 @@ export function LinkRegistryManager() {
       })
 
     if (!error) {
-      setForm({ brand: 'autodun', site_url: '', page_url: '', page_title: '', page_description: '', topic_tags: '', anchor_text: '' })
+      setForm({ brand: '', site_url: '', page_url: '', page_title: '', page_description: '', topic_tags: '', anchor_text: '' })
       setShowForm(false)
       load()
     }

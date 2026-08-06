@@ -4,13 +4,16 @@ import Anthropic from '@anthropic-ai/sdk';
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
 
 import { MODEL_FOR } from '@/lib/model-router';
+import { LOCATION_CODES } from '@/lib/rank-tracker';
 
 export async function getTopCompetitorUrls(keyword: string, market: string): Promise<string[]> {
+  // Was a 4-country ternary falling through to 2826 (UK) for everything
+  // else — uses the canonical LOCATION_CODES map instead.
+  const marketKey = market.trim().toLowerCase();
   const locationCode =
-    market === 'United Kingdom' ? 2826 :
-    market === 'United States'  ? 2840 :
-    market === 'Australia'      ? 2036 :
-    market === 'Canada'         ? 2124 : 2826;
+    LOCATION_CODES[marketKey]?.code ??
+    Object.values(LOCATION_CODES).find(v => v.name.toLowerCase() === marketKey)?.code ??
+    LOCATION_CODES.global.code;
 
   try {
     const response = await fetch('https://api.dataforseo.com/v3/serp/google/organic/live/advanced', {

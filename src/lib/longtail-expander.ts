@@ -16,7 +16,7 @@ export interface LongTailKeyword {
 
 export async function findLongTailVariants(
   primaryKeyword: string,
-  country: string = 'UK',
+  country: string = 'global',
   maxResults: number = 8
 ): Promise<LongTailKeyword[]> {
   let candidates

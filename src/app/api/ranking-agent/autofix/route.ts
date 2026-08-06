@@ -22,7 +22,7 @@ export const maxDuration = 300;
 // ── STEP A: Fetch top 3 competitor full content ────────────────────────────
 async function fetchTopCompetitors(
   keyword: string,
-  locationCode: number = 2826
+  locationCode: number = 2840 // global/US — see LOCATION_CODES.global in rank-tracker.ts
 ): Promise<{ url: string; content: string; wordCount: number; hasSchema: boolean; hasFaq: boolean; headings: string[] }[]> {
   const email = process.env.DATAFORSEO_EMAIL;
   const password = process.env.DATAFORSEO_PASSWORD;
@@ -230,7 +230,7 @@ export async function POST(req: NextRequest) {
     console.log('[autofix] fetching top 3 competitors for:', article.keyword);
     let competitors: Awaited<ReturnType<typeof fetchTopCompetitors>> = [];
     try {
-      competitors = await fetchTopCompetitors(article.keyword, article.location_code || 2826);
+      competitors = await fetchTopCompetitors(article.keyword, article.location_code || 2840);
     } catch (err) {
       console.error('[autofix] fetchTopCompetitors failed:', err);
     }
@@ -285,7 +285,7 @@ export async function POST(req: NextRequest) {
       topicalGaps: brief.contentToAdd,
       wordCount: Math.max(avgCompetitorWords + 300, 1500),
       tone: 'professional',
-      market: article.market || 'United Kingdom',
+      market: article.market || 'Global',
       internalLinks,
       competitorTopics: brief.missingElements,
       originalArticle: currentArticleHtml || `Article at ${article.url} targeting "${article.keyword}" currently at position #${article.current_position}`,
@@ -345,7 +345,7 @@ Write it as if your career depends on it. Be comprehensive, accurate, and author
     const { article: validatedArticle, corrections } = await validateAndCorrect(
       improvedArticle,
       article.keyword,
-      article.market || 'United Kingdom'
+      article.market || 'Global'
     );
 
     // STEP G — Log the autofix action

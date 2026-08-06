@@ -107,12 +107,16 @@ export async function POST(req: NextRequest) {
       keyword = '',
       wordCount = 1500,
       tone = 'professional',
-      market = 'United Kingdom',
+      market: rawMarket = '',
       secondaryKeywords = [],
       entities = [],
       topicalGaps = [],
       domain: rawDomain = '',
     } = body;
+    if (!rawMarket) {
+      console.warn('[article-competitor] market missing from request — defaulting to Global.');
+    }
+    const market = rawMarket || 'Global';
     const citationDomain = (rawDomain as string).replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase().trim();
 
     console.log('[article-competitor] received:', { keyword, market });

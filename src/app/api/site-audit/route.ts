@@ -366,7 +366,7 @@ function issueToKey(message: string): string {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { urls, domain, market = 'United Kingdom', mode } = body;
+    const { urls, domain, market = 'Global', mode } = body;
 
     const cleanDomain = domain ? normalizeDomain(domain) : '';
 

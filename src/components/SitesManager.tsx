@@ -56,7 +56,7 @@ export function SitesManager() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [domain, setDomain] = useState('')
-  const [brand, setBrand] = useState('autodun')
+  const [brand, setBrand] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [connectTarget, setConnectTarget] = useState<{ id: string; domain: string; token?: string | null } | null>(null)

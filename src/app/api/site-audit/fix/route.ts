@@ -7,6 +7,7 @@ import { upsertFix, siteIdFromDomain } from '@/lib/supabase/fixes-db';
 import { fetchPageSignals, scorePage } from '@/lib/site-audit/scorer';
 import { humanizeArticle } from '@/lib/humanizer';
 import { MODEL_FOR } from '@/lib/model-router';
+import { LOCATION_CODES } from '@/lib/rank-tracker';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
 export const maxDuration = 300;
@@ -576,7 +577,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const rawUrl: string = body.url;
-    const { market = 'United Kingdom' } = body;
+    const { market = 'Global' } = body;
     const keyword: string = body.keyword || body.detectedKeyword || '';
     if (!rawUrl) return NextResponse.json({ error: 'url is required' }, { status: 400 });
 
@@ -597,7 +598,13 @@ export async function POST(req: NextRequest) {
     const createNextjs: boolean = Boolean(body.createNextjs);
     const fixExistingNextjs: boolean = Boolean(body.fixExistingNextjs);
 
-    const locationCode = market.toLowerCase().includes('united kingdom') || market.toLowerCase() === 'uk' ? 2826 : 2840;
+    // Consolidated onto the canonical LOCATION_CODES map instead of its own
+    // 2-country check (was UK-vs-everything-else-is-US).
+    const marketKey = market.trim().toLowerCase();
+    const locationCode =
+      LOCATION_CODES[marketKey]?.code ??
+      Object.values(LOCATION_CODES).find(v => v.name.toLowerCase() === marketKey)?.code ??
+      LOCATION_CODES.global.code;
 
     // STEP 1 — Fetch target page
     console.log('[site-audit/fix] fetching page:', url);

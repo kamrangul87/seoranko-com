@@ -32,7 +32,7 @@ export const maxDuration = 60;
 async function checkKeywordRank(
   keyword: string,
   targetUrl: string,
-  locationCode: number = 2826
+  locationCode: number = 2840 // global/US — see LOCATION_CODES.global in rank-tracker.ts
 ): Promise<{ position: number | null; competitorUrls: string[] }> {
   const result = await sharedCheckKeywordRank(keyword, targetUrl, locationCode);
   return { position: result.position, competitorUrls: result.competitorUrls };
@@ -224,7 +224,7 @@ export async function POST(req: NextRequest) {
       const { position, competitorUrls } = await checkKeywordRank(
         article.keyword,
         article.url,
-        article.location_code || 2826
+        article.location_code || 2840
       );
 
       const previousPosition = article.current_position;

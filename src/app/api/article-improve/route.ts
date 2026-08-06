@@ -58,10 +58,15 @@ export async function POST(req: NextRequest) {
   const {
     article = '',
     keyword = '',
-    market = 'United Kingdom',
+    market: rawMarket = '',
     tone = 'professional',
     domain: rawDomain = '',
-  } = body as { article?: string; keyword?: string; market?: string; tone?: string; domain?: string };
+    brand = '',
+  } = body as { article?: string; keyword?: string; market?: string; tone?: string; domain?: string; brand?: string };
+  if (!rawMarket) {
+    console.warn('[article-improve] market missing from request — defaulting to Global.');
+  }
+  const market = rawMarket || 'Global';
   const citationDomain = (rawDomain as string).replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase().trim();
 
   if (!article.trim()) {
@@ -262,13 +267,20 @@ Return ONLY valid JSON no markdown:
             console.warn('[article-improve] fact-sourcing check failed:', factErr);
           }
 
-          // Quality gate — runs after humanization + fact-sourcing
+          // Quality gate — runs after humanization + fact-sourcing.
+          // brand was previously hardcoded 'autodun' — this route didn't
+          // even accept it from the request body, so every Improve run
+          // was scored as if it belonged to Autodun regardless of whose
+          // article it actually was.
           try {
+            const brandDomains: Record<string, string[]> = {
+              autodun: ['autodun.com'], seoranko: ['seoranko.com'], fitford: ['fitford.com'],
+            }
             const qr = await runQualityGate(finalHtml, {
-              brand: 'autodun',
+              brand,
               keyword: targetKeyword,
               authorName: 'Kamran Gul',
-              registeredLinkDomains: ['autodun.com'],
+              registeredLinkDomains: brandDomains[brand] || [],
               minWordCount: 800,
               maxTypically: 5,
             })

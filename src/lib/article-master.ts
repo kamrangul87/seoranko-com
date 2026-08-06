@@ -9,6 +9,62 @@ import { sanitiseForTransport } from '@/lib/sanitise-text';
 
 export type ArticleMode = 'generate' | 'competitor' | 'improve';
 
+// Was hardcoded to DVSA/gov.uk-only worked examples throughout the prompt
+// regardless of what market the article was actually targeting — the
+// general rules (RULE 3, RULE 8 below) already handled other markets
+// reasonably, but the SAFE CITATION FORMATS section models pattern-match
+// most strongly against showed only UK examples, biasing every article
+// toward UK sourcing even when market was e.g. "Germany" or "Pakistan".
+// Scoped to the same markets the deployment brief specified (UK/US/DE),
+// plus a market-agnostic fallback for everything else — not attempting to
+// hand-write authority examples for all 14 LOCATION_CODES entries.
+interface AuthorityGuidance {
+  citationExamples: string[]
+  domainPattern: string
+  financialFigureSource: string
+}
+
+const AUTHORITY_GUIDANCE: Record<string, AuthorityGuidance> = {
+  'united kingdom': {
+    citationExamples: [
+      '"According to DVSA guidance at gov.uk/guidance/mot-testing-guide..."',
+      '"The official MOT inspection manual published at gov.uk states..."',
+      '"GOV.UK confirms that..." with a link to gov.uk',
+    ],
+    domainPattern: '.gov.uk, .ac.uk, or a named official regulatory body (e.g. gov.uk, DVSA, HMRC, NHS)',
+    financialFigureSource: 'GOV.UK',
+  },
+  'united states': {
+    citationExamples: [
+      '"According to FTC guidance at ftc.gov..."',
+      '"The official CDC guidelines published at cdc.gov state..."',
+      '".gov confirms that..." with a link to the relevant federal agency',
+    ],
+    domainPattern: '.gov, .edu, or a named federal agency (e.g. FTC, DOT, CDC, IRS)',
+    financialFigureSource: 'the relevant .gov source',
+  },
+  germany: {
+    citationExamples: [
+      '"According to the Bundesamt guidance at bund.de..."',
+      '"The official federal guidance published at bund.de states..."',
+      '"Bund.de confirms that..." with a link to the relevant Bundesamt',
+    ],
+    domainPattern: '.de official government domains or a named Bundesamt (federal office)',
+    financialFigureSource: 'the relevant official .de government source',
+  },
+  global: {
+    citationExamples: [
+      'Named official government or regulatory sources for the target market, with a link where available — e.g. "According to [Official Body] at [official domain]..."',
+    ],
+    domainPattern: 'official government or regulatory sources for the target market — no specific institution assumed',
+    financialFigureSource: 'the relevant official government source for that market',
+  },
+}
+
+function getAuthorityGuidance(market: string): AuthorityGuidance {
+  return AUTHORITY_GUIDANCE[market.trim().toLowerCase()] || AUTHORITY_GUIDANCE.global
+}
+
 export interface InternalLink {
   url: string
   anchorText: string
@@ -119,7 +175,7 @@ export function buildMasterPrompt(params: ArticleMasterParams): string {
     gapAnalysis,
     wordCount = 1500,
     tone = 'professional',
-    market = 'United Kingdom',
+    market = 'Global',
     uniqueAngle = '',
     uniqueContent = '',
     uniqueDataSection = '',
@@ -135,6 +191,7 @@ export function buildMasterPrompt(params: ArticleMasterParams): string {
   } = params;
 
   const safeWordCount = Math.min(wordCount, 1800);
+  const authorityGuidance = getAuthorityGuidance(market);
   // Raised from 12 — a real cluster brief can run to 14+ terms (confirmed:
   // "ev charger" generated with a 14-term cluster silently lost several past
   // the old cap). 20 gives realistic cluster sizes headroom; anything beyond
@@ -349,13 +406,11 @@ WHEN YOU WANT TO CITE SOMETHING:
   "published at [official URL from live facts]"
 - Never write "according to document TB/XXX" or "as per guidance note XX/YY"
 - If you cannot find the exact document in the live facts, say:
-  "according to official DVSA guidance at gov.uk" — not a specific document code
+  "according to official guidance from [named regulatory body]" — not a specific document code
 
-SAFE CITATION FORMATS (use these):
-✅ "According to DVSA guidance at gov.uk/guidance/mot-testing-guide..."
-✅ "The official MOT inspection manual published at gov.uk states..."
-✅ "GOV.UK confirms that..." with a link to gov.uk
-✅ Statistics with named source: "DVSA annual testing statistics show..."
+SAFE CITATION FORMATS for ${market} (use these):
+${authorityGuidance.citationExamples.map(e => `✅ ${e}`).join('\n')}
+✅ Statistics with named source: "[Named Body]'s official statistics show..."
 
 UNSAFE CITATION FORMATS (never use):
 ❌ "According to DVSA guidance document TB/432..."
@@ -519,16 +574,16 @@ as often as from classic search — each section must work on a fast scan,
 not only on a full read.
 
 AUTHORITY LINKS RULE (mandatory):
-- Every article MUST include at least 2 external links to authoritative sources (.gov, .gov.uk, .ac.uk, .org, official regulatory bodies)
+- Every article MUST include at least 2 external links to authoritative sources for ${market}: ${authorityGuidance.domainPattern}
 - Link text must be descriptive — never use "click here", "here", "read more", or "this"
 - Format: <a href="URL" rel="noopener">Descriptive anchor text</a>
-- If the topic involves UK regulations, always link to the specific gov.uk page, not the homepage
+- If the topic involves regulations specific to ${market}, always link to the specific official page, not the homepage
 
 FINANCIAL FIGURES RULE:
-Any time you state a specific grant amount, percentage, or £ figure
+Any time you state a specific grant amount, percentage, or currency figure
 that could change (government grants, tax rates, official caps),
-either link directly to the GOV.UK source in the same sentence, or
-add "(verify at GOV.UK)" immediately after the figure. A figure with
+either link directly to ${authorityGuidance.financialFigureSource} in the same sentence, or
+add "(verify with the official source)" immediately after the figure. A figure with
 no source and no verification note will be flagged as a publishing
 blocker.
 
@@ -558,14 +613,14 @@ SECTION 6.5 — AI CITATION OPTIMISATION (MANDATORY)
 These instructions ensure every article gets cited by AI search engines.
 
 For ChatGPT citation:
-- Include the brand/domain name (Autodun) naturally in the first 100 words
+- Include the brand or site name naturally in the first 100 words
 - Keep dateModified = today's date in Article schema
 - Use clear, confident declarative statements ("X works by...", "The rule is...", not "X may work by...")
 
 For Perplexity citation:
 - FAQPage schema must be present with at least 4 questions
 - Every paragraph must stay tightly on topic — no tangents
-- Include outbound links to authoritative sources (gov.uk, official bodies, peer-reviewed sources where available)
+- Include outbound links to authoritative sources for ${market} (${authorityGuidance.domainPattern}, peer-reviewed sources where available)
 
 For Google AI Overviews:
 - Answer the primary question directly within the first 200 words (inverted pyramid)
@@ -702,7 +757,7 @@ Write the complete article now. Output HTML only — no commentary, no preamble.
 export async function validateAndCorrect(
   article: string,
   keyword = '',
-  market = 'United Kingdom',
+  market = 'Global',
   liveFacts = '',
 ): Promise<{ article: string; corrections: string[] }> {
   const corrections: string[] = [];

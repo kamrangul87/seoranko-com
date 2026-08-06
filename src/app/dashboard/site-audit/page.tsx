@@ -95,7 +95,7 @@ export default function SiteAuditPage() {
   const [mode, setMode] = useState<'domain' | 'manual'>('domain');
   const [domain, setDomain] = useState('');
   const [urls, setUrls] = useState('');
-  const [market, setMarket] = useState('United Kingdom');
+  const [market, setMarket] = useState('Global');
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState('');
@@ -178,7 +178,7 @@ export default function SiteAuditPage() {
     didAutoLoad.current = true;
 
     const savedDomain = localStorage.getItem('seoranko_audit_domain') || '';
-    const savedMarket = localStorage.getItem('seoranko_audit_market') || 'United Kingdom';
+    const savedMarket = localStorage.getItem('seoranko_audit_market') || 'Global';
     if (!savedDomain) return;
 
     setDomain(savedDomain);
@@ -1109,6 +1109,7 @@ export default function SiteAuditPage() {
               style={{ fontSize: '13px', padding: '8px 12px', border: '1px solid #E8E8E4', borderRadius: '8px', background: '#fff', color: '#0F0F0F' }}
               value={market} onChange={e => setMarket(e.target.value)}
             >
+              <option>Global</option>
               <option>United Kingdom</option>
               <option>United States</option>
               <option>Australia</option>
@@ -1365,8 +1366,8 @@ export default function SiteAuditPage() {
               const steps = [
                 { title: 'Create a Wikidata account', detail: 'Go to wikidata.org → Create account. Use your real name or brand name as the username. Confirm your email.' },
                 { title: 'Search for your entity', detail: `Search "Special:Search" on Wikidata for "${domainClean}". If it already exists, skip to step 5. If not, proceed to create a new item.` },
-                { title: 'Create a new item', detail: 'Click "Create a new item" → Enter your brand/company label in English → Add a brief description (e.g. "UK-based SEO software company") → Save.' },
-                { title: 'Add key statements', detail: 'Add: instance of (P31) → business (Q4830453) · official website (P856) → ' + (domain || 'https://yoursite.com') + ' · country (P17) → United Kingdom (Q145) · industry (P452) → search engine optimization (Q183756)' },
+                { title: 'Create a new item', detail: `Click "Create a new item" → Enter your brand/company label in English → Add a brief description (e.g. "${market === 'Global' ? 'an' : `a ${market}-based`} SEO software company") → Save.` },
+                { title: 'Add key statements', detail: 'Add: instance of (P31) → business (Q4830453) · official website (P856) → ' + (domain || 'https://yoursite.com') + ' · country (P17) → ' + ({ 'United Kingdom': 'United Kingdom (Q145)', 'United States': 'United States (Q30)', 'Germany': 'Germany (Q183)' }[market] || `the correct Wikidata entity for ${market} — search Wikidata for your country's name to find its Q-number`) + ' · industry (P452) → search engine optimization (Q183756)' },
                 { title: 'Add sameAs identifiers', detail: 'Link to your Google Business Profile, LinkedIn company page, Companies House number (P1278 → your CH number), Twitter/X handle (P2002). Each cross-link raises AI confidence.' },
                 { title: 'Verify and monitor', detail: 'After saving, paste your Wikidata entity URL (e.g. https://www.wikidata.org/wiki/Q12345) into Google Search Console as a structured data target. Knowledge Panel typically appears within 2–8 weeks.' },
               ];

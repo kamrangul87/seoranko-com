@@ -56,7 +56,7 @@ export function ArticleWriter() {
   const [country, setCountry]       = useState<Country>('UK')
   const [tone, setTone]             = useState<Tone>('professional')
   const [wordCount, setWordCount]   = useState(2000)
-  const [brand, setBrand]           = useState('autodun')
+  const [brand, setBrand]           = useState('')
   const [loading, setLoading]       = useState(false)
 
   // §10 item 16 — NLP moves from a standalone Optimise tab to a Station-3

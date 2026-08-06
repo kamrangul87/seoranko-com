@@ -16,7 +16,7 @@ export default function ImproveArticlePage() {
   const [prefilling, setPrefilling] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [sourceNote, setSourceNote] = useState('');
-  const [market, setMarket] = useState('United Kingdom');
+  const [market, setMarket] = useState('Global');
   const [tone, setTone] = useState('professional');
   const [loading, setLoading] = useState(false);
   const [stage, setStage] = useState('');

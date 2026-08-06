@@ -16,6 +16,14 @@ export interface ImproveRequest {
    * pass so we change only what the diagnosis asked for.
    */
   instruction?: string
+  /**
+   * Was hardcoded 'autodun' below regardless of whose article this actually
+   * is. Optional here because two automated callers (freshness-automation.ts,
+   * rank-guard.ts) work off ranking_agent_articles, which doesn't have a
+   * brand column at all yet — a real gap, not silently papered over; when
+   * absent the Quality Gate below gets no brand rather than a fabricated one.
+   */
+  brand?: string
 }
 
 export interface ImproveResult {
@@ -212,11 +220,15 @@ ${request.articleContent}`
 
   let qualityGate: ImproveResult['qualityGate']
   try {
+    const brandDomains: Record<string, string[]> = {
+      autodun: ['autodun.com'], seoranko: ['seoranko.com'], fitford: ['fitford.com'],
+    }
+    const brand = request.brand || ''
     const qr = await runQualityGate(cleanedContent, {
-      brand: 'autodun',
+      brand,
       keyword: request.keyword,
       authorName: 'Kamran Gul',
-      registeredLinkDomains: ['autodun.com'],
+      registeredLinkDomains: brandDomains[brand] || [],
       minWordCount: 800,
       maxTypically: 5,
     })

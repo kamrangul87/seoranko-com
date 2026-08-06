@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
       keyword = '',
       wordCount = 1500,
       tone = 'professional',
-      market = 'United Kingdom',
+      market: rawMarket = '',
       secondaryKeywords = [],
       longTailKeywords = [],
       entities = [],
@@ -96,6 +96,15 @@ export async function POST(req: NextRequest) {
       userId = '',
       pageId = null,
     } = body;
+    // ArticleWriter.tsx always sends a real market from its dropdown — this
+    // route being called without one is a genuine upstream bug, not a
+    // legitimate "no market" case, so it's logged loudly rather than
+    // silently assuming a specific country (was previously 'United Kingdom'
+    // unconditionally, biasing every market-less request toward UK content).
+    if (!rawMarket) {
+      console.warn('[article-v2] market missing from request — defaulting to Global. Check the caller: this should always be set from the Write page.');
+    }
+    const market = rawMarket || 'Global';
     const citationDomain = (rawDomain as string).replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase().trim();
 
     console.log('[article-v2] received:', { keyword, secondaryKeywords: (secondaryKeywords as string[]).length, entities: (entities as string[]).length });
@@ -414,10 +423,15 @@ Do not write generic angles. Be specific and surprising.`
               autodun: ['autodun.com'], seoranko: ['seoranko.com'], fitford: ['fitford.com'],
             }
             const qr = await runQualityGate(finalHtml, {
-              brand: brand || 'autodun',
+              // No fallback to a specific company — an unset/unknown brand
+              // falls through to an empty registeredLinkDomains below
+              // (safe-by-default: nothing is assumed to be this article's
+              // "home" domain) rather than silently treating autodun.com as
+              // the home brand for an article that may belong to someone else.
+              brand,
               keyword,
               authorName: 'Kamran Gul',
-              registeredLinkDomains: brandDomains[brand] || ['autodun.com'],
+              registeredLinkDomains: brandDomains[brand] || [],
               minWordCount: 800,
               maxTypically: 5,
               userId: (userId as string) || undefined,
@@ -552,7 +566,7 @@ Do not write generic angles. Be specific and surprising.`
                   readability_score: readabilityScore,
                   keyword_density: String(keywordDensity),
                   status: 'draft',
-                  brand: brand || 'autodun',
+                  brand: brand || null, // never fabricate a company name in persisted data
                   article_url: articleUrl,
                   rank_score: rankScore,
                   fact_density_score: factDensityResult.score,

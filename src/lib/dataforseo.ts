@@ -1,4 +1,5 @@
 import { KeywordResult, SearchIntent } from "@/types";
+import { LOCATION_CODES } from "./rank-tracker";
 
 const BASE_URL = "https://api.dataforseo.com/v3";
 
@@ -9,12 +10,23 @@ export function getAuthHeader(): string {
   return "Basic " + Buffer.from(`${email}:${password}`).toString("base64");
 }
 
+// Previously only recognised "UK"/"US", silently returning US data (2840)
+// for every other market — keyword research for Germany, Pakistan, UAE etc.
+// was returning US search volumes with no indication anything was wrong.
+// rank-tracker.ts's LOCATION_CODES is the canonical, complete map (14
+// countries + global); this just looks up into it instead of duplicating
+// a narrower one. Accepts either a 2-letter code ("DE") or a full market
+// name ("Germany") since callers use both.
 export function getLocationCode(country: string): number {
-  switch (country) {
-    case "UK":  return 2826;
-    case "US":  return 2840;
-    default:    return 2840;
-  }
+  const key = country.trim().toLowerCase();
+  const byCode = LOCATION_CODES[key];
+  if (byCode) return byCode.code;
+
+  const byName = Object.values(LOCATION_CODES).find(v => v.name.toLowerCase() === key);
+  if (byName) return byName.code;
+
+  console.warn(`[dataforseo] Unrecognised market "${country}" — defaulting to Global (2840). Add it to LOCATION_CODES in rank-tracker.ts if this market should be supported.`);
+  return LOCATION_CODES.global.code;
 }
 
 // keyword_ideas returns intent strings like "informational", "commercial", etc.
