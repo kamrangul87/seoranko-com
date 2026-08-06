@@ -182,6 +182,7 @@ export function ArticleWriter() {
           internalLinks: [],
           brand,
           userId,
+          pageId: clusterBrief?.pageId ?? null,
         }),
       })
 
@@ -228,6 +229,7 @@ export function ArticleWriter() {
       let llmsTxtEntry: string | undefined, rankScore: number | undefined
       let factSourcingScore: number | undefined, factPatchedCount: number | undefined
       let linkAudit: ArticleOutput['linkAudit']
+      let articleId: string | undefined, saveError: string | undefined
 
       const scoresMatch = full.match(/\n<!-- SEORANKO_SCORES:(\{[\s\S]*?\}) -->/)
       if (scoresMatch) {
@@ -252,6 +254,8 @@ export function ArticleWriter() {
           factPatchedCount = p.factPatchedCount
           if (p.qualityGate) qualityGate = p.qualityGate
           if (p.linkAudit) linkAudit = p.linkAudit
+          articleId = p.articleId
+          saveError = p.saveError
         } catch { /* keep defaults */ }
         full = full.replace(/\n<!-- SEORANKO_SCORES:\{[\s\S]*?\} -->/, '')
       }
@@ -286,6 +290,8 @@ export function ArticleWriter() {
         factPatchedCount,
         qualityGate,
         linkAudit,
+        articleId,
+        saveError,
       })
     } catch (err: unknown) {
       setError(`Request failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
@@ -444,6 +450,17 @@ export function ArticleWriter() {
       {/* Article output */}
       {article && !loading && (
         <div className="space-y-5">
+          {/* Save status — a save failure happens AFTER a successful
+              generation, so the article is still shown below; this makes
+              the failure impossible to miss instead of a silent 200 with
+              a generated-but-unsaved article. */}
+          {article.saveError && (
+            <div className="bg-red-50 border border-red-200 rounded-[10px] px-4 py-3 text-sm text-red-800">
+              <p className="font-semibold">⚠ This article was NOT saved — {article.saveError}</p>
+              <p className="text-xs text-red-600 mt-1">Copy the HTML now (below) before leaving this page, or it will be lost.</p>
+            </div>
+          )}
+
           {/* Score rings */}
           <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-6">
             <div className="flex items-center justify-between mb-4">

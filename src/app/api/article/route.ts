@@ -1,3 +1,16 @@
+// DEPRECATED — superseded by /api/article-v2 (src/app/api/article-v2/route.ts).
+// Confirmed unreachable from the live UI: ArticleWriter.tsx (the actual Write
+// page component) calls /api/article-v2 exclusively; grepping the whole repo
+// for fetch('/api/article' turns up nothing pointing at this route. This was
+// the ONLY route that actually inserted generated articles into the `articles`
+// table (see its "Save to Supabase" block below) — article-v2 never did,
+// which is why `articles` had 0 rows in production despite Write working.
+// article-v2 now has its own insert (as of the articles-persistence fix) and
+// is the canonical save path going forward. Left in place rather than
+// deleted — it's a real, working, more complete implementation (full
+// startPage/stampStage/completePage/blockPage lifecycle, editorial-audit
+// tie-in) that may be worth drawing from later, not just dead weight — but
+// do not wire anything new to call this file; extend article-v2 instead.
 import { NextRequest } from "next/server";
 import { getAnthropicClient } from "@/lib/anthropic";
 import { MODEL_FOR } from "@/lib/model-router";

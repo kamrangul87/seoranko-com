@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { createClient } from '@supabase/supabase-js';
+import { stampStage, STAGE } from '@/lib/pages';
 import { buildMasterPrompt, validateAndCorrect, fetchVerifiedFacts, checkAnswerFirst, computeRankScore, extractHowToSteps, buildInternalLinksPrompt } from '@/lib/article-master';
 import { getEligibleLinks } from '@/lib/internal-link-engine';
 import type { InternalLink } from '@/lib/article-master';
@@ -29,6 +31,22 @@ export const maxDuration = 300;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
 
+// Service role, not anon — articles/pages/user_profiles RLS is
+// auth.uid() = user_id (or = id). A server route has no forwarded user JWT
+// by default, so an anon-key client here would have auth.uid() = NULL and
+// every insert/update would be silently rejected by RLS. Service role
+// bypasses RLS by design; this route already knows and controls which
+// user_id to attribute each row to, so it doesn't need RLS to enforce that
+// — RLS exists to protect direct client-side DB access, not trusted server
+// code. Matches the pattern already used in image-generator.ts and
+// internal-link-engine.ts for the same reason.
+function getServiceSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } },
+  );
+}
 
 function auditPlacedLinks(
   articleContent: string,
@@ -76,6 +94,7 @@ export async function POST(req: NextRequest) {
       internalLinks: userInternalLinks = [],
       brand = '',
       userId = '',
+      pageId = null,
     } = body;
     const citationDomain = (rawDomain as string).replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase().trim();
 
@@ -299,6 +318,11 @@ Do not write generic angles. Be specific and surprising.`
           // humanization draft — falls back to fullArticle if the try block
           // below fails before reassigning it.
           let finalHtml = fullArticle;
+          // What actually gets saved/published — withImages when image
+          // injection ran, else finalHtml. Set alongside finalHtml below;
+          // separate variable because withImages is scoped inside the
+          // `if (imageSet)` block and images are optional.
+          let publishedHtml = fullArticle;
           // One id for this whole generation request — used both as the
           // image storage folder's uniqueness suffix (so two articles on
           // the same keyword never overwrite each other's images, see
@@ -409,9 +433,11 @@ Do not write generic angles. Be specific and surprising.`
           controller.enqueue(encoder.encode(
               `\n<!--SEORANKO_HUMANIZED_START-->\n${finalHtml}\n<!--SEORANKO_HUMANIZED_END-->`
             ));
+          publishedHtml = finalHtml;
 
             if (imageSet) {
               const withImages = injectImagesIntoArticle(finalHtml, imageSet);
+              publishedHtml = withImages;
 
               // Images are injected AFTER the Quality Gate already ran (finalHtml
               // never has <img> tags at that point — they're streamed separately
@@ -488,11 +514,95 @@ Do not write generic angles. Be specific and surprising.`
           };
           console.log(`[internal-links] placed=${linkAudit.totalPlaced} skipped=${placementResult.skipped.length}${linkAudit.note ? ` note="${linkAudit.note}"` : ''}`);
 
+          // ── Persist to Supabase ──────────────────────────────────────────
+          // This is the entire reason the `articles` table had 0 rows in
+          // production: this route streamed the generated article back to
+          // the browser and never wrote it anywhere. Every downstream reader
+          // (Topical Map, Cannibalisation Detector, ROI Dashboard, RANKO
+          // diagnose) was correctly showing empty — there was genuinely
+          // nothing there. A save failure here must not silently produce a
+          // 200 with a generated-but-unsaved article — see saveError below,
+          // surfaced through SEORANKO_SCORES rather than the fatal
+          // SEORANKO_ERROR marker, since the article itself is still good;
+          // only persistence failed, and discarding a successful generation
+          // over that would be a worse outcome than the current bug.
+          let savedArticleId: string | undefined;
+          let saveError: string | undefined;
+          if (userId) {
+            try {
+              const db = getServiceSupabase();
+              const { data: savedArticle, error: insertError } = await db
+                .from('articles')
+                .insert({
+                  user_id: userId,
+                  title: articleTitle,
+                  meta_description: articleDescription,
+                  content: publishedHtml,
+                  keyword,
+                  word_count: factDensityResult.wordCount,
+                  eeat_score: eeatScore,
+                  readability_score: readabilityScore,
+                  keyword_density: String(keywordDensity),
+                  status: 'draft',
+                  brand: brand || 'autodun',
+                  article_url: articleUrl,
+                  rank_score: rankScore,
+                  fact_density_score: factDensityResult.score,
+                  human_score: humanScore ?? null,
+                  quality_score: articleQualityGate?.score ?? null,
+                  quality_passed: articleQualityGate?.passed ?? null,
+                  quality_issues: articleQualityGate?.issues ?? [],
+                  quality_auto_fixed: articleQualityGate?.autoFixedCount ?? 0,
+                  quality_ready_to_publish: articleQualityGate?.readyToPublish ?? false,
+                  quality_checked_at: articleQualityGate ? new Date().toISOString() : null,
+                  // entity_score/entity_count/top_entities intentionally omitted —
+                  // no entity-scoring exists anywhere in this pipeline yet.
+                })
+                .select('id')
+                .single();
+
+              if (insertError) throw insertError;
+              savedArticleId = savedArticle.id;
+              console.log(`[article-v2] saved article ${savedArticleId} for user ${userId}`);
+
+              // Fire-and-forget, matches pages.ts's "instrumentation must
+              // not break the pipeline" philosophy — usage counters and
+              // pipeline-stage tracking should never fail the response.
+              (async () => {
+                try {
+                  const { data: profile } = await db
+                    .from('user_profiles')
+                    .select('articles_used_today, articles_used_month')
+                    .eq('id', userId)
+                    .single();
+                  await db.from('user_profiles').update({
+                    articles_used_today: (profile?.articles_used_today ?? 0) + 1,
+                    articles_used_month: (profile?.articles_used_month ?? 0) + 1,
+                  }).eq('id', userId);
+                } catch (usageErr) {
+                  console.warn('[article-v2] usage counter update failed:', usageErr);
+                }
+              })();
+
+              if (pageId) {
+                void stampStage(db, pageId as string, STAGE.QA, { article_id: savedArticleId });
+              }
+            } catch (err) {
+              saveError = err instanceof Error ? err.message : String(err);
+              console.error('[article-v2] FAILED to save article to Supabase:', saveError);
+            }
+          } else {
+            saveError = 'No authenticated user — article was generated but not saved. Please sign in and regenerate.';
+            console.warn('[article-v2] skipped save: no userId on request');
+          }
+
           // Append score metadata as a parseable HTML comment — client strips this
           const scoreMeta = JSON.stringify({
             searchScore, aiScore, eeatScore, readabilityScore, keywordDensity, keywordDensityScore,
             factSourcingScore, factPatchedCount, llmsTxtEntry, humanScore, bannedWordsRemoved, passesDetection,
             rankScore,
+            articleId: savedArticleId,
+            saveError,
             factDensity: {
               score: factDensityResult.score,
               grade: factDensityResult.grade,

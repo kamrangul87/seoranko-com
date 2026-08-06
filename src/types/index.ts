@@ -222,6 +222,8 @@ export interface ArticleOutput {
     totalPlaced: number
     note?: string
   }
+  articleId?: string
+  saveError?: string
 }
 
 export interface ArticleResponse {
