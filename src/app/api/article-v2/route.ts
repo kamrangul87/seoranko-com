@@ -10,6 +10,7 @@ import { parseFAQsFromArticle } from '@/lib/faq-generator';
 import { generateArticleSchema, detectHowTo } from '@/lib/schema-generator';
 import { buildSocialMetaTags } from '@/lib/social-meta-tags';
 import { buildCanonicalTag } from '@/lib/canonical-builder';
+import { pingIndexNow } from '@/lib/indexnow';
 import { humanizeArticle } from '@/lib/humanizer';
 import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-generator';
 import { recordScoreSnapshot } from '@/lib/drift-tracker';
@@ -323,6 +324,11 @@ Do not write generic angles. Be specific and surprising.`
             autoFixedCount: number; issues: QualityIssue[]; blockers: string[]; readyToPublish: boolean;
           } | undefined;
           let heroImageUrl: string | undefined;
+          // Hoisted so the IndexNow ping (fired after the Supabase save,
+          // outside this function's inner try block) can reuse the same
+          // full URL already computed for the schema/canonical tag, instead
+          // of a third independent computation.
+          let fullArticleUrl: string | undefined;
           // Hoisted so the link audit below (and anything else after this
           // try block) can check the actual final text, not the pre-
           // humanization draft — falls back to fullArticle if the try block
@@ -444,9 +450,12 @@ Do not write generic angles. Be specific and surprising.`
               : brandLooksLikeDomain
                 ? `https://${brand.trim()}`
                 : undefined;
-            // Shared by both the JSON-LD schema below and the OG/Twitter tags
-            // — one full canonical-style URL, computed once.
-            const fullArticleUrl = schemaOrgUrl ? `${schemaOrgUrl}${articleSlug}` : `https://example.com${articleSlug}`;
+            // Shared by the JSON-LD schema below, the OG/Twitter tags, the
+            // canonical tag, and the IndexNow ping after save — one full
+            // canonical-style URL, computed once. Hoisted (see
+            // `let fullArticleUrl` above) so the IndexNow ping, which fires
+            // outside this try block after the Supabase save, can reuse it.
+            fullArticleUrl = schemaOrgUrl ? `${schemaOrgUrl}${articleSlug}` : `https://example.com${articleSlug}`;
             schemaResult = generateArticleSchema({
               title: articleTitle,
               description: articleDescription,
@@ -682,6 +691,17 @@ Do not write generic angles. Be specific and surprising.`
               if (insertError) throw insertError;
               savedArticleId = savedArticle.id;
               console.log(`[article-v2] saved article ${savedArticleId} for user ${userId}`);
+
+              // Fire-and-forget — never block/fail the response on IndexNow.
+              // No-ops itself (see indexnow.ts) if INDEXNOW_KEY isn't
+              // configured or the URL is still the example.com placeholder.
+              const indexNowUrl = fullArticleUrl || `https://example.com${articleSlug}`;
+              pingIndexNow(indexNowUrl)
+                .then(result => {
+                  if (result.fired) console.log(`[indexnow] pinged for ${indexNowUrl}: ${result.reason}`);
+                  else console.log(`[indexnow] skipped for ${indexNowUrl}: ${result.reason}`);
+                })
+                .catch(err => console.warn('[indexnow] ping failed:', err));
 
               // Fire-and-forget, matches pages.ts's "instrumentation must
               // not break the pipeline" philosophy — usage counters and
