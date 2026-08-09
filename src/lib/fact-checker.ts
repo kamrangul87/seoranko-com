@@ -173,10 +173,23 @@ RULES:
     flaggedClaims.slice(0, 20).forEach((flagged, i) => {
       const key = String(i + 1);
       const patched = patches[key];
-      if (patched && patched !== flagged.sentence && patchedArticle.includes(flagged.sentence)) {
-        patchedArticle = patchedArticle.replace(flagged.sentence, patched);
-        patchedCount++;
+      if (!patched || patched === flagged.sentence || !patchedArticle.includes(flagged.sentence)) return;
+      // A pure hedging/attribution edit should never introduce a new
+      // sentence boundary. When it does, the model has hedged one clause
+      // and left the rest as a dangling fragment (e.g. an original "...
+      // averaging around £3,200, with some reaching £5,000 or more."
+      // coming back as "...averaging around £3,200, with some reaching
+      // higher amounts. £5,000 or more." — grammatically valid punctuation,
+      // but "£5,000 or more." has no subject or verb of its own). Reject
+      // and keep the original sentence rather than ship a broken one —
+      // an unhedged but grammatically intact sentence is safer than a
+      // hedged but broken one.
+      if (splitIntoSentences(patched).length > splitIntoSentences(flagged.sentence).length) {
+        console.warn('[fact-checker] rejected a patch that split one sentence into multiple:', flagged.sentence.slice(0, 80));
+        return;
       }
+      patchedArticle = patchedArticle.replace(flagged.sentence, patched);
+      patchedCount++;
     });
 
     // Recalculate score based on patchedCount improvement

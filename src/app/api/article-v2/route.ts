@@ -406,7 +406,19 @@ Do not write generic angles. Be specific and surprising.`
             // its own schema — combinedScriptTag was previously computed but
             // never actually inserted into the saved/published article.
             const schemaOrgName = brand || citationDomain || 'this site';
-            const schemaOrgUrl = citationDomain ? `https://${citationDomain}` : undefined;
+            // organizationUrl previously ONLY came from the separate `domain`
+            // field — if that was empty (as here: brand='ev.autodun.com' but
+            // domain='') it silently fell back to generateArticleSchema's own
+            // default (https://seoranko.com), publishing SEORANKO itself as
+            // the article's publisher. Brand is very often itself a domain
+            // (e.g. 'ev.autodun.com', 'autodun.com') — use it directly when
+            // it looks like one and no separate domain was supplied.
+            const brandLooksLikeDomain = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(brand.trim());
+            const schemaOrgUrl = citationDomain
+              ? `https://${citationDomain}`
+              : brandLooksLikeDomain
+                ? `https://${brand.trim()}`
+                : undefined;
             schemaResult = generateArticleSchema({
               title: articleTitle,
               description: articleDescription,
