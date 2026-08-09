@@ -291,6 +291,7 @@ export type IssueCategory =
   | 'broken-citation-link'
   | 'schema'
   | 'missing-author'
+  | 'missing-brand'
   | 'missing-date'
   | 'word-count'
   | 'fact-density'
@@ -707,6 +708,28 @@ export async function runQualityGate(
       title: `Author name "${authorName}" not found in article`,
       description: 'Author byline is required for EEAT signals.',
       autoFixable: false
+    })
+  }
+
+  // ---- RULE 7b: Brand context required to publish ----
+  // Confirmed: a real article was generated and saved with zero brand/user
+  // context ("No brand or user context for this generation" — seen directly
+  // in the Quality Gate panel). Internal linking, schema publisher/author
+  // URLs, canonical URLs, and OG tags all depend on a real brand — without
+  // one they gracefully degrade to a placeholder (https://example.com),
+  // which is correct defensive coding but not something that should ever be
+  // called "ready to publish". Brand-less generation stays allowed (a
+  // legitimate scratch/draft use case) but is blocked from readyToPublish —
+  // critical severity makes this an unconditional block regardless of what
+  // else the article scores.
+  if (!brand) {
+    issues.push({
+      id: 'missing-brand',
+      severity: 'critical',
+      category: 'missing-brand',
+      title: 'No brand set — this article cannot be marked ready to publish',
+      description: 'Generated without brand/site context, so internal linking, schema publisher identity, canonical URL, and OG tags all fall back to placeholders. Treat this as a draft: set a brand and regenerate (or re-run the gate after adding one) before publishing.',
+      autoFixable: false,
     })
   }
 
