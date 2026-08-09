@@ -18,7 +18,15 @@
     "react": "^18",
     "react-dom": "^18",
     "replicate": "^1.4.0",
-    "sharp": "^0.35.2"
+    "retext-contractions": "^6.0.0",
+    "retext-english": "^5.0.0",
+    "retext-quotes": "^6.0.2",
+    "retext-redundant-acronyms": "^5.0.0",
+    "retext-repeated-words": "^5.0.0",
+    "retext-sentence-spacing": "^6.0.0",
+    "retext-stringify": "^4.0.0",
+    "sharp": "^0.35.2",
+    "unified": "^11.0.5"
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.20",
