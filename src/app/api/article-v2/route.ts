@@ -9,6 +9,7 @@ import { scoreFactDensity } from '@/lib/fact-density';
 import { parseFAQsFromArticle } from '@/lib/faq-generator';
 import { generateArticleSchema, detectHowTo } from '@/lib/schema-generator';
 import { buildSocialMetaTags } from '@/lib/social-meta-tags';
+import { buildCanonicalTag } from '@/lib/canonical-builder';
 import { humanizeArticle } from '@/lib/humanizer';
 import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-generator';
 import { recordScoreSnapshot } from '@/lib/drift-tracker';
@@ -480,6 +481,12 @@ Do not write generic angles. Be specific and surprising.`
               imageUrl: heroImageUrl,
             });
             finalHtml = `${finalHtml}\n\n${socialTags}`;
+
+            // Canonical tag — same fullArticleUrl already computed above for
+            // the schema and OG tags (including its https://example.com
+            // fallback when brand/domain is genuinely absent), so the
+            // canonical tag, schema, and OG tags always agree on the URL.
+            finalHtml = `${finalHtml}\n\n${buildCanonicalTag(fullArticleUrl)}`;
 
             // Mechanical scannability safety net — the write prompt's
             // SCANNABILITY RULE is a request, not a guarantee. Split any
