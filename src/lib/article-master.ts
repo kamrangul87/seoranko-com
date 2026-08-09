@@ -723,14 +723,25 @@ IF APPROACHING TOKEN LIMIT AT ANY POINT:
 5. Write author bio div
 6. Write expert-review div
 7. Write footer metadata
-8. Write Article JSON-LD schema
-9. Write Person JSON-LD schema
-10. Write FAQ JSON-LD schema
-11. STOP
+8. STOP
 
 A complete 1,000-word article beats a truncated 2,000-word one every time.
 NEVER stop mid-sentence. NEVER stop mid-tag. NEVER omit The Bottom Line.
-NEVER omit the two JSON-LD scripts — they are mandatory for schema markup.
+Do not write JSON-LD schema scripts even when truncating — see SECTION 7:
+that markup is generated separately by code, not by you, under any
+circumstances.
+
+════════════════════════════════
+SECTION 9 — FINAL SELF-REVIEW (MANDATORY)
+════════════════════════════════
+Before finalizing, re-read your own draft as a skeptical editor who owes you
+no kindness. Check specifically for:
+- Any meta-commentary or notes-to-self that a reader should never see
+- The same link or URL used more than once
+- Any specific number, statistic, or named study with no real, checkable
+  source
+- Any sentence that doesn't parse as a complete grammatical unit on its own
+Fix anything you find before returning output.
 
 Write the complete article now. Output HTML only — no commentary, no preamble.`;
 }
