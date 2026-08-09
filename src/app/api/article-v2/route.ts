@@ -8,6 +8,7 @@ import type { InternalLink } from '@/lib/article-master';
 import { scoreFactDensity } from '@/lib/fact-density';
 import { parseFAQsFromArticle } from '@/lib/faq-generator';
 import { generateArticleSchema, detectHowTo } from '@/lib/schema-generator';
+import { buildSocialMetaTags } from '@/lib/social-meta-tags';
 import { humanizeArticle } from '@/lib/humanizer';
 import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-generator';
 import { recordScoreSnapshot } from '@/lib/drift-tracker';
@@ -419,6 +420,9 @@ Do not write generic angles. Be specific and surprising.`
               : brandLooksLikeDomain
                 ? `https://${brand.trim()}`
                 : undefined;
+            // Shared by both the JSON-LD schema below and the OG/Twitter tags
+            // — one full canonical-style URL, computed once.
+            const fullArticleUrl = schemaOrgUrl ? `${schemaOrgUrl}${articleSlug}` : `https://example.com${articleSlug}`;
             schemaResult = generateArticleSchema({
               title: articleTitle,
               description: articleDescription,
@@ -432,7 +436,7 @@ Do not write generic angles. Be specific and surprising.`
               // the author-bio template assuming a specific person).
               authorName: 'Kamran Gul',
               publishDate: new Date().toISOString(),
-              articleUrl: schemaOrgUrl ? `${schemaOrgUrl}${articleSlug}` : `https://example.com${articleSlug}`,
+              articleUrl: fullArticleUrl,
               imageUrl: heroImageUrl || undefined,
               wordCount: factDensityResult.wordCount,
               faqs: faqs.length > 0 ? faqs : undefined,
@@ -442,6 +446,17 @@ Do not write generic angles. Be specific and surprising.`
               organizationUrl: schemaOrgUrl,
             });
             finalHtml = `${finalHtml}\n\n${schemaResult.combinedScriptTag}`;
+
+            // OG/Twitter tags — see social-meta-tags.ts for why these were
+            // entirely missing before. Appended as a plain string, same
+            // mechanism as the JSON-LD script tag above.
+            const socialTags = buildSocialMetaTags({
+              title: articleTitle,
+              description: articleDescription,
+              url: fullArticleUrl,
+              imageUrl: heroImageUrl,
+            });
+            finalHtml = `${finalHtml}\n\n${socialTags}`;
 
             // Mechanical scannability safety net — the write prompt's
             // SCANNABILITY RULE is a request, not a guarantee. Split any
