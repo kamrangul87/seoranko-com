@@ -1,6 +1,22 @@
 // src/lib/canonical-builder.ts
 // Builds canonical and essential meta tags for every SEORANKO article
 
+// Grepped the pipeline: zero matches for rel="canonical" anywhere. Combined
+// with the schema's articleUrl sometimes falling back to a placeholder
+// (https://example.com/... when brand/domain is genuinely absent — this has
+// already happened in a real saved article), a missing canonical tag risks
+// duplicate-content signals if content is ever syndicated or the URL
+// structure changes later.
+//
+// Minimal, single-purpose canonical tag — see buildCanonicalTags below for
+// the fuller combined block (canonical + robots + description + OG/Twitter)
+// used by the article-download export path. This is for the live
+// article-v2 generation path, which needs just the canonical link on its
+// own (OG/Twitter tags are wired separately, see social-meta-tags.ts).
+export function buildCanonicalTag(url: string): string {
+  return `<link rel="canonical" href="${url.replace(/"/g, '&quot;')}" />`
+}
+
 export interface CanonicalInput {
   articleUrl: string       // full canonical URL e.g. https://yoursite.com/blog/my-article
   title: string
