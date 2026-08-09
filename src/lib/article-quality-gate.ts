@@ -12,6 +12,7 @@
 import { validateSchema } from './schema-validator'
 import { validateArticleStructure } from './structure-validator'
 import { createClient } from '@supabase/supabase-js'
+import { lintProse } from './prose-linter'
 
 // AI slop patterns — expanded from anti-slop GitHub repo
 const AI_SLOP_PATTERNS = [
@@ -191,22 +192,21 @@ function evaluateGrantFigureClaims(articleContent: string): QualityIssue[] {
   return issues
 }
 
+// Duplicate-word and repeated-character checks used to live here as regexes
+// too. Both are now handled by prose-linter.ts's retext pipeline instead:
+// retext-repeated-words is tokenization-aware (won't cross HTML/attribute
+// boundaries the way a raw regex risks), and the old repeated-character
+// regex is dropped entirely rather than replaced — it had no way to tell a
+// genuine typo ("reeeally") from a legitimate repeated letter in a brand
+// name or chemical formula, and no retext plugin covers that narrow case
+// safely either. The two merge-artifact patterns below are a different,
+// narrowly-scoped, low-false-positive-risk mechanism specific to this app's
+// LLM-generation pipeline (not a general prose-style concern retext
+// addresses) and are kept as-is.
 const COPY_ERROR_PATTERNS = [
-  {
-    pattern: /\b(\w{2,})\s+\1\b/g,
-    message: 'Duplicate word found',
-    severity: 'critical' as const,
-    category: 'typo' as const,
-  },
   {
     pattern: /[a-z]\.[a-z]/g,
     message: 'Possible missing space after period',
-    severity: 'warning' as const,
-    category: 'typo' as const,
-  },
-  {
-    pattern: /\b\w*([a-z])\1{3,}\w*\b/g,
-    message: 'Possible repeated character / typo',
     severity: 'warning' as const,
     category: 'typo' as const,
   },
@@ -223,6 +223,19 @@ const COPY_ERROR_PATTERNS = [
     category: 'merge-artifact' as const,
   },
 ]
+
+// Found while building the retext replacement above: the "missing space
+// after period" check matches ANY lowercase-dot-lowercase sequence, which
+// means a domain name mentioned in visible text (e.g. "ofgem.gov.uk" matches
+// "v.u", "seoranko.com" matches "o.c") false-positives as a typo — the same
+// class of bug as the confirmed domain-name typo false-positive fixed
+// earlier this session. Mask domain-like tokens out before running that one
+// check; masking preserves string length so match indices (used for the
+// issue's location context) still line up with the original text.
+const DOMAIN_TOKEN_RE = /\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\b/gi
+function maskDomainLikeTokens(text: string): string {
+  return text.replace(DOMAIN_TOKEN_RE, (m) => 'x'.repeat(m.length))
+}
 
 // RULE 1's regexes are typo/copy-error checks meant for prose. Run against
 // raw HTML they also match inside attribute values (e.g. style="border-radius:0
@@ -519,9 +532,16 @@ export async function runQualityGate(
   // never false-positive on markup or attribute values like style="...8px 8px...".
   const textForCopyChecks = stripHtmlForTextChecks(articleContent)
   for (const rule of COPY_ERROR_PATTERNS) {
-    const matches = textForCopyChecks.match(rule.pattern)
+    // "Missing space after period" false-positives on domain names mentioned
+    // in body text (see maskDomainLikeTokens above) — search a masked copy
+    // for this one rule only, but slice context from the real text (masking
+    // preserves length, so indices still line up).
+    const searchText = rule.message === 'Possible missing space after period'
+      ? maskDomainLikeTokens(textForCopyChecks)
+      : textForCopyChecks
+    const matches = searchText.match(rule.pattern)
     if (matches && matches.length > 0) {
-      const idx = textForCopyChecks.search(rule.pattern)
+      const idx = searchText.search(rule.pattern)
       const context = textForCopyChecks.slice(Math.max(0, idx - 30), idx + 60)
       issues.push({
         id: `copy-${rule.category}-${issues.length}`,
@@ -533,6 +553,26 @@ export async function runQualityGate(
         autoFixable: false
       })
     }
+  }
+
+  // ---- RULE 1b: Tokenization-aware prose checks (retext) ----
+  // Replaces the old duplicate-word and repeated-character regexes — see
+  // prose-linter.ts for why. Reuses the same visible-text extraction as
+  // RULE 1 above.
+  try {
+    const proseFindings = await lintProse(textForCopyChecks)
+    for (const finding of proseFindings) {
+      issues.push({
+        id: `prose-${finding.key}`,
+        severity: finding.severity,
+        category: 'typo',
+        title: finding.title,
+        description: `Found ${finding.count} instance(s)${finding.examples.length > 0 ? `, e.g. "${finding.examples.join('", "')}"` : ''}.`,
+        autoFixable: false,
+      })
+    }
+  } catch (proseErr) {
+    console.warn('[article-quality-gate] prose lint failed, continuing:', proseErr)
   }
 
   // ---- RULE 2: Dangerous fact patterns (dated-policy only — grant figures
