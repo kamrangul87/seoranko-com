@@ -19,9 +19,32 @@ export interface FactSourcingOutput {
 }
 
 
-// Signals that a claim is already properly sourced
-const SOURCED_RE =
-  /\b(approximately|around|about|roughly|typically|usually|generally|often|tends?|up to|as much as|as little as|on average|in most cases|varies|depends|estimate[ds]?|circa|roughly)\b|\b(according to|says|reports?|claims?|estimates?|states?|shows?|found|published|research|study|survey|data from|statistics from|figures from|per the|based on)\b|\([^)]{2,}[÷×\/\*\+\-][^)]{1,}\)/i;
+// A real source names WHO is behind the claim — a specific organisation,
+// acronym, or capitalised proper-noun phrase, tolerating up to two words
+// (e.g. "latest published") between the possessive source name and the
+// reporting verb/noun. This rejects vague attribution like "a report
+// found", "researchers say", "a 2024 analysis found", "retailers reported"
+// (generic/lowercase nouns), while accepting "GOV.UK confirms", "Ofgem's
+// open data", "DVSA guidance", "Rightmove data", "According to Ofcom's
+// 2026 report", and "DVSA's own testing figures confirm".
+const NAMED_SOURCE_RE =
+  /\b(GOV\.UK|gov\.uk|Ofgem|DVSA|DVLA|HMRC|NHS|DfT|ONS|Rightmove|Ofcom|FCA|CMA|[A-Z][a-zA-Z&.]*(?:\s+[A-Z][a-zA-Z&.]*){0,3})('s)?\s+(?:\w+\s+){0,2}(?:data|report(?:s|ed|ing)?|found|shows?|states?|says?|confirms?|analysis|statistics?|survey|research|study|figures?)\b/;
+
+// Generic/vague nouns that can masquerade as a "named source" purely
+// because they're capitalised at the start of a sentence (e.g.
+// "Researchers say demand is growing" — capitalised only due to sentence
+// position, not because "Researchers" is a genuine proper noun). Matched
+// case-insensitively against the captured source-name text so these are
+// rejected regardless of position.
+const VAGUE_ATTRIBUTION_TERMS = new Set([
+  'researchers', 'experts', 'studies', 'reports', 'analysts', 'scientists',
+  'officials', 'sources', 'surveys', 'data', 'statistics', 'research',
+  'a report', 'the report', 'some', 'many', 'most', 'observers', 'critics',
+]);
+
+// An inline calculation shown as working, e.g. "(7,400W ÷ 230V)", counts as
+// the claim being derived/verifiable rather than asserted from nowhere.
+const SHOWN_WORKING_RE = /\([^)]{2,}[÷×\/\*\+\-][^)]{1,}\)/;
 
 function isYearDate(raw: string): boolean {
   const digits = raw.replace(/[^0-9]/g, '');
@@ -61,9 +84,15 @@ function splitIntoSentences(text: string): string[] {
 }
 
 function isSentenceSourced(sentence: string, paragraphHtml: string): boolean {
-  if (SOURCED_RE.test(sentence)) return true;
-  // Has a hyperlink in the same paragraph
+  // Has a hyperlink in the same paragraph — genuinely checkable, always counts
   if (/href=/i.test(paragraphHtml)) return true;
+  // Names a specific organisation/source, not just a generic reporting verb.
+  // Reject matches where the captured "source name" is itself a vague noun
+  // (e.g. "Researchers say...") that's capitalised only by sentence position.
+  const match = sentence.match(NAMED_SOURCE_RE);
+  if (match && !VAGUE_ATTRIBUTION_TERMS.has(match[1].toLowerCase())) return true;
+  // Shows the arithmetic behind the number, so it's derivable/verifiable
+  if (SHOWN_WORKING_RE.test(sentence)) return true;
   return false;
 }
 

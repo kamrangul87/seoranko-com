@@ -131,7 +131,8 @@ This comment will be logged and shown to the user so they know the link was not 
 PLACEMENT RULES for links that DO pass the relevance check:
 - Use the EXACT anchor text the user specified, not a variation
 - Place naturally within existing paragraph text — never create a new paragraph just for a link
-- Distribute across the article — not all in one section
+- If you have MULTIPLE different links to place, distribute them across different sections — not all in one section
+- EACH UNIQUE URL MUST APPEAR AT MOST ONCE IN THE ENTIRE ARTICLE. Never place the same href twice, even in different sections (e.g. once mid-article AND again in the Bottom Line) — pick the single best-fitting location for that link and do not repeat it elsewhere, even if a later section's instructions mention "internal link naturally"
 - Never place two links in the same sentence
 - HTML format: <a href="URL" rel="noopener">anchor text</a>
 - Maximum 1 link per paragraph
@@ -218,16 +219,6 @@ export function buildMasterPrompt(params: ArticleMasterParams): string {
 
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().toLocaleString('en-GB', { month: 'long' });
-  const isoDate = new Date().toISOString().split('T')[0];
-
-  // Schema language tag follows the target market rather than assuming en-GB
-  const langMap: Record<string, string> = {
-    'United States': 'en-US',
-    'Australia': 'en-AU',
-    'Canada': 'en-CA',
-    'United Kingdom': 'en-GB',
-  };
-  const inLanguage = langMap[market] || 'en';
 
   // ── MODE-SPECIFIC CONTEXT BLOCK ──────────────────────────────────────────
 
@@ -659,7 +650,7 @@ PASSAGE CITABILITY — apply to every H2 section below:
 <p>[130-150 words. Self-contained answer — a reader should understand this without reading anything else. Include at least 1 sentence with a specific fact, statistic, or authoritative source.]</p>
 
 <h2>[Section 2 phrased as question — e.g. "How Does [topic] Actually Work?"]</h2>
-<p>[130-150 words. Include internal link naturally here if relevant.]</p>
+<p>[130-150 words. If an internal link is relevant AND has not already been placed elsewhere in the article, include it naturally here. Do not repeat a link already placed in an earlier section.]</p>
 
 <h2>[Section 3 phrased as question — e.g. "When Do You Need to [topic]?"]</h2>
 <p>[130-150 words.]</p>
@@ -684,7 +675,6 @@ Every article MUST include exactly 6 FAQ items below. Rules:
 - DO NOT add generic filler questions. Every question must be something a real user would actually search.
 
 <h2>Frequently Asked Questions</h2>
-<p><em>Note: FAQPage schema no longer generates Google rich results (deprecated May 2026) but retains strong AI citation value for ChatGPT, Perplexity, and Claude — always include it.</em></p>
 <div class="faq-item"><h3>[Conversational question 1 — definition question, exactly as a user would type it?]</h3><p>[60-100 words — complete, self-contained answer. No "see above" or "as mentioned". A user should get the full answer from this alone.]</p></div>
 <div class="faq-item"><h3>[Question 2 — how-to question?]</h3><p>[60-100 words]</p></div>
 <div class="faq-item"><h3>[Question 3 — comparison question?]</h3><p>[60-100 words]</p></div>
@@ -693,7 +683,7 @@ Every article MUST include exactly 6 FAQ items below. Rules:
 <div class="faq-item"><h3>[Question 6 — best practice question?]</h3><p>[60-100 words]</p></div>
 
 <h2>The Bottom Line</h2>
-<p>[80 words. Practical summary. 2 action steps. One internal link naturally.]</p>
+<p>[80 words. Practical summary. 2 action steps. Only include an internal link here if it has NOT already appeared earlier in the article — never repeat the same link twice.]</p>
 
 <div class="author-bio" style="background:#F0F4FF;border-left:3px solid #1D4ED8;padding:16px 20px;border-radius:0 8px 8px 0;margin-top:24px;">
 <p style="margin:0;font-size:13px;color:#0F0F0F;"><strong>About the Author</strong><br><strong>Kamran Gul</strong> is the Founder of Autodun, an independent vehicle intelligence platform based in the United Kingdom. [2-3 sentences describing Kamran's direct expertise relevant to THIS specific article's topic — be concrete and specific, never invent qualifications or credentials.]</p>
@@ -705,22 +695,13 @@ Every article MUST include exactly 6 FAQ items below. Rules:
 
 <p class="article-meta"><em>Last updated: ${currentMonth} ${currentYear}. Always verify regulatory details with the official ${market} sources cited above.</em></p>
 
-<script type="application/ld+json">
-{"@context":"https://schema.org","@type":"Article","headline":"[exact H1 title]","author":{"@type":"Person","name":"Kamran Gul","jobTitle":"Founder","worksFor":{"@type":"Organization","name":"Autodun"}},"publisher":{"@type":"Organization","name":"Autodun","url":"https://autodun.com"},"datePublished":"${isoDate}","dateModified":"${isoDate}","inLanguage":"${inLanguage}"}
-</script>
-
-<script type="application/ld+json">
-{"@context":"https://schema.org","@type":"Person","name":"Kamran Gul","jobTitle":"Founder","worksFor":{"@type":"Organization","name":"Autodun","url":"https://autodun.com"},"url":"https://autodun.com"}
-</script>
-
-<script type="application/ld+json">
-{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[
-{"@type":"Question","name":"[Q1 — exact conversational phrasing]","acceptedAnswer":{"@type":"Answer","text":"[A1 — 60-100 words, complete self-contained answer]"}},
-{"@type":"Question","name":"[Q2]","acceptedAnswer":{"@type":"Answer","text":"[A2]"}},
-{"@type":"Question","name":"[Q3]","acceptedAnswer":{"@type":"Answer","text":"[A3]"}},
-{"@type":"Question","name":"[Q4]","acceptedAnswer":{"@type":"Answer","text":"[A4]"}}
-]}
-</script>
+DO NOT write any <script type="application/ld+json"> blocks yourself. All
+structured data (Article, FAQPage, BreadcrumbList, Organization schema) is
+generated separately by code from the article's actual title, meta
+description, brand, and FAQ content, and is injected automatically after you
+finish writing. Any JSON-LD you write here would be redundant, incomplete,
+and hardcoded to the wrong brand — leave it out entirely and end the article
+content at the article-meta paragraph above.
 
 ════════════════════════════════
 SECTION 8 — ABSOLUTE COMPLETION RULE

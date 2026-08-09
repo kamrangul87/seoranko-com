@@ -21,7 +21,6 @@ import {
 } from '@/lib/content-scorer';
 import { MODEL_FOR } from '@/lib/model-router';
 import { runQualityGate, type QualityIssue } from '@/lib/article-quality-gate';
-import { injectMissingArticleImage } from '@/lib/schema-validator';
 import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
 import { insertTableOfContents } from '@/lib/table-of-contents';
 import { autoSplitDenseParagraphs } from '@/lib/scannability-fixer';
@@ -276,18 +275,10 @@ Do not write generic angles. Be specific and surprising.`
           const metaMatch = fullArticle.match(/<!-- META:\s*([^-]+?)\s*-->/i);
           const articleDescription = metaMatch ? metaMatch[1].trim().slice(0, 160) : `Article about ${keyword}`;
           const articleSlug = `/${keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
-          const schemaResult = generateArticleSchema({
-            title: articleTitle,
-            description: articleDescription,
-            keyword,
-            authorName: 'Kamran Gul',
-            publishDate: new Date().toISOString(),
-            articleUrl: `https://seoranko.com/blog${articleSlug}`,
-            wordCount: factDensityResult.wordCount,
-            faqs: faqs.length > 0 ? faqs : undefined,
-            isHowTo,
-            howToSteps: isHowTo ? extractHowToSteps(fullArticle) : undefined,
-          });
+          // Schema generation itself moved below, after heroImageUrl is known
+          // (see near injectMissingArticleImage) — real image URL now gets
+          // passed in directly instead of text-patched into a model-written
+          // schema block, since the model no longer writes its own schema.
           const answerFirst = checkAnswerFirst(fullArticle);
 
           // Score the article and generate llms.txt entry
@@ -339,6 +330,10 @@ Do not write generic angles. Be specific and surprising.`
           // separate variable because withImages is scoped inside the
           // `if (imageSet)` block and images are optional.
           let publishedHtml = fullArticle;
+          // Hoisted alongside finalHtml/publishedHtml above — built inside
+          // the try block once heroImageUrl is known, but referenced again
+          // below when the API response is assembled.
+          let schemaResult: ReturnType<typeof generateArticleSchema> | null = null;
           // One id for this whole generation request — used both as the
           // image storage folder's uniqueness suffix (so two articles on
           // the same keyword never overwrite each other's images, see
@@ -398,13 +393,43 @@ Do not write generic angles. Be specific and surprising.`
               console.warn('[article-v2] merge-artifact repair failed, continuing:', repairErr);
             }
 
-            // The model wrote its own Article schema during generation, before
-            // any hero image existed — patch the real URL in now, before the
-            // Quality Gate scores the schema, so it isn't flagged every time.
             if (imageSet?.hero?.url) {
               heroImageUrl = imageSet.hero.url;
-              finalHtml = injectMissingArticleImage(finalHtml, heroImageUrl);
             }
+
+            // Schema must reflect the actual brand/site this article is being
+            // written for — never SEORANKO itself (SEORANKO is the tool, not
+            // the publisher of the client's content) and never a hardcoded
+            // author name regardless of who the brand actually is. Built here
+            // (not earlier) so the real hero image URL can be passed straight
+            // in, and appended to finalHtml since the model no longer writes
+            // its own schema — combinedScriptTag was previously computed but
+            // never actually inserted into the saved/published article.
+            const schemaOrgName = brand || citationDomain || 'this site';
+            const schemaOrgUrl = citationDomain ? `https://${citationDomain}` : undefined;
+            schemaResult = generateArticleSchema({
+              title: articleTitle,
+              description: articleDescription,
+              keyword,
+              // generateArticleSchema hardcodes author.@type to "Person" —
+              // passing an org/brand name here would claim a person is
+              // literally named "autodun" or a domain string. organizationName
+              // below is the correctly-typed Organization field (publisher)
+              // this fix is actually for; author identity is a separate,
+              // deliberately-deferred question (see prior session notes on
+              // the author-bio template assuming a specific person).
+              authorName: 'Kamran Gul',
+              publishDate: new Date().toISOString(),
+              articleUrl: schemaOrgUrl ? `${schemaOrgUrl}${articleSlug}` : `https://example.com${articleSlug}`,
+              imageUrl: heroImageUrl || undefined,
+              wordCount: factDensityResult.wordCount,
+              faqs: faqs.length > 0 ? faqs : undefined,
+              isHowTo,
+              howToSteps: isHowTo ? extractHowToSteps(fullArticle) : undefined,
+              organizationName: schemaOrgName,
+              organizationUrl: schemaOrgUrl,
+            });
+            finalHtml = `${finalHtml}\n\n${schemaResult.combinedScriptTag}`;
 
             // Mechanical scannability safety net — the write prompt's
             // SCANNABILITY RULE is a request, not a guarantee. Split any
@@ -633,8 +658,8 @@ Do not write generic angles. Be specific and surprising.`
             },
             faqs,
             answerFirst,
-            hasSchema: true,
-            schemaScriptTag: injectMissingArticleImage(schemaResult.combinedScriptTag, heroImageUrl),
+            hasSchema: !!schemaResult,
+            schemaScriptTag: schemaResult?.combinedScriptTag ?? '',
             linkAudit,
             qualityGate: articleQualityGate,
           });
