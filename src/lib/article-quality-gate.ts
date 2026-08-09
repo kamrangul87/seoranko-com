@@ -275,6 +275,7 @@ export type IssueCategory =
   | 'ai-slop'
   | 'hedging'
   | 'cross-brand-link'
+  | 'broken-citation-link'
   | 'schema'
   | 'missing-author'
   | 'missing-date'
@@ -484,6 +485,14 @@ export async function runQualityGate(
     expectedImageCount?: number
     brief?: { entities: string[]; topicalGaps: string[] }
     secondaryKeywords?: string[]
+    // Issues computed by the caller before this gate runs — e.g. broken/fake
+    // citation links, already resolved via HTTP checks by
+    // citation-link-validator.ts against the (already-patched) articleContent
+    // being passed in here. Kept as a caller-supplied list rather than an
+    // async check inside this gate so the async link-validation step can run
+    // once, before the fact-sourcing patch, and its results (a stripped
+    // article + issues) both feed forward correctly.
+    extraIssues?: QualityIssue[]
   }
 ): Promise<QualityGateResult> {
 
@@ -498,9 +507,10 @@ export async function runQualityGate(
     expectedImageCount,
     brief,
     secondaryKeywords,
+    extraIssues,
   } = options
 
-  let issues: QualityIssue[] = []
+  let issues: QualityIssue[] = extraIssues ? [...extraIssues] : []
   let articleAfterAutoFix = articleContent
   let autoFixedCount = 0
 

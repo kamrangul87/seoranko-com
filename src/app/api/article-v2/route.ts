@@ -13,6 +13,7 @@ import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-gene
 import { recordScoreSnapshot } from '@/lib/drift-tracker';
 import { queueCitationTest } from '@/lib/citation-tester';
 import { checkAndPatchFactSourcing } from '@/lib/fact-checker';
+import { validateCitationLinks, type CitationLinkIssue } from '@/lib/citation-link-validator';
 import {
   calculateEEATScore,
   calculateReadabilityScore,
@@ -365,10 +366,32 @@ Do not write generic angles. Be specific and surprising.`
             bannedWordsRemoved = humanized.bannedWordsRemoved;
             passesDetection = humanized.passesDetection;
 
-            // Fact-sourcing check + auto-patch on humanized HTML
+            // Validate outbound citation links BEFORE the fact-sourcing check
+            // below, so a stripped dead/fake citation is re-evaluated as an
+            // unsourced claim by checkAndPatchFactSourcing (not left looking
+            // "sourced" by a link that no longer exists in the HTML).
             finalHtml = humanized.humanizedHtml;
+            let citationLinkIssues: CitationLinkIssue[] = [];
             try {
-              const factResult = await checkAndPatchFactSourcing(humanized.humanizedHtml, keyword, market);
+              const citationCheck = await validateCitationLinks(finalHtml, {
+                skipUrls: linksRequestedFromModel.map(l => l.url).filter(Boolean),
+                skipDomains: citationDomain ? [citationDomain] : [],
+              });
+              finalHtml = citationCheck.html;
+              citationLinkIssues = citationCheck.issues;
+              if (citationLinkIssues.length > 0) {
+                console.warn(
+                  `[article-v2] citation link validation: stripped ${citationLinkIssues.length} broken/fake citation link(s):`,
+                  citationLinkIssues.map(i => `${i.url} (${i.reason}: ${i.detail})`)
+                );
+              }
+            } catch (citationErr) {
+              console.warn('[article-v2] citation link validation failed, continuing:', citationErr);
+            }
+
+            // Fact-sourcing check + auto-patch on humanized HTML
+            try {
+              const factResult = await checkAndPatchFactSourcing(finalHtml, keyword, market);
               finalHtml = factResult.article;
               factSourcingScore = factResult.result.factSourcingScore;
               factPatchedCount = factResult.result.patchedCount;
@@ -477,6 +500,20 @@ Do not write generic angles. Be specific and surprising.`
                 ? { entities: entities as string[], topicalGaps: topicalGaps as string[] }
                 : undefined,
               secondaryKeywords: secondaryKeywords as string[],
+              // A fake or dead citation is worse than no citation — it looks
+              // verified but isn't. Blocking (critical), not a warning.
+              extraIssues: citationLinkIssues.map((issue, i) => ({
+                id: `broken-citation-link-${i}`,
+                severity: 'critical' as const,
+                category: 'broken-citation-link' as const,
+                title: issue.reason === 'domain-mismatch'
+                  ? `Citation link domain mismatch: "${issue.anchorText}"`
+                  : `Citation link unreachable: "${issue.anchorText}"`,
+                description: `${issue.detail}. The link (${issue.url}) was stripped from the article and the sentence was left as plain text rather than shipping a dead or fake-looking citation.`,
+                location: issue.anchorText,
+                autoFixable: true,
+                autoFixDescription: 'Already auto-fixed — the broken citation link was stripped before this gate ran.',
+              })),
             })
             finalHtml = qr.articleAfterAutoFix
             articleQualityGate = {
