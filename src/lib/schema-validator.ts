@@ -47,6 +47,75 @@ function extractJsonLdBlocks(html: string): any[] {
   return blocks
 }
 
+function isPlausibleUrl(value: unknown): boolean {
+  return typeof value === 'string' && /^https?:\/\/\S+/i.test(value)
+}
+
+function isValidDateString(value: unknown): boolean {
+  return typeof value === 'string' && value.length > 0 && !isNaN(Date.parse(value))
+}
+
+// Existing checks above only confirm a property EXISTS, not that its value
+// is actually shaped the way Google's structured data guidelines expect.
+// Confirmed via schema-generator.ts's own output that this gap is real, not
+// hypothetical: publisher is generated as { "@type": "Organization", name,
+// url } with no logo at all — Google's Article guidelines list
+// publisher.logo as a recommended property for full rich-result
+// eligibility, and nothing before this validated publisher's shape in any
+// way (only author's .name was special-cased). Used for both author and
+// publisher, since Google requires each to be a structured Person/
+// Organization object, not plain text.
+function validateNestedEntity(
+  value: any,
+  property: 'author' | 'publisher',
+  issues: SchemaIssue[],
+): void {
+  const entities = Array.isArray(value) ? value : [value]
+  for (const entity of entities) {
+    if (typeof entity === 'string') {
+      issues.push({
+        schemaType: property === 'author' ? 'Person' : 'Organization',
+        severity: 'warning',
+        property,
+        message: `"${property}" is plain text, not a structured Person/Organization object — Google's Article guidelines expect a structured entity here, not bare text.`
+      })
+      continue
+    }
+    if (typeof entity !== 'object' || entity === null) continue
+
+    const rawType = entity['@type']
+    const entityType = Array.isArray(rawType) ? rawType[0] : rawType
+    if (!entityType) {
+      issues.push({
+        schemaType: property === 'author' ? 'Person' : 'Organization',
+        severity: 'error',
+        property: `${property}.@type`,
+        message: `"${property}" is missing @type — Google cannot classify who this is.`
+      })
+    }
+    if (!entity.name) {
+      issues.push({
+        schemaType: entityType || (property === 'author' ? 'Person' : 'Organization'),
+        severity: 'error',
+        property: `${property}.name`,
+        message: `"${property}" is missing a name.`
+      })
+    }
+    if (property === 'publisher') {
+      const logo = entity.logo
+      const logoUrl = typeof logo === 'string' ? logo : logo?.url
+      if (!isPlausibleUrl(logoUrl)) {
+        issues.push({
+          schemaType: entityType || 'Organization',
+          severity: 'warning',
+          property: 'publisher.logo',
+          message: "publisher is missing a logo (or it isn't a usable URL) — Google's structured data guidelines list this as a recommended property for full Article rich-result eligibility."
+        })
+      }
+    }
+  }
+}
+
 function validateBlock(block: any, issues: SchemaIssue[]): void {
   if (block.__parseError) {
     issues.push({
@@ -107,16 +176,34 @@ function validateBlock(block: any, issues: SchemaIssue[]): void {
     }
   }
 
-  // Nested Person/Organization inside Article
-  if ((type === 'Article' || type === 'BlogPosting') && block.author) {
-    const authors = Array.isArray(block.author) ? block.author : [block.author]
-    for (const author of authors) {
-      if (typeof author === 'object' && author !== null && !author.name) {
+  // Nested Person/Organization inside Article/BlogPosting/NewsArticle, and
+  // value-shape checks Google's Rich Results Test would actually run, not
+  // just "does the property exist" — a schema block can pass every presence
+  // check above and still be structurally wrong (a garbage date string, an
+  // author that's bare text, an image with no resolvable URL).
+  if (type === 'Article' || type === 'BlogPosting' || type === 'NewsArticle') {
+    if (block.author) validateNestedEntity(block.author, 'author', issues)
+    if (block.publisher) validateNestedEntity(block.publisher, 'publisher', issues)
+
+    for (const dateProp of ['datePublished', 'dateModified'] as const) {
+      if (block[dateProp] && !isValidDateString(block[dateProp])) {
         issues.push({
-          schemaType: 'Person (nested in Article.author)',
+          schemaType: type,
           severity: 'error',
-          property: 'author.name',
-          message: 'Article author is missing a name property.'
+          property: dateProp,
+          message: `"${dateProp}" value "${block[dateProp]}" doesn't parse as a valid date — Google requires ISO 8601 (e.g. "2026-08-09T00:00:00Z").`
+        })
+      }
+    }
+
+    if (block.image) {
+      const imageUrl = typeof block.image === 'string' ? block.image : block.image?.url
+      if (!isPlausibleUrl(imageUrl)) {
+        issues.push({
+          schemaType: type,
+          severity: 'error',
+          property: 'image',
+          message: 'image property is present but has no usable http(s) URL — Google requires a resolvable image URL for Article rich results.'
         })
       }
     }
@@ -208,6 +295,26 @@ export function validateSchema(articleHtml: string): SchemaValidationResult {
       property: '(missing entirely)',
       message: 'No Person schema found — named authors are cited significantly more often by AI engines.'
     })
+  }
+
+  // Google explicitly disallows more than one conflicting top-level Article
+  // definition on the same page — a document-level check, not something a
+  // single block can catch on its own.
+  const articleTypeCounts: Record<string, number> = {}
+  for (const type of schemasFound) {
+    if (type === 'Article' || type === 'BlogPosting' || type === 'NewsArticle') {
+      articleTypeCounts[type] = (articleTypeCounts[type] || 0) + 1
+    }
+  }
+  for (const [type, count] of Object.entries(articleTypeCounts)) {
+    if (count > 1) {
+      issues.push({
+        schemaType: type,
+        severity: 'error',
+        property: '(duplicate block)',
+        message: `Found ${count} separate ${type} schema blocks on the same page — Google's guidelines expect exactly one; duplicates create conflicting signals about which is authoritative.`
+      })
+    }
   }
 
   return {
