@@ -59,11 +59,16 @@ function fillTemplate(template: string, slug: string): string {
 }
 
 async function triggerDeployHook(creds: PublisherCredentials): Promise<{ fired: boolean; detail: string }> {
-  // Per-site hook takes priority; falls back to the single-brand env var
-  // already wired for autodun.com (site-audit/fix/route.ts's
-  // VERCEL_DEPLOY_HOOK_AUTODUN) so this works today without a DB change,
-  // but a real multi-tenant setup should store the hook per connected site.
-  const hookUrl = creds.deployHookUrl || process.env.VERCEL_DEPLOY_HOOK_AUTODUN
+  // Per-site hook (creds.deployHookUrl, stored in site_connections.credentials
+  // alongside the other per-platform secrets) is the real, multi-tenant
+  // mechanism and always takes priority. VERCEL_DEPLOY_HOOK_DEFAULT is a
+  // deliberately brand-agnostic single-site fallback for convenience during
+  // early testing (e.g. one connected test site with nothing yet stored in
+  // its credentials JSONB) — NOT a substitute for per-site config once more
+  // than one site is connected. This intentionally does not fall back to
+  // site-audit/fix/route.ts's separate VERCEL_DEPLOY_HOOK_AUTODUN, which is
+  // that other feature's own env var, not a shared default for this one.
+  const hookUrl = creds.deployHookUrl || process.env.VERCEL_DEPLOY_HOOK_DEFAULT
   if (!hookUrl) {
     return { fired: false, detail: 'No deploy hook configured for this site — commit made, but nothing will trigger a rebuild automatically. Configure one in Settings, or rely on the repo\'s own CI.' }
   }
