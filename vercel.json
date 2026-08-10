@@ -10,6 +10,7 @@
   },
   "crons": [
     { "path": "/api/cron/weekly-jobs", "schedule": "0 8 * * 1" },
-    { "path": "/api/cron/send-digests", "schedule": "0 9 * * 1" }
+    { "path": "/api/cron/send-digests", "schedule": "0 9 * * 1" },
+    { "path": "/api/cron/verify-liveness", "schedule": "*/5 * * * *" }
   ]
 }
