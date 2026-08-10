@@ -192,6 +192,26 @@ export function buildMasterPrompt(params: ArticleMasterParams): string {
   } = params;
 
   const safeWordCount = Math.min(wordCount, 1800);
+
+  // Article structure now scales with the requested word count instead of
+  // being hardcoded in several places that never agreed with each other.
+  // Confirmed root cause of articles running ~2x the requested length:
+  // one section said "6-8 H2 sections minimum" unconditionally, another
+  // said "EXACTLY 5" with its own fixed 1,340-word budget, and the FAQ
+  // rule said "exactly 6 items" while the token budget said "4" — none of
+  // them referenced safeWordCount, so the model satisfied the more
+  // detailed structural mandates over the vaguer top-level word target.
+  const h2SectionCount = safeWordCount <= 1000 ? 4 : safeWordCount <= 1800 ? 5 : safeWordCount <= 2500 ? 6 : 7;
+  const faqItemCount = safeWordCount <= 1000 ? 4 : safeWordCount <= 1800 ? 5 : 6;
+  const introWords = 110;
+  const officialSourcesWords = 100;
+  const bottomLineWords = 80;
+  const authorBioWords = 80;
+  const faqWordsEach = 80;
+  const fixedBudget = introWords + officialSourcesWords + bottomLineWords + authorBioWords + (faqItemCount * faqWordsEach);
+  const wordsPerH2Section = Math.max(100, Math.round((safeWordCount - fixedBudget) / h2SectionCount));
+  const computedTotalBudget = fixedBudget + (h2SectionCount * wordsPerH2Section);
+
   const authorityGuidance = getAuthorityGuidance(market);
   // Raised from 12 — a real cluster brief can run to 14+ terms (confirmed:
   // "ev charger" generated with a 14-term cluster silently lost several past
@@ -592,7 +612,7 @@ charger requires a dedicated circuit" over "A 7kW charger typically
 requires a dedicated circuit" wherever the fact is well-established.
 Count your hedge words as you write — if you're approaching the
 limit, rewrite the sentence to be direct instead.
-HEADING HIERARCHY: Exactly one H1. 6-8 H2 sections minimum. H3 subsections where needed.
+HEADING HIERARCHY: Exactly one H1. ${h2SectionCount} H2 sections (sized to the target word count — see the section budget below). H3 subsections where needed.
 INTERNAL LINKS: Use links specified above. Descriptive anchor text only. Max 3 links.
 AI CRAWLERS: Add this meta tag at the top of every generated HTML article (as the second line, right after the META comment):
 <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
@@ -645,42 +665,38 @@ PASSAGE CITABILITY — apply to every H2 section below:
 • Each H2 section must include at least one paragraph of 134-167 words that can stand alone as a complete answer — this is what AI engines extract and cite
 • The article must contain at least 5 sentences with specific facts: numbers, statistics, percentages, dates, or named authoritative sources
 
-[EXACTLY 5 H2 BODY SECTIONS — 150 words each maximum]
-<h2>[Section 1 phrased as question — e.g. "What Is [topic] and Why Does It Matter in ${currentYear}?"]</h2>
-<p>[130-150 words. Self-contained answer — a reader should understand this without reading anything else. Include at least 1 sentence with a specific fact, statistic, or authoritative source.]</p>
-
-<h2>[Section 2 phrased as question — e.g. "How Does [topic] Actually Work?"]</h2>
-<p>[130-150 words. If an internal link is relevant AND has not already been placed elsewhere in the article, include it naturally here. Do not repeat a link already placed in an earlier section.]</p>
-
-<h2>[Section 3 phrased as question — e.g. "When Do You Need to [topic]?"]</h2>
-<p>[130-150 words.]</p>
-
-<h2>[Section 4 phrased as question — the gap competitors miss]</h2>
-<p>[130-150 words. This is your competitive advantage — include a concrete, specific fact nobody else mentions.]</p>
-
-<h2>[Section 5 phrased as question — e.g. "How Can You Avoid the Most Common Mistakes With [topic]?"]</h2>
-<p>[130-150 words.]</p>
+${(() => {
+  const sectionAngles = [
+    { title: `Section phrased as question — e.g. "What Is [topic] and Why Does It Matter in ${currentYear}?"`, note: `Self-contained answer — a reader should understand this without reading anything else. Include at least 1 sentence with a specific fact, statistic, or authoritative source.` },
+    { title: `Section phrased as question — e.g. "How Does [topic] Actually Work?"`, note: `If an internal link is relevant AND has not already been placed elsewhere in the article, include it naturally here. Do not repeat a link already placed in an earlier section.` },
+    { title: `Section phrased as question — e.g. "When Do You Need to [topic]?"`, note: `` },
+    { title: `Section phrased as question — the gap competitors miss`, note: `This is your competitive advantage — include a concrete, specific fact nobody else mentions.` },
+    { title: `Section phrased as question — e.g. "How Can You Avoid the Most Common Mistakes With [topic]?"`, note: `` },
+    { title: `Section phrased as question — cost, timing, or practical logistics angle`, note: `` },
+    { title: `Section phrased as question — a deeper angle beyond the basics, for longer/more thorough coverage`, note: `` },
+  ];
+  const chosen = sectionAngles.slice(0, h2SectionCount);
+  return chosen.map((s) => `<h2>[${s.title}]</h2>
+<p>[${wordsPerH2Section - 20}-${wordsPerH2Section} words. ${s.note}]</p>`).join('\n\n');
+})()}
 ${uniqueDataSection ? uniqueDataSection : ''}
 
 <h2>How Do Official Sources Back This Up?</h2>
 <p>[100 words. Reference 2 official ${market} sources with full URLs. Use format: "According to [Source] at [URL]..."]</p>
 
 FAQ SECTION RULE (mandatory):
-Every article MUST include exactly 6 FAQ items below. Rules:
+Every article MUST include exactly ${faqItemCount} FAQ items below. Rules:
 - Questions must match real search queries people ask about this topic
 - Questions should be phrased exactly as someone would type into Google or ask ChatGPT
 - Each answer must be 2–4 sentences, self-contained (answerable without reading the article)
-- Cover: definition question, how-to question, comparison question, cost/time question, common mistake question, best practice question
+- Cover a mix of: definition, how-to, comparison, cost/time, common mistake, and best-practice questions — pick the ${faqItemCount} most useful for this topic
 - These FAQs will be converted to FAQPage schema automatically — make them genuinely useful
 - DO NOT add generic filler questions. Every question must be something a real user would actually search.
 
 <h2>Frequently Asked Questions</h2>
-<div class="faq-item"><h3>[Conversational question 1 — definition question, exactly as a user would type it?]</h3><p>[60-100 words — complete, self-contained answer. No "see above" or "as mentioned". A user should get the full answer from this alone.]</p></div>
-<div class="faq-item"><h3>[Question 2 — how-to question?]</h3><p>[60-100 words]</p></div>
-<div class="faq-item"><h3>[Question 3 — comparison question?]</h3><p>[60-100 words]</p></div>
-<div class="faq-item"><h3>[Question 4 — cost or time question?]</h3><p>[60-100 words]</p></div>
-<div class="faq-item"><h3>[Question 5 — common mistake question?]</h3><p>[60-100 words]</p></div>
-<div class="faq-item"><h3>[Question 6 — best practice question?]</h3><p>[60-100 words]</p></div>
+${Array.from({ length: faqItemCount }, (_, i) =>
+  `<div class="faq-item"><h3>[Conversational question ${i + 1} — exactly as a user would type it?]</h3><p>[${faqWordsEach - 20}-${faqWordsEach + 20} words — complete, self-contained answer. No "see above" or "as mentioned". A user should get the full answer from this alone.]</p></div>`
+).join('\n')}
 
 <h2>The Bottom Line</h2>
 <p>[80 words. Practical summary. 2 action steps. Only include an internal link here if it has NOT already appeared earlier in the article — never repeat the same link twice.]</p>
@@ -707,13 +723,13 @@ content at the article-meta paragraph above.
 SECTION 8 — ABSOLUTE COMPLETION RULE
 ════════════════════════════════
 Token budget per section — DO NOT EXCEED:
-- Introduction: 110 words
-- Each of 5 H2 body sections: 150 words
-- Official Sources: 100 words
-- FAQ: 4 × 80 words = 320 words
-- Bottom Line: 80 words
-- Author bio: 80 words
-- Total target: 1,340 words maximum
+- Introduction: ${introWords} words
+- Each of ${h2SectionCount} H2 body sections: ${wordsPerH2Section} words
+- Official Sources: ${officialSourcesWords} words
+- FAQ: ${faqItemCount} × ${faqWordsEach} words = ${faqItemCount * faqWordsEach} words
+- Bottom Line: ${bottomLineWords} words
+- Author bio: ${authorBioWords} words
+- Total target: ${computedTotalBudget} words maximum — this matches the TARGET WORD COUNT stated earlier; do not exceed it by structuring in extra sections or padding individual sections beyond their budget above
 
 IF APPROACHING TOKEN LIMIT AT ANY POINT:
 1. Finish the current sentence immediately

@@ -1,6 +1,6 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase-client'
 import { DashboardNav } from '@/components/DashboardNav'
 import { CannibalisationPanel } from '@/components/CannibalisationPanel'
@@ -70,10 +70,37 @@ export default function PlanPage() {
 
 function TopicalMapContent() {
   const [loading, setLoading] = useState(false)
+  const [initialLoading, setInitialLoading] = useState(true)
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Same pattern as ContentROIDashboard (the working reference)
+
+  // Load the last saved map on mount — previously this page always showed
+  // the static empty state ("Generate your first article") regardless of
+  // real article count, because nothing checked for existing results until
+  // the user clicked "Build topical map" themselves.
+  useEffect(() => {
+    let cancelled = false
+    async function loadExisting() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) { setInitialLoading(false); return }
+        const res = await fetch('/api/topical-map', {
+          headers: { 'Authorization': `Bearer ${session.access_token}` },
+          credentials: 'include'
+        })
+        const data = await res.json()
+        if (!cancelled && data.success && data.result) setResult(data.result)
+      } catch {
+        // Silent — falls through to the normal empty state, same as before
+      } finally {
+        if (!cancelled) setInitialLoading(false)
+      }
+    }
+    loadExisting()
+    return () => { cancelled = true }
+  }, [])
 
   async function generateMap() {
     setLoading(true)
@@ -204,7 +231,13 @@ function TopicalMapContent() {
         </div>
       )}
 
-      {!result && !loading && (
+      {initialLoading && !result && (
+        <div className="text-center py-16">
+          <Loader2 className="w-6 h-6 text-gray-300 mx-auto animate-spin" />
+        </div>
+      )}
+
+      {!result && !loading && !initialLoading && (
         <div className="text-center py-16 border-2 border-dashed border-gray-200 rounded-2xl">
           <MapIcon className="w-10 h-10 text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500 font-medium">No topical map yet</p>

@@ -4,6 +4,37 @@ import { buildTopicalMap } from '@/lib/topical-map'
 
 export const maxDuration = 120
 
+// Loads the last saved topical map (from the topical_maps table) without
+// rebuilding — the page previously had no way to show existing results on
+// load, so it always displayed the "generate your first article" empty
+// state regardless of how many real articles/builds actually existed,
+// which is exactly the confusing behaviour Kamran reported.
+export async function GET(req: NextRequest) {
+  try {
+    const authHeader = req.headers.get('authorization')
+    const token = authHeader?.replace('Bearer ', '') || ''
+
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
+
+    const { data: { user } } = await supabaseAdmin.auth.getUser(token)
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    const { data: saved } = await supabaseAdmin
+      .from('topical_maps')
+      .select('map_data, generated_at')
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    if (!saved) return NextResponse.json({ success: true, result: null })
+    return NextResponse.json({ success: true, result: saved.map_data })
+  } catch (error) {
+    return NextResponse.json({ error: String(error) }, { status: 500 })
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const authHeader = req.headers.get('authorization')
