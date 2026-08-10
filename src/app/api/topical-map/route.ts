@@ -48,13 +48,28 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabaseAdmin.auth.getUser(token)
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const { data: articles } = await supabaseAdmin
+    // article_url/content are what buildTopicalMap actually needs to tell
+    // whether one article links to another — the previous select only
+    // fetched internal_links, a column nothing in the app ever writes to
+    // (always '[]'), which made every cross-link check a permanent no-op.
+    // brand is fetched here too since the follow-up internal-link-registry
+    // feature needs it per cluster page; unused by buildTopicalMap itself.
+    const { data: articlesRaw } = await supabaseAdmin
       .from('articles')
-      .select('id, title, keyword, internal_links')
+      .select('id, title, keyword, content, article_url, brand')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
 
-    const result = await buildTopicalMap(articles || [])
+    const articles = (articlesRaw || []).map(a => ({
+      id: a.id,
+      title: a.title,
+      keyword: a.keyword,
+      content: a.content,
+      url: a.article_url,
+      brand: a.brand,
+    }))
+
+    const result = await buildTopicalMap(articles)
 
     await supabaseAdmin.from('topical_maps').upsert({
       user_id: user.id,

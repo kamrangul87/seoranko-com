@@ -42,7 +42,6 @@ export async function buildTopicalMap(
     keyword: string
     content?: string
     url?: string
-    internal_links?: Array<{ url: string; anchorText: string }>
   }>
 ): Promise<TopicalMapResult> {
 
@@ -110,10 +109,24 @@ Respond ONLY with JSON in this exact format:
     }
   }
 
+  // Real internal links in this pipeline only ever get placed as a direct
+  // <a href="..."> in an article's own content — there's no separate ledger
+  // of "what links where" kept up to date elsewhere (articles.internal_links
+  // exists as a column but nothing in the app ever writes to it, so it was
+  // always '[]' and every link-health check below was a permanent no-op).
+  // Scanning content for the target's actual URL is the same ground-truth
+  // approach article-v2/route.ts's auditPlacedLinks already uses to confirm
+  // "was this link really placed" rather than trusting a tracking column.
   const articleLinkMap: Record<string, string[]> = {}
   for (const article of articles) {
-    const links = article.internal_links || []
-    articleLinkMap[article.id] = links.map(l => l.url).filter(Boolean)
+    const linkedUrls: string[] = []
+    if (article.content) {
+      for (const other of articles) {
+        if (other.id === article.id || !other.url) continue
+        if (article.content.includes(other.url)) linkedUrls.push(other.url)
+      }
+    }
+    articleLinkMap[article.id] = linkedUrls
   }
 
   const clusters: TopicalCluster[] = []
