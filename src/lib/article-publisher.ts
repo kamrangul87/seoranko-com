@@ -8,18 +8,19 @@
 // call platform-agnostic lib function → return typed result" structure —
 // so anyone who already knows that code path recognises this one.
 //
-// Phase H note: only the structural gate lands here (publish refuses to
-// proceed without an explicit prior approval on the pages row) — the
-// fuller Phase H scope (near-duplicate/uniqueness checks, volume
-// throttles, product copy) is tracked as its own follow-up PR. This gate
-// exists now, on day one of real publishing, rather than being bolted on
-// after a window where publishing worked with no review requirement at
-// all — the master prompt was explicit that this should be equal
-// priority to Phase A, not a later add-on.
+// Phase H: approveArticleForPublish is the structural gate (publish
+// refuses to proceed without an explicit prior approval on the pages row)
+// AND now runs the two content-policy safeguards before granting that
+// approval — near-duplicate detection (hard block: the spec's own wording,
+// "flag... before it can publish", implies blocking) and a volume-throttle
+// check (visible warning only, never a block — the spec is explicit about
+// this, and there's no single authoritative Google-published threshold to
+// block against). See publish-safeguards.ts for both.
 
 import { getPublisherAdapter } from './publisher-adapters'
 import type { PublishArticleInput, PublisherCredentials, PublishResult, LivenessState } from './publisher-adapters/types'
 import { transitionLiveness, appendLivenessHistory, type LivenessHistoryEntry } from './publisher-adapters/liveness-state-machine'
+import { checkNearDuplicate, checkVolumeThrottle, type DuplicateCheckResult, type VolumeCheckResult } from './publish-safeguards'
 
 export interface PublishArticleParams {
   supabase: any
@@ -148,6 +149,7 @@ export async function publishArticle(params: PublishArticleParams): Promise<Publ
     liveness_updated_at: nowIso,
     liveness_history: history,
     publish_platform: platform,
+    site_id: siteId,
     updated_at: nowIso,
   }).eq('id', page.id)
 
@@ -194,19 +196,37 @@ export async function publishArticle(params: PublishArticleParams): Promise<Publ
   }
 }
 
+export interface ApproveOutcome {
+  success: boolean
+  message: string
+  pageId?: string
+  qualityReadyToPublish?: boolean | null
+  duplicateCheck?: DuplicateCheckResult
+  volumeCheck?: VolumeCheckResult
+}
+
 export async function approveArticleForPublish(
   supabase: any,
   userId: string,
   articleId: string,
-): Promise<{ success: boolean; message: string; pageId?: string; qualityReadyToPublish?: boolean | null }> {
+  siteId: string,
+): Promise<ApproveOutcome> {
   const { data: article } = await supabase
     .from('articles')
-    .select('id, quality_ready_to_publish, quality_score')
+    .select('id, title, content, quality_ready_to_publish, quality_score')
     .eq('id', articleId)
     .eq('user_id', userId)
     .maybeSingle()
 
   if (!article) return { success: false, message: 'Article not found.' }
+
+  const { data: site } = await supabase
+    .from('connected_sites')
+    .select('id')
+    .eq('id', siteId)
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (!site) return { success: false, message: 'Site not found.' }
 
   let { data: page } = await supabase
     .from('pages')
@@ -218,22 +238,42 @@ export async function approveArticleForPublish(
   if (!page) {
     const { data: created, error: createErr } = await supabase
       .from('pages')
-      .insert({ user_id: userId, article_id: articleId, stage: 6, status: 'queued' })
+      .insert({ user_id: userId, article_id: articleId, stage: 6, status: 'queued', site_id: siteId })
       .select('id')
       .single()
     if (createErr || !created) return { success: false, message: `Could not create a pages record: ${createErr?.message || 'unknown error'}` }
     page = created
   }
 
+  // ── Near-duplicate check — hard block ──────────────────────────────────
+  const duplicateCheck = await checkNearDuplicate(supabase, userId, siteId, article.content || '', articleId)
+  if (duplicateCheck.isDuplicate) {
+    return {
+      success: false,
+      message: `This article is ${Math.round(duplicateCheck.similarity * 100)}% similar to "${duplicateCheck.mostSimilarTitle}", already published to this site — too close to be approved as distinct content. Rewrite it or publish the other one instead.`,
+      pageId: page.id,
+      qualityReadyToPublish: article.quality_ready_to_publish,
+      duplicateCheck,
+    }
+  }
+
+  // ── Volume throttle — warning only, never blocks ───────────────────────
+  const volumeCheck = await checkVolumeThrottle(supabase, userId, siteId)
+
   await supabase.from('pages').update({
     publish_approved_by: userId,
     publish_approved_at: new Date().toISOString(),
+    site_id: siteId,
   }).eq('id', page.id)
 
   return {
     success: true,
-    message: 'Approved for publishing.',
+    message: volumeCheck.isHighVolume
+      ? `Approved for publishing. Note: this site has published ${volumeCheck.count} articles in the last ${volumeCheck.windowHours}h, at or above the ${volumeCheck.threshold}-article heuristic threshold — this pace can look like scaled content abuse to Google even when every article is individually reviewed. Consider spacing publishes out.`
+      : 'Approved for publishing.',
     pageId: page.id,
     qualityReadyToPublish: article.quality_ready_to_publish,
+    duplicateCheck,
+    volumeCheck,
   }
 }

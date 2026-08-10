@@ -135,7 +135,7 @@ export default function LandingPage() {
       <div style={{ background: '#fff', borderTop: '1px solid #E8E8E4', borderBottom: '1px solid #E8E8E4', padding: '72px 48px' }}>
         <div style={{ maxWidth: '960px', margin: '0 auto' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px', marginBottom: '48px', textAlign: 'center' }}>
-            {[['2,400+', 'Articles generated'], ['98%', 'Facts verified'], ['13', 'Country markets'], ['£0', 'To start today']].map(([num, label]) => (
+            {[['Every article', 'Passes Quality Gate'], ['98%', 'Facts verified'], ['13', 'Country markets'], ['£0', 'To start today']].map(([num, label]) => (
               <div key={label}>
                 <div style={{ fontSize: '36px', fontWeight: 800, letterSpacing: '-1.5px', color: '#0F0F0F' }}>{num}</div>
                 <div style={{ fontSize: '13px', color: '#9B9B9B', marginTop: '4px' }}>{label}</div>

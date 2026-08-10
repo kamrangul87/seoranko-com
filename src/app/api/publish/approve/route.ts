@@ -9,7 +9,9 @@ import { approveArticleForPublish } from '@/lib/article-publisher'
 // route ever sets. Deliberately a separate, explicit action from
 // /api/publish itself — a human has to hit this endpoint (i.e. click an
 // actual "Approve & Publish" button) before real publishing can happen at
-// all, regardless of Quality Gate score.
+// all, regardless of Quality Gate score. Also runs the near-duplicate
+// (hard block) and volume-throttle (warning) safeguards — see
+// approveArticleForPublish / publish-safeguards.ts.
 export async function POST(req: NextRequest) {
   try {
     const cookieStore = cookies()
@@ -21,9 +23,9 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await authClient.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const { articleId } = await req.json()
-    if (!articleId) {
-      return NextResponse.json({ success: false, message: 'articleId is required.' }, { status: 400 })
+    const { articleId, siteId } = await req.json()
+    if (!articleId || !siteId) {
+      return NextResponse.json({ success: false, message: 'articleId and siteId are required.' }, { status: 400 })
     }
 
     const supabase = createClient(
@@ -31,7 +33,7 @@ export async function POST(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
 
-    const result = await approveArticleForPublish(supabase, user.id, articleId)
+    const result = await approveArticleForPublish(supabase, user.id, articleId, siteId)
     return NextResponse.json(result, { status: result.success ? 200 : 400 })
   } catch (error) {
     console.error('[publish/approve]', error)

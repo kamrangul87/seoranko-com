@@ -15,6 +15,18 @@
 
 const INDEXNOW_ENDPOINT = 'https://api.indexnow.org/indexnow'
 
+// Phase D (Real Publishing & Verification): the single source of truth for
+// what IndexNow actually does, since there's no UI surface for this yet —
+// whoever eventually builds one should pull this string rather than
+// free-handing new copy. Google does not participate in IndexNow at all;
+// claiming "faster Google indexing" here would be a real, specific product
+// claim that's simply false. IndexNow's actual adopters are Bing, Yandex,
+// Naver, Seznam.cz, and Yep — Bing's index in turn feeds Microsoft Copilot
+// and other Bing-backed AI assistants, which is the honest way to describe
+// any AI-visibility benefit.
+export const INDEXNOW_SCOPE_DISCLAIMER =
+  'IndexNow notifies Bing, Yandex, Naver, Seznam.cz, and Yep for faster crawling — including AI-assistant visibility via Bing (e.g. Copilot). It does NOT include Google in any way; Google does not participate in the IndexNow protocol.'
+
 export interface IndexNowPingResult {
   fired: boolean
   reason: string
@@ -57,7 +69,7 @@ export async function pingIndexNow(url: string): Promise<IndexNowPingResult> {
     if (!res.ok) {
       return { fired: false, reason: `IndexNow responded HTTP ${res.status}` }
     }
-    return { fired: true, reason: `HTTP ${res.status}` }
+    return { fired: true, reason: `HTTP ${res.status}. ${INDEXNOW_SCOPE_DISCLAIMER}` }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return { fired: false, reason: `fetch failed: ${message}` }
