@@ -3,6 +3,22 @@
 // Validates JSON-LD against schema.org required/recommended properties for the
 // types SEORANKO generates. Runs in-pipeline before save rather than being
 // discovered later by an external audit tool.
+//
+// Phase E (Real Publishing & Verification): this is Tier 1 only — a LOCAL
+// structural check against schema.org/Google's documented requirements,
+// not a live verdict from Google. There is no public Rich Results Test
+// API to build toward; this module can never itself say "Google-confirmed
+// eligible" and no UI reading its output should claim that either — the
+// correct framing is TIER_1_LABEL below. A genuine Tier 2 ("Google-
+// detected") requires GSC's URL Inspection API richResultsResult, wired
+// once a real article reaches LIVE_VERIFIED and a GSC OAuth connection
+// exists (both blocked on infrastructure this environment doesn't have
+// yet) — see Phase C. Also worth surfacing wherever FAQ schema results are
+// shown: Google now grants FAQ rich results mostly to authoritative
+// government/health sites for most queries, so "meets requirements" here
+// is not a promise of eligibility even once Tier 2 exists.
+export const TIER_1_LABEL = 'Schema-valid — meets known rich-result requirements'
+export const TIER_1_DISCLAIMER = 'This is a local structural check against documented requirements, not a live verdict from Google. It does not mean Google has confirmed this page is rich-result eligible.'
 
 export interface SchemaIssue {
   schemaType: string
