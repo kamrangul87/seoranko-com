@@ -205,12 +205,6 @@ function evaluateGrantFigureClaims(articleContent: string): QualityIssue[] {
 // addresses) and are kept as-is.
 const COPY_ERROR_PATTERNS = [
   {
-    pattern: /[a-z]\.[a-z]/g,
-    message: 'Possible missing space after period',
-    severity: 'warning' as const,
-    category: 'typo' as const,
-  },
-  {
     pattern: /\.\s*[a-z]{1,4}\.\s+[A-Z]/g,
     message: 'Possible broken paragraph merge — short fragment between sentences',
     severity: 'critical' as const,
@@ -227,16 +221,6 @@ const COPY_ERROR_PATTERNS = [
 // Found while building the retext replacement above: the "missing space
 // after period" check matches ANY lowercase-dot-lowercase sequence, which
 // means a domain name mentioned in visible text (e.g. "ofgem.gov.uk" matches
-// "v.u", "seoranko.com" matches "o.c") false-positives as a typo — the same
-// class of bug as the confirmed domain-name typo false-positive fixed
-// earlier this session. Mask domain-like tokens out before running that one
-// check; masking preserves string length so match indices (used for the
-// issue's location context) still line up with the original text.
-const DOMAIN_TOKEN_RE = /\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\b/gi
-function maskDomainLikeTokens(text: string): string {
-  return text.replace(DOMAIN_TOKEN_RE, (m) => 'x'.repeat(m.length))
-}
-
 // RULE 1's regexes are typo/copy-error checks meant for prose. Run against
 // raw HTML they also match inside attribute values (e.g. style="border-radius:0
 // 8px 8px 0" reads as a duplicate word "8px 8px"). Strip markup and attribute
@@ -533,16 +517,9 @@ export async function runQualityGate(
   // never false-positive on markup or attribute values like style="...8px 8px...".
   const textForCopyChecks = stripHtmlForTextChecks(articleContent)
   for (const rule of COPY_ERROR_PATTERNS) {
-    // "Missing space after period" false-positives on domain names mentioned
-    // in body text (see maskDomainLikeTokens above) — search a masked copy
-    // for this one rule only, but slice context from the real text (masking
-    // preserves length, so indices still line up).
-    const searchText = rule.message === 'Possible missing space after period'
-      ? maskDomainLikeTokens(textForCopyChecks)
-      : textForCopyChecks
-    const matches = searchText.match(rule.pattern)
+    const matches = textForCopyChecks.match(rule.pattern)
     if (matches && matches.length > 0) {
-      const idx = searchText.search(rule.pattern)
+      const idx = textForCopyChecks.search(rule.pattern)
       const context = textForCopyChecks.slice(Math.max(0, idx - 30), idx + 60)
       issues.push({
         id: `copy-${rule.category}-${issues.length}`,
@@ -646,7 +623,13 @@ export async function runQualityGate(
   }
 
   // ---- RULE 5: Cross-brand link detection ----
-  const linkPattern = /href=["']https?:\/\/([^/"']+)/gi
+  // Only scan real, clickable content links (<a href>) — not machine-only
+  // tags like <link rel="canonical"> or <meta property="og:url">. Those
+  // are self-referential page metadata, not outbound content links a
+  // reader follows, so they aren't subject to the brand-safety registry
+  // at all. Scanning raw href="https://..." anywhere in the HTML caught
+  // the article's OWN canonical tag and would have auto-deleted it.
+  const linkPattern = /<a\s[^>]*href=["']https?:\/\/([^/"']+)/gi
   let linkMatch
   while ((linkMatch = linkPattern.exec(articleContent)) !== null) {
     const linkedDomain = linkMatch[1].replace('www.', '')
