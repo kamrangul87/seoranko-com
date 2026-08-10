@@ -460,6 +460,7 @@ Do not write generic angles. Be specific and surprising.`
               title: articleTitle,
               description: articleDescription,
               keyword,
+              market,
               // generateArticleSchema hardcodes author.@type to "Person" —
               // passing an org/brand name here would claim a person is
               // literally named "autodun" or a domain string. organizationName

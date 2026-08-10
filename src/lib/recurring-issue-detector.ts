@@ -18,11 +18,15 @@ export async function detectRecurringIssues(
   userId: string
 ): Promise<RecurringIssueAlert[]> {
 
-  // Get the last 5 distinct articles that had any quality gate issues
+  // Get the last 5 distinct articles that had any quality gate issues.
+  // Only warning/critical severities count toward a "pipeline bug" alert —
+  // informational items (e.g. "style only, not an error" notes) are correct
+  // behaviour, not a recurring problem, and shouldn't inflate this count.
   const { data: recentLogs } = await supabase
     .from('quality_gate_history')
-    .select('article_id, issue_category, created_at')
+    .select('article_id, issue_category, severity, created_at')
     .eq('user_id', userId)
+    .in('severity', ['warning', 'critical'])
     .order('created_at', { ascending: false })
     .limit(100)  // enough rows to cover ~5 articles worth of issues
 

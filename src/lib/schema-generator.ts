@@ -18,6 +18,33 @@ export interface ArticleSchemaInput {
   howToSteps?: Array<{ name: string; text: string }>
   organizationName?: string
   organizationUrl?: string
+  market?: string                // e.g. 'United Kingdom' — used to set inLanguage
+}
+
+// Maps the market values used across the product (ArticleWriter.tsx's
+// dropdown, rank-tracker.ts's LOCATION_CODES) to a BCP-47 language tag for
+// schema's inLanguage field. Falls back to generic 'en' for any market not
+// listed here, rather than omitting inLanguage entirely (a recommended
+// schema.org property) or defaulting to one specific country's tag.
+const MARKET_LANGUAGE_TAGS: Record<string, string> = {
+  'united kingdom': 'en-GB',
+  'united states': 'en-US',
+  'australia': 'en-AU',
+  'canada': 'en-CA',
+  'india': 'en-IN',
+  'pakistan': 'en-PK',
+  'united arab emirates': 'en-AE',
+  'singapore': 'en-SG',
+  'germany': 'de-DE',
+  'france': 'fr-FR',
+  'south africa': 'en-ZA',
+  'nigeria': 'en-NG',
+  'new zealand': 'en-NZ',
+  'ireland': 'en-IE',
+}
+function languageTagForMarket(market?: string): string {
+  if (!market) return 'en'
+  return MARKET_LANGUAGE_TAGS[market.trim().toLowerCase()] || 'en'
 }
 
 export interface GeneratedSchema {
@@ -33,7 +60,7 @@ export function generateArticleSchema(input: ArticleSchemaInput): GeneratedSchem
   const {
     title, description, keyword, authorName, authorUrl,
     publishDate, articleUrl, imageUrl, wordCount,
-    faqs, isHowTo, howToSteps,
+    faqs, isHowTo, howToSteps, market,
     organizationName = 'SEORANKO',
     organizationUrl = 'https://seoranko.com'
   } = input
@@ -49,6 +76,7 @@ export function generateArticleSchema(input: ArticleSchemaInput): GeneratedSchem
     "datePublished": publishDate,
     "dateModified": publishDate,
     "url": articleUrl,
+    "inLanguage": languageTagForMarket(market),
     "author": {
       "@type": "Person",
       "name": authorName,
