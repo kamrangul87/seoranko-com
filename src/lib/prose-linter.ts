@@ -25,11 +25,26 @@
 import { unified } from 'unified'
 import retextEnglish from 'retext-english'
 import retextStringify from 'retext-stringify'
+import retextSyntaxUrls from 'retext-syntax-urls'
 import retextRepeatedWords from 'retext-repeated-words'
 import retextSentenceSpacing from 'retext-sentence-spacing'
 import retextQuotes from 'retext-quotes'
 import retextRedundantAcronyms from 'retext-redundant-acronyms'
 import retextContractions from 'retext-contractions'
+
+// retext-syntax-urls recognises URL/domain/email-shaped tokens and marks
+// them so downstream checkers don't tokenize into their internal
+// punctuation — the maintainer-endorsed fix for exactly this class of
+// problem (most commonly paired with retext-spell, which this pipeline
+// doesn't use). Verified directly against every check below (repeated-
+// words, sentence-spacing, redundant-acronyms) with and without this
+// plugin: none of them currently false-positive on domain names either
+// way — they already tokenize on whitespace/adjacency, not raw character
+// runs, unlike the regex this pipeline replaced. Added anyway as forward
+// hardening for future checkers (a real retext-spell addition, for
+// instance) and because it's the correct convention regardless of whether
+// today's specific plugin set needs it. Must run before the other checker
+// plugins — order matters for how it marks nodes during tokenization.
 
 export type ProseFindingSeverity = 'critical' | 'warning' | 'info'
 
@@ -43,6 +58,7 @@ export interface ProseFinding {
 
 const processor = unified()
   .use(retextEnglish)
+  .use(retextSyntaxUrls)
   .use(retextRepeatedWords)
   .use(retextSentenceSpacing)
   .use(retextQuotes)
