@@ -18,6 +18,7 @@ export interface ArticleSchemaInput {
   howToSteps?: Array<{ name: string; text: string }>
   organizationName?: string
   organizationUrl?: string
+  organizationLogoUrl?: string   // from brand_settings.logo_url — see src/lib/brand-settings.ts
   market?: string                // e.g. 'United Kingdom' — used to set inLanguage
 }
 
@@ -62,7 +63,8 @@ export function generateArticleSchema(input: ArticleSchemaInput): GeneratedSchem
     publishDate, articleUrl, imageUrl, wordCount,
     faqs, isHowTo, howToSteps, market,
     organizationName = 'SEORANKO',
-    organizationUrl = 'https://seoranko.com'
+    organizationUrl = 'https://seoranko.com',
+    organizationLogoUrl
   } = input
 
   // Article schema (NewsArticle type for broader AI recognition)
@@ -85,7 +87,13 @@ export function generateArticleSchema(input: ArticleSchemaInput): GeneratedSchem
     "publisher": {
       "@type": "Organization",
       "name": organizationName,
-      "url": organizationUrl
+      "url": organizationUrl,
+      ...(organizationLogoUrl ? {
+        "logo": {
+          "@type": "ImageObject",
+          "url": organizationLogoUrl
+        }
+      } : {})
     },
     ...(imageUrl ? {
       "image": {
@@ -159,6 +167,12 @@ export function generateArticleSchema(input: ArticleSchemaInput): GeneratedSchem
     "@type": "Organization",
     "name": organizationName,
     "url": organizationUrl,
+    ...(organizationLogoUrl ? {
+      "logo": {
+        "@type": "ImageObject",
+        "url": organizationLogoUrl
+      }
+    } : {}),
     "sameAs": [
       `${organizationUrl}/about`
     ]

@@ -8,6 +8,7 @@ import type { InternalLink } from '@/lib/article-master';
 import { scoreFactDensity } from '@/lib/fact-density';
 import { parseFAQsFromArticle } from '@/lib/faq-generator';
 import { generateArticleSchema, detectHowTo } from '@/lib/schema-generator';
+import { getBrandSettings } from '@/lib/brand-settings';
 import { buildSocialMetaTags } from '@/lib/social-meta-tags';
 import { buildCanonicalTag } from '@/lib/canonical-builder';
 import { pingIndexNow } from '@/lib/indexnow';
@@ -456,6 +457,14 @@ Do not write generic angles. Be specific and surprising.`
             // `let fullArticleUrl` above) so the IndexNow ping, which fires
             // outside this try block after the Supabase save, can reuse it.
             fullArticleUrl = schemaOrgUrl ? `${schemaOrgUrl}${articleSlug}` : `https://example.com${articleSlug}`;
+            // brand_settings.logo_url — feeds Organization/Article-publisher
+            // schema's logo (a recommended property, previously never
+            // settable at all — see schema-validator.ts's publisher.logo
+            // check). brandSettings.configured (row exists at all, distinct
+            // from logoUrl being set) is also used below at the Quality Gate
+            // call, so this brand genuinely has no logo isn't conflated with
+            // this brand has never touched Settings.
+            const brandSettings = brand ? await getBrandSettings(userId as string, brand) : { configured: false, logoUrl: null };
             schemaResult = generateArticleSchema({
               title: articleTitle,
               description: articleDescription,
@@ -478,6 +487,7 @@ Do not write generic angles. Be specific and surprising.`
               howToSteps: isHowTo ? extractHowToSteps(fullArticle) : undefined,
               organizationName: schemaOrgName,
               organizationUrl: schemaOrgUrl,
+              organizationLogoUrl: brandSettings.logoUrl || undefined,
             });
             finalHtml = `${finalHtml}\n\n${schemaResult.combinedScriptTag}`;
 
@@ -546,6 +556,12 @@ Do not write generic angles. Be specific and surprising.`
                 autoFixable: true,
                 autoFixDescription: 'Already auto-fixed — the broken citation link was stripped before this gate ran.',
               })),
+              // Suppresses the publisher.logo warning for a brand that's
+              // never touched Settings at all — that's the default state
+              // for every new brand, not a defect. Only surfaces once this
+              // brand has a brand_settings row (i.e. genuinely configured
+              // something) but still has no logo. See brand-settings.ts.
+              hasBrandSettingsConfigured: brandSettings.configured,
             })
             finalHtml = qr.articleAfterAutoFix
             articleQualityGate = {

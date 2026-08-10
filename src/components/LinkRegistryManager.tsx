@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase-client'
+import { BRAND_OPTIONS } from '@/lib/brands'
 
 interface RegistryLink {
   id: string
@@ -13,12 +14,6 @@ interface RegistryLink {
   anchor_text: string
   is_active: boolean
 }
-
-const BRAND_OPTIONS = [
-  { value: 'autodun', label: '🚗 Autodun', color: '#FF6B2C' },
-  { value: 'seoranko', label: '📊 SEORANKO', color: '#6366F1' },
-  { value: 'fitford', label: '💪 FitFord', color: '#10B981' },
-]
 
 function IconPlus({ className }: { className?: string }) {
   return (

@@ -4,6 +4,7 @@ import { DashboardNav } from '@/components/DashboardNav'
 import { OrganisationSchemaSettings } from '@/components/OrganisationSchemaSettings'
 import { InternalLinksPanel } from '@/components/InternalLinksPanel'
 import { LinkRegistryManager } from '@/components/LinkRegistryManager'
+import { BrandLogoManager } from '@/components/BrandLogoManager'
 import { SitesManager } from '@/components/SitesManager'
 import { createClient } from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
@@ -107,6 +108,9 @@ export default function SettingsPage() {
               </div>
               <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-6">
                 <LinkRegistryManager />
+              </div>
+              <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-6">
+                <BrandLogoManager />
               </div>
             </div>
           )}
