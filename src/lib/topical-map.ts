@@ -20,6 +20,7 @@ export interface ClusterPage {
   title: string
   keyword: string
   url?: string
+  brand?: string
   subtopic: string
   linksToPillar: boolean
   isOrphan: boolean
@@ -42,6 +43,7 @@ export async function buildTopicalMap(
     keyword: string
     content?: string
     url?: string
+    brand?: string
   }>
 ): Promise<TopicalMapResult> {
 
@@ -142,6 +144,7 @@ Respond ONLY with JSON in this exact format:
         title: pillarArticle.title,
         keyword: pillarArticle.keyword,
         url: pillarArticle.url,
+        brand: pillarArticle.brand,
         subtopic: 'Pillar page',
         linksToPillar: false,
         isOrphan: false
@@ -163,6 +166,7 @@ Respond ONLY with JSON in this exact format:
         title: article.title,
         keyword: article.keyword,
         url: article.url,
+        brand: article.brand,
         subtopic: cluster.subtopicMap?.[article.id] || article.keyword,
         linksToPillar,
         isOrphan: false

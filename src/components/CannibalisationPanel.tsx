@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import type { CannibalPair, CannibalResult } from '@/lib/cannibalization-detector'
 
 // Inline SVG icons (lucide-react not installed)
@@ -38,6 +39,7 @@ function IconArrowRight({ className }: { className?: string }) {
 }
 
 export function CannibalisationPanel() {
+  const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<CannibalResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -135,7 +137,15 @@ export function CannibalisationPanel() {
               {' vs '}
               <span className="font-medium">{pair.article2Keyword}</span>
             </div>
-            <p className="text-xs text-gray-600">{pair.fixPlan}</p>
+            <p className="text-xs text-gray-600 mb-2">{pair.fixPlan}</p>
+            {pair.recommendation === 'differentiate' && (
+              <button
+                onClick={() => router.push(`/dashboard/improve?articleId=${encodeURIComponent(pair.article1Id)}&instruction=${encodeURIComponent(pair.fixPlan)}`)}
+                className="text-xs font-medium text-orange-600 hover:text-orange-700"
+              >
+                Differentiate &ldquo;{pair.article1Title}&rdquo; now →
+              </button>
+            )}
           </div>
         ))
       )}

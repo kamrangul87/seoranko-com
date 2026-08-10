@@ -1,6 +1,7 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase-client'
 import { DashboardNav } from '@/components/DashboardNav'
 import { CannibalisationPanel } from '@/components/CannibalisationPanel'
@@ -69,10 +70,12 @@ export default function PlanPage() {
 }
 
 function TopicalMapContent() {
+  const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
+  const [addingLinkFor, setAddingLinkFor] = useState<string | null>(null)
 
   // Same pattern as ContentROIDashboard (the working reference)
 
@@ -131,6 +134,58 @@ function TopicalMapContent() {
       setError(String(err))
     } finally {
       setLoading(false)
+    }
+  }
+
+  // "These two articles don't link to each other" -> add this internal link,
+  // per the follow-up feature request. Real internal links in this pipeline
+  // only ever come from internal_link_registry (never a direct article-to-
+  // article HTML link — confirmed via research) — so this creates a
+  // registry row making the pillar eligible to be linked from the member,
+  // then hands off to Improve with an instruction to actually add it now.
+  // Creating the registry row alone would only affect FUTURE generations,
+  // not the article sitting in this cluster today — the whole point of a
+  // one-click action is that it results in a real change, not just a row
+  // nobody acts on.
+  async function addInternalLink(sourcePage: any, targetPage: any) {
+    if (!sourcePage.brand || sourcePage.brand !== targetPage.brand || !targetPage.url) return
+    setAddingLinkFor(sourcePage.articleId)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.user) return
+
+      const { data: existing } = await supabase
+        .from('internal_link_registry')
+        .select('id')
+        .eq('user_id', session.user.id)
+        .eq('brand', targetPage.brand)
+        .eq('page_url', targetPage.url)
+        .eq('is_active', true)
+        .maybeSingle()
+
+      if (!existing) {
+        let siteUrl = ''
+        try { siteUrl = new URL(targetPage.url).origin } catch { /* leave blank, matches LinkRegistryManager's own fallback */ }
+        await supabase.from('internal_link_registry').insert({
+          user_id: session.user.id,
+          brand: targetPage.brand,
+          site_url: siteUrl,
+          page_url: targetPage.url,
+          page_title: targetPage.title,
+          topic_tags: [],
+          // Deterministic anchor text (the target's own title) rather than an
+          // AI-generated one — keeps this a snappy one-click action instead
+          // of adding an LLM round-trip; editable later the same way any
+          // other registry entry is (delete and re-add via Settings).
+          anchor_text: targetPage.title,
+          is_active: true,
+        })
+      }
+
+      const instruction = `Add an internal link to "${targetPage.title}" (${targetPage.url}) using anchor text "${targetPage.title}" — these two articles are in the same topic cluster and should link to each other.`
+      router.push(`/dashboard/improve?articleId=${encodeURIComponent(sourcePage.articleId)}&instruction=${encodeURIComponent(instruction)}`)
+    } finally {
+      setAddingLinkFor(null)
     }
   }
 
@@ -201,16 +256,39 @@ function TopicalMapContent() {
 
               {/* Cluster pages */}
               <div className="space-y-1.5">
-                {cluster.clusterPages.map((page: any, j: number) => (
-                  <div key={j} className={`flex items-center gap-2 text-xs p-2 rounded-lg ${page.isOrphan ? 'bg-red-50 border border-red-200' : 'bg-gray-50'}`}>
-                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${page.subtopic === 'Pillar page' ? 'bg-purple-500' : page.linksToPillar ? 'bg-green-500' : 'bg-amber-400'}`} />
-                    <span className="text-gray-700 flex-1 truncate">{page.title}</span>
-                    {page.isOrphan && <span className="text-red-600 font-medium flex-shrink-0">orphan</span>}
-                    {!page.linksToPillar && page.subtopic !== 'Pillar page' && !page.isOrphan && (
-                      <span className="text-amber-600 flex-shrink-0">no pillar link</span>
-                    )}
-                  </div>
-                ))}
+                {(() => {
+                  const pillarPage = cluster.clusterPages.find((p: any) => p.subtopic === 'Pillar page')
+                  return cluster.clusterPages.map((page: any, j: number) => {
+                    // Only offer the action when both pages share a brand —
+                    // buildTopicalMap clusters across the whole account, not
+                    // scoped per brand, so a cluster can in principle mix
+                    // brands; linking across them would be exactly the
+                    // cross-brand mistake internal_link_registry's brand
+                    // scoping exists to prevent.
+                    const canSuggestLink =
+                      pillarPage && page.subtopic !== 'Pillar page' && !page.linksToPillar &&
+                      page.brand && page.brand === pillarPage.brand && pillarPage.url
+                    return (
+                      <div key={j} className={`flex items-center gap-2 text-xs p-2 rounded-lg ${page.isOrphan ? 'bg-red-50 border border-red-200' : 'bg-gray-50'}`}>
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${page.subtopic === 'Pillar page' ? 'bg-purple-500' : page.linksToPillar ? 'bg-green-500' : 'bg-amber-400'}`} />
+                        <span className="text-gray-700 flex-1 truncate">{page.title}</span>
+                        {page.isOrphan && <span className="text-red-600 font-medium flex-shrink-0">orphan</span>}
+                        {!page.linksToPillar && page.subtopic !== 'Pillar page' && !page.isOrphan && (
+                          <span className="text-amber-600 flex-shrink-0">no pillar link</span>
+                        )}
+                        {canSuggestLink && (
+                          <button
+                            onClick={() => addInternalLink(page, pillarPage)}
+                            disabled={addingLinkFor === page.articleId}
+                            className="text-orange-600 hover:text-orange-700 font-medium flex-shrink-0 disabled:opacity-50"
+                          >
+                            {addingLinkFor === page.articleId ? 'Adding…' : '+ Add link'}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })
+                })()}
               </div>
 
               {/* Missing subtopics */}
