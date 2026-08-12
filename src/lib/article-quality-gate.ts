@@ -203,6 +203,20 @@ function evaluateGrantFigureClaims(articleContent: string): QualityIssue[] {
 // narrowly-scoped, low-false-positive-risk mechanism specific to this app's
 // LLM-generation pipeline (not a general prose-style concern retext
 // addresses) and are kept as-is.
+// A domain mention in visible text (e.g. "...at energynetworks.org. Skipping
+// this step...") has the exact shape both merge-artifact patterns below look
+// for — period, short lowercase run, period, capital letter — because a TLD
+// is 2-4 lowercase letters ending in a period, immediately before a new
+// sentence's capital letter. This is confirmed to false-positive on
+// perfectly well-formed sentences (e.g. after the citation-link validator
+// strips a dead link's <a> tag and leaves the bare domain as plain text).
+// Mask domain-like tokens before matching; masking preserves string length
+// so match indices used for the "Near:" context snippet still line up.
+const DOMAIN_TOKEN_RE = /\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\b/gi
+function maskDomainLikeTokens(text: string): string {
+  return text.replace(DOMAIN_TOKEN_RE, (m) => 'x'.repeat(m.length))
+}
+
 const COPY_ERROR_PATTERNS = [
   {
     pattern: /\.\s*[a-z]{1,4}\.\s+[A-Z]/g,
@@ -523,10 +537,11 @@ export async function runQualityGate(
   // Checked against visible text only (see stripHtmlForTextChecks) so these
   // never false-positive on markup or attribute values like style="...8px 8px...".
   const textForCopyChecks = stripHtmlForTextChecks(articleContent)
+  const domainMaskedText = maskDomainLikeTokens(textForCopyChecks)
   for (const rule of COPY_ERROR_PATTERNS) {
-    const matches = textForCopyChecks.match(rule.pattern)
+    const matches = domainMaskedText.match(rule.pattern)
     if (matches && matches.length > 0) {
-      const idx = textForCopyChecks.search(rule.pattern)
+      const idx = domainMaskedText.search(rule.pattern)
       const context = textForCopyChecks.slice(Math.max(0, idx - 30), idx + 60)
       issues.push({
         id: `copy-${rule.category}-${issues.length}`,
