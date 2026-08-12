@@ -18,12 +18,19 @@ export async function GET(req: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-  // This is the long-tail fallback for the 5m/15m/30min-ceiling backoff
-  // steps — /api/publish/verify handles the short early steps (30s/1m/2m)
-  // on-demand from a client that's actively watching. Existing crons in
-  // this repo run weekly; this one needs to run far more often (every few
-  // minutes) for the backoff schedule to actually mean anything — see
-  // vercel.json.
+  // Originally scheduled every 5 minutes to be the long-tail fallback for
+  // the 5m/15m/30min-ceiling backoff steps — confirmed that broke every
+  // deployment on this project's Vercel Hobby plan, which only allows
+  // once-per-day cron schedules (build-time failure: "Hobby accounts are
+  // limited to daily Cron Jobs"). Now runs once daily (vercel.json) as a
+  // slow safety net only — it will eventually clear anything stuck, but
+  // not within the backoff schedule's intended timeframe. Real near-
+  // real-time verification for the short steps (30s/1m/2m) still depends
+  // on /api/publish/verify being polled on-demand by a client actively
+  // watching a publish — no such poller is wired into any UI yet, so today
+  // this daily sweep is the ONLY verification that actually runs
+  // unprompted. Revisit once either the Vercel plan changes or an
+  // on-demand polling UI exists.
   const result = await runVerificationSweep(supabase, { limit: 50 })
   return NextResponse.json(result)
 }
