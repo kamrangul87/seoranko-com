@@ -51,6 +51,28 @@ export interface InternalLinkEngineResult {
 // links naturally as it writes) — the article body doesn't exist yet.
 const STOPWORDS = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'have', 'been', 'will', 'your', 'you', 'are', 'was', 'were']);
 
+// A brand can be entered/stored as either a bare name ("autodun") or a
+// domain ("autodun.com") depending on which flow wrote it — confirmed live:
+// this account's own internal_link_registry rows are keyed "autodun" while
+// its most recent generated articles carry brand="autodun.com". An exact
+// `.eq('brand', ...)` match against the raw column would silently return
+// zero registry rows for a brand that genuinely has active links registered
+// — the same "data problem disguised as a scoring problem" class of bug
+// this file's own registryRowCount distinction exists to catch. Strips
+// protocol/www/path (mirrors citationDomain's own normalization in
+// article-v2/route.ts) and one common TLD suffix, so "autodun" and
+// "autodun.com" resolve to the same key without conflating genuinely
+// different brands.
+export function normalizeBrandKey(brand: string): string {
+  return brand
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/\/.*$/, '')
+    .replace(/\.(co\.uk|com|org|net|io|co|app|dev|ai|uk)$/i, '')
+}
+
 function extractEntityTerms(text: string): Set<string> {
   return new Set(
     text.toLowerCase()
@@ -98,15 +120,20 @@ export async function getEligibleLinks(
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-  const { data } = await supabase
+  // Fetch by user_id only (not brand) and normalize both sides in JS — see
+  // normalizeBrandKey above for why an exact DB-level brand match is unsafe.
+  const { data: userRows } = await supabase
     .from('internal_link_registry')
     .select('*')
     .eq('user_id', userId)
-    .eq('brand', articleBrand)
     .eq('is_active', true)
-    .limit(20)
+    .limit(500)
 
-  if (!data?.length) return { links: [], registryRowCount: 0 }
+  const targetBrandKey = normalizeBrandKey(articleBrand)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = (userRows || []).filter((row: any) => normalizeBrandKey(row.brand) === targetBrandKey)
+
+  if (!data.length) return { links: [], registryRowCount: 0 }
 
   const articleTerms = extractEntityTerms(`${articleKeyword} ${articleTitle}`)
 

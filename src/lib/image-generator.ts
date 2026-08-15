@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenAI } from '@google/genai';
+import { parse, HTMLElement } from 'node-html-parser';
 import { MODEL_FOR } from '@/lib/model-router';
 
 // ── Blog-standard size presets ────────────────────────────────────────────────
@@ -887,16 +888,11 @@ function escapeHtmlAttr(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-export function injectImagesIntoArticle(html: string, imageSet: ArticleImageSet): string {
-  if (!html) return html;
-
-  const { hero, content, mobile } = imageSet;
-
+function buildHeroFigure(hero: GeneratedImage, mobile: GeneratedImage | undefined): string {
+  if (!hero.url) return '';
   const heroAlt = escapeHtmlAttr(hero.alt || '');
   const heroCaption = hero.caption ? escapeHtmlAttr(hero.caption) : '';
-
-  const heroFigure = hero.url
-    ? `<figure class="article-hero-image" style="margin:0 0 2rem 0;">
+  return `<figure class="article-hero-image" style="margin:0 0 2rem 0;">
   <img
     src="${hero.url}"
     srcset="${mobile?.url ? `${mobile.url} 600w, ` : ''}${hero.url} 1200w"
@@ -909,74 +905,13 @@ export function injectImagesIntoArticle(html: string, imageSet: ArticleImageSet)
     style="width:100%;height:auto;border-radius:8px;"
   />
   ${heroCaption ? `<figcaption style="text-align:center;font-size:0.85rem;color:#6B6B6B;margin-top:0.5rem;">${heroCaption}</figcaption>` : ''}
-</figure>\n`
-    : '';
+</figure>`;
+}
 
-  let result = html;
-  if (heroFigure) {
-    const h1Pos = result.search(/<h1[\s>]/i);
-    result = h1Pos !== -1
-      ? result.slice(0, h1Pos) + heroFigure + result.slice(h1Pos)
-      : heroFigure + result;
-  }
-
-  // Insert content images evenly distributed across H2 sections
-  if (content.length > 0) {
-    const h2Regex = /<h2[^>]*>([\s\S]*?)<\/h2>/gi;
-    let match: RegExpExecArray | null;
-    const h2Positions: number[] = [];
-
-    // Land after the section's first paragraph, not immediately after the
-    // heading — a figure between a heading and any body text breaks the
-    // "heading introduces text" flow. Falls back to right-after-heading
-    // only if the section has no <p> at all, so an image is never dropped.
-    // The FAQ section is excluded entirely: it's immediately followed by a
-    // disclaimer <p>, so the same after-first-paragraph rule would still
-    // land an image between that disclaimer and the first FAQ item — FAQs
-    // are meant to be scanned immediately, not interrupted.
-    while ((match = h2Regex.exec(result)) !== null) {
-      const headingText = match[1].replace(/<[^>]+>/g, '').trim().toLowerCase();
-      if (headingText === 'frequently asked questions') continue;
-
-      const afterHeading = match.index + match[0].length;
-      const nextH2 = result.indexOf('<h2', afterHeading);
-      const searchEnd = nextH2 === -1 ? result.length : nextH2;
-      const pEnd = result.indexOf('</p>', afterHeading);
-
-      const pos = (pEnd !== -1 && pEnd < searchEnd) ? pEnd + 4 : afterHeading;
-      h2Positions.push(pos);
-    }
-
-    const insertions: { pos: number; figure: string }[] = [];
-
-    if (h2Positions.length > 0) {
-      // Distribute images evenly: pick one H2 per image, never reusing the same position.
-      // When there are fewer H2s than content images, later images are skipped gracefully.
-      const usedH2Indices = new Set<number>();
-      content.forEach((img, i) => {
-        if (!img.url) return;
-        // Target: spread evenly across available H2s
-        const targetIdx = Math.min(
-          Math.floor((i / content.length) * h2Positions.length),
-          h2Positions.length - 1,
-        );
-        // Walk forward to first unused H2
-        let idx = targetIdx;
-        while (idx < h2Positions.length && usedH2Indices.has(idx)) idx++;
-        // If exhausted, walk backward
-        if (idx >= h2Positions.length) {
-          idx = targetIdx - 1;
-          while (idx >= 0 && usedH2Indices.has(idx)) idx--;
-        }
-        if (idx < 0 || idx >= h2Positions.length) return; // no more H2 slots
-
-        usedH2Indices.add(idx);
-        const pos = h2Positions[idx];
-        const imgAlt = escapeHtmlAttr(img.alt || '');
-        const imgCaption = img.caption ? escapeHtmlAttr(img.caption) : '';
-        insertions.push({
-          pos,
-          figure: `\n<figure class="article-content-image" style="margin:1.5rem 0;">
+function buildContentFigure(img: GeneratedImage): string {
+  const imgAlt = escapeHtmlAttr(img.alt || '');
+  const imgCaption = img.caption ? escapeHtmlAttr(img.caption) : '';
+  return `<figure class="article-content-image" style="margin:1.5rem 0;">
   <img
     src="${img.url}"
     alt="${imgAlt}"
@@ -987,34 +922,89 @@ export function injectImagesIntoArticle(html: string, imageSet: ArticleImageSet)
     style="width:100%;height:auto;border-radius:6px;"
   />
   ${imgCaption ? `<figcaption style="text-align:center;font-size:0.85rem;color:#6B6B6B;margin-top:0.5rem;">${imgCaption}</figcaption>` : ''}
-</figure>\n`,
-        });
-      });
-    } else if (content[0]?.url) {
-      // No H2s — append first content image after the hero area
-      const bodyStart = result.search(/<p[\s>]/i);
-      if (bodyStart !== -1) {
-        const firstParaEnd = result.indexOf('</p>', bodyStart);
-        if (firstParaEnd !== -1) {
-          const c0Alt = escapeHtmlAttr(content[0].alt || '');
-          const c0Caption = content[0].caption ? escapeHtmlAttr(content[0].caption) : '';
-          insertions.push({
-            pos: firstParaEnd + 4,
-            figure: `\n<figure class="article-content-image" style="margin:1.5rem 0;">
-  <img src="${content[0].url}" alt="${c0Alt}" width="${content[0].width}" height="${content[0].height}" loading="lazy" decoding="async" style="width:100%;height:auto;border-radius:6px;" />
-  ${c0Caption ? `<figcaption style="text-align:center;font-size:0.85rem;color:#6B6B6B;margin-top:0.5rem;">${c0Caption}</figcaption>` : ''}
-</figure>\n`,
-          });
-        }
-      }
-    }
+</figure>`;
+}
 
-    for (const ins of insertions.sort((a, b) => b.pos - a.pos)) {
-      result = result.slice(0, ins.pos) + ins.figure + result.slice(ins.pos);
+// Finds the DOM node a content figure should land after within one H2
+// section: the section's first <p>, or the heading itself if the section
+// has no paragraph at all (an image is never dropped for lack of a <p>).
+// Walking element siblings (not string positions) means this is immune to
+// however node-html-parser re-serializes whitespace/attributes — unlike the
+// regex version this replaces, which located `</p>` by raw string offset.
+function findSectionAnchor(h2: HTMLElement): HTMLElement {
+  let node: HTMLElement | null = h2;
+  let sibling = h2.nextElementSibling;
+  while (sibling && sibling.tagName?.toLowerCase() !== 'h2') {
+    if (sibling.tagName?.toLowerCase() === 'p') return sibling;
+    node = sibling;
+    sibling = sibling.nextElementSibling;
+  }
+  return node ?? h2;
+}
+
+// Pure: never mutates the input ArticleImageSet, and returns a NEW HTML
+// string rather than editing `html` in place — a prior string-slicing
+// implementation here mutated positions as a side effect of insertion
+// order, which made it unsafe to call more than once against the same
+// article state or to reason about independently of caller ordering.
+export function injectImagesIntoArticle(html: string, imageSet: ArticleImageSet): string {
+  if (!html) return html;
+
+  const { hero, content, mobile } = imageSet;
+  const root = parse(html);
+
+  const heroFigureHtml = buildHeroFigure(hero, mobile);
+  if (heroFigureHtml) {
+    const h1 = root.querySelector('h1');
+    if (h1) {
+      h1.insertAdjacentHTML('beforebegin', heroFigureHtml + '\n');
+    } else {
+      root.insertAdjacentHTML('afterbegin', heroFigureHtml + '\n');
     }
   }
 
-  return result;
+  if (content.length > 0) {
+    // FAQ section excluded: it's immediately followed by a disclaimer <p>,
+    // so the same after-first-paragraph rule would land an image between
+    // that disclaimer and the first FAQ item — FAQs are meant to be
+    // scanned immediately, not interrupted.
+    const h2Sections = root.querySelectorAll('h2').filter(h2 =>
+      h2.textContent.trim().toLowerCase() !== 'frequently asked questions'
+    );
+
+    if (h2Sections.length > 0) {
+      // Distribute images evenly: pick one H2 per image, never reusing the
+      // same section. When there are fewer H2s than content images, later
+      // images are skipped gracefully.
+      const usedIndices = new Set<number>();
+      content.forEach((img, i) => {
+        if (!img.url) return;
+        const targetIdx = Math.min(
+          Math.floor((i / content.length) * h2Sections.length),
+          h2Sections.length - 1,
+        );
+        let idx = targetIdx;
+        while (idx < h2Sections.length && usedIndices.has(idx)) idx++;
+        if (idx >= h2Sections.length) {
+          idx = targetIdx - 1;
+          while (idx >= 0 && usedIndices.has(idx)) idx--;
+        }
+        if (idx < 0 || idx >= h2Sections.length) return; // no more H2 slots
+
+        usedIndices.add(idx);
+        const anchor = findSectionAnchor(h2Sections[idx]);
+        anchor.insertAdjacentHTML('afterend', '\n' + buildContentFigure(img));
+      });
+    } else if (content[0]?.url) {
+      // No H2s — append first content image after the article's first <p>
+      const firstP = root.querySelector('p');
+      if (firstP) {
+        firstP.insertAdjacentHTML('afterend', '\n' + buildContentFigure(content[0]));
+      }
+    }
+  }
+
+  return root.toString();
 }
 
 // ── og:image meta + ImageObject schema ───────────────────────────────────────

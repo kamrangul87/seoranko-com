@@ -213,7 +213,7 @@ function evaluateGrantFigureClaims(articleContent: string): QualityIssue[] {
 // Mask domain-like tokens before matching; masking preserves string length
 // so match indices used for the "Near:" context snippet still line up.
 const DOMAIN_TOKEN_RE = /\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\b/gi
-function maskDomainLikeTokens(text: string): string {
+export function maskDomainLikeTokens(text: string): string {
   return text.replace(DOMAIN_TOKEN_RE, (m) => 'x'.repeat(m.length))
 }
 
