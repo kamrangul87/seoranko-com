@@ -47,7 +47,7 @@ const DANGEROUS_FACT_PATTERNS = [
   {
     pattern: /\b(as of|from) (january|february|march|april|may|june|july|august|september|october|november|december) 20\d{2}\b.*?(grant|scheme|fund|subsid)/i,
     message: 'Dated grant/scheme claim — confirm this is still current policy',
-    severity: 'warning' as const,
+    severity: 'info' as const,
     category: 'dated-policy' as const,
   },
 ]
@@ -559,6 +559,9 @@ export async function runQualityGate(
   try {
     const proseFindings = await lintProse(textForCopyChecks)
     for (const finding of proseFindings) {
+      // Straight quotes/apostrophes are typographic style only (prose-linter
+      // marks them info) — skip so they don't clutter the Quality Gate panel.
+      if (finding.severity === 'info') continue
       issues.push({
         id: `prose-${finding.key}`,
         severity: finding.severity,

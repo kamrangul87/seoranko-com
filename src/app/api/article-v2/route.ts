@@ -536,20 +536,9 @@ Do not write generic angles. Be specific and surprising.`
                 ? { entities: entities as string[], topicalGaps: topicalGaps as string[] }
                 : undefined,
               secondaryKeywords: secondaryKeywords as string[],
-              // A fake or dead citation is worse than no citation — it looks
-              // verified but isn't. Blocking (critical), not a warning.
-              extraIssues: citationLinkIssues.map((issue, i) => ({
-                id: `broken-citation-link-${i}`,
-                severity: 'critical' as const,
-                category: 'broken-citation-link' as const,
-                title: issue.reason === 'domain-mismatch'
-                  ? `Citation link domain mismatch: "${issue.anchorText}"`
-                  : `Citation link unreachable: "${issue.anchorText}"`,
-                description: `${issue.detail}. The link (${issue.url}) was stripped from the article and the sentence was left as plain text rather than shipping a dead or fake-looking citation.`,
-                location: issue.anchorText,
-                autoFixable: true,
-                autoFixDescription: 'Already auto-fixed — the broken citation link was stripped before this gate ran.',
-              })),
+              // Dead/fake citations are stripped above (validateCitationLinks)
+              // before this gate runs — logged to console, not surfaced as a
+              // blocking QG issue, since the published HTML is already clean.
               // Matches schema-generator: omit logo warnings when no logo_url.
               expectOrganizationLogo: !!brandSettings.logoUrl,
             })

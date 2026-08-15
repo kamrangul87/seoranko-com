@@ -12,7 +12,7 @@ export function autoSplitDenseParagraphs(articleHtml: string): string {
     const sentences = innerHtml.split(/(?<=[.!?])\s+(?=[A-Z<])/)
 
     const sentenceCount = (plainText.match(/[.!?]+/g) || []).length
-    if (sentenceCount < 7 || sentences.length < 7) return match // leave as-is
+    if (sentenceCount < 6 || sentences.length < 6) return match // leave as-is
 
     // Split roughly in half at a sentence boundary, preserving inline HTML
     // (links, <strong>, etc.) within each half rather than operating on
