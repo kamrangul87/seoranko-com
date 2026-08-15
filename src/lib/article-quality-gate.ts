@@ -225,8 +225,20 @@ const COPY_ERROR_PATTERNS = [
     category: 'merge-artifact' as const,
   },
   {
-    pattern: /\b[a-z]{2,6}\.\s?[a-z]\s[a-z]{2,}/g,
+    pattern: /\b[a-z]{2,}\.\s?[a-z]\s[a-z]{2,}/g,
     message: 'Likely truncated word or merged sentence — a word appears to be cut off mid-way',
+    severity: 'critical' as const,
+    category: 'merge-artifact' as const,
+  },
+  {
+    pattern: /\b[A-Za-z]{3,}\.[a-z]\s+[A-Z][a-z]+/g,
+    message: 'Stray period mid-word (e.g. "Network.s Association") — merge artifact',
+    severity: 'critical' as const,
+    category: 'merge-artifact' as const,
+  },
+  {
+    pattern: /\b\d+[a-zA-Z]*\.\s+[a-z]{2,}\b/g,
+    message: 'Stray period after number or unit (e.g. "22kW. units") — merge artifact',
     severity: 'critical' as const,
     category: 'merge-artifact' as const,
   },

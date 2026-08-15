@@ -17,12 +17,43 @@ export interface MergeArtifact {
 
 // Broadened detection patterns covering the known bug shapes seen in
 // production: truncated words before a period, merged sentences with
-// no space, and stray mid-word punctuation like "18%. months"
+// no space, and stray mid-word punctuation like "18%. months" or
+// "Network.s Association" / "22kW. units"
 const MERGE_ARTIFACT_PATTERNS = [
-  /\b[a-z]{2,6}\.\s?[a-z]\s[a-z]{2,}\b/g,           // "ificant.t network" style
+  /\b[a-z]{2,}\.\s?[a-z]\s[a-z]{2,}\b/g,             // "ificant.t network" style (any word length)
+  /\b[A-Za-z]{3,}\.[a-z]\s+[A-Z][a-z]+/g,            // "Network.s Association" — period mid-word
+  /\b\d+[a-zA-Z]*\.\s+[a-z]{2,}\b/g,                 // "22kW. units" — period after unit/number
   /\b\d+%\.\s+[a-z]{3,}\b/g,                         // "18%. months" style — number+percent then broken clause
   /[a-z]\.[A-Z][a-z]+/g,                             // "word.Next" — missing space after period
 ]
+
+// Mechanical fixes for merge shapes that have an obvious correct form — no
+// Claude call needed. Runs before the targeted repair loop so common cases
+// like "Network.s Association" and "22kW. units" are fixed deterministically.
+export function applyDeterministicMergeFixes(articleContent: string): { content: string; fixesMade: number } {
+  let content = articleContent
+  let fixesMade = 0
+
+  // "Network.s Association" → "Networks Association" (drop stray mid-word period)
+  content = content.replace(/\b([A-Za-z]{3,})\.([a-z])\s+(?=[A-Z])/g, (_match, word: string, letter: string) => {
+    fixesMade++
+    return `${word}${letter} `
+  })
+
+  // "22kW. units" → "22kW units" (drop stray period after number/unit)
+  content = content.replace(/\b(\d+[a-zA-Z]*)\.\s+([a-z]{2,})\b/g, (_match, unit: string, word: string) => {
+    fixesMade++
+    return `${unit} ${word}`
+  })
+
+  // "18%. months" → "18% months"
+  content = content.replace(/\b(\d+%)\.\s+([a-z]{3,})\b/g, (_match, pct: string, word: string) => {
+    fixesMade++
+    return `${pct} ${word}`
+  })
+
+  return { content, fixesMade }
+}
 
 // Detects directly against the real content (not a stripped copy) — the
 // repair step below splices the fix back in by finding `matchedText`
@@ -100,8 +131,9 @@ export async function repairAllMergeArtifacts(
   articleContent: string
 ): Promise<{ content: string; repairsMade: number }> {
 
-  let currentContent = articleContent
-  let repairsMade = 0
+  const deterministic = applyDeterministicMergeFixes(articleContent)
+  let currentContent = deterministic.content
+  let repairsMade = deterministic.fixesMade
 
   // Re-detect after each fix since positions shift — cap at 5 to avoid
   // runaway loops on genuinely malformed content

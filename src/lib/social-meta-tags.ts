@@ -24,10 +24,13 @@ export interface SocialMetaTagsInput {
 export function buildSocialMetaTags(input: SocialMetaTagsInput): string {
   const { title, description, url, imageUrl } = input
   const safeTitle = title.replace(/"/g, '&quot;')
+  const seoDesc = description.length > 160 ? `${description.slice(0, 157)}...` : description
+  const safeSeoDesc = seoDesc.replace(/"/g, '&quot;')
   const safeDesc = (description.length > 200 ? `${description.slice(0, 197)}...` : description).replace(/"/g, '&quot;')
   const safeUrl = url.replace(/"/g, '&quot;')
 
   return [
+    `<meta name="description" content="${safeSeoDesc}" />`,
     '<meta property="og:type" content="article" />',
     `<meta property="og:title" content="${safeTitle}" />`,
     `<meta property="og:description" content="${safeDesc}" />`,
