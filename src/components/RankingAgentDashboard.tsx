@@ -3,9 +3,9 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase-client'
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import { LOCATION_OPTIONS } from '@/lib/rank-tracker'
+import { WRITE_MARKET_STORAGE_KEY, locationCodeFor } from '@/lib/markets'
 import type { RANKODiagnosis, RANKOIssue } from '@/lib/ranko-diagnosis'
 import { resolveArticle, isWritable, EXTERNAL_NOT_WRITABLE_MESSAGE } from '@/lib/article-resolver'
-import { enterAtPublish } from '@/lib/pages'
 
 interface TrackedArticle {
   id: string
@@ -18,6 +18,7 @@ interface TrackedArticle {
   top_competitor: string | null
   location_code: number
   last_rank_check: string | null
+  last_citation_check: string | null
   last_reoptimise_at: string | null
   perplexity_cited: boolean | null
   citation_share_of_voice: number | null
@@ -143,6 +144,14 @@ export function RankingAgentDashboard() {
   })
 
   useEffect(() => {
+    const stored = localStorage.getItem(WRITE_MARKET_STORAGE_KEY)
+    if (stored) {
+      const code = locationCodeFor(stored)
+      setForm(f => ({ ...f, locationCode: code }))
+    }
+  }, [])
+
+  useEffect(() => {
     // Get initial session immediately — don't wait for onAuthStateChange
     supabase.auth.getSession().then(({ data: { session } }: { data: { session: Session | null } }) => {
       if (session?.user) {
@@ -223,34 +232,29 @@ export function RankingAgentDashboard() {
       return
     }
 
-    const { error } = await supabase
-      .from('ranking_agent_articles')
-      .insert({
-        user_id: session.user.id,
+    const { error: trackError } = await fetch('/api/rank/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         keyword: form.keyword,
-        article_url: form.articleUrl,
-        title: form.keyword,
-        location_code: form.locationCode,
-        freshness_status: 'fresh',
-        needs_refresh: false
-      })
+        articleUrl: form.articleUrl,
+        locationCode: form.locationCode,
+      }),
+    }).then(async res => {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        return { error: { message: data.error || res.statusText } }
+      }
+      return { error: null }
+    })
 
-    if (error) {
-      setAddError(`Failed: ${error.message}`)
+    if (trackError) {
+      setAddError(`Failed: ${trackError.message}`)
       setAdding(false)
       return
     }
 
-    // §10 item 8 — a tracked URL entering RANKO is the closest thing this
-    // codebase has to a Publish (6) / Monitor (7) gate today. Instrumentation
-    // only; never blocks the add flow if it fails.
-    enterAtPublish(supabase, {
-      userId: session.user.id,
-      keyword: form.keyword,
-      url: form.articleUrl
-    }).catch(() => {})
-
-    setForm({ keyword: '', articleUrl: '', locationCode: 2840 })
+    setForm(f => ({ ...f, keyword: '', articleUrl: '' }))
     setShowForm(false)
     setAdding(false)
     await loadArticles(session.user.id)
@@ -364,7 +368,10 @@ export function RankingAgentDashboard() {
       const res = await fetch('/api/ranko/diagnose', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ siteUrl: article.article_url })
+        body: JSON.stringify({
+          siteUrl: article.article_url,
+          trackedArticleId: article.id,
+        })
       })
       const data = await res.json()
       if (data.diagnosis) {
@@ -811,11 +818,24 @@ export function RankingAgentDashboard() {
             })()}
 
             {/* Last checked */}
-            {article.last_rank_check && (
+            {(article.last_rank_check || article.last_citation_check) && (
               <p className="text-xs text-gray-400">
-                Last checked {new Date(article.last_rank_check).toLocaleDateString('en-GB', {
-                  day: 'numeric', month: 'short', year: 'numeric'
-                })} · Auto-checks every Monday 8am UTC
+                {article.last_rank_check && (
+                  <>
+                    Rank checked {new Date(article.last_rank_check).toLocaleDateString('en-GB', {
+                      day: 'numeric', month: 'short', year: 'numeric'
+                    })}
+                  </>
+                )}
+                {article.last_rank_check && article.last_citation_check && ' · '}
+                {article.last_citation_check && (
+                  <>
+                    AI citation checked {new Date(article.last_citation_check).toLocaleDateString('en-GB', {
+                      day: 'numeric', month: 'short', year: 'numeric'
+                    })}
+                  </>
+                )}
+                {article.last_rank_check && ' · Auto-checks every Monday 8am UTC'}
               </p>
             )}
           </div>

@@ -24,13 +24,34 @@ export interface EngineCitationResult {
   error?: string
 }
 
-function buildQueryVariants(keyword: string): string[] {
-  return [
+function buildQueryVariants(keyword: string, locationCode = 2840): string[] {
+  const year = new Date().getFullYear()
+  const region = locationNameFromCode(locationCode)
+  const variants = [
     keyword,
     `what is the best ${keyword}`,
-    `${keyword} guide UK 2026`
   ]
+  if (region && region !== 'Global' && region !== 'United States') {
+    variants.push(`${keyword} ${region} ${year}`)
+    variants.push(`${keyword} guide ${region}`)
+  } else {
+    variants.push(`${keyword} guide ${year}`)
+  }
+  return variants
 }
+
+import { LOCATION_OPTIONS } from '@/lib/rank-tracker'
+
+function locationNameFromCode(code: number): string {
+  const found = LOCATION_OPTIONS.find(l => l.value === code)
+  if (!found) return 'Global'
+  return found.label.replace(/^[^\s]+\s+/, '')
+}
+
+export interface CitationCheckOptions {
+  locationCode?: number
+}
+
 
 function extractDomains(urls: string[]): string[] {
   return urls.map(url => {
@@ -90,10 +111,11 @@ async function queryPerplexity(
 
 export async function checkArticleCitation(
   keyword: string,
-  articleUrl: string
+  articleUrl: string,
+  options: CitationCheckOptions = {}
 ): Promise<CitationCheckResult> {
   const domain = new URL(articleUrl.startsWith('http') ? articleUrl : `https://${articleUrl}`).hostname
-  const queries = buildQueryVariants(keyword)
+  const queries = buildQueryVariants(keyword, options.locationCode ?? 2840)
 
   const results = await Promise.all(
     queries.map(q => queryPerplexity(q, domain))

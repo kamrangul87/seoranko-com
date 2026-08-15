@@ -4,6 +4,10 @@ import { checkBatchRanks } from '@/lib/rank-tracker'
 import { handleRankDrop } from '@/lib/rank-guard'
 import { runWeeklyFreshnessJobs } from '@/lib/freshness-automation'
 import { checkArticleCitation } from '@/lib/citation-tracker'
+import {
+  persistVelocityMetrics,
+  recomputeFreshnessForTracked,
+} from '@/lib/rank-monitor-pass'
 
 export const maxDuration = 300
 
@@ -95,6 +99,9 @@ export async function GET(req: NextRequest) {
         })
         .eq('id', article_record.id)
 
+      await persistVelocityMetrics(supabase, article_record.id, rank.keyword)
+      await recomputeFreshnessForTracked(supabase, article_record.id)
+
       // §10 item 5/10 — this was the fixed "drop >= 3" gate that item 5 replaced
       // inside handleRankDrop() with a band-aware fitted-slope trigger. But this
       // is the ONLY production caller of handleRankDrop (the weekly cron), and
@@ -152,7 +159,8 @@ export async function GET(req: NextRequest) {
 
     for (const a of citationDue) {
       try {
-        const cit = await checkArticleCitation(a.keyword, a.article_url)
+        const loc = a.location_code || 2840
+        const cit = await checkArticleCitation(a.keyword, a.article_url, { locationCode: loc })
         await supabase
           .from('ranking_agent_articles')
           .update({

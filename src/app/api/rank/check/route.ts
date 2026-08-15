@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { checkKeywordRank } from '@/lib/rank-tracker'
 import { logRankCheck } from '@/lib/rank-check-log'
 import { evaluateTrigger, type RankObservation, type TriggerDecision } from '@/lib/rank-trigger'
+import { runMonitorPassForArticle } from '@/lib/rank-monitor-pass'
 
 export const maxDuration = 60
 
@@ -25,11 +26,6 @@ export async function POST(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
 
-    // §10 item 3 — locale is a per-unit property, not a global default. The
-    // article is TRACKED at a location_code; checking it at a different one
-    // returns a different SERP and guarantees disagreement with ground truth.
-    // This route defaulted to 2840 (US) while the weekly agent used 2826 (UK),
-    // so the same keyword had two answers. Prefer the stored value.
     let ownerId: string | null = null
     let storedLocation: number | null = null
     if (articleId) {
@@ -45,15 +41,10 @@ export async function POST(req: NextRequest) {
     const locationCode = storedLocation ?? requestedLocation ?? 2840
     const result = await checkKeywordRank(keyword, articleUrl, locationCode)
 
-    // §10 item 10 / §6.4: negative Δposition = good. current − previous, so an
-    // improvement (15 → 12) yields −3, a decline (12 → 15) yields +3.
     const change = previousPosition != null && result.position != null
       ? result.position - previousPosition
       : null
 
-    // §6.4 / item 5 — evaluate the trigger against the full history including
-    // this check, and log the real decision. The log is worthless for the day-8
-    // review if trigger_fired is hardcoded.
     let decision: TriggerDecision | null = null
     if (articleId) {
       const { data: history } = await supabase
@@ -79,7 +70,6 @@ export async function POST(req: NextRequest) {
       result,
       triggerFired: decision?.fired ?? false,
       triggerReason: decision?.reason ?? null,
-      // Item 6 records what actually happened; auto-diagnose is dispatched below.
       actionTaken: decision?.fired ? 'diagnose-dispatched' : 'none'
     })
 
@@ -109,9 +99,6 @@ export async function POST(req: NextRequest) {
         .eq('id', articleId)
     }
 
-    // §6.4 — dispatch only when the band-aware trigger actually fired. The old
-    // condition (any change at all, or merely being outside the top 20) fired on
-    // normal noise, which is a large share of the current false triggers.
     if (articleId && decision?.fired) {
       fetch(`${req.nextUrl.origin}/api/rank/diagnose`, {
         method: 'POST',
@@ -128,7 +115,18 @@ export async function POST(req: NextRequest) {
       }).catch(() => {})
     }
 
-    return NextResponse.json({ success: true, result, change })
+    let monitor = null
+    if (articleId) {
+      monitor = await runMonitorPassForArticle(
+        supabase,
+        articleId,
+        keyword,
+        articleUrl,
+        locationCode
+      )
+    }
+
+    return NextResponse.json({ success: true, result, change, monitor })
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 })
   }

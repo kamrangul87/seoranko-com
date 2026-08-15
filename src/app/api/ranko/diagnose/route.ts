@@ -8,10 +8,9 @@ export const maxDuration = 120
 
 export async function POST(req: NextRequest) {
   try {
-    const { siteUrl } = await req.json()
+    const { siteUrl, trackedArticleId } = await req.json()
     if (!siteUrl) return NextResponse.json({ error: 'siteUrl required' }, { status: 400 })
 
-    // Auth
     const cookieStore = cookies()
     const supabaseAuth = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -21,11 +20,11 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabaseAuth.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    // Fetch user's articles
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
+
     const { data: articles } = await supabase
       .from('articles')
       .select('id, title, keyword, content, rank_score')
@@ -49,7 +48,6 @@ export async function POST(req: NextRequest) {
 
     const diagnosis = await runRANKODiagnosis(user.id, siteUrl, enrichedArticles)
 
-    // Save to Supabase
     await supabase.from('ranko_diagnoses').insert({
       user_id: user.id,
       site_url: siteUrl,
@@ -59,6 +57,17 @@ export async function POST(req: NextRequest) {
       top_actions: diagnosis.topThreeActions,
       diagnosed_at: diagnosis.diagnosedAt
     })
+
+    if (trackedArticleId) {
+      await supabase
+        .from('ranking_agent_articles')
+        .update({
+          last_diagnosis: diagnosis,
+          last_diagnosed_at: diagnosis.diagnosedAt,
+        })
+        .eq('id', trackedArticleId)
+        .eq('user_id', user.id)
+    }
 
     return NextResponse.json({ success: true, diagnosis })
   } catch (error) {
