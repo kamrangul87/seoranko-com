@@ -1,6 +1,6 @@
 // SERP content-gap analysis — compares top-ranking pages for a keyword and
-// surfaces subtopics competitors cover (and gaps to exploit). Same idea as
-// Serper/SERP gap tools: scrape top results → extract topics → guide the brief.
+// surfaces subtopics others cover (and gaps to exploit). Scrape top results,
+// extract topics, guide the brief — never copy competitor copy verbatim.
 
 import {
   getTopCompetitorUrls,

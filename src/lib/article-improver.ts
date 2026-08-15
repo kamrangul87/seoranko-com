@@ -88,7 +88,7 @@ At the end, add: <!-- CHANGES: [brief list of what you changed] -->`,
 
 Make ONLY these targeted improvements:
 1. Add a specific statistic or named source to any paragraph that currently has no cited evidence
-2. Replace vague phrases ("many people", "studies show", "experts say") with specific attribution ("According to Zapmap's June 2026 data", "A 2025 Ofgem report found")
+2. Replace vague phrases ("many people", "studies show", "experts say") with specific attribution ("According to industry data from [Month Year]", "A recent regulator report found")
 3. Add at least 2 more named entities (organisations, publications, government bodies) if the article is thin on these
 4. Verify every statistic already in the article is attributed — add attribution where missing
 5. Add a specific date or timeframe to any claim that currently has none

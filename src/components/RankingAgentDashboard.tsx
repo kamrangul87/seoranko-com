@@ -6,6 +6,7 @@ import { LOCATION_OPTIONS } from '@/lib/rank-tracker'
 import { WRITE_MARKET_STORAGE_KEY, locationCodeFor } from '@/lib/markets'
 import type { RANKODiagnosis, RANKOIssue } from '@/lib/ranko-diagnosis'
 import { resolveArticle, isWritable, EXTERNAL_NOT_WRITABLE_MESSAGE } from '@/lib/article-resolver'
+import { anonymizeCompetitorHint, anonymizeDomain } from '@/lib/competitor-privacy'
 
 interface TrackedArticle {
   id: string
@@ -649,7 +650,7 @@ export function RankingAgentDashboard() {
               )}
               {article.top_competitor && (
                 <span className="text-xs text-gray-400">
-                  vs <span className="text-gray-600 font-medium">{article.top_competitor}</span>
+                  vs <span className="text-gray-600 font-medium">{anonymizeDomain(article.top_competitor)}</span>
                 </span>
               )}
             </div>
@@ -674,7 +675,7 @@ export function RankingAgentDashboard() {
                   Not cited by AI
                   {article.cited_competitors?.length > 0 && (
                     <span className="text-gray-400 ml-1">
-                      — {article.cited_competitors[0]} cited instead
+                      — {anonymizeCompetitorHint(article.cited_competitors)} cited instead
                     </span>
                   )}
                 </span>

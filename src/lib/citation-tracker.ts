@@ -41,6 +41,7 @@ function buildQueryVariants(keyword: string, locationCode = 2840): string[] {
 }
 
 import { LOCATION_OPTIONS } from '@/lib/rank-tracker'
+import { citationRecommendation } from '@/lib/competitor-privacy'
 
 function locationNameFromCode(code: number): string {
   const found = LOCATION_OPTIONS.find(l => l.value === code)
@@ -129,11 +130,7 @@ export async function checkArticleCitation(
     results.flatMap(r => extractDomains(r.competitorUrls))
   )).filter(d => !d.includes(domain.replace('www.', '')))
 
-  let recommendation: string
-  if (shareOfVoice >= 67) recommendation = 'Strong AI visibility — maintain content freshness and keep schema up to date'
-  else if (shareOfVoice >= 33) recommendation = 'Partial visibility — check competitors being cited and strengthen fact density and schema'
-  else if (isCited) recommendation = 'Occasional citation — improve answer-first structure and add more attributed statistics'
-  else recommendation = `Not currently cited — competitors cited instead: ${allCompetitorDomains.slice(0, 3).join(', ')}. Prioritise schema injection, freshness refresh, and authority links.`
+  const recommendation = citationRecommendation(shareOfVoice, isCited, allCompetitorDomains.length)
 
   return {
     keyword,

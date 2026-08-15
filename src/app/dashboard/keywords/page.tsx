@@ -417,7 +417,7 @@ function ResearchPanel() {
               </p>
               {pendingCluster.serpGap.contentGaps.length > 0 && (
                 <div className="mb-2">
-                  <p className="text-xs font-medium text-amber-800 mb-1">Content gaps to fill (competitors miss these):</p>
+                  <p className="text-xs font-medium text-amber-800 mb-1">Content gaps to fill (others miss these):</p>
                   <ul className="text-xs text-amber-900 list-disc pl-4 space-y-0.5">
                     {pendingCluster.serpGap.contentGaps.slice(0, 5).map(g => (
                       <li key={g}>{g}</li>
