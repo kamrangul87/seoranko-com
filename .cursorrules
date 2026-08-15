@@ -1,0 +1,65 @@
+# SEORANKO — Standing Rules
+
+Full context: read docs/PROJECT_CONTEXT.md before making changes to the write
+pipeline, schema generation, image generation, or publisher adapters.
+
+## Non-negotiable rules
+
+1. **Global by default.** Never hardcode a UK-specific or 'autodun'-specific
+   default anywhere in the pipeline (market, location code, language tag,
+   brand, domain). Every one of these must be an explicit param or a value
+   derived from real input — never a silent fallback to one specific
+   company or country. This has been a repeated real bug class in this repo.
+
+2. **All model calls go through src/lib/model-router.ts.** Never hardcode a
+   model string (`claude-sonnet-4-6` / `claude-haiku-4-5-*`) directly in a
+   route or lib file. Add a new task key to MODEL_FOR if one doesn't exist.
+   Mechanical/classification tasks → Haiku. Quality-critical, user-visible
+   output → Sonnet.
+
+3. **Mechanical fixes over prompt instructions.** If a bug is "the model
+   sometimes ignores an instruction," the fix is a deterministic code-level
+   check or a computed value, not a stronger-worded prompt. This has been
+   true every time in this project — see the word-count bug (4 contradicting
+   hardcoded instructions, fixed by computing structure from the actual
+   requested word count) and the schema bug (model kept writing its own
+   JSON-LD despite instructions; fixed by generating schema in code instead
+   and telling the model not to write any).
+
+4. **No sub-daily Vercel cron schedules.** This project is on Vercel's Hobby
+   plan, which silently rejects any cron more frequent than once daily —
+   this broke every deployment for ~2 days before being found. Check
+   vercel.json before adding or modifying any cron.
+
+5. **Domain names break naive period-based regex.** Any new text-pattern
+   check involving periods (typo detection, sentence-boundary detection)
+   must be tested against real citations like "gov.uk", "energynetworks.org"
+   before shipping — this exact false-positive has recurred 3+ times.
+
+6. **Verify against the real deployed/merged state, not a summary.**
+   Multiple fixes in this project were declared complete once and turned
+   out not to have actually landed. Check `git log origin/main` and read
+   the actual current file content before trusting that something is done.
+
+7. **Content-safety/quality gates are launch-priority, not v2.** Any
+   feature that can publish content to a client's live site needs a
+   human-review gate and volume throttle built in from the start — see
+   Phase H (near-duplicate + volume-throttle safeguards), built proactively
+   given Google's scaled-content-abuse policy risk.
+
+## Known open issues (check before assuming these are fixed)
+
+- Paragraph splitter (src/lib/paragraph-splitter.ts) is written but not
+  confirmed working — a generated article still showed 6+ sentence
+  paragraphs with no breaks as of Aug 15. Verify it's actually wired into
+  article-v2/route.ts's pipeline, not just present in the file tree.
+- Internal link registry brand matching: unconfirmed whether "autodun" and
+  "autodun.com" are treated as the same brand or require an exact string
+  match. This exact mismatch class has caused silent zero-link results
+  before (a different brand entirely, not a typo) — check normalization
+  logic in internal-link-engine.ts before assuming a registry lookup that
+  returns zero rows is a data problem rather than a matching bug.
+- SEORANKO does not yet publish articles to a live public URL — Publisher
+  Adapter foundation (src/lib/publisher-adapters/) exists but only the
+  GitHub adapter has been tested against real credentials.
+- 11 Supabase tables still have Row Level Security disabled.
