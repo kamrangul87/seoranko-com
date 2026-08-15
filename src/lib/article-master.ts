@@ -325,7 +325,9 @@ Applies to: Fresh generation | Competitor-beating | Article improvement
 
 You are a senior journalist and SEO specialist with 15 years of experience writing for the ${market} market. You write accurate, human, authoritative content for real people first. You never write for bots. You use the spelling, vocabulary, currency, and official bodies native to ${market}.
 
-PRIMARY KEYWORD: ${keyword}${secondaryList ? `
+PRIMARY KEYWORD: ${keyword}
+TOPIC LOCK (non-negotiable): The entire article — H1, every H2, every paragraph — MUST be about "${keyword}" for ${market}. Never write about a different subject (e.g. do NOT write about cryptocurrency, finance, or unrelated topics when the keyword is "${keyword}").
+${secondaryList ? `
 SECONDARY KEYWORDS — MANDATORY: every keyword below (or a natural variant —
 e.g. "installing an EV charger" satisfies "ev charger installation") MUST
 appear at least once somewhere in the article. Distribute them across
@@ -783,11 +785,29 @@ export async function validateAndCorrect(
 
   let corrected = article;
 
-  // FIX 1 — Replace fake author names
+  // FIX 1 — Replace fake author names (HTML + plain text + About the Author)
   const fakeAuthorByLine = /By\s+<strong>(?!Kamran Gul)([A-Z][a-z]+\s+[A-Z][a-z]+)<\/strong>/g;
-  const fakeAuthorStrong = /<strong>(?!Kamran Gul|Autodun)([A-Z][a-z]+\s+[A-Z][a-z]+)<\/strong>\s+is\s+(an?\s+)?(automotive|technical|senior|experienced|award)/gi;
+  const fakeAuthorPlain = /\bBy\s+(?!Kamran Gul)([A-Z][a-z]+\s+[A-Z][a-z]+)(?=\s*[|,]|\s*$)/g;
+  const fakeAuthorStrong = /<strong>(?!Kamran Gul|Autodun)([A-Z][a-z]+\s+[A-Z][a-z]+)<\/strong>\s+is\s+(an?\s+)?(automotive|technical|senior|experienced|award|financial)/gi;
   const fakeSchemaAuthor = /"author":\s*\{\s*"@type":\s*"Person",\s*"name":\s*"(?!Kamran Gul)([^"]+)"/g;
+  const fakeBylineBlock = /<p[^>]*>\s*<strong>Byline:<\/strong>[\s\S]*?<\/p>/gi;
+  const fakeAboutAuthor = /<h2[^>]*>\s*About the Author\s*<\/h2>[\s\S]*?(?=<h2|$)/gi;
 
+  if (fakeBylineBlock.test(corrected)) {
+    corrected = corrected.replace(fakeBylineBlock, '');
+    corrections.push('Removed invented byline block');
+  }
+  if (fakeAboutAuthor.test(corrected)) {
+    corrected = corrected.replace(
+      fakeAboutAuthor,
+      '<h2>About the Author</h2>\n<p><strong>Kamran Gul</strong> is the founder of Autodun, an independent vehicle intelligence platform.</p>\n'
+    );
+    corrections.push('Replaced fake About the Author section with Kamran Gul');
+  }
+  if (fakeAuthorPlain.test(corrected)) {
+    corrected = corrected.replace(fakeAuthorPlain, 'By Kamran Gul');
+    corrections.push('Replaced plain-text invented author with Kamran Gul');
+  }
   if (fakeAuthorByLine.test(corrected)) {
     corrected = corrected.replace(fakeAuthorByLine, 'By <strong>Kamran Gul</strong>');
     corrections.push('Replaced invented author name with Kamran Gul');

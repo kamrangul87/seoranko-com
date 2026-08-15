@@ -28,6 +28,7 @@ import { MODEL_FOR } from '@/lib/model-router';
 import { runQualityGate, type QualityIssue } from '@/lib/article-quality-gate';
 import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
 import { enforceWordCountLimit, countArticleWords } from '@/lib/word-count-enforcer';
+import { checkTopicAlignment } from '@/lib/topic-alignment';
 import { insertTableOfContents } from '@/lib/table-of-contents';
 import { autoSplitDenseParagraphs } from '@/lib/scannability-fixer';
 import { validateArticleStructure } from '@/lib/structure-validator';
@@ -272,9 +273,41 @@ Do not write generic angles. Be specific and surprising.`
           console.log(`[model-router] task=articleWriting model=${MODEL_FOR.articleWriting} inputTokens=${articleFinalMsg.usage.input_tokens} cacheHit=${articleCacheHit}`);
 
           // Validate and correct the article
-          const { corrections } = await validateAndCorrect(fullArticle, keyword, market, liveFacts);
-          if (corrections.length > 0) {
-            console.log('[article-v2] validation corrections:', corrections);
+          let validated = await validateAndCorrect(fullArticle, keyword, market, liveFacts);
+          fullArticle = validated.article;
+          if (validated.corrections.length > 0) {
+            console.log('[article-v2] validation corrections:', validated.corrections);
+          }
+
+          let topicAlignment = checkTopicAlignment(fullArticle, keyword);
+          if (!topicAlignment.aligned) {
+            console.error('[article-v2] topic mismatch after generation — retrying once:', topicAlignment.reason);
+            const retryPrompt = `${prompt}
+
+════════════════════════════════════════
+CRITICAL RETRY — PREVIOUS OUTPUT REJECTED
+════════════════════════════════════════
+Your previous draft was REJECTED because: ${topicAlignment.reason}
+You MUST write ONLY about "${keyword}" for the ${market} market.
+- The <h1> MUST include "${keyword}" or a natural variant (e.g. "EV Charger Guide" for "ev charger")
+- Every section must stay on this topic — do NOT write about cryptocurrency, unrelated industries, or other subjects
+- Author MUST be Kamran Gul — never invent names like Sarah Chen
+- Use ${new Date().toLocaleString('en-GB', { month: 'long' })} ${new Date().getFullYear()} dates only
+Write the complete corrected article now. HTML only.`;
+
+            const retryResponse = await anthropic.messages.create({
+              model: MODEL_FOR.articleWriting,
+              max_tokens: 8000,
+              messages: [{ role: 'user', content: retryPrompt }],
+            });
+            const retryText = retryResponse.content[0].type === 'text' ? retryResponse.content[0].text : '';
+            if (retryText.length > 500) {
+              fullArticle = retryText;
+              validated = await validateAndCorrect(fullArticle, keyword, market, liveFacts);
+              fullArticle = validated.article;
+              topicAlignment = checkTopicAlignment(fullArticle, keyword);
+              console.log('[article-v2] topic retry result:', topicAlignment);
+            }
           }
 
           try {
@@ -851,6 +884,19 @@ Do not write generic angles. Be specific and surprising.`
           // over that would be a worse outcome than the current bug.
           let savedArticleId: string | undefined;
           let saveError: string | undefined;
+          const saveTopicCheck = checkTopicAlignment(publishedHtml, keyword);
+          if (!saveTopicCheck.aligned) {
+            hardBlockReasons.push(`Topic mismatch — ${saveTopicCheck.reason}`);
+            if (articleQualityGate) {
+              articleQualityGate.passed = false;
+              articleQualityGate.readyToPublish = false;
+              articleQualityGate.criticalCount += 1;
+              articleQualityGate.blockers = [
+                ...articleQualityGate.blockers,
+                `[TOPIC-ALIGNMENT] Article is not about "${keyword}"`,
+              ];
+            }
+          }
           if (hardBlockReasons.length > 0) {
             // FIX 1 / FIX 2 hard gate: a hero image was generated but never
             // made it into the HTML, or Article.image/Organization.logo

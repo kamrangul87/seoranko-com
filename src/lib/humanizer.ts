@@ -185,7 +185,9 @@ RULES (follow all strictly):
 7. Do NOT change any URL, anchor text, or content inside <a> tags
 8. Do NOT change any <script> blocks — schema markup must survive unchanged
 9. Do NOT add or remove sections — only rewrite text within <p> tags
-10. Output ONLY the rewritten HTML — no explanations, no markdown fences`;
+10. Output ONLY the rewritten HTML — no explanations, no markdown fences
+11. NEVER change the article topic — the subject must stay exactly the same as the original
+12. The H1 and first paragraph MUST still be about the target keyword — do not swap to a different subject`;
 
   const userPrompt = `${intensity} rewrite the prose in this HTML article to sound like a human expert wrote it. Follow all 10 rules.
 ${primaryKeyword ? `Target keyword (must appear in first paragraph): "${primaryKeyword}"` : ''}

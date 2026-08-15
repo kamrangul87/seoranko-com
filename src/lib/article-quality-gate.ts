@@ -13,6 +13,7 @@ import { validateSchema } from './schema-validator'
 import { validateArticleStructure } from './structure-validator'
 import { createClient } from '@supabase/supabase-js'
 import { lintProse } from './prose-linter'
+import { checkTopicAlignment } from '@/lib/topic-alignment'
 
 // AI slop patterns — expanded from anti-slop GitHub repo
 const AI_SLOP_PATTERNS = [
@@ -312,6 +313,7 @@ export type IssueCategory =
   | 'heading-rhythm'
   | 'brief-coverage'
   | 'secondary-keyword-coverage'
+  | 'topic-alignment'
 
 export interface QualityIssue {
   id: string
@@ -543,6 +545,20 @@ export async function runQualityGate(
   let issues: QualityIssue[] = extraIssues ? [...extraIssues] : []
   let articleAfterAutoFix = articleContent
   let autoFixedCount = 0
+
+  // ---- RULE 0: Topic must match the requested keyword (blocks crypto-for-ev-charger disasters) ----
+  const topicCheck = checkTopicAlignment(articleContent, options.keyword)
+  if (!topicCheck.aligned) {
+    issues.push({
+      id: 'topic-alignment-failed',
+      severity: 'critical',
+      category: 'topic-alignment',
+      title: `Article is not about "${options.keyword}"`,
+      description: topicCheck.reason || 'Title and body do not match the requested keyword. Regenerate — do not publish.',
+      location: topicCheck.h1Text ? `H1: ${topicCheck.h1Text.slice(0, 80)}` : undefined,
+      autoFixable: false,
+    })
+  }
 
   // ---- RULE 1: Typos and copy errors ----
   // Checked against visible text only (see stripHtmlForTextChecks) so these
