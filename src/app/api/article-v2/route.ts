@@ -280,10 +280,8 @@ Do not write generic angles. Be specific and surprising.`
           const metaMatch = fullArticle.match(/<!-- META:\s*([^-]+?)\s*-->/i);
           const articleDescription = metaMatch ? metaMatch[1].trim().slice(0, 160) : `Article about ${keyword}`;
           const articleSlug = `/${keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
-          // Schema generation itself moved below, after heroImageUrl is known
-          // (see near injectMissingArticleImage) — real image URL now gets
-          // passed in directly instead of text-patched into a model-written
-          // schema block, since the model no longer writes its own schema.
+          // Schema generation moved below, after heroImageUrl is known —
+          // real image URL is passed into generateArticleSchema directly.
           const answerFirst = checkAnswerFirst(fullArticle);
 
           // Score the article and generate llms.txt entry
@@ -458,12 +456,8 @@ Do not write generic angles. Be specific and surprising.`
             // outside this try block after the Supabase save, can reuse it.
             fullArticleUrl = schemaOrgUrl ? `${schemaOrgUrl}${articleSlug}` : `https://example.com${articleSlug}`;
             // brand_settings.logo_url — feeds Organization/Article-publisher
-            // schema's logo (a recommended property, previously never
-            // settable at all — see schema-validator.ts's publisher.logo
-            // check). brandSettings.configured (row exists at all, distinct
-            // from logoUrl being set) is also used below at the Quality Gate
-            // call, so this brand genuinely has no logo isn't conflated with
-            // this brand has never touched Settings.
+            // schema logo. Quality Gate gets expectOrganizationLogo below
+            // so validator matches generator when logo_url is unset.
             const brandSettings = brand ? await getBrandSettings(userId as string, brand) : { configured: false, logoUrl: null };
             schemaResult = generateArticleSchema({
               title: articleTitle,
@@ -556,12 +550,8 @@ Do not write generic angles. Be specific and surprising.`
                 autoFixable: true,
                 autoFixDescription: 'Already auto-fixed — the broken citation link was stripped before this gate ran.',
               })),
-              // Suppresses the publisher.logo warning for a brand that's
-              // never touched Settings at all — that's the default state
-              // for every new brand, not a defect. Only surfaces once this
-              // brand has a brand_settings row (i.e. genuinely configured
-              // something) but still has no logo. See brand-settings.ts.
-              hasBrandSettingsConfigured: brandSettings.configured,
+              // Matches schema-generator: omit logo warnings when no logo_url.
+              expectOrganizationLogo: !!brandSettings.logoUrl,
             })
             finalHtml = qr.articleAfterAutoFix
             articleQualityGate = {

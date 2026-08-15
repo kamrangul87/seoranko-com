@@ -7,10 +7,8 @@ import { createClient } from '@supabase/supabase-js'
 
 export interface BrandSettingsLookup {
   /** Row exists at all for this (user, brand) — distinct from "logoUrl is
-   *  set", since a brand that's never touched Settings has no row, while a
-   *  brand that HAS configured settings but left the logo blank has a row
-   *  with logoUrl: null. See article-quality-gate.ts RULE 6's
-   *  hasBrandSettingsConfigured gate for why this distinction matters. */
+   *  set". See schema-validator.ts expectOrganizationLogo / article-v2's
+   *  Quality Gate pass-through when logo_url is unavailable. */
   configured: boolean
   logoUrl: string | null
 }

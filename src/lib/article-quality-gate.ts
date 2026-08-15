@@ -505,12 +505,9 @@ export async function runQualityGate(
     // once, before the fact-sourcing patch, and its results (a stripped
     // article + issues) both feed forward correctly.
     extraIssues?: QualityIssue[]
-    // True once this brand has a brand_settings row at all (see
-    // brand-settings.ts) — distinct from "has a logo set". Used to suppress
-    // the publisher.logo schema warning (RULE 6) for a brand that's never
-    // touched Settings, which is every new brand's default state, not a
-    // defect worth flagging on every single article.
-    hasBrandSettingsConfigured?: boolean
+    // When false, logo was intentionally omitted by schema-generator.ts
+    // (no brand_settings.logo_url) — validator must not flag it afterward.
+    expectOrganizationLogo?: boolean
   }
 ): Promise<QualityGateResult> {
 
@@ -526,7 +523,7 @@ export async function runQualityGate(
     brief,
     secondaryKeywords,
     extraIssues,
-    hasBrandSettingsConfigured = false,
+    expectOrganizationLogo = true,
   } = options
 
   let issues: QualityIssue[] = extraIssues ? [...extraIssues] : []
@@ -676,15 +673,9 @@ export async function runQualityGate(
   }
 
   // ---- RULE 6: Schema validation (full schema.org property-level check) ----
-  const schemaResult = validateSchema(articleContent)
+  const schemaResult = validateSchema(articleContent, { expectOrganizationLogo })
 
   for (const schemaIssue of schemaResult.issues) {
-    // publisher.logo missing is the default state for a brand that's never
-    // touched Settings at all (brand_settings has no row) — only worth
-    // surfacing once the brand has genuinely configured something and still
-    // has no logo. See brand-settings.ts / article-v2/route.ts's
-    // hasBrandSettingsConfigured.
-    if (schemaIssue.property === 'publisher.logo' && !hasBrandSettingsConfigured) continue
     issues.push({
       id: `schema-${schemaIssue.schemaType}-${schemaIssue.property}`,
       severity: schemaIssue.severity === 'error' ? 'critical' : 'warning',

@@ -34,6 +34,16 @@ export interface SchemaValidationResult {
   richResultEligible: Record<string, boolean>
 }
 
+/** Aligns validation with schema-generator.ts conditional omission. */
+export interface SchemaValidationOptions {
+  /**
+   * When false, skip logo checks on Organization blocks and nested
+   * publisher.logo — matches generateArticleSchema() omitting logo when
+   * organizationLogoUrl is unavailable. Defaults to true (strict audit).
+   */
+  expectOrganizationLogo?: boolean
+}
+
 const SCHEMA_RULES: Record<string, { required: string[]; recommended: string[] }> = {
   Article:        { required: ['headline', 'author', 'datePublished'], recommended: ['image', 'publisher', 'dateModified', 'inLanguage'] },
   BlogPosting:    { required: ['headline', 'author', 'datePublished'], recommended: ['image', 'publisher', 'dateModified'] },
@@ -85,6 +95,7 @@ function validateNestedEntity(
   value: any,
   property: 'author' | 'publisher',
   issues: SchemaIssue[],
+  options: SchemaValidationOptions,
 ): void {
   const entities = Array.isArray(value) ? value : [value]
   for (const entity of entities) {
@@ -117,7 +128,7 @@ function validateNestedEntity(
         message: `"${property}" is missing a name.`
       })
     }
-    if (property === 'publisher') {
+    if (property === 'publisher' && options.expectOrganizationLogo !== false) {
       const logo = entity.logo
       const logoUrl = typeof logo === 'string' ? logo : logo?.url
       if (!isPlausibleUrl(logoUrl)) {
@@ -132,7 +143,7 @@ function validateNestedEntity(
   }
 }
 
-function validateBlock(block: any, issues: SchemaIssue[]): void {
+function validateBlock(block: any, issues: SchemaIssue[], options: SchemaValidationOptions): void {
   if (block.__parseError) {
     issues.push({
       schemaType: 'unknown',
@@ -182,6 +193,13 @@ function validateBlock(block: any, issues: SchemaIssue[]): void {
   }
 
   for (const rec of rules.recommended) {
+    if (
+      rec === 'logo' &&
+      type === 'Organization' &&
+      options.expectOrganizationLogo === false
+    ) {
+      continue
+    }
     if (!block[rec]) {
       issues.push({
         schemaType: type,
@@ -198,8 +216,8 @@ function validateBlock(block: any, issues: SchemaIssue[]): void {
   // check above and still be structurally wrong (a garbage date string, an
   // author that's bare text, an image with no resolvable URL).
   if (type === 'Article' || type === 'BlogPosting' || type === 'NewsArticle') {
-    if (block.author) validateNestedEntity(block.author, 'author', issues)
-    if (block.publisher) validateNestedEntity(block.publisher, 'publisher', issues)
+    if (block.author) validateNestedEntity(block.author, 'author', issues, options)
+    if (block.publisher) validateNestedEntity(block.publisher, 'publisher', issues, options)
 
     for (const dateProp of ['datePublished', 'dateModified'] as const) {
       if (block[dateProp] && !isValidDateString(block[dateProp])) {
@@ -248,32 +266,13 @@ function validateBlock(block: any, issues: SchemaIssue[]): void {
   }
 }
 
-// The generation prompt has Claude write its own Article/BlogPosting JSON-LD
-// during generation, before any hero image exists — so it can never know a
-// real image URL to embed. This patches the missing `image` property in
-// after image generation completes, once a real URL exists, and runs before
-// the Quality Gate scores the schema — fixing this in the prompt template
-// alone can't work since the URL genuinely doesn't exist at that point.
-export function injectMissingArticleImage(html: string, imageUrl: string | undefined): string {
-  if (!imageUrl) return html
-  const regex = /<script([^>]*type=["']application\/ld\+json["'][^>]*)>([\s\S]*?)<\/script>/gi
-  return html.replace(regex, (fullMatch, attrs, jsonText) => {
-    try {
-      const parsed = JSON.parse(jsonText.trim())
-      const rawType = parsed['@type']
-      const type = Array.isArray(rawType) ? rawType[0] : rawType
-      if ((type === 'Article' || type === 'BlogPosting') && !parsed.image) {
-        parsed.image = { '@type': 'ImageObject', url: imageUrl }
-        return `<script${attrs}>${JSON.stringify(parsed)}</script>`
-      }
-      return fullMatch
-    } catch {
-      return fullMatch
-    }
-  })
-}
-
-export function validateSchema(articleHtml: string): SchemaValidationResult {
+export function validateSchema(
+  articleHtml: string,
+  options: SchemaValidationOptions = {},
+): SchemaValidationResult {
+  const resolvedOptions: SchemaValidationOptions = {
+    expectOrganizationLogo: options.expectOrganizationLogo ?? true,
+  }
   const blocks = extractJsonLdBlocks(articleHtml)
   const issues: SchemaIssue[] = []
   const schemasFound: string[] = []
@@ -281,7 +280,7 @@ export function validateSchema(articleHtml: string): SchemaValidationResult {
   for (const block of blocks) {
     const t = block['@type']
     if (t) schemasFound.push(Array.isArray(t) ? t[0] : t)
-    validateBlock(block, issues)
+    validateBlock(block, issues, resolvedOptions)
   }
 
   const richResultEligible: Record<string, boolean> = {}
