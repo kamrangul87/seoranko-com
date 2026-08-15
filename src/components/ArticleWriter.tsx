@@ -51,7 +51,13 @@ export function ArticleWriter() {
   const [keyword, setKeyword]       = useState('')
   const [country, setCountry]       = useState<Country>(DEFAULT_MARKET as Country)
   const [tone, setTone]             = useState<Tone>('professional')
-  const [wordCount, setWordCount]   = useState(1200)
+  const [wordCount, setWordCount]   = useState(2000)
+
+  function snapWordCount(n: number): number {
+    if (n >= 3000) return 3000
+    if (n >= 2500) return 2500
+    return 2000
+  }
   const [brand, setBrand]           = useState('')
   const [domain, setDomain]         = useState('')
   const [loading, setLoading]       = useState(false)
@@ -114,7 +120,7 @@ export function ArticleWriter() {
         })
         if (parsed.targetMarket) setCountry(parsed.targetMarket as Country)
         if (parsed.country) setCountry(parsed.country as Country)
-        if (parsed.wordCount) setWordCount(Number(parsed.wordCount))
+        if (parsed.wordCount) setWordCount(snapWordCount(Number(parsed.wordCount)))
         if (!kw && parsed.recommendedH1) setKeyword(parsed.recommendedH1)
       } catch { /* malformed — ignore, don't block generation */ }
       // Consumed — don't silently reapply to an unrelated later generation.
@@ -135,7 +141,7 @@ export function ArticleWriter() {
         })
         if (parsed.country) setCountry(parsed.country as Country)
         if (parsed.targetMarket) setCountry(parsed.targetMarket as Country)
-        if (parsed.wordCount) setWordCount(Number(parsed.wordCount))
+        if (parsed.wordCount) setWordCount(snapWordCount(Number(parsed.wordCount)))
         if (!kw && parsed.primaryKeyword) setKeyword(parsed.primaryKeyword)
       } catch { /* malformed — ignore, don't block generation */ }
       localStorage.removeItem('cluster_brief_data')
@@ -461,8 +467,6 @@ export function ArticleWriter() {
               onChange={e => setWordCount(Number(e.target.value))}
               className="w-full bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-3 py-2.5 text-sm focus:outline-none focus:border-[#FF6B2C]/50 transition-colors"
             >
-              <option value={1200}>1,200 words</option>
-              <option value={1500}>1,500 words</option>
               <option value={2000}>2,000 words</option>
               <option value={2500}>2,500 words</option>
               <option value={3000}>3,000 words</option>

@@ -199,7 +199,7 @@ export function buildMasterPrompt(params: ArticleMasterParams): string {
 
   const displayBrand = brandName.trim() || 'the publisher'
   const displayMarket = marketLabel(market) || market
-  const safeWordCount = Math.min(Math.max(wordCount, 800), 3000);
+  const safeWordCount = Math.min(Math.max(wordCount, 2000), 3000);
 
   // Article structure now scales with the requested word count instead of
   // being hardcoded in several places that never agreed with each other.

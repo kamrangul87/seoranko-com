@@ -79,7 +79,7 @@ export async function generateArticleOutline(opts: {
   uniqueAngle?: string
   wordCount?: number
 }): Promise<ArticleOutline | null> {
-  const { keyword, market, secondaryKeywords = [], uniqueAngle = '', wordCount = 1200 } = opts
+  const { keyword, market, secondaryKeywords = [], uniqueAngle = '', wordCount = 2000 } = opts
   const secondary = secondaryKeywords.slice(0, 8).join(', ')
   const budget = structureBudgetForWordCount(wordCount)
 

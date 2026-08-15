@@ -28,6 +28,8 @@ import { MODEL_FOR } from '@/lib/model-router';
 import { runQualityGate, type QualityIssue } from '@/lib/article-quality-gate';
 import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
 import { enforceWordCountLimit, countArticleWords, deterministicTrimToTarget } from '@/lib/word-count-enforcer';
+import { stripReplaceableJsonLd } from '@/lib/schema-dedupe';
+import { injectMissingInternalLinks } from '@/lib/inject-internal-links';
 import { checkTopicAlignment, assertNonEmptyKeyword, keepIfOnTopic, getKeywordTokens } from '@/lib/topic-alignment';
 import {
   generateArticleOutline,
@@ -95,7 +97,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const {
       keyword: rawKeyword = '',
-      wordCount = 1500,
+      wordCount = 2000,
       tone = 'professional',
       market: rawMarket = '',
       secondaryKeywords = [],
@@ -135,7 +137,7 @@ export async function POST(req: NextRequest) {
 
     console.log('[article-v2] received:', { keyword, wordCount, secondaryKeywords: (secondaryKeywords as string[]).length, entities: (entities as string[]).length });
 
-    const targetWordCount = Math.min(Math.max(Number(wordCount) || 1500, 800), 3000);
+    const targetWordCount = Math.min(Math.max(Number(wordCount) || 2000, 2000), 3000);
     const secondaryList = (secondaryKeywords as string[]).slice(0, 12).join(', ');
 
     // ── STEP A — Unique Angle Generator ──────────────────────────────────────
@@ -589,6 +591,18 @@ Do not write generic angles. Be specific and surprising.`
 
             // Re-parse FAQs from post-humanize HTML so FAQPage schema matches visible content
             faqs = parseFAQsFromArticle(finalHtml).faqs
+
+            // Inject real <a href> anchors for any requested internal links the model skipped
+            if (linksRequestedFromModel.length > 0) {
+              const linkInject = injectMissingInternalLinks(finalHtml, linksRequestedFromModel)
+              finalHtml = linkInject.html
+              if (linkInject.injected.length > 0) {
+                console.log(`[internal-links] injected clickable anchors: ${linkInject.injected.join(', ')}`)
+              }
+            }
+
+            // Strip model-invented JSON-LD so we append exactly one Article/FAQ/etc set
+            finalHtml = stripReplaceableJsonLd(finalHtml)
 
             // Schema must reflect the actual brand/site this article is being
             // written for — never SEORANKO itself (SEORANKO is the tool, not

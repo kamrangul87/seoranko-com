@@ -21,6 +21,7 @@ const CONTENT_COVERAGE_CATEGORIES = new Set([
   'word-count',
   'grant-figure',
   'dated-policy',
+  'schema', // schema dupes are pipeline; once fixed they stop — don't banner forever on historical rows
 ])
 
 export async function detectRecurringIssues(

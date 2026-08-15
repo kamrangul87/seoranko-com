@@ -36,10 +36,9 @@ export function structureBudgetForWordCount(target: number): {
   parasPerH2: number
   wordsPerH2: number
 } {
-  if (target <= 1000) return { h2Count: 4, faqCount: 4, parasPerH2: 2, wordsPerH2: 110 }
-  if (target <= 1400) return { h2Count: 5, faqCount: 4, parasPerH2: 2, wordsPerH2: 130 }
-  if (target <= 2000) return { h2Count: 5, faqCount: 5, parasPerH2: 3, wordsPerH2: 180 }
-  return { h2Count: 6, faqCount: 5, parasPerH2: 3, wordsPerH2: 200 }
+  if (target <= 2200) return { h2Count: 6, faqCount: 5, parasPerH2: 3, wordsPerH2: 200 }
+  if (target <= 2700) return { h2Count: 7, faqCount: 5, parasPerH2: 3, wordsPerH2: 220 }
+  return { h2Count: 7, faqCount: 6, parasPerH2: 3, wordsPerH2: 250 }
 }
 
 /**
