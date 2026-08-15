@@ -426,6 +426,7 @@ function NlpPageInner() {
       gapScore:          discoveryOpportunity?.gapScore,
       volume:            discoveryOpportunity?.volume,
       competitionLevel:  discoveryOpportunity?.competition,
+      targetMarket:      LOCATION_TO_MARKET[locationCode] ?? 'Global',
     }
   }
 

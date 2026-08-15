@@ -1,7 +1,5 @@
 // src/lib/brands.ts
-// Shared brand picker options — previously duplicated only inside
-// LinkRegistryManager.tsx; extracted so BrandLogoManager.tsx (and any
-// future brand-scoped settings UI) can't drift out of sync with it.
+// Brand picker for link registry (preset options). Write page uses free-text brand + domain.
 
 export const BRAND_OPTIONS = [
   { value: 'autodun', label: '🚗 Autodun', color: '#FF6B2C' },
@@ -9,13 +7,21 @@ export const BRAND_OPTIONS = [
   { value: 'fitford', label: '💪 FitFord', color: '#10B981' },
 ]
 
-/** Primary domain sent to article-v2 as `domain` for schema, citations, links. */
+/** Known preset domains — Write page accepts any user-typed domain. */
 export const BRAND_DOMAINS: Record<string, string> = {
   autodun: 'autodun.com',
   seoranko: 'seoranko.com',
   fitford: 'fitford.com',
 }
 
-export const DEFAULT_BRAND = BRAND_OPTIONS[0].value
-
 export const WRITE_BRAND_STORAGE_KEY = 'seoranko_write_brand'
+export const WRITE_DOMAIN_STORAGE_KEY = 'seoranko_write_domain'
+
+/** Normalise a user-typed domain (strip protocol/path). */
+export function normalizeDomain(input: string): string {
+  return input
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/.*$/, '')
+    .toLowerCase()
+}

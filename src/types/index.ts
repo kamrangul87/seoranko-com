@@ -50,9 +50,7 @@ export interface ScoreDrift {
 
 // ─── Country / locale types ───────────────────────────────────────────────────
 
-export type Country =
-  | "Global" | "UK" | "US" | "AU" | "CA" | "DE" | "FR"
-  | "IN" | "AE" | "SA" | "SG" | "ZA" | "PK";
+export type Country = string
 
 export type SearchIntent = "informational" | "commercial" | "transactional" | "navigational";
 export type Tone = "professional" | "conversational" | "authoritative" | "friendly";

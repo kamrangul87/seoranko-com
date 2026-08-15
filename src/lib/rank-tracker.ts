@@ -7,22 +7,12 @@
 // §8: normalizeUrl() before every URL comparison / Supabase write.
 import { normalizeUrl, normalizeDomain } from './supabase/audit-db'
 
+import { marketsToLocationCodes } from '@/lib/markets'
+
 export const LOCATION_CODES: Record<string, { code: number; name: string; flag: string }> = {
-  global: { code: 2840, name: 'Global / US',   flag: '🌍' },
-  us:     { code: 2840, name: 'United States',  flag: '🇺🇸' },
-  uk:     { code: 2826, name: 'United Kingdom', flag: '🇬🇧' },
-  au:     { code: 2036, name: 'Australia',      flag: '🇦🇺' },
-  ca:     { code: 2124, name: 'Canada',         flag: '🇨🇦' },
-  de:     { code: 2276, name: 'Germany',        flag: '🇩🇪' },
-  fr:     { code: 2250, name: 'France',         flag: '🇫🇷' },
-  in:     { code: 2356, name: 'India',          flag: '🇮🇳' },
-  pk:     { code: 2586, name: 'Pakistan',       flag: '🇵🇰' },
-  ae:     { code: 2784, name: 'UAE',            flag: '🇦🇪' },
-  sg:     { code: 2702, name: 'Singapore',      flag: '🇸🇬' },
-  za:     { code: 2710, name: 'South Africa',   flag: '🇿🇦' },
-  ng:     { code: 2566, name: 'Nigeria',        flag: '🇳🇬' },
-  nz:     { code: 2554, name: 'New Zealand',    flag: '🇳🇿' },
-  ie:     { code: 2372, name: 'Ireland',        flag: '🇮🇪' },
+  ...marketsToLocationCodes(),
+  us: { code: 2840, name: 'United States', flag: '🇺🇸' },
+  uk: { code: 2826, name: 'United Kingdom', flag: '🇬🇧' },
 }
 
 export const LOCATION_OPTIONS = Object.entries(LOCATION_CODES).map(([key, val]) => ({

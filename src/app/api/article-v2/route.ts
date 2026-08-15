@@ -27,6 +27,7 @@ import {
 import { MODEL_FOR } from '@/lib/model-router';
 import { runQualityGate, type QualityIssue } from '@/lib/article-quality-gate';
 import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
+import { enforceWordCountLimit, countArticleWords } from '@/lib/word-count-enforcer';
 import { insertTableOfContents } from '@/lib/table-of-contents';
 import { autoSplitDenseParagraphs } from '@/lib/scannability-fixer';
 import { validateArticleStructure } from '@/lib/structure-validator';
@@ -114,9 +115,9 @@ export async function POST(req: NextRequest) {
     const market = rawMarket || 'Global';
     const citationDomain = (rawDomain as string).replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase().trim();
 
-    console.log('[article-v2] received:', { keyword, secondaryKeywords: (secondaryKeywords as string[]).length, entities: (entities as string[]).length });
+    console.log('[article-v2] received:', { keyword, wordCount, secondaryKeywords: (secondaryKeywords as string[]).length, entities: (entities as string[]).length });
 
-    const safeWordCount = Math.min(wordCount, 1500);
+    const targetWordCount = Math.min(Math.max(Number(wordCount) || 1500, 800), 3000);
     const secondaryList = (secondaryKeywords as string[]).slice(0, 12).join(', ');
     const kw = keyword.toLowerCase();
 
@@ -126,7 +127,7 @@ export async function POST(req: NextRequest) {
       max_tokens: 500,
       messages: [{
         role: 'user',
-        content: `You are an editorial director at a top UK publication.
+        content: `You are an editorial director.
 
 For the keyword: "${keyword}"
 Secondary keywords: ${secondaryList}
@@ -232,9 +233,11 @@ Do not write generic angles. Be specific and surprising.`
       entities: entities as string[],
       topicalGaps: topicalGaps as string[],
       gapAnalysis: gapAnalysis as { gapScore?: number; volume?: number; competitionLevel?: string; serpFeatures?: string[] } | undefined,
-      wordCount: safeWordCount,
+      wordCount: targetWordCount,
       tone,
       market,
+      brandName: brand || '',
+      brandDomain: citationDomain,
       uniqueAngle: angle.unique_angle || angle.hook_opening || '',
       uniqueContent: angle.unique_section_content || '',
       uniqueDataSection,
@@ -272,6 +275,12 @@ Do not write generic angles. Be specific and surprising.`
           const { corrections } = await validateAndCorrect(fullArticle, keyword, market, liveFacts);
           if (corrections.length > 0) {
             console.log('[article-v2] validation corrections:', corrections);
+          }
+
+          try {
+            fullArticle = await enforceWordCountLimit(fullArticle, targetWordCount);
+          } catch (wcErr) {
+            console.warn('[article-v2] word count enforce failed, continuing:', wcErr);
           }
 
           // === POST-PROCESSING: AEO/GEO enrichment ===
@@ -312,7 +321,7 @@ Do not write generic angles. Be specific and surprising.`
           const llmsTxtEntry = generateLlmsTxtEntry(fullArticle, keyword, articleUrl);
 
           // Adaptive image count based on article word count
-          const articleWordCount = fullArticle.replace(/<[^>]*>/g, ' ').trim().split(/\s+/).filter(Boolean).length;
+          const articleWordCount = countArticleWords(fullArticle);
           const adaptiveImageCount = articleWordCount > 2500 ? 5 : articleWordCount > 1500 ? 4 : 3;
 
           // Humanize + auto-generate images in parallel (both only need the keyword/article text)
@@ -616,20 +625,16 @@ Do not write generic angles. Be specific and surprising.`
 
             // Quality gate — runs after humanization + fact-sourcing; auto-fixes applied to finalHtml
           try {
-            const brandDomains: Record<string, string[]> = {
-              autodun: ['autodun.com'], seoranko: ['seoranko.com'], fitford: ['fitford.com'],
-            }
+            const registeredDomains = citationDomain
+              ? [citationDomain]
+              : (brand ? [`${brand}.com`] : [])
             const qr = await runQualityGate(finalHtml, {
-              // No fallback to a specific company — an unset/unknown brand
-              // falls through to an empty registeredLinkDomains below
-              // (safe-by-default: nothing is assumed to be this article's
-              // "home" domain) rather than silently treating autodun.com as
-              // the home brand for an article that may belong to someone else.
               brand,
               keyword,
               authorName: 'Kamran Gul',
-              registeredLinkDomains: brandDomains[brand] || [],
-              minWordCount: 800,
+              registeredLinkDomains: registeredDomains,
+              minWordCount: Math.floor(targetWordCount * 0.85),
+              maxWordCount: Math.ceil(targetWordCount * 1.12),
               maxTypically: 5,
               userId: (userId as string) || undefined,
               articleId: articleInstanceId,

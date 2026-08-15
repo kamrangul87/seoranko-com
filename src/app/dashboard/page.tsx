@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
 import { DashboardNav } from '@/components/DashboardNav'
 import { STAGE_NAME } from '@/lib/pages'
+import { MARKETS, DEFAULT_MARKET, WRITE_MARKET_STORAGE_KEY } from '@/lib/markets'
 
 interface RecentArticle {
   id: string
@@ -128,9 +129,15 @@ function RecentArticles({ articles, loading }: { articles: RecentArticle[]; load
 
 export default function DashboardPage() {
   const [keyword, setKeyword] = useState('')
+  const [market, setMarket] = useState(DEFAULT_MARKET)
   const [articles, setArticles] = useState<RecentArticle[]>([])
   const [loading, setLoading] = useState(true)
   const router = useRouter()
+
+  useEffect(() => {
+    const stored = localStorage.getItem(WRITE_MARKET_STORAGE_KEY)
+    if (stored && MARKETS.some(m => m.value === stored)) setMarket(stored)
+  }, [])
 
   useEffect(() => {
     const supabase = createClient()
@@ -165,7 +172,10 @@ export default function DashboardPage() {
 
   function handleAnalyse() {
     if (!keyword.trim()) return
-    router.push(`/dashboard/keywords?q=${encodeURIComponent(keyword.trim())}`)
+    localStorage.setItem(WRITE_MARKET_STORAGE_KEY, market)
+    router.push(
+      `/dashboard/keywords?q=${encodeURIComponent(keyword.trim())}&country=${encodeURIComponent(market)}`
+    )
   }
 
   return (
@@ -187,8 +197,8 @@ export default function DashboardPage() {
             </p>
           </div>
 
-          {/* Keyword input */}
-          <div className="flex gap-2 mb-12">
+          {/* Keyword input + market (before analyse) */}
+          <div className="flex flex-col sm:flex-row gap-2 mb-12">
             <input
               type="text"
               value={keyword}
@@ -198,6 +208,15 @@ export default function DashboardPage() {
               autoFocus
               className="flex-1 px-4 py-3 text-base border-2 border-[#E8E8E4] rounded-xl focus:outline-none focus:border-[#FF6B2C] transition-colors bg-white"
             />
+            <select
+              value={market}
+              onChange={e => setMarket(e.target.value)}
+              className="px-3 py-3 text-base border-2 border-[#E8E8E4] rounded-xl focus:outline-none focus:border-[#FF6B2C] bg-white min-w-[180px]"
+            >
+              {MARKETS.map(m => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
             <button
               onClick={handleAnalyse}
               disabled={!keyword.trim()}

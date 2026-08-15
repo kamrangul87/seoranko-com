@@ -6,6 +6,7 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRet
 
 import { MODEL_FOR } from '@/lib/model-router';
 import { sanitiseForTransport } from '@/lib/sanitise-text';
+import { normalizeMarketForAuthority, marketLabel } from '@/lib/markets';
 
 export type ArticleMode = 'generate' | 'competitor' | 'improve';
 
@@ -62,7 +63,8 @@ const AUTHORITY_GUIDANCE: Record<string, AuthorityGuidance> = {
 }
 
 function getAuthorityGuidance(market: string): AuthorityGuidance {
-  return AUTHORITY_GUIDANCE[market.trim().toLowerCase()] || AUTHORITY_GUIDANCE.global
+  const key = normalizeMarketForAuthority(market)
+  return AUTHORITY_GUIDANCE[key] || AUTHORITY_GUIDANCE.global
 }
 
 export interface InternalLink {
@@ -162,6 +164,8 @@ export interface ArticleMasterParams {
   factualErrors?: string[];
   improvementPriorities?: string[];
   liveFacts?: string;
+  brandName?: string;
+  brandDomain?: string;
 }
 
 
@@ -189,9 +193,13 @@ export function buildMasterPrompt(params: ArticleMasterParams): string {
     factualErrors = [],
     improvementPriorities = [],
     liveFacts = '',
+    brandName = '',
+    brandDomain = '',
   } = params;
 
-  const safeWordCount = Math.min(wordCount, 1800);
+  const displayBrand = brandName.trim() || 'the publisher'
+  const displayMarket = marketLabel(market) || market
+  const safeWordCount = Math.min(Math.max(wordCount, 800), 3000);
 
   // Article structure now scales with the requested word count instead of
   // being hardcoded in several places that never agreed with each other.
@@ -266,7 +274,7 @@ REWRITE RULES:
 2. Fix every factual error listed above before anything else
 3. Add all missing elements listed above
 4. Restructure with proper H1 H2 H3 hierarchy if missing
-5. Always use author: Kamran Gul, Founder of Autodun — never invent names
+5. Always use author: Kamran Gul${displayBrand !== 'the publisher' ? `, ${displayBrand}` : ''} — never invent names
 6. Target word count: at least ${Math.max(safeWordCount, 1500)} words — always longer than original`;
   }
 
@@ -376,7 +384,7 @@ If uncertain of a specific form number or document name — describe it generica
 "the official test certificate" not "Form XYZ-123" unless you are certain.
 
 RULE 5 — AUTHOR IDENTITY
-Always use: Kamran Gul, Founder of Autodun
+Always use: Kamran Gul${displayBrand !== 'the publisher' ? `, ${displayBrand}` : ''}
 Never invent author names, credentials, or qualifications.
 Never add "IMI-accredited" or any professional qualification unless it is real.
 
@@ -468,8 +476,8 @@ SECTION 2 — EEAT SIGNALS (MANDATORY)
 EXPERTISE: Use correct technical terminology. Explain WHY, not just WHAT.
 AUTHORITATIVENESS: Cite at least 2 official ${market} sources with full URLs (use the correct official bodies and government domains for ${market})
 TRUSTWORTHINESS: Acknowledge limitations honestly. Never overpromise.
-AUTHOR IDENTITY: Include a visible byline "Written by Kamran Gul, Founder of Autodun" near the top of every article (directly after the H1 and dateline). Include Person JSON-LD schema with name, jobTitle, and worksFor fields.
-AUTHOR BIO: Include a dedicated author bio section near the bottom (2-3 sentences about Kamran Gul's expertise specifically relevant to this article's topic — concrete, no invented credentials or qualifications).
+AUTHOR IDENTITY: Include a visible byline "Written by Kamran Gul${displayBrand !== 'the publisher' ? `, ${displayBrand}` : ''}" near the top of every article (directly after the H1 and dateline).
+AUTHOR BIO: Include a dedicated author bio section near the bottom (2-3 sentences about Kamran Gul's expertise specifically relevant to this article's topic — concrete, no invented credentials or qualifications${displayBrand !== 'the publisher' ? `; mention ${displayBrand} where relevant` : ''}).
 
 ════════════════════════════════
 SECTION 2.5 — EXPERIENCE SIGNALS (MANDATORY — POST-MARCH 2026 GOOGLE CORE UPDATE)
@@ -656,7 +664,7 @@ LINE 2: <meta name="robots" content="index, follow, max-snippet:-1, max-image-pr
 <h1>[Title: primary keyword near start, compelling, ${currentYear} where natural, under 60 chars]</h1>
 
 <p class="article-dateline"><em>Last updated: ${currentMonth} ${currentYear} · Fact-checked: ${currentMonth} ${currentYear}</em></p>
-<p class="article-byline">Written by <strong>Kamran Gul</strong>, Founder of Autodun.</p>
+<p class="article-byline">Written by <strong>Kamran Gul</strong>${displayBrand !== 'the publisher' ? `, ${displayBrand}` : ''}.</p>
 
 <p>[Introduction: 110 words. Open with surprising fact or bold statement. State what article covers. Include primary keyword AND the brand/site name naturally in first 100 words. Answer the primary question directly within the first 200 words (inverted pyramid for Google AI Overviews).]</p>
 
@@ -702,11 +710,11 @@ ${Array.from({ length: faqItemCount }, (_, i) =>
 <p>[80 words. Practical summary. 2 action steps. Only include an internal link here if it has NOT already appeared earlier in the article — never repeat the same link twice.]</p>
 
 <div class="author-bio" style="background:#F0F4FF;border-left:3px solid #1D4ED8;padding:16px 20px;border-radius:0 8px 8px 0;margin-top:24px;">
-<p style="margin:0;font-size:13px;color:#0F0F0F;"><strong>About the Author</strong><br><strong>Kamran Gul</strong> is the Founder of Autodun, an independent vehicle intelligence platform based in the United Kingdom. [2-3 sentences describing Kamran's direct expertise relevant to THIS specific article's topic — be concrete and specific, never invent qualifications or credentials.]</p>
+<p style="margin:0;font-size:13px;color:#0F0F0F;"><strong>About the Author</strong><br><strong>Kamran Gul</strong>${displayBrand !== 'the publisher' ? ` writes for ${displayBrand}${brandDomain ? ` (${brandDomain})` : ''}` : ''}. [2-3 sentences describing Kamran's direct expertise relevant to THIS specific article's topic — be concrete and specific, never invent qualifications or credentials.]</p>
 </div>
 
 <div class="expert-review" style="background:#F5F4F1;border-left:3px solid #FF6B2C;padding:16px 20px;border-radius:0 8px 8px 0;margin-top:16px;">
-<p style="margin:0;font-size:13px;color:#6B6B6B;"><strong style="color:#0F0F0F;">Editorial note:</strong> This article was researched using official sources. All regulatory claims reflect ${market} rules as of ${currentMonth} ${currentYear}. Fact-checked: ${currentMonth} ${currentYear}. Always verify with the relevant official ${market} body before acting. Autodun is not a government service.</p>
+<p style="margin:0;font-size:13px;color:#6B6B6B;"><strong style="color:#0F0F0F;">Editorial note:</strong> This article was researched using official sources. All regulatory claims reflect ${displayMarket} rules as of ${currentMonth} ${currentYear}. Fact-checked: ${currentMonth} ${currentYear}. Always verify with the relevant official ${displayMarket} body before acting.${displayBrand !== 'the publisher' ? ` ${displayBrand} is not a government service.` : ''}</p>
 </div>
 
 <p class="article-meta"><em>Last updated: ${currentMonth} ${currentYear}. Always verify regulatory details with the official ${market} sources cited above.</em></p>
@@ -729,7 +737,7 @@ Token budget per section — DO NOT EXCEED:
 - FAQ: ${faqItemCount} × ${faqWordsEach} words = ${faqItemCount * faqWordsEach} words
 - Bottom Line: ${bottomLineWords} words
 - Author bio: ${authorBioWords} words
-- Total target: ${computedTotalBudget} words maximum — this matches the TARGET WORD COUNT stated earlier; do not exceed it by structuring in extra sections or padding individual sections beyond their budget above
+- Total target: ${safeWordCount} words maximum — HARD LIMIT; section budgets above sum to ~${computedTotalBudget} words; do not exceed ${safeWordCount} words under any circumstances
 
 IF APPROACHING TOKEN LIMIT AT ANY POINT:
 1. Finish the current sentence immediately

@@ -7,27 +7,17 @@ import { supabase } from '@/lib/supabase-client'
 import type { ArticleOutput, Tone, Country } from '@/types'
 import type { RecurringIssueAlert } from '@/lib/recurring-issue-detector'
 import {
-  BRAND_OPTIONS,
-  BRAND_DOMAINS,
-  DEFAULT_BRAND,
+  MARKETS,
+  DEFAULT_MARKET,
+  WRITE_MARKET_STORAGE_KEY,
+} from '@/lib/markets'
+import {
+  normalizeDomain,
   WRITE_BRAND_STORAGE_KEY,
+  WRITE_DOMAIN_STORAGE_KEY,
 } from '@/lib/brands'
 
-const ALL_COUNTRIES: { value: Country; label: string }[] = [
-  { value: 'Global', label: 'Global' },
-  { value: 'US',     label: 'United States' },
-  { value: 'UK',     label: 'United Kingdom' },
-  { value: 'AU',     label: 'Australia' },
-  { value: 'CA',     label: 'Canada' },
-  { value: 'IN',     label: 'India' },
-  { value: 'AE',     label: 'UAE' },
-  { value: 'SA',     label: 'Saudi Arabia' },
-  { value: 'SG',     label: 'Singapore' },
-  { value: 'DE',     label: 'Germany' },
-  { value: 'FR',     label: 'France' },
-  { value: 'ZA',     label: 'South Africa' },
-  { value: 'PK',     label: 'Pakistan' },
-]
+const ALL_COUNTRIES = MARKETS.map(m => ({ value: m.value as Country, label: m.label }))
 
 function ScoreRing({ score, label, color, raw }: { score: number; label: string; color: string; raw?: boolean }) {
   // Some upstream scores occasionally arrive on a 0-10 scale instead of
@@ -59,10 +49,11 @@ function ScoreRing({ score, label, color, raw }: { score: number; label: string;
 export function ArticleWriter() {
   const searchParams = useSearchParams()
   const [keyword, setKeyword]       = useState('')
-  const [country, setCountry]       = useState<Country>('UK')
+  const [country, setCountry]       = useState<Country>(DEFAULT_MARKET as Country)
   const [tone, setTone]             = useState<Tone>('professional')
-  const [wordCount, setWordCount]   = useState(2000)
-  const [brand, setBrand]           = useState(DEFAULT_BRAND)
+  const [wordCount, setWordCount]   = useState(1200)
+  const [brand, setBrand]           = useState('')
+  const [domain, setDomain]         = useState('')
   const [loading, setLoading]       = useState(false)
 
   // §10 item 16 — NLP moves from a standalone Optimise tab to a Station-3
@@ -109,6 +100,9 @@ export function ArticleWriter() {
           volume: parsed.volume,
           competitionLevel: parsed.competitionLevel,
         })
+        if (parsed.targetMarket) setCountry(parsed.targetMarket as Country)
+        if (parsed.country) setCountry(parsed.country as Country)
+        if (parsed.wordCount) setWordCount(Number(parsed.wordCount))
         if (!kw && parsed.recommendedH1) setKeyword(parsed.recommendedH1)
       } catch { /* malformed — ignore, don't block generation */ }
       // Consumed — don't silently reapply to an unrelated later generation.
@@ -124,6 +118,9 @@ export function ArticleWriter() {
           longTailKeywords: parsed.longTailKeywords ?? [],
           pageId: parsed.pageId ?? null,
         })
+        if (parsed.country) setCountry(parsed.country as Country)
+        if (parsed.targetMarket) setCountry(parsed.targetMarket as Country)
+        if (parsed.wordCount) setWordCount(Number(parsed.wordCount))
         if (!kw && parsed.primaryKeyword) setKeyword(parsed.primaryKeyword)
       } catch { /* malformed — ignore, don't block generation */ }
       localStorage.removeItem('cluster_brief_data')
@@ -131,15 +128,34 @@ export function ArticleWriter() {
 
     if (kw) setKeyword(kw)
 
-    const storedBrand = localStorage.getItem(WRITE_BRAND_STORAGE_KEY)
-    if (storedBrand && BRAND_OPTIONS.some(b => b.value === storedBrand)) {
-      setBrand(storedBrand)
+    const urlCountry = searchParams.get('country')
+    if (urlCountry && MARKETS.some(m => m.value === urlCountry)) {
+      setCountry(urlCountry as Country)
     }
+
+    const storedMarket = localStorage.getItem(WRITE_MARKET_STORAGE_KEY)
+    if (storedMarket && MARKETS.some(m => m.value === storedMarket)) {
+      setCountry(storedMarket as Country)
+    }
+
+    const storedBrand = localStorage.getItem(WRITE_BRAND_STORAGE_KEY)
+    if (storedBrand) setBrand(storedBrand)
+
+    const storedDomain = localStorage.getItem(WRITE_DOMAIN_STORAGE_KEY)
+    if (storedDomain) setDomain(storedDomain)
   }, [searchParams])
 
   useEffect(() => {
-    if (brand) localStorage.setItem(WRITE_BRAND_STORAGE_KEY, brand)
+    if (country) localStorage.setItem(WRITE_MARKET_STORAGE_KEY, country)
+  }, [country])
+
+  useEffect(() => {
+    localStorage.setItem(WRITE_BRAND_STORAGE_KEY, brand)
   }, [brand])
+
+  useEffect(() => {
+    localStorage.setItem(WRITE_DOMAIN_STORAGE_KEY, domain)
+  }, [domain])
   const [error, setError]           = useState('')
   const [article, setArticle]       = useState<ArticleOutput | null>(null)
   const [copied, setCopied]         = useState(false)
@@ -195,8 +211,8 @@ export function ArticleWriter() {
             serpFeatures: nlpBrief.serpFeatures ?? [],
           } : undefined,
           internalLinks: [],
-          brand,
-          domain: BRAND_DOMAINS[brand] || '',
+          brand: brand.trim(),
+          domain: normalizeDomain(domain),
           userId,
           pageId: clusterBrief?.pageId ?? null,
         }),
@@ -419,18 +435,26 @@ export function ArticleWriter() {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-[#374151] mb-1.5">Brand</label>
-            <select
+            <label className="block text-xs font-semibold text-[#374151] mb-1.5">Brand / Site name</label>
+            <input
+              type="text"
               value={brand}
               onChange={e => setBrand(e.target.value)}
+              placeholder="e.g. My Company"
               className="w-full bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-3 py-2.5 text-sm focus:outline-none focus:border-[#FF6B2C]/50 transition-colors"
-            >
-              {BRAND_OPTIONS.map(b => (
-                <option key={b.value} value={b.value}>{b.label}</option>
-              ))}
-            </select>
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-[#374151] mb-1.5">Website domain</label>
+            <input
+              type="text"
+              value={domain}
+              onChange={e => setDomain(e.target.value)}
+              placeholder="e.g. example.com"
+              className="w-full bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-3 py-2.5 text-sm focus:outline-none focus:border-[#FF6B2C]/50 transition-colors"
+            />
             <p className="text-[10px] text-[#9B9B9B] mt-1">
-              Required for schema, internal links, and publish readiness.
+              Used for schema, canonical URL, and internal links. Enter your own site — not a preset.
             </p>
           </div>
         </div>
@@ -530,7 +554,11 @@ export function ArticleWriter() {
 
             {/* Stat bar */}
             <div className="flex gap-4 mt-4 pt-4 border-t border-[#F5F4F1] text-xs text-[#6B6B6B] flex-wrap">
-              <span>📝 <strong className="text-[#0F0F0F]">{wordCountDisplay.toLocaleString()} words</strong></span>
+              <span>📝 <strong className="text-[#0F0F0F]">{wordCountDisplay.toLocaleString()} words</strong>
+                {wordCountDisplay > wordCount * 1.12 && (
+                  <span className="text-amber-600 ml-1">(target {wordCount.toLocaleString()})</span>
+                )}
+              </span>
               {article.searchScore != null && <span>🔍 <strong className="text-[#0F0F0F]">Search: {article.searchScore}/100</strong></span>}
               {article.aiScore != null && <span>🤖 <strong className="text-[#0F0F0F]">AI: {article.aiScore}/100</strong></span>}
               {article.passesDetection != null && (

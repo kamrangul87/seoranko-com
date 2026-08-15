@@ -6,20 +6,9 @@ import Link from 'next/link'
 import { DashboardNav } from '@/components/DashboardNav'
 import { WinnabilityCard } from '@/components/WinnabilityCard'
 import type { WinnabilityResult } from '@/components/WinnabilityCard'
+import { MARKETS, DEFAULT_MARKET, locationCodeFor, WRITE_MARKET_STORAGE_KEY } from '@/lib/markets'
 
-const COUNTRIES = [
-  { value: 'Global', label: 'Global' }, { value: 'US', label: 'United States' },
-  { value: 'UK', label: 'United Kingdom' }, { value: 'AU', label: 'Australia' },
-  { value: 'CA', label: 'Canada' }, { value: 'IN', label: 'India' },
-  { value: 'AE', label: 'UAE' }, { value: 'DE', label: 'Germany' },
-  { value: 'FR', label: 'France' }, { value: 'SG', label: 'Singapore' },
-]
-
-const COUNTRY_LOCATION_CODE: Record<string, number> = {
-  'Global': 2840, 'US': 2840, 'UK': 2826, 'AU': 2036,
-  'CA': 2124, 'IN': 2356, 'AE': 2784, 'DE': 2276,
-  'FR': 2250, 'SG': 2702,
-}
+const COUNTRIES = MARKETS.map(m => ({ value: m.value, label: m.label }))
 
 function KdBadge({ kd }: { kd: number }) {
   const color = kd <= 35 ? 'bg-green-100 text-green-700' : kd <= 55 ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'
@@ -43,9 +32,10 @@ function ResearchPanel() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const initialQ = searchParams.get('q') || ''
+  const initialCountry = searchParams.get('country') || DEFAULT_MARKET
 
   const [seed, setSeed]                       = useState(initialQ)
-  const [country, setCountry]                 = useState('Global')
+  const [country, setCountry]                 = useState(initialCountry)
   const [keywords, setKeywords]               = useState<any[]>([])
   const [loading, setLoading]                 = useState(false)
   const [error, setError]                     = useState('')
@@ -116,8 +106,10 @@ function ResearchPanel() {
       secondaryKeywords: pendingCluster.secondaryKeywords,
       longTailKeywords: longTailSuggestions.filter(lt => includedLongTail.has(lt.keyword)).map(lt => lt.keyword),
       pageId: pendingCluster.pageId,
+      country,
     }))
-    router.push(`/dashboard/write?keyword=${encodeURIComponent(pendingCluster.primaryKeyword)}`)
+    localStorage.setItem(WRITE_MARKET_STORAGE_KEY, country)
+    router.push(`/dashboard/write?keyword=${encodeURIComponent(pendingCluster.primaryKeyword)}&country=${encodeURIComponent(country)}`)
   }
 
   function cancelCluster() {
@@ -168,7 +160,7 @@ function ResearchPanel() {
     setCheckingWinnability(true)
     setWinnability(null)
     try {
-      const locationCode = COUNTRY_LOCATION_CODE[country] || 2840
+      const locationCode = locationCodeFor(country)
       const res = await fetch('/api/ranko/winnability', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -327,7 +319,7 @@ function ResearchPanel() {
                             <span className="text-xs text-[#9B9B9B] whitespace-nowrap">In cluster ✓</span>
                           ) : (
                             <Link
-                              href={`/dashboard/write?keyword=${encodeURIComponent(k.keyword)}`}
+                              href={`/dashboard/write?keyword=${encodeURIComponent(k.keyword)}&country=${encodeURIComponent(country)}`}
                               className="text-xs text-[#FF6B2C] hover:text-[#E85A1E] font-medium whitespace-nowrap"
                             >
                               Write article →

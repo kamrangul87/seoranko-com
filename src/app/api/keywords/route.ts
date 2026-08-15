@@ -5,6 +5,7 @@ import { callClaude } from '@/lib/anthropic'
 import { checkCitationOpportunity } from '@/lib/citation-tester'
 import { getCachedEntityPresence } from '@/lib/entity-checker'
 import { MODEL_FOR } from '@/lib/model-router'
+import { locationCodeFor, languageCodeFor } from '@/lib/markets'
 
 // Per-plan limits. Free = daily; Starter/Pro = monthly; Agency/Master = unlimited.
 const PLAN_LIMITS: Record<string, { keywords: number; period: 'day' | 'month' | 'unlimited' }> = {
@@ -12,16 +13,6 @@ const PLAN_LIMITS: Record<string, { keywords: number; period: 'day' | 'month' | 
   starter: { keywords: 500,  period: 'month' },
   pro:     { keywords: 2000, period: 'month' },
   agency:  { keywords: Infinity, period: 'unlimited' },
-}
-
-const COUNTRY_LOCATION_CODES: Record<string, number> = {
-  Global: 2840, UK: 2826, US: 2840, AU: 2036, CA: 2124,
-  DE: 2276,    FR: 2250, IN: 2356, AE: 2784, SA: 2682,
-  SG: 2702,    ZA: 2710, PK: 2586,
-}
-
-const COUNTRY_LANGUAGE_CODES: Record<string, string> = {
-  DE: 'de', FR: 'fr',
 }
 
 async function checkAuth(): Promise<{ authed: boolean; isMaster: boolean; userId?: string; userEmail?: string }> {
@@ -98,8 +89,8 @@ export async function POST(request: NextRequest) {
     }
 
     const { keyword, country } = await request.json()
-    const locationCode = COUNTRY_LOCATION_CODES[country] ?? 2840
-    const languageCode = COUNTRY_LANGUAGE_CODES[country] ?? 'en'
+    const locationCode = locationCodeFor(country)
+    const languageCode = languageCodeFor(country)
     const dfsAuth = Buffer.from(
       `${process.env.DATAFORSEO_EMAIL}:${process.env.DATAFORSEO_PASSWORD}`
     ).toString('base64')

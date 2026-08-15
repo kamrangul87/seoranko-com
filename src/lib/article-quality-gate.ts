@@ -503,6 +503,7 @@ export async function runQualityGate(
     authorName: string
     registeredLinkDomains: string[]
     minWordCount?: number
+    maxWordCount?: number
     maxTypically?: number
     userId?: string
     articleId?: string
@@ -528,6 +529,7 @@ export async function runQualityGate(
     authorName,
     registeredLinkDomains,
     minWordCount = 800,
+    maxWordCount,
     maxTypically = 5,
     userId,
     articleId,
@@ -753,11 +755,21 @@ export async function runQualityGate(
   // ---- RULE 8: Word count ----
   if (wordCount < minWordCount) {
     issues.push({
-      id: 'word-count',
+      id: 'word-count-low',
       severity: 'warning',
       category: 'word-count',
-      title: `Article is ${wordCount} words — minimum recommended is ${minWordCount}`,
-      description: 'Short articles rank below the recommended threshold for comprehensive topic coverage.',
+      title: `Article is ${wordCount} words — below target minimum of ${minWordCount}`,
+      description: 'Article is shorter than the user-selected word count target.',
+      autoFixable: false
+    })
+  }
+  if (maxWordCount != null && wordCount > maxWordCount) {
+    issues.push({
+      id: 'word-count-high',
+      severity: 'warning',
+      category: 'word-count',
+      title: `Article is ${wordCount} words — exceeds target maximum of ${maxWordCount}`,
+      description: 'Article is longer than the user-selected word count. Regenerate or edit manually.',
       autoFixable: false
     })
   }
