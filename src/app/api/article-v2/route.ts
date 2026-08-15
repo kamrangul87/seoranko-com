@@ -165,12 +165,21 @@ Do not write generic angles. Be specific and surprising.`
       console.error('[article-v2] angle parse failed, continuing without angle');
     }
 
-    // ── STEP B — Data-Driven Unique Section (automotive) ─────────────────────
-    const isAutomotive = kw.includes('mot') || kw.includes('car') || kw.includes('vehicle') ||
-      kw.includes('dvsa') || kw.includes('tyre') || kw.includes('brake') ||
-      kw.includes('ev') || kw.includes('electric');
+    // Discard angles that drift off the requested keyword (prevents derailing the write).
+    const angleBlob = `${angle.unique_angle} ${angle.unique_section_title} ${angle.unique_section_content}`.toLowerCase();
+    const kwTokens = kw.split(/\s+/).filter((t: string) => t.length > 2);
+    const angleOnTopic = kwTokens.length === 0 || kwTokens.some((t: string) => angleBlob.includes(t));
+    if (!angleOnTopic) {
+      console.warn('[article-v2] discarding off-topic unique angle for keyword:', keyword);
+      angle = { unique_angle: '', hook_opening: '', unique_section_title: '', unique_section_content: '' };
+    }
 
-    const uniqueDataSection = isAutomotive
+    // MOT-specific data section — only when the keyword is actually about MOT,
+    // not every EV/automotive keyword (injecting MOT stats into an "ev charger"
+    // brief was confusing the writer and wasting prompt budget).
+    const isMotTopic = /\bmot\b/.test(kw) || kw.includes('dvsa');
+
+    const uniqueDataSection = isMotTopic
       ? `<h2>What MOT Failure Data Actually Reveals</h2>
 <p>According to DVSA's published annual MOT statistics, lighting defects consistently account for the largest share of major failures across England, Scotland and Wales — in some years representing more than one in five of all Major-category failures recorded. Brake system defects and tyre condition issues follow closely. What's rarely reported is the regional variation: urban test centres typically record higher failure rates than rural ones, a pattern that correlates with older average vehicle age and higher annual mileage in city areas.</p>
 <p>Checking your specific vehicle's historical test record — including every advisory notice ever raised — gives you a significant advantage before your next test. The <a href="https://mot.autodun.com" rel="noopener">Autodun MOT predictor</a> analyses DVSA data for your exact make, model, age, and mileage to flag the components statistically most likely to fail before your test date. It's the kind of preparation most drivers skip — and the kind that most often prevents an avoidable fail.</p>`
@@ -247,9 +256,12 @@ Do not write generic angles. Be specific and surprising.`
     });
 
     // ── STEP D — Stream article with angle injected ───────────────────────────
+    const topicSystem = `You write SEO articles as HTML only. This assignment is ONLY about "${keyword}" for the ${market} market. The H1 must clearly be about "${keyword}". Every section must stay on "${keyword}". Author is always Kamran Gul. Never invent other author names. Never switch to a different subject.`;
+
     const stream = await anthropic.messages.stream({
       model: MODEL_FOR.articleWriting,
       max_tokens: 8000,
+      system: topicSystem,
       messages: [{ role: 'user', content: prompt }],
     });
 
@@ -281,23 +293,30 @@ Do not write generic angles. Be specific and surprising.`
 
           let topicAlignment = checkTopicAlignment(fullArticle, keyword);
           if (!topicAlignment.aligned) {
-            console.error('[article-v2] topic mismatch after generation — retrying once:', topicAlignment.reason);
-            const retryPrompt = `${prompt}
+            console.error('[article-v2] topic mismatch after generation — retrying with focused prompt:', topicAlignment.reason);
+            // Short focused rewrite — do NOT re-append the huge master prompt or name
+            // unrelated example topics (that primed wrong subjects in production).
+            const retryPrompt = `Write a complete ${targetWordCount}-word HTML article for the ${market} market.
 
-════════════════════════════════════════
-CRITICAL RETRY — PREVIOUS OUTPUT REJECTED
-════════════════════════════════════════
-Your previous draft was REJECTED because: ${topicAlignment.reason}
-You MUST write ONLY about "${keyword}" for the ${market} market.
-- The <h1> MUST include "${keyword}" or a natural variant (e.g. "EV Charger Guide" for "ev charger")
-- Every section must stay on this topic — do NOT write about cryptocurrency, unrelated industries, or other subjects
-- Author MUST be Kamran Gul — never invent names like Sarah Chen
-- Use ${new Date().toLocaleString('en-GB', { month: 'long' })} ${new Date().getFullYear()} dates only
-Write the complete corrected article now. HTML only.`;
+PRIMARY KEYWORD (mandatory): ${keyword}
+${secondaryList ? `Also cover naturally: ${secondaryList}` : ''}
+Tone: ${tone}
+Brand: ${brand || 'the publisher'}
+Author: Kamran Gul only
+
+Requirements:
+1. First line: <!-- META: one sentence about ${keyword} -->
+2. <h1> must include "${keyword}" or a close natural variant
+3. Every H2 and paragraph must be about ${keyword} — nothing else
+4. Include FAQ section and Article + FAQPage JSON-LD schemas
+5. Output HTML only — no markdown
+
+Write the full article now.`;
 
             const retryResponse = await anthropic.messages.create({
               model: MODEL_FOR.articleWriting,
               max_tokens: 8000,
+              system: topicSystem,
               messages: [{ role: 'user', content: retryPrompt }],
             });
             const retryText = retryResponse.content[0].type === 'text' ? retryResponse.content[0].text : '';
@@ -308,6 +327,14 @@ Write the complete corrected article now. HTML only.`;
               topicAlignment = checkTopicAlignment(fullArticle, keyword);
               console.log('[article-v2] topic retry result:', topicAlignment);
             }
+          }
+
+          if (!topicAlignment.aligned) {
+            const msg = `Generation drifted off topic (${topicAlignment.reason || 'title/body mismatch'}). Click Generate again — this draft was discarded.`;
+            console.error('[article-v2] topic still mismatched after retry — aborting:', topicAlignment.reason);
+            controller.enqueue(encoder.encode(`\n<!--SEORANKO_ERROR_START-->${encodeURIComponent(msg)}<!--SEORANKO_ERROR_END-->`));
+            controller.close();
+            return;
           }
 
           try {

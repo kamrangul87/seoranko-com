@@ -268,9 +268,15 @@ export function ArticleWriter() {
       setProgressLabel('Complete ✓')
 
       // Stream error check
-      const streamErr = full.match(/<!--SEORANKO_ERROR:([^-]+)-->/)
-      if (streamErr) {
-        setError(`Generation failed: ${decodeURIComponent(streamErr[1])}`)
+      const streamErrBlock = full.match(/<!--SEORANKO_ERROR_START-->([\s\S]*?)<!--SEORANKO_ERROR_END-->/)
+      const streamErrLegacy = full.match(/<!--SEORANKO_ERROR:([\s\S]*?)-->/)
+      const streamErrRaw = streamErrBlock?.[1] ?? streamErrLegacy?.[1]
+      if (streamErrRaw) {
+        try {
+          setError(decodeURIComponent(streamErrRaw.trim()))
+        } catch {
+          setError(streamErrRaw.trim() || 'Generation failed')
+        }
         return
       }
 
