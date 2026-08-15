@@ -1,6 +1,6 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { DashboardNav } from '@/components/DashboardNav'
@@ -22,10 +22,22 @@ interface LongTailKeyword {
   parentKeyword: string
 }
 
+interface SerpGapBrief {
+  contentGaps: string[]
+  commonTopics: string[]
+  entities: string[]
+  weaknesses: string[]
+  gapScore: number
+  serpFeatures: string[]
+  competitorCount?: number
+}
+
 interface PendingCluster {
   pageId: string
   primaryKeyword: string
   secondaryKeywords: string[]
+  selectedKeywords: string[]
+  serpGap: SerpGapBrief | null
 }
 
 function ResearchPanel() {
@@ -47,6 +59,7 @@ function ResearchPanel() {
   const [longTailSuggestions, setLongTailSuggestions] = useState<LongTailKeyword[]>([])
   const [includedLongTail, setIncludedLongTail] = useState<Set<string>>(new Set())
   const [expandingKeyword, setExpandingKeyword] = useState<string | null>(null)
+  const clusterPanelRef = useRef<HTMLDivElement>(null)
 
   function toggleSelected(keyword: string) {
     setSelected(prev => {
@@ -89,9 +102,16 @@ function ResearchPanel() {
       if (!res.ok) throw new Error(data.error || 'Failed to build cluster brief')
 
       const suggestions: LongTailKeyword[] = data.longTailSuggestions || []
-      setPendingCluster({ pageId: data.pageId, primaryKeyword: data.primaryKeyword, secondaryKeywords: data.secondaryKeywords || [] })
+      setPendingCluster({
+        pageId: data.pageId,
+        primaryKeyword: data.primaryKeyword,
+        secondaryKeywords: data.secondaryKeywords || [],
+        selectedKeywords: data.selectedKeywords || chosen.map((k: any) => k.keyword),
+        serpGap: data.serpGap ?? null,
+      })
       setLongTailSuggestions(suggestions)
-      setIncludedLongTail(new Set(suggestions.map(s => s.keyword))) // all included by default
+      setIncludedLongTail(new Set(suggestions.map(s => s.keyword)))
+      setTimeout(() => clusterPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
     } catch (e: any) {
       setError(e.message || 'Failed to build cluster brief')
     } finally {
@@ -107,6 +127,18 @@ function ResearchPanel() {
       longTailKeywords: longTailSuggestions.filter(lt => includedLongTail.has(lt.keyword)).map(lt => lt.keyword),
       pageId: pendingCluster.pageId,
       country,
+      selectedKeywords: pendingCluster.selectedKeywords,
+      topicalGaps: [
+        ...(pendingCluster.serpGap?.contentGaps ?? []),
+        ...(pendingCluster.serpGap?.commonTopics ?? []),
+      ],
+      entities: pendingCluster.serpGap?.entities ?? [],
+      gapAnalysis: pendingCluster.serpGap ? {
+        gapScore: pendingCluster.serpGap.gapScore,
+        serpFeatures: pendingCluster.serpGap.serpFeatures,
+        competitionLevel: undefined,
+        volume: keywords.find((k: any) => k.keyword === pendingCluster.primaryKeyword)?.volume,
+      } : undefined,
     }))
     localStorage.setItem(WRITE_MARKET_STORAGE_KEY, country)
     router.push(`/dashboard/write?keyword=${encodeURIComponent(pendingCluster.primaryKeyword)}&country=${encodeURIComponent(country)}`)
@@ -253,6 +285,32 @@ function ResearchPanel() {
       )}
       {winnability && !checkingWinnability && <WinnabilityCard result={winnability} />}
 
+      {keywords.length > 0 && selected.size > 0 && !pendingCluster && (
+        <div className="bg-[#FFF7ED] border border-[#FF6B2C]/30 rounded-[10px] p-4 mb-4">
+          <p className="text-sm font-semibold text-[#0F0F0F] mb-2">
+            Step 2 — Cluster {selected.size} selected keyword{selected.size > 1 ? 's' : ''}
+          </p>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {[...selected].map(kw => (
+              <span key={kw} className="text-xs bg-white border border-[#E8E8E4] rounded-full px-3 py-1 text-[#374151]">
+                {kw}
+              </span>
+            ))}
+          </div>
+          {selected.size >= 2 ? (
+            <button
+              onClick={buildBriefFromSelected}
+              disabled={buildingBrief}
+              className="bg-[#FF6B2C] hover:bg-[#E85A1E] disabled:opacity-50 text-[#0a0a0a] font-semibold text-sm px-5 py-2.5 rounded-[8px] transition-colors"
+            >
+              {buildingBrief ? 'Analysing SERP gaps & building cluster…' : `Cluster these ${selected.size} keywords →`}
+            </button>
+          ) : (
+            <p className="text-xs text-[#6B6B6B]">Select at least one more keyword to cluster into a single article brief.</p>
+          )}
+        </div>
+      )}
+
       {/* Results */}
       {keywords.length > 0 && (
         <div className="bg-white border border-[#E8E8E4] rounded-[10px] overflow-hidden mb-6">
@@ -336,16 +394,48 @@ function ResearchPanel() {
         </div>
       )}
 
-      {/* Cluster brief confirmation — shown before handing off to Write */}
+      {/* Cluster brief confirmation — Step 3 before Write */}
       {pendingCluster && (
-        <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-4 mb-6">
+        <div ref={clusterPanelRef} className="bg-white border-2 border-[#FF6B2C]/40 rounded-[10px] p-5 mb-6 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#FF6B2C] mb-2">Step 3 — Cluster brief ready</p>
           <p className="text-sm font-semibold text-[#0F0F0F] mb-1">
-            Brief ready: <span className="text-[#FF6B2C]">{pendingCluster.primaryKeyword}</span>
+            Primary: <span className="text-[#FF6B2C]">{pendingCluster.primaryKeyword}</span>
           </p>
           {pendingCluster.secondaryKeywords.length > 0 && (
             <p className="text-xs text-[#6B6B6B] mb-3">
-              Secondary keywords: {pendingCluster.secondaryKeywords.join(', ')}
+              Secondary keywords (injected into article): {pendingCluster.secondaryKeywords.join(', ')}
             </p>
+          )}
+
+          {pendingCluster.serpGap && pendingCluster.serpGap.gapScore > 0 && (
+            <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl mb-4">
+              <p className="text-sm font-semibold text-amber-900 mb-1">
+                SERP gap analysis — score {pendingCluster.serpGap.gapScore}/100
+                {pendingCluster.serpGap.competitorCount != null && (
+                  <span className="font-normal text-amber-700"> · {pendingCluster.serpGap.competitorCount} top results analysed</span>
+                )}
+              </p>
+              {pendingCluster.serpGap.contentGaps.length > 0 && (
+                <div className="mb-2">
+                  <p className="text-xs font-medium text-amber-800 mb-1">Content gaps to fill (competitors miss these):</p>
+                  <ul className="text-xs text-amber-900 list-disc pl-4 space-y-0.5">
+                    {pendingCluster.serpGap.contentGaps.slice(0, 5).map(g => (
+                      <li key={g}>{g}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {pendingCluster.serpGap.commonTopics.length > 0 && (
+                <p className="text-xs text-amber-800">
+                  <span className="font-medium">Must-cover topics:</span> {pendingCluster.serpGap.commonTopics.slice(0, 6).join(', ')}
+                </p>
+              )}
+              {pendingCluster.serpGap.serpFeatures.length > 0 && (
+                <p className="text-xs text-amber-700 mt-2">
+                  Target SERP features: {pendingCluster.serpGap.serpFeatures.join(', ')}
+                </p>
+              )}
+            </div>
           )}
 
           {longTailSuggestions.length > 0 && (
@@ -378,7 +468,7 @@ function ResearchPanel() {
               onClick={continueToWrite}
               className="bg-[#FF6B2C] hover:bg-[#E85A1E] text-[#0a0a0a] font-semibold text-sm px-5 py-2.5 rounded-[8px] transition-colors"
             >
-              Continue to Write →
+              Continue to Write with cluster →
             </button>
             <button
               onClick={cancelCluster}
@@ -386,6 +476,28 @@ function ResearchPanel() {
             >
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Sticky cluster bar while scrolling the keyword table */}
+      {keywords.length > 0 && selected.size > 0 && !pendingCluster && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[#E8E8E4] bg-white/95 backdrop-blur px-4 py-3 shadow-lg md:pl-56">
+          <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
+            <span className="text-sm text-[#374151]">
+              <strong>{selected.size}</strong> keyword{selected.size > 1 ? 's' : ''} selected
+            </span>
+            {selected.size >= 2 ? (
+              <button
+                onClick={buildBriefFromSelected}
+                disabled={buildingBrief}
+                className="bg-[#FF6B2C] hover:bg-[#E85A1E] disabled:opacity-50 text-[#0a0a0a] font-semibold text-sm px-5 py-2 rounded-[8px] whitespace-nowrap"
+              >
+                {buildingBrief ? 'Building cluster…' : `Cluster ${selected.size} keywords →`}
+              </button>
+            ) : (
+              <span className="text-xs text-[#6B6B6B]">Select 1 more to cluster</span>
+            )}
           </div>
         </div>
       )}

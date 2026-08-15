@@ -3,6 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { clusterKeywords, type KeywordClusterInput } from "@/lib/keyword-cluster";
 import { findLongTailVariants, calculateSafeLongTailCount } from "@/lib/longtail-expander";
+import { analyzeSerpGap, mergeClusterKeywords } from "@/lib/serp-gap-analyzer";
 import { STAGE } from "@/lib/pages";
 
 // Station 2 (Plan) — takes 2+ keywords the user selected together in the
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const keywords: KeywordClusterInput[] = Array.isArray(body.keywords) ? body.keywords : [];
-    const country: string = typeof body.country === "string" ? body.country : "UK";
+    const country: string = typeof body.country === "string" ? body.country : "Global";
     const targetWordCount: number = typeof body.wordCount === "number" ? body.wordCount : 2000;
 
     if (keywords.length < 2) {
@@ -32,6 +33,16 @@ export async function POST(req: NextRequest) {
     }
 
     const clustered = await clusterKeywords(keywords);
+
+    const allSelectedKeywords = keywords.map(k => k.keyword)
+    const secondaryKeywords = mergeClusterKeywords(
+      clustered.primaryKeyword,
+      clustered.secondaryKeywords,
+      allSelectedKeywords
+    )
+
+    // SERP gap analysis — what top-ranking pages cover vs. opportunities to fill
+    const serpGap = await analyzeSerpGap(clustered.primaryKeyword, country)
 
     // Automatic long-tail expansion — pulls easier-to-rank variants of the
     // primary keyword so the cluster gets ranking surface area without
@@ -42,9 +53,22 @@ export async function POST(req: NextRequest) {
     const longTailSuggestions = longTailCandidates.slice(0, maxToInclude);
 
     const allSecondaryKeywords = [
-      ...clustered.secondaryKeywords,
+      ...secondaryKeywords,
       ...longTailSuggestions.map(lt => lt.keyword),
     ];
+
+    const briefJson = {
+      ...(longTailSuggestions.length > 0 ? { longtailSources: longTailSuggestions } : {}),
+      serpGap: {
+        contentGaps: serpGap.contentGaps,
+        commonTopics: serpGap.commonTopics,
+        entities: serpGap.entities,
+        weaknesses: serpGap.weaknesses,
+        gapScore: serpGap.gapScore,
+        serpFeatures: serpGap.serpFeatures,
+        selectedKeywords: allSelectedKeywords,
+      },
+    }
 
     const { data: page, error } = await supabase
       .from("pages")
@@ -55,8 +79,8 @@ export async function POST(req: NextRequest) {
         primary_keyword: clustered.primaryKeyword,
         secondary_keywords: allSecondaryKeywords,
         intent: clustered.intent,
-        brief_json: longTailSuggestions.length > 0 ? { longtailSources: longTailSuggestions } : null,
-        last_action: `Clustered from ${keywords.length} selected keywords${longTailSuggestions.length > 0 ? ` + ${longTailSuggestions.length} long-tail variants` : ""}`,
+        brief_json: briefJson,
+        last_action: `Clustered ${keywords.length} keywords + SERP gap (${serpGap.gapScore}/100)${longTailSuggestions.length > 0 ? ` + ${longTailSuggestions.length} long-tail` : ""}`,
       })
       .select("id")
       .single();
@@ -69,9 +93,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       pageId: page.id,
       primaryKeyword: clustered.primaryKeyword,
-      secondaryKeywords: clustered.secondaryKeywords,
+      secondaryKeywords,
       longTailSuggestions,
       intent: clustered.intent,
+      serpGap,
+      selectedKeywords: allSelectedKeywords,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unexpected error";

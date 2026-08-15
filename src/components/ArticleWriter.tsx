@@ -82,7 +82,19 @@ export function ArticleWriter() {
   // to Write. Previously this had no consumer, so Write always sent
   // secondaryKeywords: [keyword] (the primary keyword duplicated as its own
   // "secondary" — a no-op) regardless of what was selected.
-  const [clusterBrief, setClusterBrief] = useState<{ secondaryKeywords: string[]; longTailKeywords: string[]; pageId: string | null } | null>(null)
+  const [clusterBrief, setClusterBrief] = useState<{
+    secondaryKeywords: string[]
+    longTailKeywords: string[]
+    pageId: string | null
+    topicalGaps?: string[]
+    entities?: string[]
+    gapAnalysis?: {
+      gapScore?: number
+      volume?: number
+      competitionLevel?: string
+      serpFeatures?: string[]
+    }
+  } | null>(null)
 
   useEffect(() => {
     const kw = searchParams.get('keyword')
@@ -117,6 +129,9 @@ export function ArticleWriter() {
           secondaryKeywords: parsed.secondaryKeywords ?? [],
           longTailKeywords: parsed.longTailKeywords ?? [],
           pageId: parsed.pageId ?? null,
+          topicalGaps: parsed.topicalGaps ?? [],
+          entities: parsed.entities ?? [],
+          gapAnalysis: parsed.gapAnalysis,
         })
         if (parsed.country) setCountry(parsed.country as Country)
         if (parsed.targetMarket) setCountry(parsed.targetMarket as Country)
@@ -202,14 +217,20 @@ export function ArticleWriter() {
           market: country,
           secondaryKeywords: clusterBrief?.secondaryKeywords ?? [],
           longTailKeywords: clusterBrief?.longTailKeywords ?? [],
-          entities: nlpBrief?.entities ?? [],
-          topicalGaps: nlpBrief?.topicalGaps ?? [],
-          gapAnalysis: nlpBrief ? {
+          entities: [
+            ...(nlpBrief?.entities ?? []),
+            ...(clusterBrief?.entities ?? []),
+          ].filter((v, i, a) => a.indexOf(v) === i),
+          topicalGaps: [
+            ...(nlpBrief?.topicalGaps ?? []),
+            ...(clusterBrief?.topicalGaps ?? []),
+          ].filter((v, i, a) => a.indexOf(v) === i),
+          gapAnalysis: clusterBrief?.gapAnalysis ?? (nlpBrief ? {
             gapScore: nlpBrief.gapScore,
             volume: nlpBrief.volume,
             competitionLevel: nlpBrief.competitionLevel,
             serpFeatures: nlpBrief.serpFeatures ?? [],
-          } : undefined,
+          } : undefined),
           internalLinks: [],
           brand: brand.trim(),
           domain: normalizeDomain(domain),
@@ -387,6 +408,13 @@ export function ArticleWriter() {
               <p className="text-xs text-[#1D9E75] mt-1.5">
                 ✓ Cluster brief — targeting {clusterBrief.secondaryKeywords.length} keyword{clusterBrief.secondaryKeywords.length > 1 ? 's' : ''}: {clusterBrief.secondaryKeywords.join(', ')}
                 <span className="text-[#9B9B9B]"> (Quality Gate will flag any that don&apos;t make it in)</span>
+              </p>
+            )}
+            {clusterBrief && (clusterBrief.topicalGaps?.length ?? 0) > 0 && (
+              <p className="text-xs text-[#1D9E75] mt-1">
+                ✓ SERP gaps to cover: {clusterBrief.topicalGaps!.slice(0, 4).join(', ')}
+                {(clusterBrief.topicalGaps!.length > 4) ? '…' : ''}
+                {clusterBrief.gapAnalysis?.gapScore != null && ` · gap score ${clusterBrief.gapAnalysis.gapScore}/100`}
               </p>
             )}
             {clusterBrief && clusterBrief.longTailKeywords.length > 0 && (
