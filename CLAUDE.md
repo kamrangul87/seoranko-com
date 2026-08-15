@@ -2,11 +2,24 @@
 
 ## Git Workflow
 
-**ALWAYS commit directly to main. Never create a feature branch.**
+**Use feature branches and pull requests. Do not commit directly to `main`.**
 
 After every change:
-```
-git add . && git commit -m 'message' && git push origin main
-```
 
-Never use `git checkout -b`, never create a new branch. Every commit goes directly to main immediately. This is a solo project with no code review process — feature branches only add confusion and deployment delays.
+1. Create or switch to a feature branch from `main`:
+   ```
+   git checkout main && git pull origin main
+   git checkout -b <branch-name>
+   ```
+   Use a short, descriptive branch name (e.g. `fix/login-redirect`, `feat/keyword-export`).
+
+2. Commit on that branch:
+   ```
+   git add .
+   git commit -m 'message'
+   git push -u origin <branch-name>
+   ```
+
+3. Open a pull request targeting `main`. Merge via the PR when the change is ready.
+
+Never push commits straight to `main`. All work lands through a branch and PR so changes are reviewable and deploys stay predictable.
