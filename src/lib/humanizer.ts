@@ -243,6 +243,25 @@ ${preprocessed}`;
   const schemaPreserved = finalSignals.schemas.length >= seoSignals.schemas.length || seoSignals.schemas.length === 0;
 
   const humanScore = calculateHumanScore(humanizedHtml);
+  const preScore = calculateHumanScore(preprocessed);
+
+  // Keep-best: never ship a rewrite that scores worse than the input
+  if (humanScore < preScore - 3) {
+    console.warn(`[humanizer] rewrite hurt score (${preScore} → ${humanScore}) — keeping pre-humanize HTML`);
+    return {
+      humanizedHtml: preprocessed,
+      humanScore: preScore,
+      passesDetection: preScore >= 72,
+      experienceScore: detectExperienceScore(preprocessed),
+      seoPreserved: {
+        linksPreserved: true,
+        keywordInFirstParagraph: seoSignals.keywordInFirstPara,
+        statsPreserved: true,
+        schemaPreserved: seoSignals.schemas.length > 0,
+      },
+      bannedWordsRemoved: bannedWordsFound,
+    };
+  }
 
   return {
     humanizedHtml,

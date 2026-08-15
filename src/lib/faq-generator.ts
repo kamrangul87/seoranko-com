@@ -40,6 +40,26 @@ export function parseFAQsFromArticle(articleContent: string): FAQParseResult {
     return { faqs: htmlFaqs.slice(0, 8), rawBlock: '', articleWithoutFAQ: articleContent }
   }
 
+  // --- FORMAT 1b: FAQ H2 section with bare <h3>Q</h3><p>A</p> (no faq-item class) ---
+  const faqHeadingSplit = articleContent.split(/<h2[^>]*>\s*(?:Frequently Asked Questions|FAQ|FAQs)\s*<\/h2>/i)
+  if (faqHeadingSplit.length >= 2) {
+    const afterFaq = faqHeadingSplit[1]
+    const untilNextH2 = afterFaq.split(/<h2[\s>]/i)[0] || afterFaq
+    const h3Faqs: FAQ[] = []
+    const h3Pattern = /<h3[^>]*>([\s\S]*?)<\/h3>\s*<p[^>]*>([\s\S]*?)<\/p>/gi
+    let h3Match: RegExpExecArray | null
+    while ((h3Match = h3Pattern.exec(untilNextH2)) !== null) {
+      const question = h3Match[1].replace(/<[^>]+>/g, '').trim()
+      const answer = h3Match[2].replace(/<[^>]+>/g, '').trim().replace(/\s+/g, ' ')
+      if (question.length > 5 && answer.length > 10) {
+        h3Faqs.push({ question: question.endsWith('?') ? question : question + '?', answer })
+      }
+    }
+    if (h3Faqs.length >= 2) {
+      return { faqs: h3Faqs.slice(0, 8), rawBlock: '', articleWithoutFAQ: articleContent }
+    }
+  }
+
   // --- FORMAT 2: Try extracting from FAQPage JSON-LD in the article ---
   const jsonLdPattern = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
   let ldMatch: RegExpExecArray | null

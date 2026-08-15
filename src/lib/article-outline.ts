@@ -3,6 +3,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { MODEL_FOR } from '@/lib/model-router'
 import { getKeywordTokens } from '@/lib/topic-alignment'
+import { structureBudgetForWordCount } from '@/lib/word-count-enforcer'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 3 })
 
@@ -33,7 +34,6 @@ export function outlineMatchesKeyword(outline: ArticleOutline, keyword: string):
     return lower.includes(phrase) || tokens.some(t => lower.includes(t))
   }).length
 
-  // At least 2 H2s (or all of them if fewer) must reference the keyword
   return onTopicH2 >= Math.min(2, h2s.length)
 }
 
@@ -45,27 +45,58 @@ ${h2List}
 META HINT: ${outline.metaHint || `Practical guide to ${keyword}`}`
 }
 
+function fallbackOutline(keyword: string, market: string, h2Count: number): ArticleOutline {
+  const titleCase = keyword
+    .split(/\s+/)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ')
+
+  const pool = [
+    `What Is a ${titleCase}?`,
+    `Types of ${titleCase} Options`,
+    `How to Choose the Right ${titleCase}`,
+    `${titleCase} Installation and Costs`,
+    `${titleCase} Rules and Safety Tips`,
+    `FAQ`,
+    `Bottom Line`,
+  ]
+
+  // Always keep FAQ + Bottom Line as last two when h2Count >= 4
+  const bodySlots = Math.max(2, h2Count - 2)
+  const h2s = [...pool.slice(0, bodySlots), 'FAQ', 'Bottom Line'].slice(0, h2Count)
+
+  return {
+    h1: `${titleCase}: A Practical ${market} Guide`,
+    h2s,
+    metaHint: `Practical ${market} guide to ${keyword}`,
+  }
+}
+
 export async function generateArticleOutline(opts: {
   keyword: string
   market: string
   secondaryKeywords?: string[]
   uniqueAngle?: string
+  wordCount?: number
 }): Promise<ArticleOutline | null> {
-  const { keyword, market, secondaryKeywords = [], uniqueAngle = '' } = opts
+  const { keyword, market, secondaryKeywords = [], uniqueAngle = '', wordCount = 1200 } = opts
   const secondary = secondaryKeywords.slice(0, 8).join(', ')
+  const budget = structureBudgetForWordCount(wordCount)
 
   const prompt = `Create an SEO article outline for ONE topic only.
 
 KEYWORD: ${keyword}
 MARKET: ${market}
+TARGET WORD COUNT: ${wordCount} words — structure MUST fit this length
 ${secondary ? `RELATED TERMS TO COVER: ${secondary}` : ''}
 ${uniqueAngle ? `ANGLE: ${uniqueAngle}` : ''}
 
 Rules:
 1. The H1 MUST include the words from "${keyword}" (or a very close natural variant like "EV Charger Guide" for "ev charger")
-2. Every H2 must stay on "${keyword}" — home installation, types, costs, rules, safety, FAQ, etc. as relevant
-3. Return 5 to 7 H2 headings
+2. Every H2 must stay on "${keyword}"
+3. Return EXACTLY ${budget.h2Count} H2 headings (including FAQ and Bottom Line as the last two)
 4. Do not outline any other subject
+5. Do NOT return more than ${budget.h2Count} H2s — longer outlines blow the word budget
 
 Return JSON only:
 {"h1":"...","h2s":["...","..."],"metaHint":"one sentence"}`
@@ -75,13 +106,13 @@ Return JSON only:
       const response = await anthropic.messages.create({
         model: MODEL_FOR.keywordExtraction,
         max_tokens: 400,
-        system: `You outline SEO articles. This outline is ONLY about "${keyword}". Every heading must stay on that topic.`,
+        system: `You outline SEO articles. This outline is ONLY about "${keyword}". Exactly ${budget.h2Count} H2s to fit ${wordCount} words.`,
         messages: [{ role: 'user', content: prompt }],
       })
       const text = response.content[0].type === 'text' ? response.content[0].text : ''
       const parsed = JSON.parse(text.replace(/```json|```/g, '').trim()) as ArticleOutline
       if (!parsed?.h1 || !Array.isArray(parsed.h2s)) continue
-      parsed.h2s = parsed.h2s.map(String).filter(Boolean).slice(0, 8)
+      parsed.h2s = parsed.h2s.map(String).filter(Boolean).slice(0, budget.h2Count)
       if (outlineMatchesKeyword(parsed, keyword)) return parsed
       console.warn('[article-outline] outline failed keyword check, attempt', attempt + 1, parsed.h1)
     } catch (err) {
@@ -89,27 +120,10 @@ Return JSON only:
     }
   }
 
-  // Deterministic fallback outline — never invent an unrelated topic
-  const titleCase = keyword
-    .split(/\s+/)
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(' ')
-  return {
-    h1: `${titleCase}: A Practical ${market} Guide`,
-    h2s: [
-      `What Is a ${titleCase}?`,
-      `Types of ${titleCase} Options`,
-      `How to Choose the Right ${titleCase}`,
-      `${titleCase} Installation and Costs`,
-      `${titleCase} Rules and Safety Tips`,
-      `FAQ`,
-      `Bottom Line`,
-    ],
-    metaHint: `Practical ${market} guide to ${keyword}`,
-  }
+  return fallbackOutline(keyword, market, budget.h2Count)
 }
 
-/** Short keyword-locked write prompt — outline first, minimal distraction. */
+/** Short keyword-locked write prompt — outline first, hard word budget. */
 export function buildOutlineLockedWritePrompt(opts: {
   keyword: string
   market: string
@@ -139,22 +153,26 @@ export function buildOutlineLockedWritePrompt(opts: {
   const secondary = secondaryKeywords.slice(0, 10).join(', ')
   const brand = brandName.trim() || 'the publisher'
   const domain = brandDomain.trim() || ''
+  const budget = structureBudgetForWordCount(wordCount)
 
   return `CRITICAL: Output ONLY valid HTML. No markdown.
 
 PRIMARY KEYWORD: ${keyword}
 TOPIC: Write exclusively about "${keyword}" for ${market}. Do not change subject.
 
+HARD WORD LIMIT: ${wordCount} words total (±8% max). Do NOT exceed ${Math.ceil(wordCount * 1.08)} words.
+Section budget: ${budget.h2Count} H2s × ~${budget.wordsPerH2} words each (${budget.parasPerH2} short paragraphs per H2). FAQ: ${budget.faqCount} questions, ~60 words each.
+
 ${formatOutlineForWriter(outline, keyword)}
 
-You MUST use the LOCKED H1 as your <h1> (you may polish wording slightly but keep the same topic and keyword).
-You MUST use the LOCKED H2 sections as your <h2> headings in order (FAQ and Bottom Line sections included).
+You MUST use the LOCKED H1 as your <h1> (polish wording slightly but keep the same topic and keyword).
+You MUST use the LOCKED H2 sections as your <h2> headings in order.
 
-TARGET: ~${wordCount} words | TONE: ${tone} | DATE: ${month} ${year}
+TARGET: ${wordCount} words | TONE: ${tone} | DATE: ${month} ${year}
 AUTHOR: Kamran Gul${brand !== 'the publisher' ? `, ${brand}` : ''} — never invent other author names
 ${domain ? `SITE: ${domain} — mention the brand naturally once in the intro` : ''}
 ${secondary ? `Mention these related terms naturally once each where relevant: ${secondary}` : ''}
-${uniqueAngle ? `Unique angle to include: ${uniqueAngle}` : ''}
+${uniqueAngle ? `Unique angle to include briefly: ${uniqueAngle}` : ''}
 
 LIVE FACTS (use if relevant; do not invent numbers):
 ${liveFacts || 'None — write carefully and hedge uncertain figures'}
@@ -163,12 +181,14 @@ STRUCTURE:
 1. First line: <!-- META: one sentence about ${keyword} -->
 2. Second line: <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
 3. <h1>…</h1>
-4. Intro (~100 words) answering what ${keyword} is for ${market} readers
-5. Each locked H2 with 2–4 short paragraphs
-6. FAQ with 4–5 questions about ${keyword}
-7. Bottom Line
-8. About the Author (Kamran Gul only)
+4. Intro (~80–100 words) answering what ${keyword} is for ${market} readers
+5. Each locked H2 with ${budget.parasPerH2} short paragraphs (~${budget.wordsPerH2} words per section)
+6. FAQ with ${budget.faqCount} questions about ${keyword} — wrap each in <div class="faq-item"><h3>Q</h3><p>A</p></div>
+7. Bottom Line (~60 words)
+8. About the Author (Kamran Gul only, ~50 words)
 9. Article + FAQPage JSON-LD scripts at the end
+
+Before finishing: count your words. If over ${Math.ceil(wordCount * 1.08)}, cut paragraphs — never pad.
 
 Write the complete HTML article now.`
 }

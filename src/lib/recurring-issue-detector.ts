@@ -13,6 +13,16 @@ export interface RecurringIssueAlert {
   message: string
 }
 
+/** Categories that are content/coverage issues — not pipeline bugs. */
+const CONTENT_COVERAGE_CATEGORIES = new Set([
+  'topic-alignment',
+  'secondary-keyword-coverage',
+  'brief-coverage',
+  'word-count',
+  'grant-figure',
+  'dated-policy',
+])
+
 export async function detectRecurringIssues(
   supabase: SupabaseClient,
   userId: string
@@ -37,6 +47,9 @@ export async function detectRecurringIssues(
 
   const categoryToArticles: Record<string, Set<string>> = {}
   for (const log of relevantLogs) {
+    // Skip content-coverage categories — they recur because topics vary,
+    // not because the generation pipeline is broken.
+    if (CONTENT_COVERAGE_CATEGORIES.has(log.issue_category)) continue
     if (!categoryToArticles[log.issue_category]) categoryToArticles[log.issue_category] = new Set()
     categoryToArticles[log.issue_category].add(log.article_id)
   }

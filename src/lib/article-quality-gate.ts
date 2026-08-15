@@ -14,6 +14,8 @@ import { validateArticleStructure } from './structure-validator'
 import { createClient } from '@supabase/supabase-js'
 import { lintProse } from './prose-linter'
 import { checkTopicAlignment } from '@/lib/topic-alignment'
+import { countArticleWords } from '@/lib/word-count-enforcer'
+import { parseFAQsFromArticle } from '@/lib/faq-generator'
 
 // AI slop patterns — expanded from anti-slop GitHub repo
 const AI_SLOP_PATTERNS = [
@@ -661,7 +663,7 @@ export async function runQualityGate(
 
   const hedgeCounts = countHedgeWords(articleContent)
   const totalHedges = Object.values(hedgeCounts).reduce((a, b) => a + b, 0)
-  const wordCount = articleContent.split(/\s+/).filter(w => w.length > 0).length
+  const wordCount = countArticleWords(articleContent)
 
   if (totalHedges > wordCount / 50) {
     issues.push({
@@ -719,10 +721,12 @@ export async function runQualityGate(
     })
   }
 
-  // Schema/content parity — a visible FAQ with no FAQPage block. This is a
-  // cross-check against the rendered article, not a JSON-LD property rule,
-  // so it stays outside validateSchema().
-  const hasVisibleFAQ = /<h3>/.test(articleContent) || /class="faq/.test(articleContent)
+  // Schema/content parity — visible FAQ Q&A pairs with no FAQPage block.
+  const parsedFaqsForParity = parseFAQsFromArticle(articleContent).faqs
+  const hasVisibleFAQ =
+    parsedFaqsForParity.length >= 2 ||
+    /class=["'][^"']*faq-item/i.test(articleContent) ||
+    /<h2[^>]*>\s*(?:Frequently Asked Questions|FAQ|FAQs)\s*<\/h2>/i.test(articleContent)
   if (hasVisibleFAQ && !schemaResult.schemasFound.includes('FAQPage')) {
     issues.push({
       id: 'schema-faq-parity',
@@ -730,7 +734,8 @@ export async function runQualityGate(
       category: 'schema',
       title: 'FAQPage schema missing but FAQ content exists',
       description: 'Visible FAQ section found but no FAQPage JSON-LD schema. Schema must match visible content.',
-      autoFixable: false
+      autoFixable: true,
+      autoFixDescription: 'Auto-fix injects FAQPage JSON-LD from the visible FAQ pairs',
     })
   }
 
@@ -859,6 +864,59 @@ export async function runQualityGate(
     if (slopIssue) {
       articleAfterAutoFix = articleAfterAutoFix.replace(pattern, '')
       autoFixedCount++
+    }
+  }
+
+  // Fix 4: Grant-figure hedges — add "(verify at GOV.UK)" next to unsourced caps
+  if (issues.some(i => i.category === 'grant-figure' && i.autoFixable)) {
+    articleAfterAutoFix = articleAfterAutoFix.replace(
+      /\bup to (\d+%|£\d+)\b(?!\s*\(verify at GOV\.UK\))/gi,
+      (match) => {
+        autoFixedCount++
+        return `${match} (verify at GOV.UK)`
+      }
+    )
+    // Re-evaluate — clear criticals that are now hedged
+    const remainingGrant = evaluateGrantFigureClaims(articleAfterAutoFix)
+    const stillCritical = new Set(
+      remainingGrant.filter(i => i.severity === 'critical').map(i => i.id)
+    )
+    issues = issues.filter(i => {
+      if (i.category !== 'grant-figure') return true
+      return stillCritical.has(i.id)
+    })
+    // Add any remaining critical grant issues (positions may have shifted — replace set)
+    const clearedGrant = !remainingGrant.some(i => i.severity === 'critical')
+    if (clearedGrant) {
+      issues = issues.filter(i => i.category !== 'grant-figure')
+    } else {
+      issues = [
+        ...issues.filter(i => i.category !== 'grant-figure'),
+        ...remainingGrant.filter(i => i.severity === 'critical'),
+      ]
+    }
+  }
+
+  // Fix 5: Inject FAQPage schema when FAQ content exists but schema is missing
+  const faqParityIssue = issues.find(i => i.id === 'schema-faq-parity' && i.autoFixable)
+  if (faqParityIssue) {
+    const { faqs: faqPairs } = parseFAQsFromArticle(articleAfterAutoFix)
+    const alreadyHasFaqPage =
+      /"@type"\s*:\s*"FAQPage"/i.test(articleAfterAutoFix)
+    if (faqPairs.length >= 2 && !alreadyHasFaqPage) {
+      const faqSchema = {
+        '@context': 'https://schema.org',
+        '@type': 'FAQPage',
+        mainEntity: faqPairs.map(f => ({
+          '@type': 'Question',
+          name: f.question,
+          acceptedAnswer: { '@type': 'Answer', text: f.answer },
+        })),
+      }
+      articleAfterAutoFix =
+        `${articleAfterAutoFix}\n<script type="application/ld+json">${JSON.stringify(faqSchema)}</script>`
+      autoFixedCount++
+      issues = issues.filter(i => i.id !== 'schema-faq-parity')
     }
   }
 

@@ -27,7 +27,7 @@ import {
 import { MODEL_FOR } from '@/lib/model-router';
 import { runQualityGate, type QualityIssue } from '@/lib/article-quality-gate';
 import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
-import { enforceWordCountLimit, countArticleWords } from '@/lib/word-count-enforcer';
+import { enforceWordCountLimit, countArticleWords, deterministicTrimToTarget } from '@/lib/word-count-enforcer';
 import { checkTopicAlignment, assertNonEmptyKeyword, keepIfOnTopic, getKeywordTokens } from '@/lib/topic-alignment';
 import {
   generateArticleOutline,
@@ -251,6 +251,7 @@ Do not write generic angles. Be specific and surprising.`
       market,
       secondaryKeywords: secondaryKeywords as string[],
       uniqueAngle: angle.unique_angle || '',
+      wordCount: targetWordCount,
     })
     if (!outline) {
       return new Response(
@@ -360,7 +361,8 @@ Do not write generic angles. Be specific and surprising.`
           }
 
           // === POST-PROCESSING: AEO/GEO enrichment ===
-          const { faqs } = parseFAQsFromArticle(fullArticle);
+          const { faqs: earlyFaqs } = parseFAQsFromArticle(fullArticle);
+          let faqs = earlyFaqs;
           const factDensityResult = scoreFactDensity(fullArticle);
           const isHowTo = detectHowTo(keyword, keyword);
           const titleMatch = fullArticle.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
@@ -569,6 +571,25 @@ Do not write generic angles. Be specific and surprising.`
               heroImageUrl = imageSet.hero.url;
             }
 
+            // Final word-count gate AFTER humanize/fact patches — competitor-style
+            // ±8% band. Early condense can be undone by later rewrites.
+            try {
+              const beforeFinalWc = finalHtml
+              finalHtml = await enforceWordCountLimit(finalHtml, targetWordCount)
+              finalHtml = keepIfOnTopic(beforeFinalWc, finalHtml, keyword, 'final-word-count')
+              // If topic gate rejected a successful condense, fall back to deterministic trim
+              if (countArticleWords(finalHtml) > Math.ceil(targetWordCount * 1.08)) {
+                const trimmed = deterministicTrimToTarget(finalHtml, targetWordCount)
+                finalHtml = keepIfOnTopic(finalHtml, trimmed, keyword, 'deterministic-trim')
+              }
+              console.log(`[article-v2] final word count: ${countArticleWords(finalHtml)} (target ${targetWordCount})`)
+            } catch (wcErr) {
+              console.warn('[article-v2] final word-count enforce failed:', wcErr)
+            }
+
+            // Re-parse FAQs from post-humanize HTML so FAQPage schema matches visible content
+            faqs = parseFAQsFromArticle(finalHtml).faqs
+
             // Schema must reflect the actual brand/site this article is being
             // written for — never SEORANKO itself (SEORANKO is the tool, not
             // the publisher of the client's content) and never a hardcoded
@@ -717,7 +738,7 @@ Do not write generic angles. Be specific and surprising.`
               authorName: 'Kamran Gul',
               registeredLinkDomains: registeredDomains,
               minWordCount: Math.floor(targetWordCount * 0.85),
-              maxWordCount: Math.ceil(targetWordCount * 1.12),
+              maxWordCount: Math.ceil(targetWordCount * 1.08),
               maxTypically: 5,
               userId: (userId as string) || undefined,
               articleId: articleInstanceId,
