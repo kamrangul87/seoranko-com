@@ -9,7 +9,8 @@ import { scoreFactDensity } from '@/lib/fact-density';
 import { parseFAQsFromArticle } from '@/lib/faq-generator';
 import { generateArticleSchema, detectHowTo } from '@/lib/schema-generator';
 import { getBrandSettings } from '@/lib/brand-settings';
-import { buildSocialMetaTags } from '@/lib/social-meta-tags';
+import { appendSocialMetaTags } from '@/lib/social-meta-tags';
+import { extractArticleDescription, dedupeMetaDescriptionTags } from '@/lib/extract-meta-description';
 import { buildCanonicalTag } from '@/lib/canonical-builder';
 import { pingIndexNow } from '@/lib/indexnow';
 import { humanizeArticle } from '@/lib/humanizer';
@@ -85,8 +86,7 @@ function generateLlmsTxtEntry(html: string, keyword: string, url: string): strin
   const isoDate = new Date().toISOString().split('T')[0];
   const titleMatch = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
   const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : keyword;
-  const metaMatch = html.match(/<!-- META:\s*([^-]+?)\s*-->/i);
-  const summary = metaMatch ? metaMatch[1].trim().slice(0, 160) : `Article about ${keyword}`;
+  const summary = extractArticleDescription(html, keyword) || `${keyword} guide`;
   const h2Matches = Array.from(html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi));
   const topics = h2Matches.map(m => m[1].replace(/<[^>]+>/g, '').trim()).filter(Boolean).slice(0, 6).join(', ');
   return `\n# ${title}\n> ${summary}\nURL: ${url || '/'}\nTopics: ${topics || keyword}\nLast-Updated: ${isoDate}\n`;
@@ -369,8 +369,8 @@ Do not write generic angles. Be specific and surprising.`
           const isHowTo = detectHowTo(keyword, keyword);
           const titleMatch = fullArticle.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
           const articleTitle = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : keyword;
-          const metaMatch = fullArticle.match(/<!-- META:\s*([^-]+?)\s*-->/i);
-          const articleDescription = metaMatch ? metaMatch[1].trim().slice(0, 160) : `Article about ${keyword}`;
+          // Re-resolved after humanize/schema prep from finalHtml — early value is a placeholder
+          let articleDescription = extractArticleDescription(fullArticle, keyword);
           const articleSlug = `/${keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
           // Schema generation moved below, after heroImageUrl is known —
           // real image URL is passed into generateArticleSchema directly.
@@ -641,6 +641,9 @@ Do not write generic angles. Be specific and surprising.`
               console.warn('[article-v2] getBrandSettings failed, continuing without brand settings:', brandErr);
             }
 
+            // Re-extract after humanize/fact patches so META hyphens & model tags stay in sync
+            articleDescription = extractArticleDescription(finalHtml, keyword) || articleDescription;
+
             try {
               schemaResult = generateArticleSchema({
                 title: articleTitle,
@@ -691,16 +694,20 @@ Do not write generic angles. Be specific and surprising.`
             }
 
             try {
-              const socialTags = buildSocialMetaTags({
+              // Strip any model-emitted description tags first, then append one
+              // consistent set — avoids duplicate name=description (good + "Article about…").
+              finalHtml = appendSocialMetaTags(finalHtml, {
                 title: articleTitle,
                 description: articleDescription,
                 url: fullArticleUrl,
                 imageUrl: heroImageUrl,
               });
-              finalHtml = `${finalHtml}\n\n${socialTags}`;
             } catch (socialErr) {
               console.warn('[article-v2] social meta tags failed, continuing without them:', socialErr);
             }
+
+            // Safety net if anything else re-introduced a second description
+            finalHtml = dedupeMetaDescriptionTags(finalHtml);
 
             try {
               // Same fullArticleUrl already computed above for the schema

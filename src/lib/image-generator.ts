@@ -5,6 +5,12 @@ import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenAI } from '@google/genai';
 import { parse, HTMLElement } from 'node-html-parser';
 import { MODEL_FOR } from '@/lib/model-router';
+import {
+  buildStockSearchQuery,
+  stockRelevanceScore,
+  isAcceptableStockPhoto,
+  isEvChargingTopic,
+} from '@/lib/stock-image-relevance';
 
 // ── Blog-standard size presets ────────────────────────────────────────────────
 
@@ -106,6 +112,15 @@ export async function detectNicheAndStyle(
   keyword: string,
   topic: string,
 ): Promise<{ niche: ArticleNiche; styleDescriptor: string }> {
+  // EV / vehicle charging must not be classified as "technology" — that niche
+  // visual language biases stock search toward phones/gadgets ("charger").
+  if (isEvChargingTopic(keyword, topic)) {
+    return {
+      niche: 'automotive',
+      styleDescriptor: 'electric vehicle charging photography, outdoor driveway or public charge point, natural light',
+    }
+  }
+
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
   const res = await anthropic.messages.create({
@@ -118,6 +133,7 @@ export async function detectNicheAndStyle(
 Topic: "${keyword}". Context: ${topic.slice(0, 200)}
 
 Valid niches: automotive, health, finance, technology, food, travel, business, lifestyle, education, other
+Important: EV chargers, electric vehicles, wallboxes, and charge points are automotive — never technology.
 
 Return ONLY valid JSON, no markdown:
 {"niche":"<niche>","styleDescriptor":"<12–18 word consistent visual style, e.g. warm natural lighting, shallow depth of field, editorial style>"}`,
@@ -127,9 +143,10 @@ Return ONLY valid JSON, no markdown:
   const text = res.content[0].type === 'text' ? res.content[0].text : '{}';
   try {
     const parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
-    const niche = (parsed.niche as ArticleNiche) in NICHE_VISUAL
+    let niche = (parsed.niche as ArticleNiche) in NICHE_VISUAL
       ? (parsed.niche as ArticleNiche)
       : 'other';
+    if (isEvChargingTopic(keyword, topic)) niche = 'automotive'
     const styleDescriptor =
       typeof parsed.styleDescriptor === 'string' && parsed.styleDescriptor.trim()
         ? parsed.styleDescriptor.trim()
@@ -180,6 +197,10 @@ Rules:
 - First item must have placement "hero", remaining ${count - 1} items have placement "content"
 - Each prompt must describe a distinct scene/angle (no repetition)
 - The mandatory visual style must appear verbatim at the end of each prompt
+- Subject MUST literally depict "${keyword}" — the real-world thing a reader expects for this keyword
+${isEvChargingTopic(keyword, topic)
+  ? `- CRITICAL for EV/charging topics: show electric vehicles, wallbox home chargers, public charge points, or charging cables plugged into cars. NEVER show phones, tablets, earbuds, AirPods, USB cables, or consumer gadget chargers — stock libraries confuse "charger" with phone accessories.`
+  : `- Do not substitute a lookalike subject (e.g. phone chargers for EV chargers, generic offices for a specific industry)`}
 - No markdown, no explanation`,
     }],
   });
@@ -288,40 +309,45 @@ export async function generateImageGemini(prompt: string, isRetry = false): Prom
 // commercial use). Returns raw bytes like the other providers so it flows
 // through the same resize/upload/storage pipeline below, rather than
 // depending on Pexels' own CDN staying up forever.
-function simplifyPromptForStockSearch(fullPrompt: string): string {
-  // Keep the first two clauses, not just the first — a single clause like
-  // "DC fast charger display screen" is specific, but many prompts need the
-  // second clause to disambiguate the actual subject from generic style
-  // descriptors. Capped to a real search phrase, not a full sentence.
-  const clauses = fullPrompt.split(',').slice(0, 2).join(' ');
-  return clauses
-    .replace(/close-up of|wide angle|overhead view|detail shot of|modern|professional|residential/gi, '')
-    .trim()
-    .slice(0, 80);
-}
-
 interface StockPhotoResult { buffer: Buffer; altText: string }
 
-async function fetchPexelsPhoto(prompt: string, width: number, height: number): Promise<StockPhotoResult> {
+async function fetchPexelsPhoto(
+  prompt: string,
+  width: number,
+  height: number,
+  keyword = '',
+): Promise<StockPhotoResult> {
   const apiKey = process.env.PEXELS_API_KEY;
   if (!apiKey) throw new Error('PEXELS_API_KEY not configured');
 
-  const searchQuery = simplifyPromptForStockSearch(prompt);
+  const searchQuery = buildStockSearchQuery(keyword || prompt, prompt);
   console.log(`[image-generator] Pexels search query: "${searchQuery}" (from prompt: "${prompt.slice(0, 80)}...")`);
   const res = await fetch(
-    `https://api.pexels.com/v1/search?query=${encodeURIComponent(searchQuery)}&per_page=3&orientation=${width > height ? 'landscape' : 'square'}`,
+    `https://api.pexels.com/v1/search?query=${encodeURIComponent(searchQuery)}&per_page=8&orientation=${width > height ? 'landscape' : 'square'}`,
     { headers: { Authorization: apiKey }, signal: AbortSignal.timeout(10_000) }
   );
   if (!res.ok) throw new Error(`Pexels search failed: ${res.status}`);
 
   const data = await res.json();
-  const photo = data.photos?.[0];
-  const imageUrl = photo?.src?.large2x || photo?.src?.large;
+  const photos: Array<{ alt?: string; src?: { large2x?: string; large?: string } }> = data.photos || [];
+  const ranked = photos
+    .map(photo => ({
+      photo,
+      alt: photo?.alt || searchQuery,
+      score: stockRelevanceScore(photo?.alt || '', keyword, prompt),
+    }))
+    .filter(p => isAcceptableStockPhoto(p.alt, keyword, prompt))
+    .sort((a, b) => b.score - a.score);
+
+  const best = ranked[0];
+  if (!best) throw new Error(`Pexels found no on-topic photo for "${searchQuery}"`);
+
+  const imageUrl = best.photo?.src?.large2x || best.photo?.src?.large;
   if (!imageUrl) throw new Error(`Pexels found no photo for "${searchQuery}"`);
 
   const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(15_000) });
   if (!imgRes.ok) throw new Error(`Pexels image fetch failed: ${imgRes.status}`);
-  return { buffer: Buffer.from(await imgRes.arrayBuffer()), altText: photo?.alt || searchQuery };
+  return { buffer: Buffer.from(await imgRes.arrayBuffer()), altText: best.alt };
 }
 
 export async function generateImagePexels(prompt: string, width: number, height: number): Promise<Buffer> {
@@ -336,26 +362,46 @@ export async function generateImagePexels(prompt: string, width: number, height:
 // risk beyond a slow network). Free tier: 50 requests/hour, no credit card —
 // worth watching if generation volume grows, since that's a tighter budget
 // than Pexels' (200/hour). Skipped automatically if the key isn't set.
-async function fetchUnsplashPhoto(prompt: string, width: number, height: number): Promise<StockPhotoResult> {
+async function fetchUnsplashPhoto(
+  prompt: string,
+  width: number,
+  height: number,
+  keyword = '',
+): Promise<StockPhotoResult> {
   const accessKey = process.env.UNSPLASH_ACCESS_KEY;
   if (!accessKey) throw new Error('UNSPLASH_ACCESS_KEY not configured');
 
-  const searchQuery = simplifyPromptForStockSearch(prompt);
+  const searchQuery = buildStockSearchQuery(keyword || prompt, prompt);
   console.log(`[image-generator] Unsplash search query: "${searchQuery}"`);
   const res = await fetch(
-    `https://api.unsplash.com/search/photos?query=${encodeURIComponent(searchQuery)}&per_page=3&orientation=${width > height ? 'landscape' : 'squarish'}`,
+    `https://api.unsplash.com/search/photos?query=${encodeURIComponent(searchQuery)}&per_page=8&orientation=${width > height ? 'landscape' : 'squarish'}`,
     { headers: { Authorization: `Client-ID ${accessKey}` }, signal: AbortSignal.timeout(10_000) }
   );
   if (!res.ok) throw new Error(`Unsplash search failed: ${res.status}`);
 
   const data = await res.json();
-  const photo = data.results?.[0];
-  const imageUrl = photo?.urls?.regular;
+  const photos: Array<{ alt_description?: string; description?: string; urls?: { regular?: string } }> = data.results || [];
+  const ranked = photos
+    .map(photo => {
+      const alt = photo?.alt_description || photo?.description || searchQuery;
+      return {
+        photo,
+        alt,
+        score: stockRelevanceScore(alt, keyword, prompt),
+      };
+    })
+    .filter(p => isAcceptableStockPhoto(p.alt, keyword, prompt))
+    .sort((a, b) => b.score - a.score);
+
+  const best = ranked[0];
+  if (!best) throw new Error(`Unsplash found no on-topic photo for "${searchQuery}"`);
+
+  const imageUrl = best.photo?.urls?.regular;
   if (!imageUrl) throw new Error(`Unsplash found no photo for "${searchQuery}"`);
 
   const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(15_000) });
   if (!imgRes.ok) throw new Error(`Unsplash image fetch failed: ${imgRes.status}`);
-  return { buffer: Buffer.from(await imgRes.arrayBuffer()), altText: photo?.alt_description || photo?.description || searchQuery };
+  return { buffer: Buffer.from(await imgRes.arrayBuffer()), altText: best.alt };
 }
 
 export async function generateImageUnsplash(prompt: string, width: number, height: number): Promise<Buffer> {
@@ -446,21 +492,13 @@ interface ImageProvider {
   fn: (prompt: string, width: number, height: number) => Promise<Buffer>;
 }
 
-interface ProviderAttempt {
-  buffer: Buffer;
-  provider: string;
-}
-
 // Rough relevance signal: does the stock photo's own alt/description text
 // share real subject words with what the image is actually meant to show?
 // A caption about "DC fast charger display screen" pairing with an
-// unrelated pylon photo is a symptom of taking whichever result comes back
-// first with no relevance check at all — this scores both candidates
-// instead of blindly trusting position 1.
-function stockRelevanceScore(altText: string, intentTerms: Set<string>): number {
-  if (!altText || intentTerms.size === 0) return 0;
-  const altTerms = new Set(altText.toLowerCase().split(/\s+/).filter(w => w.length > 3));
-  return Array.from(intentTerms).filter(t => altTerms.has(t)).length;
+// unrelated phone/cable product shot is rejected via stock-image-relevance.
+interface ProviderAttempt {
+  buffer: Buffer;
+  provider: string;
 }
 
 // PRIMARY: Pexels + Unsplash queried concurrently (only the ones with a key
@@ -475,10 +513,6 @@ async function queryStockParallel(
   sizeKey: BlogSizeKey,
   keyword: string,
 ): Promise<ProviderAttempt | null> {
-  const intentTerms = new Set(
-    `${keyword} ${prompt}`.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 3)
-  );
-
   // Confirmed from production logs: Pexels times out ("operation was
   // aborted due to timeout") on some requests with no retry — a single
   // transient network blip was killing that slot outright. Retry once,
@@ -496,7 +530,7 @@ async function queryStockParallel(
     try {
       const { buffer, altText } = await fn();
       void logGeneration({ tier: 'free', provider: name, niche, success: true, duration_ms: Date.now() - t0, keyword, size_key: sizeKey });
-      return { buffer, provider: name, relevance: stockRelevanceScore(altText, intentTerms) };
+      return { buffer, provider: name, relevance: stockRelevanceScore(altText, keyword, prompt) };
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       void logGeneration({ tier: 'free', provider: name, niche, success: false, duration_ms: Date.now() - t0, keyword, size_key: sizeKey, error_reason: reason });
@@ -507,7 +541,7 @@ async function queryStockParallel(
         try {
           const { buffer, altText } = await fn();
           void logGeneration({ tier: 'free', provider: name, niche, success: true, duration_ms: Date.now() - t1, keyword, size_key: sizeKey });
-          return { buffer, provider: name, relevance: stockRelevanceScore(altText, intentTerms) };
+          return { buffer, provider: name, relevance: stockRelevanceScore(altText, keyword, prompt) };
         } catch (retryErr) {
           const retryReason = retryErr instanceof Error ? retryErr.message : String(retryErr);
           void logGeneration({ tier: 'free', provider: name, niche, success: false, duration_ms: Date.now() - t1, keyword, size_key: sizeKey, error_reason: retryReason });
@@ -523,24 +557,28 @@ async function queryStockParallel(
 
   const jobs: Promise<(ProviderAttempt & { relevance: number }) | null>[] = [];
   if (process.env.PEXELS_API_KEY) {
-    jobs.push(attempt('pexels', () => fetchPexelsPhoto(prompt, width, height)));
+    jobs.push(attempt('pexels', () => fetchPexelsPhoto(prompt, width, height, keyword)));
   }
   if (process.env.UNSPLASH_ACCESS_KEY) {
-    jobs.push(attempt('unsplash', () => fetchUnsplashPhoto(prompt, width, height)));
+    jobs.push(attempt('unsplash', () => fetchUnsplashPhoto(prompt, width, height, keyword)));
   }
   if (jobs.length === 0) return null;
 
   const results = (await Promise.all(jobs)).filter((r): r is ProviderAttempt & { relevance: number } => r !== null);
   if (results.length === 0) return null;
 
-  // Never reject down to nothing over a weak relevance score — an
-  // imperfect stock match still beats falling through to the pollinations
-  // tail. Just prefer whichever candidate actually matches better.
-  results.sort((a, b) => b.relevance - a.relevance);
-  if (results.length > 1) {
-    console.log(`[image-generator] stock relevance: ${results.map(r => `${r.provider}=${r.relevance}`).join(', ')} — picked ${results[0].provider}`);
+  // Prefer on-topic matches. Never ship a negatively scored photo (e.g. iPhone
+  // cable for "ev charger") — fall through to generation tail instead.
+  const acceptable = results.filter(r => r.relevance >= 0)
+  if (acceptable.length === 0) {
+    console.warn(`[image-generator] all stock results off-topic for "${keyword}" — trying generation tail`)
+    return null
   }
-  return { buffer: results[0].buffer, provider: results[0].provider };
+  acceptable.sort((a, b) => b.relevance - a.relevance);
+  if (acceptable.length > 1) {
+    console.log(`[image-generator] stock relevance: ${acceptable.map(r => `${r.provider}=${r.relevance}`).join(', ')} — picked ${acceptable[0].provider}`);
+  }
+  return { buffer: acceptable[0].buffer, provider: acceptable[0].provider };
 }
 
 const GEMINI_HERO_TIMEOUT_MS = 12_000;

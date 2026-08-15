@@ -3,6 +3,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { MODEL_FOR } from '@/lib/model-router';
+import { extractMetaComment } from '@/lib/extract-meta-description';
 
 export function calculateEEATScore(html: string): number {
   let score = 0;
@@ -158,8 +159,8 @@ export function scoreHtmlLocally(
   // Search signals
   if (!/<h1/i.test(html)) search -= 15;
   if (!/<h2/i.test(html)) search -= 5;
-  const metaMatch = html.match(/<!-- META:\s*([^-]+?)\s*-->/i);
-  const metaLen = metaMatch ? metaMatch[1].trim().length : 0;
+  const metaText = extractMetaComment(html) || '';
+  const metaLen = metaText.length;
   if (metaLen < 70) search -= 10;
   const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   const wordCount = text.split(/\s+/).filter(Boolean).length;

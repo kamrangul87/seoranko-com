@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { buildCanonicalTags } from '@/lib/canonical-builder';
+import { extractArticleDescription } from '@/lib/extract-meta-description';
 
 export const maxDuration = 60;
 
@@ -226,7 +227,7 @@ export async function POST(req: NextRequest) {
       ? buildCanonicalTags({
           articleUrl,
           title,
-          description: metaDescription || `Article about ${keyword}`,
+          description: metaDescription || extractArticleDescription(cleanedHtml, keyword) || `${keyword} guide`,
           publishDate: new Date().toISOString(),
           authorName: authorName || 'Author',
         })

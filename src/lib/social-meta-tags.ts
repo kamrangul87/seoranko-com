@@ -1,18 +1,8 @@
-// Open Graph / Twitter Card meta tags. Grepped the entire pipeline for
-// og:title, og:image, og:description, twitter:card — zero matches anywhere.
-// Every generated article currently looks broken (title-less, image-less)
-// when shared on LinkedIn, Slack, X, or pasted into any chat app that
-// generates a link preview.
-//
-// Values are sourced from data already computed in article-v2/route.ts
-// (articleTitle, articleDescription, heroImageUrl, and the same full
-// article URL used for the JSON-LD schema's articleUrl) — no new
-// generation, just missing wiring.
-//
-// finalHtml is a bare content fragment — confirmed no <html>/<head> tag
-// exists anywhere in the article-v2 pipeline's output — so these tags are
-// appended as a plain string, the same mechanism already used for the
-// JSON-LD <script> tag (schemaResult.combinedScriptTag).
+// Open Graph / Twitter Card meta tags plus a single SEO description.
+// Callers must pass a real description from extractArticleDescription —
+// never invent "Article about {keyword}" here.
+
+import { stripSeoDescriptionTags } from '@/lib/extract-meta-description'
 
 export interface SocialMetaTagsInput {
   title: string
@@ -41,4 +31,14 @@ export function buildSocialMetaTags(input: SocialMetaTagsInput): string {
     `<meta name="twitter:description" content="${safeDesc}" />`,
     imageUrl ? `<meta name="twitter:image" content="${imageUrl}" />` : '',
   ].filter(Boolean).join('\n')
+}
+
+/**
+ * Strip any prior description/OG/Twitter description tags, then append one
+ * consistent set — prevents the duplicate name=description bug (good model
+ * tag + generic fallback appended after schema).
+ */
+export function appendSocialMetaTags(html: string, input: SocialMetaTagsInput): string {
+  const cleaned = stripSeoDescriptionTags(html).replace(/\n{3,}/g, '\n\n').trimEnd()
+  return `${cleaned}\n\n${buildSocialMetaTags(input)}`
 }
