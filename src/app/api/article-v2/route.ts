@@ -30,6 +30,9 @@ import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
 import { insertTableOfContents } from '@/lib/table-of-contents';
 import { autoSplitDenseParagraphs } from '@/lib/scannability-fixer';
 import { validateArticleStructure } from '@/lib/structure-validator';
+import { assertSchemaCompleteness } from '@/lib/schema-validate';
+import { detectDatedClaims, buildLastVerifiedLine } from '@/lib/dated-claim-detector';
+import { splitDenseParagraphs } from '@/lib/paragraph-splitter';
 
 export const maxDuration = 300;
 
@@ -350,6 +353,15 @@ Do not write generic angles. Be specific and surprising.`
           // buildStoragePath) and as the Quality Gate's articleId, so the
           // two logs can be cross-referenced for the same generation.
           const articleInstanceId = crypto.randomUUID();
+          // Non-empty means this generation fails a hard pre-save gate
+          // (missing figures despite a generated hero image, or missing
+          // Article.image/Organization.logo schema per schema-validate.ts)
+          // — the Supabase persist step below skips the insert entirely
+          // rather than saving a figureless/schema-incomplete article.
+          const hardBlockReasons: string[] = [];
+          // One instant used for BOTH schema dateModified and the visible
+          // "Last verified" line, so the two always agree.
+          const generatedAt = new Date().toISOString();
           try {
             const [humanized, imageSet] = await Promise.all([
               // 'light' reuses humanizer.ts's existing cost path: skip Claude
@@ -375,11 +387,21 @@ Do not write generic angles. Be specific and surprising.`
             bannedWordsRemoved = humanized.bannedWordsRemoved;
             passesDetection = humanized.passesDetection;
 
-            // Validate outbound citation links BEFORE the fact-sourcing check
-            // below, so a stripped dead/fake citation is re-evaluated as an
-            // unsourced claim by checkAndPatchFactSourcing (not left looking
-            // "sourced" by a link that no longer exists in the HTML).
+            // ── Sequential body transforms on ONE html variable ──────────
+            // Each step below is independently try/caught and REASSIGNS
+            // finalHtml only on its own success. This replaced a single
+            // broad try/catch spanning this entire stretch: any failure
+            // anywhere in it — including in steps with no real relationship
+            // to imaging, like getBrandSettings or the canonical-tag
+            // builder — silently reset publishedHtml back to the raw
+            // pre-humanized draft and discarded the already-resolved
+            // imageSet entirely. That's why articles occasionally saved
+            // with images successfully generated (confirmed via
+            // image_generation_logs) but zero <figure> tags in the saved
+            // content: image generation succeeded, but an unrelated LATER
+            // step threw, and the one shared catch swallowed everything.
             finalHtml = humanized.humanizedHtml;
+
             let citationLinkIssues: CitationLinkIssue[] = [];
             try {
               const citationCheck = await validateCitationLinks(finalHtml, {
@@ -398,7 +420,6 @@ Do not write generic angles. Be specific and surprising.`
               console.warn('[article-v2] citation link validation failed, continuing:', citationErr);
             }
 
-            // Fact-sourcing check + auto-patch on humanized HTML
             try {
               const factResult = await checkAndPatchFactSourcing(finalHtml, keyword, market);
               finalHtml = factResult.article;
@@ -425,6 +446,32 @@ Do not write generic angles. Be specific and surprising.`
               console.warn('[article-v2] merge-artifact repair failed, continuing:', repairErr);
             }
 
+            // Dated-claim detection — global/market-agnostic pattern
+            // (chrono-node temporal extraction + fact-checker.ts's named-
+            // source check), runs on the humanized+fact-checked text before
+            // schema/enrichment tags are appended so it only ever scans
+            // real article prose. Unsourced results become blocking Quality
+            // Gate issues below, alongside the citation-link issues.
+            let datedClaimIssues: QualityIssue[] = [];
+            try {
+              const datedClaims = detectDatedClaims(finalHtml, new Date(generatedAt));
+              const unsourced = datedClaims.filter(c => !c.hasSource);
+              if (unsourced.length > 0) {
+                datedClaimIssues = unsourced.map((claim, i) => ({
+                  id: `dated-claim-${i}`,
+                  severity: 'critical' as const,
+                  category: 'dated-policy' as const,
+                  title: `Dated claim with no named source: "${claim.text}"`,
+                  description: `"${claim.sentence}" — a quantitative/policy figure is tied to a specific date but no named source is nearby. Add a citation or named source, or remove the date reference. Re-check by ${claim.reviewBy.slice(0, 10)}.`,
+                  location: claim.sentence.slice(0, 100),
+                  autoFixable: false,
+                }));
+                console.warn(`[article-v2] dated-claim-detector: ${unsourced.length} unsourced dated claim(s) found`);
+              }
+            } catch (datedErr) {
+              console.warn('[article-v2] dated-claim detection failed, continuing:', datedErr);
+            }
+
             if (imageSet?.hero?.url) {
               heroImageUrl = imageSet.hero.url;
             }
@@ -432,11 +479,7 @@ Do not write generic angles. Be specific and surprising.`
             // Schema must reflect the actual brand/site this article is being
             // written for — never SEORANKO itself (SEORANKO is the tool, not
             // the publisher of the client's content) and never a hardcoded
-            // author name regardless of who the brand actually is. Built here
-            // (not earlier) so the real hero image URL can be passed straight
-            // in, and appended to finalHtml since the model no longer writes
-            // its own schema — combinedScriptTag was previously computed but
-            // never actually inserted into the saved/published article.
+            // author name regardless of who the brand actually is.
             const schemaOrgName = brand || citationDomain || 'this site';
             // organizationUrl previously ONLY came from the separate `domain`
             // field — if that was empty (as here: brand='ev.autodun.com' but
@@ -457,67 +500,120 @@ Do not write generic angles. Be specific and surprising.`
             // `let fullArticleUrl` above) so the IndexNow ping, which fires
             // outside this try block after the Supabase save, can reuse it.
             fullArticleUrl = schemaOrgUrl ? `${schemaOrgUrl}${articleSlug}` : `https://example.com${articleSlug}`;
+
             // brand_settings.logo_url — feeds Organization/Article-publisher
-            // schema's logo (a recommended property, previously never
-            // settable at all — see schema-validator.ts's publisher.logo
-            // check). brandSettings.configured (row exists at all, distinct
-            // from logoUrl being set) is also used below at the Quality Gate
-            // call, so this brand genuinely has no logo isn't conflated with
-            // this brand has never touched Settings.
-            const brandSettings = brand ? await getBrandSettings(userId as string, brand) : { configured: false, logoUrl: null };
-            schemaResult = generateArticleSchema({
-              title: articleTitle,
-              description: articleDescription,
-              keyword,
-              market,
-              // generateArticleSchema hardcodes author.@type to "Person" —
-              // passing an org/brand name here would claim a person is
-              // literally named "autodun" or a domain string. organizationName
-              // below is the correctly-typed Organization field (publisher)
-              // this fix is actually for; author identity is a separate,
-              // deliberately-deferred question (see prior session notes on
-              // the author-bio template assuming a specific person).
-              authorName: 'Kamran Gul',
-              publishDate: new Date().toISOString(),
-              articleUrl: fullArticleUrl,
-              imageUrl: heroImageUrl || undefined,
-              wordCount: factDensityResult.wordCount,
-              faqs: faqs.length > 0 ? faqs : undefined,
-              isHowTo,
-              howToSteps: isHowTo ? extractHowToSteps(fullArticle) : undefined,
-              organizationName: schemaOrgName,
-              organizationUrl: schemaOrgUrl,
-              organizationLogoUrl: brandSettings.logoUrl || undefined,
-            });
-            finalHtml = `${finalHtml}\n\n${schemaResult.combinedScriptTag}`;
+            // schema's logo. brandSettings.configured (row exists at all,
+            // distinct from logoUrl being set) also gates the Quality Gate
+            // call and schema-validate.ts below, so "this brand genuinely
+            // has no logo" isn't conflated with "this brand has never
+            // touched Settings". Own try/catch: a Supabase lookup failure
+            // here must not discard already-successful humanization/images.
+            let brandSettings: { configured: boolean; logoUrl: string | null } = { configured: false, logoUrl: null };
+            try {
+              brandSettings = brand ? await getBrandSettings(userId as string, brand) : { configured: false, logoUrl: null };
+            } catch (brandErr) {
+              console.warn('[article-v2] getBrandSettings failed, continuing without brand settings:', brandErr);
+            }
 
-            // OG/Twitter tags — see social-meta-tags.ts for why these were
-            // entirely missing before. Appended as a plain string, same
-            // mechanism as the JSON-LD script tag above.
-            const socialTags = buildSocialMetaTags({
-              title: articleTitle,
-              description: articleDescription,
-              url: fullArticleUrl,
-              imageUrl: heroImageUrl,
-            });
-            finalHtml = `${finalHtml}\n\n${socialTags}`;
+            try {
+              schemaResult = generateArticleSchema({
+                title: articleTitle,
+                description: articleDescription,
+                keyword,
+                market,
+                // generateArticleSchema hardcodes author.@type to "Person" —
+                // passing an org/brand name here would claim a person is
+                // literally named "autodun" or a domain string. organizationName
+                // below is the correctly-typed Organization field (publisher)
+                // this fix is actually for; author identity is a separate,
+                // deliberately-deferred question (see prior session notes on
+                // the author-bio template assuming a specific person).
+                authorName: 'Kamran Gul',
+                publishDate: generatedAt,
+                dateModified: generatedAt,
+                articleUrl: fullArticleUrl,
+                imageUrl: heroImageUrl || undefined,
+                wordCount: factDensityResult.wordCount,
+                faqs: faqs.length > 0 ? faqs : undefined,
+                isHowTo,
+                howToSteps: isHowTo ? extractHowToSteps(fullArticle) : undefined,
+                organizationName: schemaOrgName,
+                organizationUrl: schemaOrgUrl,
+                organizationLogoUrl: brandSettings.logoUrl || undefined,
+              });
+              finalHtml = `${finalHtml}\n\n${schemaResult.combinedScriptTag}`;
 
-            // Canonical tag — same fullArticleUrl already computed above for
-            // the schema and OG tags (including its https://example.com
-            // fallback when brand/domain is genuinely absent), so the
-            // canonical tag, schema, and OG tags always agree on the URL.
-            finalHtml = `${finalHtml}\n\n${buildCanonicalTag(fullArticleUrl)}`;
+              // Hard pre-save assertion (FIX 2) — Article.image and
+              // Organization.logo, per Google's structured-data guidance.
+              // Missing Article.image always blocks; missing
+              // Organization.logo only blocks once this brand has genuinely
+              // configured settings (mirrors RULE 6's existing suppression
+              // for a brand that's never touched Settings at all — see
+              // article-quality-gate.ts).
+              const schemaCheck = assertSchemaCompleteness({
+                imageUrl: schemaResult.imageUrl,
+                organizationLogoUrl: schemaResult.organizationLogoUrl,
+                logoOmittedReason: schemaResult.logoOmittedReason,
+                hasBrandSettingsConfigured: brandSettings.configured,
+              });
+              if (schemaCheck.blocked) {
+                hardBlockReasons.push(...schemaCheck.reasons);
+                console.error('[article-v2] schema completeness check failed:', schemaCheck.reasons);
+              }
+            } catch (schemaErr) {
+              console.warn('[article-v2] schema generation failed, continuing without schema:', schemaErr);
+            }
 
-            // Mechanical scannability safety net — the write prompt's
-            // SCANNABILITY RULE is a request, not a guarantee. Split any
-            // paragraph the model still wrote as 7+ sentences before the
-            // Quality Gate's scannability check scores it.
-            finalHtml = autoSplitDenseParagraphs(finalHtml);
+            try {
+              const socialTags = buildSocialMetaTags({
+                title: articleTitle,
+                description: articleDescription,
+                url: fullArticleUrl,
+                imageUrl: heroImageUrl,
+              });
+              finalHtml = `${finalHtml}\n\n${socialTags}`;
+            } catch (socialErr) {
+              console.warn('[article-v2] social meta tags failed, continuing without them:', socialErr);
+            }
 
-            // Table of contents — only kicks in above the word threshold;
-            // this template currently targets ~1,340 words, so it won't
-            // fire on typical output today unless wordCount settings change.
-            finalHtml = insertTableOfContents(finalHtml, articleWordCount);
+            try {
+              // Same fullArticleUrl already computed above for the schema
+              // and OG tags (including its https://example.com fallback
+              // when brand/domain is genuinely absent), so the canonical
+              // tag, schema, and OG tags always agree on the URL.
+              finalHtml = `${finalHtml}\n\n${buildCanonicalTag(fullArticleUrl)}`;
+            } catch (canonicalErr) {
+              console.warn('[article-v2] canonical tag failed, continuing without it:', canonicalErr);
+            }
+
+            try {
+              // Visible evidence of when dated claims (if any were found
+              // above) were checked — same generatedAt instant schema's
+              // dateModified was set from, so the visible date and the
+              // schema date always agree.
+              finalHtml = `${finalHtml}\n\n${buildLastVerifiedLine(generatedAt)}`;
+            } catch (verifiedErr) {
+              console.warn('[article-v2] "Last verified" line failed, continuing without it:', verifiedErr);
+            }
+
+            try {
+              // Mechanical scannability safety net — the write prompt's
+              // SCANNABILITY RULE is a request, not a guarantee. Split any
+              // paragraph the model still wrote as 7+ sentences before the
+              // Quality Gate's scannability check scores it.
+              finalHtml = autoSplitDenseParagraphs(finalHtml);
+            } catch (splitErr) {
+              console.warn('[article-v2] autoSplitDenseParagraphs failed, continuing:', splitErr);
+            }
+
+            try {
+              // Table of contents — only kicks in above the word threshold;
+              // this template currently targets ~1,340 words, so it won't
+              // fire on typical output today unless wordCount settings change.
+              finalHtml = insertTableOfContents(finalHtml, articleWordCount);
+            } catch (tocErr) {
+              console.warn('[article-v2] insertTableOfContents failed, continuing:', tocErr);
+            }
 
             // Quality gate — runs after humanization + fact-sourcing; auto-fixes applied to finalHtml
           try {
@@ -542,20 +638,23 @@ Do not write generic angles. Be specific and surprising.`
                 ? { entities: entities as string[], topicalGaps: topicalGaps as string[] }
                 : undefined,
               secondaryKeywords: secondaryKeywords as string[],
-              // A fake or dead citation is worse than no citation — it looks
-              // verified but isn't. Blocking (critical), not a warning.
-              extraIssues: citationLinkIssues.map((issue, i) => ({
-                id: `broken-citation-link-${i}`,
-                severity: 'critical' as const,
-                category: 'broken-citation-link' as const,
-                title: issue.reason === 'domain-mismatch'
-                  ? `Citation link domain mismatch: "${issue.anchorText}"`
-                  : `Citation link unreachable: "${issue.anchorText}"`,
-                description: `${issue.detail}. The link (${issue.url}) was stripped from the article and the sentence was left as plain text rather than shipping a dead or fake-looking citation.`,
-                location: issue.anchorText,
-                autoFixable: true,
-                autoFixDescription: 'Already auto-fixed — the broken citation link was stripped before this gate ran.',
-              })),
+              extraIssues: [
+                // A fake or dead citation is worse than no citation — it
+                // looks verified but isn't. Blocking (critical), not a warning.
+                ...citationLinkIssues.map((issue, i) => ({
+                  id: `broken-citation-link-${i}`,
+                  severity: 'critical' as const,
+                  category: 'broken-citation-link' as const,
+                  title: issue.reason === 'domain-mismatch'
+                    ? `Citation link domain mismatch: "${issue.anchorText}"`
+                    : `Citation link unreachable: "${issue.anchorText}"`,
+                  description: `${issue.detail}. The link (${issue.url}) was stripped from the article and the sentence was left as plain text rather than shipping a dead or fake-looking citation.`,
+                  location: issue.anchorText,
+                  autoFixable: true,
+                  autoFixDescription: 'Already auto-fixed — the broken citation link was stripped before this gate ran.',
+                })),
+                ...datedClaimIssues,
+              ],
               // Suppresses the publisher.logo warning for a brand that's
               // never touched Settings at all — that's the default state
               // for every new brand, not a defect. Only surfaces once this
@@ -579,66 +678,118 @@ Do not write generic angles. Be specific and surprising.`
             ));
           publishedHtml = finalHtml;
 
+            // Image injection ALWAYS runs when imageSet resolved, regardless
+            // of whether any enrichment step above failed — this is the
+            // actual fix for the "images generated but never inserted" bug
+            // (FIX 1). Previously this whole block lived inside the same
+            // try/catch as every unrelated step above it, so a
+            // getBrandSettings/schema/social-tag failure discarded imageSet
+            // entirely even though it had already resolved successfully.
             if (imageSet) {
-              const withImages = injectImagesIntoArticle(finalHtml, imageSet);
-              publishedHtml = withImages;
+              try {
+                const withImages = injectImagesIntoArticle(finalHtml, imageSet);
 
-              // Images are injected AFTER the Quality Gate already ran (finalHtml
-              // never has <img> tags at that point — they're streamed separately
-              // for progressive UX), so image completeness is checked here instead.
-              // imageSet.imageStats.failures is the authoritative signal for "every
-              // provider failed this slot" — counting <img> tags in the final HTML
-              // wouldn't catch it, because a failed slot still gets a pollinations.ai
-              // fallback URL injected (existing behaviour, unrelated to this change)
-              // rather than being left empty.
-              if (imageSet.imageStats.failures.length > 0 && articleQualityGate) {
-                const imageIssue: QualityIssue = {
-                  id: 'image-count-mismatch',
-                  severity: 'warning',
-                  category: 'image-completeness',
-                  title: `${imageSet.imageStats.failures.length} image(s) failed to generate`,
-                  description: `This article was supposed to have ${imageSet.imageStats.requested} images but only ${imageSet.imageStats.generated} generated successfully. Every image provider (Gemini, Pexels, pollinations.ai) failed for at least one slot — check API keys and daily rate limits: ${imageSet.imageStats.failures.join('; ')}`,
-                  autoFixable: false,
-                };
-                articleQualityGate.issues = [...articleQualityGate.issues, imageIssue];
-                articleQualityGate.warningCount += 1;
-                articleQualityGate.score = Math.max(0, articleQualityGate.score - 5);
-                articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2;
+                // Hard post-condition: a hero image exists but the
+                // serialized HTML has zero <figure> tags means injection
+                // silently no-opped — never save a figureless article when
+                // images were actually generated.
+                const figureCount = (withImages.match(/<figure[\s>]/gi) || []).length;
+                if (imageSet.hero?.url && figureCount === 0) {
+                  throw new Error(
+                    `Image hand-off post-condition failed: imageSet.hero.url is set (${imageSet.hero.url}) but the serialized article has 0 <figure> tags after injection.`
+                  );
+                }
+
+                publishedHtml = withImages;
+
+                // Images are injected AFTER the Quality Gate already ran (finalHtml
+                // never has <img> tags at that point — they're streamed separately
+                // for progressive UX), so image completeness is checked here instead.
+                // imageSet.imageStats.failures is the authoritative signal for "every
+                // provider failed this slot" — counting <img> tags in the final HTML
+                // wouldn't catch it, because a failed slot still gets a pollinations.ai
+                // fallback URL injected (existing behaviour, unrelated to this change)
+                // rather than being left empty.
+                if (imageSet.imageStats.failures.length > 0 && articleQualityGate) {
+                  const imageIssue: QualityIssue = {
+                    id: 'image-count-mismatch',
+                    severity: 'warning',
+                    category: 'image-completeness',
+                    title: `${imageSet.imageStats.failures.length} image(s) failed to generate`,
+                    description: `This article was supposed to have ${imageSet.imageStats.requested} images but only ${imageSet.imageStats.generated} generated successfully. Every image provider (Gemini, Pexels, pollinations.ai) failed for at least one slot — check API keys and daily rate limits: ${imageSet.imageStats.failures.join('; ')}`,
+                    autoFixable: false,
+                  };
+                  articleQualityGate.issues = [...articleQualityGate.issues, imageIssue];
+                  articleQualityGate.warningCount += 1;
+                  articleQualityGate.score = Math.max(0, articleQualityGate.score - 5);
+                  articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2;
+                }
+
+                // image-placement structure issues (figure right after a heading,
+                // no lead-in text) can only be checked now that images actually
+                // exist in the HTML — runQualityGate's RULE 10 ran on finalHtml
+                // before injection, so that category is always trivially empty
+                // there. Same timing pattern as the imageStats merge above.
+                const placementIssues = validateArticleStructure(withImages).filter(i => i.category === 'image-placement');
+                if (placementIssues.length > 0 && articleQualityGate) {
+                  const mapped: QualityIssue[] = placementIssues.map((si, i) => ({
+                    id: `structure-image-placement-post-${i}`,
+                    severity: si.severity,
+                    category: si.category,
+                    title: si.message,
+                    description: si.message,
+                    autoFixable: false,
+                  }));
+                  articleQualityGate.issues = [...articleQualityGate.issues, ...mapped];
+                  articleQualityGate.warningCount += mapped.length;
+                  articleQualityGate.score = Math.max(0, articleQualityGate.score - mapped.length * 5);
+                  articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2;
+                }
+
+                controller.enqueue(encoder.encode(
+                  `\n<!--SEORANKO_WITH_IMAGES_START-->\n${withImages}\n<!--SEORANKO_WITH_IMAGES_END-->`
+                ));
+                controller.enqueue(encoder.encode(
+                  `\n<!--SEORANKO_IMAGE_SET_START-->${JSON.stringify({
+                    images: [imageSet.hero, ...imageSet.content].map(img => ({ ...img, altText: img.alt })),
+                    stored: [imageSet.hero, ...imageSet.content].some(img => img.url.includes('supabase')),
+                    niche: imageSet.niche,
+                    styleDescriptor: imageSet.styleDescriptor,
+                    imageStats: imageSet.imageStats,
+                  })}<!--SEORANKO_IMAGE_SET_END-->`
+                ));
+              } catch (imgInjectErr) {
+                const msg = imgInjectErr instanceof Error ? imgInjectErr.message : String(imgInjectErr);
+                console.error('[article-v2] image injection post-condition failed:', msg);
+                hardBlockReasons.push(msg);
+                if (articleQualityGate) {
+                  const blockIssue: QualityIssue = {
+                    id: 'image-figure-hand-off-failed',
+                    severity: 'critical',
+                    category: 'image-completeness',
+                    title: 'Hero image generated but not present in article HTML',
+                    description: msg,
+                    autoFixable: false,
+                  };
+                  articleQualityGate.issues = [...articleQualityGate.issues, blockIssue];
+                  articleQualityGate.criticalCount += 1;
+                  articleQualityGate.passed = false;
+                  articleQualityGate.readyToPublish = false;
+                  articleQualityGate.blockers = [...articleQualityGate.blockers, `[IMAGE-COMPLETENESS] ${blockIssue.title}`];
+                }
+                // publishedHtml stays at finalHtml (pre-injection) — the
+                // figureless state is what gets blocked from saving below,
+                // not silently shipped.
               }
+            }
 
-              // image-placement structure issues (figure right after a heading,
-              // no lead-in text) can only be checked now that images actually
-              // exist in the HTML — runQualityGate's RULE 10 ran on finalHtml
-              // before injection, so that category is always trivially empty
-              // there. Same timing pattern as the imageStats merge above.
-              const placementIssues = validateArticleStructure(withImages).filter(i => i.category === 'image-placement');
-              if (placementIssues.length > 0 && articleQualityGate) {
-                const mapped: QualityIssue[] = placementIssues.map((si, i) => ({
-                  id: `structure-image-placement-post-${i}`,
-                  severity: si.severity,
-                  category: si.category,
-                  title: si.message,
-                  description: si.message,
-                  autoFixable: false,
-                }));
-                articleQualityGate.issues = [...articleQualityGate.issues, ...mapped];
-                articleQualityGate.warningCount += mapped.length;
-                articleQualityGate.score = Math.max(0, articleQualityGate.score - mapped.length * 5);
-                articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2;
-              }
-
-              controller.enqueue(encoder.encode(
-                `\n<!--SEORANKO_WITH_IMAGES_START-->\n${withImages}\n<!--SEORANKO_WITH_IMAGES_END-->`
-              ));
-              controller.enqueue(encoder.encode(
-                `\n<!--SEORANKO_IMAGE_SET_START-->${JSON.stringify({
-                  images: [imageSet.hero, ...imageSet.content].map(img => ({ ...img, altText: img.alt })),
-                  stored: [imageSet.hero, ...imageSet.content].some(img => img.url.includes('supabase')),
-                  niche: imageSet.niche,
-                  styleDescriptor: imageSet.styleDescriptor,
-                  imageStats: imageSet.imageStats,
-                })}<!--SEORANKO_IMAGE_SET_END-->`
-              ));
+            // Paragraph-splitter (FIX 3) — after image injection, right
+            // before save, so figure/figcaption markup doesn't shift
+            // paragraph boundaries computed earlier in the pipeline.
+            try {
+              publishedHtml = splitDenseParagraphs(publishedHtml);
+            } catch (splitErr) {
+              console.warn('[article-v2] paragraph-splitter failed, continuing:', splitErr);
             }
           } catch (err) {
             console.warn('[article-v2] humanization/images failed, continuing without:', err);
@@ -672,7 +823,16 @@ Do not write generic angles. Be specific and surprising.`
           // over that would be a worse outcome than the current bug.
           let savedArticleId: string | undefined;
           let saveError: string | undefined;
-          if (userId) {
+          if (hardBlockReasons.length > 0) {
+            // FIX 1 / FIX 2 hard gate: a hero image was generated but never
+            // made it into the HTML, or Article.image/Organization.logo
+            // schema is missing/invalid. The article is still streamed back
+            // to the client above for visibility/debugging, but it is
+            // deliberately never written to `articles` — do not save a
+            // figureless or schema-incomplete article.
+            saveError = `Blocked by hard quality gate — article was not saved: ${hardBlockReasons.join(' | ')}`;
+            console.error(`[article-v2] ${saveError}`);
+          } else if (userId) {
             try {
               const db = getServiceSupabase();
               const { data: savedArticle, error: insertError } = await db

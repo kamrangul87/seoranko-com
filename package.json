@@ -6,15 +6,18 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@google/genai": "^2.15.0",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.104.1",
+    "chrono-node": "^2.10.1",
     "jszip": "^3.10.1",
     "next": "14.2.29",
+    "node-html-parser": "^9.0.1",
     "react": "^18",
     "react-dom": "^18",
     "replicate": "^1.4.0",
@@ -26,8 +29,10 @@
     "retext-sentence-spacing": "^6.0.0",
     "retext-stringify": "^4.0.0",
     "retext-syntax-urls": "^4.0.0",
+    "schema-dts": "^2.0.0",
     "sharp": "^0.35.2",
-    "unified": "^11.0.5"
+    "unified": "^11.0.5",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.20",
@@ -39,6 +44,7 @@
     "eslint-config-next": "14.2.29",
     "postcss": "^8",
     "tailwindcss": "^3.3.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

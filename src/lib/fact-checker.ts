@@ -27,7 +27,7 @@ export interface FactSourcingOutput {
 // (generic/lowercase nouns), while accepting "GOV.UK confirms", "Ofgem's
 // open data", "DVSA guidance", "Rightmove data", "According to Ofcom's
 // 2026 report", and "DVSA's own testing figures confirm".
-const NAMED_SOURCE_RE =
+export const NAMED_SOURCE_RE =
   /\b(GOV\.UK|gov\.uk|Ofgem|DVSA|DVLA|HMRC|NHS|DfT|ONS|Rightmove|Ofcom|FCA|CMA|[A-Z][a-zA-Z&.]*(?:\s+[A-Z][a-zA-Z&.]*){0,3})('s)?\s+(?:\w+\s+){0,2}(?:data|report(?:s|ed|ing)?|found|shows?|states?|says?|confirms?|analysis|statistics?|survey|research|study|figures?)\b/;
 
 // Generic/vague nouns that can masquerade as a "named source" purely
@@ -83,14 +83,21 @@ function splitIntoSentences(text: string): string[] {
     .filter(Boolean);
 }
 
+// Names a specific organisation/source, not just a generic reporting verb.
+// Reject matches where the captured "source name" is itself a vague noun
+// (e.g. "Researchers say...") that's capitalised only by sentence position.
+// Exported so other pattern-based checks (dated-claim-detector.ts) can reuse
+// exactly this "is this actually a named source" judgment rather than
+// re-matching NAMED_SOURCE_RE and re-deriving the vague-term exclusion.
+export function hasNamedSource(text: string): boolean {
+  const match = text.match(NAMED_SOURCE_RE);
+  return !!match && !VAGUE_ATTRIBUTION_TERMS.has(match[1].toLowerCase());
+}
+
 function isSentenceSourced(sentence: string, paragraphHtml: string): boolean {
   // Has a hyperlink in the same paragraph — genuinely checkable, always counts
   if (/href=/i.test(paragraphHtml)) return true;
-  // Names a specific organisation/source, not just a generic reporting verb.
-  // Reject matches where the captured "source name" is itself a vague noun
-  // (e.g. "Researchers say...") that's capitalised only by sentence position.
-  const match = sentence.match(NAMED_SOURCE_RE);
-  if (match && !VAGUE_ATTRIBUTION_TERMS.has(match[1].toLowerCase())) return true;
+  if (hasNamedSource(sentence)) return true;
   // Shows the arithmetic behind the number, so it's derivable/verifiable
   if (SHOWN_WORKING_RE.test(sentence)) return true;
   return false;
