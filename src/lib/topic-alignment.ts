@@ -16,19 +16,31 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function significantTokens(keyword: string): string[] {
+export function getKeywordTokens(keyword: string): string[] {
   return keyword
     .toLowerCase()
     .split(/\s+/)
     .map(t => t.trim())
-    .filter(t => t.length > 2 && !STOP_WORDS.has(t))
+    .filter(t => t.length >= 2 && !STOP_WORDS.has(t))
 }
 
-/** True when H1 or body clearly covers the requested keyword topic. */
+export function assertNonEmptyKeyword(raw: unknown): string {
+  const k = String(raw ?? '').trim()
+  if (!k) throw new Error('KEYWORD_REQUIRED')
+  return k
+}
+
+/** True when H1 and body clearly cover the requested keyword topic. */
 export function checkTopicAlignment(html: string, keyword: string): TopicAlignmentResult {
   const kw = keyword.trim()
   if (!kw) {
-    return { aligned: true, h1Text: '', keywordOccurrences: 0, keywordDensityScore: 100 }
+    return {
+      aligned: false,
+      h1Text: '',
+      keywordOccurrences: 0,
+      keywordDensityScore: 0,
+      reason: 'Keyword is missing',
+    }
   }
 
   const h1Match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)
@@ -37,7 +49,7 @@ export function checkTopicAlignment(html: string, keyword: string): TopicAlignme
   const kwLower = kw.toLowerCase()
 
   const density = analyzeKeywordDensity(html, kw)
-  const tokens = significantTokens(kw)
+  const tokens = getKeywordTokens(kw)
 
   const h1HasFullPhrase = h1Lower.includes(kwLower)
   const h1HasTokens = tokens.length > 0 && tokens.filter(t => h1Lower.includes(t)).length >= Math.min(2, tokens.length)
@@ -81,4 +93,17 @@ export function checkTopicAlignment(html: string, keyword: string): TopicAlignme
     keywordDensityScore: density.score,
     reason,
   }
+}
+
+/** Keep previous HTML if a rewrite drifted off-topic. */
+export function keepIfOnTopic(
+  previousHtml: string,
+  nextHtml: string,
+  keyword: string,
+  stage: string
+): string {
+  const check = checkTopicAlignment(nextHtml, keyword)
+  if (check.aligned) return nextHtml
+  console.warn(`[topic-alignment] ${stage} drifted off-topic — keeping previous HTML:`, check.reason)
+  return previousHtml
 }

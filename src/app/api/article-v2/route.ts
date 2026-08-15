@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { stampStage, STAGE } from '@/lib/pages';
-import { buildMasterPrompt, validateAndCorrect, fetchVerifiedFacts, checkAnswerFirst, computeRankScore, extractHowToSteps, buildInternalLinksPrompt } from '@/lib/article-master';
+import { validateAndCorrect, fetchVerifiedFacts, checkAnswerFirst, computeRankScore, extractHowToSteps, buildInternalLinksPrompt } from '@/lib/article-master';
 import { getEligibleLinks } from '@/lib/internal-link-engine';
 import type { InternalLink } from '@/lib/article-master';
 import { scoreFactDensity } from '@/lib/fact-density';
@@ -28,7 +28,11 @@ import { MODEL_FOR } from '@/lib/model-router';
 import { runQualityGate, type QualityIssue } from '@/lib/article-quality-gate';
 import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
 import { enforceWordCountLimit, countArticleWords } from '@/lib/word-count-enforcer';
-import { checkTopicAlignment } from '@/lib/topic-alignment';
+import { checkTopicAlignment, assertNonEmptyKeyword, keepIfOnTopic, getKeywordTokens } from '@/lib/topic-alignment';
+import {
+  generateArticleOutline,
+  buildOutlineLockedWritePrompt,
+} from '@/lib/article-outline';
 import { insertTableOfContents } from '@/lib/table-of-contents';
 import { autoSplitDenseParagraphs } from '@/lib/scannability-fixer';
 import { validateArticleStructure } from '@/lib/structure-validator';
@@ -90,21 +94,34 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const {
-      keyword = '',
+      keyword: rawKeyword = '',
       wordCount = 1500,
       tone = 'professional',
       market: rawMarket = '',
       secondaryKeywords = [],
-      longTailKeywords = [],
+      longTailKeywords: _longTailKeywords = [],
       entities = [],
       topicalGaps = [],
-      gapAnalysis = undefined,
+      gapAnalysis: _gapAnalysis = undefined,
       domain: rawDomain = '',
       internalLinks: userInternalLinks = [],
       brand = '',
       userId = '',
       pageId = null,
     } = body;
+
+    void _longTailKeywords
+    void _gapAnalysis
+
+    let keyword: string
+    try {
+      keyword = assertNonEmptyKeyword(rawKeyword)
+    } catch {
+      return new Response(
+        JSON.stringify({ error: 'Target keyword is required' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
     // ArticleWriter.tsx always sends a real market from its dropdown — this
     // route being called without one is a genuine upstream bug, not a
     // legitimate "no market" case, so it's logged loudly rather than
@@ -120,7 +137,6 @@ export async function POST(req: NextRequest) {
 
     const targetWordCount = Math.min(Math.max(Number(wordCount) || 1500, 800), 3000);
     const secondaryList = (secondaryKeywords as string[]).slice(0, 12).join(', ');
-    const kw = keyword.toLowerCase();
 
     // ── STEP A — Unique Angle Generator ──────────────────────────────────────
     const angleResponse = await anthropic.messages.create({
@@ -167,23 +183,16 @@ Do not write generic angles. Be specific and surprising.`
 
     // Discard angles that drift off the requested keyword (prevents derailing the write).
     const angleBlob = `${angle.unique_angle} ${angle.unique_section_title} ${angle.unique_section_content}`.toLowerCase();
-    const kwTokens = kw.split(/\s+/).filter((t: string) => t.length > 2);
+    const kwTokens = getKeywordTokens(keyword);
     const angleOnTopic = kwTokens.length === 0 || kwTokens.some((t: string) => angleBlob.includes(t));
     if (!angleOnTopic) {
       console.warn('[article-v2] discarding off-topic unique angle for keyword:', keyword);
       angle = { unique_angle: '', hook_opening: '', unique_section_title: '', unique_section_content: '' };
     }
 
-    // MOT-specific data section — only when the keyword is actually about MOT,
-    // not every EV/automotive keyword (injecting MOT stats into an "ev charger"
-    // brief was confusing the writer and wasting prompt budget).
-    const isMotTopic = /\bmot\b/.test(kw) || kw.includes('dvsa');
-
-    const uniqueDataSection = isMotTopic
-      ? `<h2>What MOT Failure Data Actually Reveals</h2>
-<p>According to DVSA's published annual MOT statistics, lighting defects consistently account for the largest share of major failures across England, Scotland and Wales — in some years representing more than one in five of all Major-category failures recorded. Brake system defects and tyre condition issues follow closely. What's rarely reported is the regional variation: urban test centres typically record higher failure rates than rural ones, a pattern that correlates with older average vehicle age and higher annual mileage in city areas.</p>
-<p>Checking your specific vehicle's historical test record — including every advisory notice ever raised — gives you a significant advantage before your next test. The <a href="https://mot.autodun.com" rel="noopener">Autodun MOT predictor</a> analyses DVSA data for your exact make, model, age, and mileage to flag the components statistically most likely to fail before your test date. It's the kind of preparation most drivers skip — and the kind that most often prevents an avoidable fail.</p>`
-      : '';
+    // MOT-specific injected section removed from the write path — it was
+    // previously appended into the master prompt for any EV keyword and diluted
+    // topic focus. Outline-locked writing covers MOT only when keyword is MOT.
 
     // ── STEP B2 — Live fact verification (web search, any topic/country) ──────
     const { facts: liveFacts } = await fetchVerifiedFacts(keyword, market);
@@ -235,56 +244,69 @@ Do not write generic angles. Be specific and surprising.`
     if (linksRequestedFromModel.length === 0 && !linkUnavailableNote) {
       linkUnavailableNote = 'No internal links were available for this article — neither the registry nor the manual link panel had any entries.'
     }
-    const prompt = buildMasterPrompt({
-      mode: 'generate',
+
+    // Outline-first: lock H1/H2s to the keyword BEFORE writing body prose.
+    const outline = await generateArticleOutline({
       keyword,
-      secondaryKeywords: secondaryKeywords as string[],
-      longTailKeywords: longTailKeywords as string[],
-      entities: entities as string[],
-      topicalGaps: topicalGaps as string[],
-      gapAnalysis: gapAnalysis as { gapScore?: number; volume?: number; competitionLevel?: string; serpFeatures?: string[] } | undefined,
-      wordCount: targetWordCount,
-      tone,
       market,
+      secondaryKeywords: secondaryKeywords as string[],
+      uniqueAngle: angle.unique_angle || '',
+    })
+    if (!outline) {
+      return new Response(
+        JSON.stringify({ error: `Could not build an on-topic outline for "${keyword}". Try again.` }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+    console.log('[article-v2] locked outline:', { h1: outline.h1, h2s: outline.h2s.length })
+
+    // Short keyword-locked write prompt (not the huge master dump — that diluted topic focus).
+    const prompt = buildOutlineLockedWritePrompt({
+      keyword,
+      market,
+      tone,
+      wordCount: targetWordCount,
       brandName: brand || '',
       brandDomain: citationDomain,
-      uniqueAngle: angle.unique_angle || angle.hook_opening || '',
-      uniqueContent: angle.unique_section_content || '',
-      uniqueDataSection,
-      internalLinks: resolvedLinksStr,
+      outline,
+      secondaryKeywords: secondaryKeywords as string[],
       liveFacts,
-    });
+      uniqueAngle: angle.unique_angle || angle.hook_opening || '',
+    })
+    if (resolvedLinksStr) {
+      // Append internal-link instructions after the locked outline prompt
+      // without reopening the whole master prompt.
+    }
+    const writePrompt = resolvedLinksStr
+      ? `${prompt}\n\nINTERNAL LINKS (place naturally where relevant):\n${resolvedLinksStr}`
+      : prompt
 
-    // ── STEP D — Stream article with angle injected ───────────────────────────
+    // ── STEP D — Generate on-topic article FIRST, then stream validated HTML ─
+    // Do not stream a live first draft: off-topic stock articles (crypto/LLC/stress)
+    // were reaching the UI before retry could replace them.
     const topicSystem = `You write SEO articles as HTML only. This assignment is ONLY about "${keyword}" for the ${market} market. The H1 must clearly be about "${keyword}". Every section must stay on "${keyword}". Author is always Kamran Gul. Never invent other author names. Never switch to a different subject.`;
 
-    const stream = await anthropic.messages.stream({
-      model: MODEL_FOR.articleWriting,
-      max_tokens: 8000,
-      system: topicSystem,
-      messages: [{ role: 'user', content: prompt }],
-    });
+    const writeOnce = async (userContent: string): Promise<string> => {
+      const response = await anthropic.messages.create({
+        model: MODEL_FOR.articleWriting,
+        max_tokens: 8000,
+        system: topicSystem,
+        messages: [{ role: 'user', content: userContent }],
+      })
+      const text = response.content[0].type === 'text' ? response.content[0].text : ''
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cacheHit = ((response.usage as any).cache_read_input_tokens ?? 0) > 0
+      console.log(`[model-router] task=articleWriting model=${MODEL_FOR.articleWriting} inputTokens=${response.usage.input_tokens} cacheHit=${cacheHit}`)
+      return text.replace(/^```html?\n?/i, '').replace(/```\s*$/, '').trim()
+    }
 
     const readable = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
         let fullArticle = '';
         try {
-          for await (const chunk of stream) {
-            if (
-              chunk.type === 'content_block_delta' &&
-              chunk.delta.type === 'text_delta'
-            ) {
-              controller.enqueue(encoder.encode(chunk.delta.text));
-              fullArticle += chunk.delta.text;
-            }
-          }
-          const articleFinalMsg = await stream.finalMessage();
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const articleCacheHit = ((articleFinalMsg.usage as any).cache_read_input_tokens ?? 0) > 0;
-          console.log(`[model-router] task=articleWriting model=${MODEL_FOR.articleWriting} inputTokens=${articleFinalMsg.usage.input_tokens} cacheHit=${articleCacheHit}`);
+          fullArticle = await writeOnce(writePrompt)
 
-          // Validate and correct the article
           let validated = await validateAndCorrect(fullArticle, keyword, market, liveFacts);
           fullArticle = validated.article;
           if (validated.corrections.length > 0) {
@@ -293,33 +315,22 @@ Do not write generic angles. Be specific and surprising.`
 
           let topicAlignment = checkTopicAlignment(fullArticle, keyword);
           if (!topicAlignment.aligned) {
-            console.error('[article-v2] topic mismatch after generation — retrying with focused prompt:', topicAlignment.reason);
-            // Short focused rewrite — do NOT re-append the huge master prompt or name
-            // unrelated example topics (that primed wrong subjects in production).
-            const retryPrompt = `Write a complete ${targetWordCount}-word HTML article for the ${market} market.
-
-PRIMARY KEYWORD (mandatory): ${keyword}
-${secondaryList ? `Also cover naturally: ${secondaryList}` : ''}
-Tone: ${tone}
-Brand: ${brand || 'the publisher'}
-Author: Kamran Gul only
-
-Requirements:
-1. First line: <!-- META: one sentence about ${keyword} -->
-2. <h1> must include "${keyword}" or a close natural variant
-3. Every H2 and paragraph must be about ${keyword} — nothing else
-4. Include FAQ section and Article + FAQPage JSON-LD schemas
-5. Output HTML only — no markdown
-
-Write the full article now.`;
-
-            const retryResponse = await anthropic.messages.create({
-              model: MODEL_FOR.articleWriting,
-              max_tokens: 8000,
-              system: topicSystem,
-              messages: [{ role: 'user', content: retryPrompt }],
-            });
-            const retryText = retryResponse.content[0].type === 'text' ? retryResponse.content[0].text : '';
+            console.error('[article-v2] topic mismatch — retrying from locked outline:', topicAlignment.reason);
+            const retryPrompt = buildOutlineLockedWritePrompt({
+              keyword,
+              market,
+              tone,
+              wordCount: targetWordCount,
+              brandName: brand || '',
+              brandDomain: citationDomain,
+              outline,
+              secondaryKeywords: secondaryKeywords as string[],
+              liveFacts,
+              uniqueAngle: angle.unique_angle || '',
+            })
+            const retryText = await writeOnce(
+              `${retryPrompt}\n\nIMPORTANT: Previous draft was rejected because it was not about "${keyword}". Use the LOCKED H1 and H2s exactly. Write only about "${keyword}".`
+            )
             if (retryText.length > 500) {
               fullArticle = retryText;
               validated = await validateAndCorrect(fullArticle, keyword, market, liveFacts);
@@ -337,8 +348,13 @@ Write the full article now.`;
             return;
           }
 
+          // Stream only the validated on-topic article
+          controller.enqueue(encoder.encode(fullArticle));
+
           try {
+            const beforeWc = fullArticle
             fullArticle = await enforceWordCountLimit(fullArticle, targetWordCount);
+            fullArticle = keepIfOnTopic(beforeWc, fullArticle, keyword, 'word-count')
           } catch (wcErr) {
             console.warn('[article-v2] word count enforce failed, continuing:', wcErr);
           }
@@ -467,15 +483,20 @@ Write the full article now.`;
             // image_generation_logs) but zero <figure> tags in the saved
             // content: image generation succeeded, but an unrelated LATER
             // step threw, and the one shared catch swallowed everything.
-            finalHtml = humanized.humanizedHtml;
+            finalHtml = keepIfOnTopic(fullArticle, humanized.humanizedHtml, keyword, 'humanizer');
+            if (finalHtml === fullArticle && humanized.humanizedHtml !== fullArticle) {
+              // Humanizer drifted — keep original scores from pre-humanize text
+              console.warn('[article-v2] humanizer output discarded due to topic drift')
+            }
 
             let citationLinkIssues: CitationLinkIssue[] = [];
             try {
+              const beforeCite = finalHtml
               const citationCheck = await validateCitationLinks(finalHtml, {
                 skipUrls: linksRequestedFromModel.map(l => l.url).filter(Boolean),
                 skipDomains: citationDomain ? [citationDomain] : [],
               });
-              finalHtml = citationCheck.html;
+              finalHtml = keepIfOnTopic(beforeCite, citationCheck.html, keyword, 'citation-links');
               citationLinkIssues = citationCheck.issues;
               if (citationLinkIssues.length > 0) {
                 console.warn(
@@ -488,8 +509,9 @@ Write the full article now.`;
             }
 
             try {
+              const beforeFact = finalHtml
               const factResult = await checkAndPatchFactSourcing(finalHtml, keyword, market);
-              finalHtml = factResult.article;
+              finalHtml = keepIfOnTopic(beforeFact, factResult.article, keyword, 'fact-sourcing');
               factSourcingScore = factResult.result.factSourcingScore;
               factPatchedCount = factResult.result.patchedCount;
               if (factPatchedCount > 0) {
@@ -504,8 +526,9 @@ Write the full article now.`;
             // already ran its own repair pass on humanized.humanizedHtml; this
             // catches anything the fact-sourcing patch introduced afterward.
             try {
+              const beforeRepair = finalHtml
               const repairResult = await repairAllMergeArtifacts(finalHtml);
-              finalHtml = repairResult.content;
+              finalHtml = keepIfOnTopic(beforeRepair, repairResult.content, keyword, 'merge-repair');
               if (repairResult.repairsMade > 0) {
                 console.log(`[article-v2] merge-artifact repair: fixed ${repairResult.repairsMade} broken sentence(s)`);
               }
@@ -913,16 +936,11 @@ Write the full article now.`;
           let saveError: string | undefined;
           const saveTopicCheck = checkTopicAlignment(publishedHtml, keyword);
           if (!saveTopicCheck.aligned) {
-            hardBlockReasons.push(`Topic mismatch — ${saveTopicCheck.reason}`);
-            if (articleQualityGate) {
-              articleQualityGate.passed = false;
-              articleQualityGate.readyToPublish = false;
-              articleQualityGate.criticalCount += 1;
-              articleQualityGate.blockers = [
-                ...articleQualityGate.blockers,
-                `[TOPIC-ALIGNMENT] Article is not about "${keyword}"`,
-              ];
-            }
+            const msg = `Generation drifted off topic (${saveTopicCheck.reason || 'title/body mismatch'}). Click Generate again — this draft was discarded.`;
+            console.error('[article-v2] pre-save topic abort:', saveTopicCheck.reason);
+            controller.enqueue(encoder.encode(`\n<!--SEORANKO_ERROR_START-->${encodeURIComponent(msg)}<!--SEORANKO_ERROR_END-->`));
+            controller.close();
+            return;
           }
           if (hardBlockReasons.length > 0) {
             // FIX 1 / FIX 2 hard gate: a hero image was generated but never
