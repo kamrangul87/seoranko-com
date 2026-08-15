@@ -16,6 +16,7 @@ import {
   WRITE_BRAND_STORAGE_KEY,
   WRITE_DOMAIN_STORAGE_KEY,
 } from '@/lib/brands'
+import { countArticleWords, snapWordCount } from '@/lib/word-count'
 
 const ALL_COUNTRIES = MARKETS.map(m => ({ value: m.value as Country, label: m.label }))
 
@@ -52,12 +53,6 @@ export function ArticleWriter() {
   const [country, setCountry]       = useState<Country>(DEFAULT_MARKET as Country)
   const [tone, setTone]             = useState<Tone>('professional')
   const [wordCount, setWordCount]   = useState(2000)
-
-  function snapWordCount(n: number): number {
-    if (n >= 3000) return 3000
-    if (n >= 2500) return 2500
-    return 2000
-  }
   const [brand, setBrand]           = useState('')
   const [domain, setDomain]         = useState('')
   const [loading, setLoading]       = useState(false)
@@ -295,6 +290,7 @@ export function ArticleWriter() {
       let factSourcingScore: number | undefined, factPatchedCount: number | undefined
       let linkAudit: ArticleOutput['linkAudit']
       let articleId: string | undefined, saveError: string | undefined
+      let proseWordCount: number | undefined
 
       const scoresMatch = full.match(/\n<!-- SEORANKO_SCORES:(\{[\s\S]*?\}) -->/)
       if (scoresMatch) {
@@ -317,6 +313,7 @@ export function ArticleWriter() {
           rankScore = p.rankScore
           factSourcingScore = p.factSourcingScore
           factPatchedCount = p.factPatchedCount
+          if (typeof p.wordCount === 'number') proseWordCount = p.wordCount
           if (p.qualityGate) qualityGate = p.qualityGate
           if (p.linkAudit) linkAudit = p.linkAudit
           articleId = p.articleId
@@ -334,11 +331,13 @@ export function ArticleWriter() {
           ? humanizedMatch[1].trim()
           : full.replace(/<!--[^>]*-->/g, '').trim()
 
+      const actualWordCount = proseWordCount ?? countArticleWords(finalHtml)
+
       setArticle({
         seoTitle: keyword.trim(),
         metaDescription: '',
         article: finalHtml,
-        wordCount,
+        wordCount: actualWordCount,
         eeaScore: eeat,
         readabilityScore: readability,
         keywordDensity: kwDensity,
@@ -365,9 +364,7 @@ export function ArticleWriter() {
     }
   }
 
-  const wordCountDisplay = article
-    ? article.article.replace(/<[^>]*>/g, '').trim().split(/\s+/).filter(Boolean).length
-    : 0
+  const wordCountDisplay = article ? article.wordCount : 0
 
   return (
     <div className="max-w-5xl mx-auto px-8 py-8">
@@ -467,6 +464,7 @@ export function ArticleWriter() {
               onChange={e => setWordCount(Number(e.target.value))}
               className="w-full bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-3 py-2.5 text-sm focus:outline-none focus:border-[#FF6B2C]/50 transition-colors"
             >
+              <option value={1500}>1,500 words</option>
               <option value={2000}>2,000 words</option>
               <option value={2500}>2,500 words</option>
               <option value={3000}>3,000 words</option>

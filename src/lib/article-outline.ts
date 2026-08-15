@@ -3,7 +3,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { MODEL_FOR } from '@/lib/model-router'
 import { getKeywordTokens } from '@/lib/topic-alignment'
-import { structureBudgetForWordCount } from '@/lib/word-count-enforcer'
+import { structureBudgetForWordCount } from '@/lib/word-count'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 3 })
 
@@ -160,7 +160,7 @@ export function buildOutlineLockedWritePrompt(opts: {
 PRIMARY KEYWORD: ${keyword}
 TOPIC: Write exclusively about "${keyword}" for ${market}. Do not change subject.
 
-HARD WORD LIMIT: ${wordCount} words total (±8% max). Do NOT exceed ${Math.ceil(wordCount * 1.08)} words.
+TARGET LENGTH: ${wordCount} words (±12% soft band: ${Math.floor(wordCount * 0.88)}–${Math.ceil(wordCount * 1.12)}). Prefer depth over padding.
 Section budget: ${budget.h2Count} H2s × ~${budget.wordsPerH2} words each (${budget.parasPerH2} short paragraphs per H2). FAQ: ${budget.faqCount} questions, ~60 words each.
 
 ${formatOutlineForWriter(outline, keyword)}
@@ -188,7 +188,7 @@ STRUCTURE:
 8. About the Author (Kamran Gul only, ~50 words)
 9. Article + FAQPage JSON-LD scripts at the end
 
-Before finishing: count your words. If over ${Math.ceil(wordCount * 1.08)}, cut paragraphs — never pad.
+Before finishing: count your words. If over ${Math.ceil(wordCount * 1.12)}, cut paragraphs — never pad.
 
 Write the complete HTML article now.`
 }

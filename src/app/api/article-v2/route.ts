@@ -27,7 +27,7 @@ import {
 import { MODEL_FOR } from '@/lib/model-router';
 import { runQualityGate, type QualityIssue } from '@/lib/article-quality-gate';
 import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
-import { enforceWordCountLimit, countArticleWords, deterministicTrimToTarget } from '@/lib/word-count-enforcer';
+import { enforceWordCountLimit, countArticleWords, deterministicTrimToTarget, wordCountBand, snapWordCount } from '@/lib/word-count-enforcer';
 import { stripReplaceableJsonLd } from '@/lib/schema-dedupe';
 import { injectMissingInternalLinks } from '@/lib/inject-internal-links';
 import { checkTopicAlignment, assertNonEmptyKeyword, keepIfOnTopic, getKeywordTokens } from '@/lib/topic-alignment';
@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
 
     console.log('[article-v2] received:', { keyword, wordCount, secondaryKeywords: (secondaryKeywords as string[]).length, entities: (entities as string[]).length });
 
-    const targetWordCount = Math.min(Math.max(Number(wordCount) || 2000, 2000), 3000);
+    const targetWordCount = snapWordCount(Number(wordCount) || 2000);
     const secondaryList = (secondaryKeywords as string[]).slice(0, 12).join(', ');
 
     // ── STEP A — Unique Angle Generator ──────────────────────────────────────
@@ -573,14 +573,14 @@ Do not write generic angles. Be specific and surprising.`
               heroImageUrl = imageSet.hero.url;
             }
 
-            // Final word-count gate AFTER humanize/fact patches — competitor-style
-            // ±8% band. Early condense can be undone by later rewrites.
+            // Final word-count gate AFTER humanize/fact patches — soft ±12% band.
+            // Early condense can be undone by later rewrites; expand if under min.
             try {
               const beforeFinalWc = finalHtml
               finalHtml = await enforceWordCountLimit(finalHtml, targetWordCount)
               finalHtml = keepIfOnTopic(beforeFinalWc, finalHtml, keyword, 'final-word-count')
-              // If topic gate rejected a successful condense, fall back to deterministic trim
-              if (countArticleWords(finalHtml) > Math.ceil(targetWordCount * 1.08)) {
+              const { max: maxBand } = wordCountBand(targetWordCount)
+              if (countArticleWords(finalHtml) > maxBand) {
                 const trimmed = deterministicTrimToTarget(finalHtml, targetWordCount)
                 finalHtml = keepIfOnTopic(finalHtml, trimmed, keyword, 'deterministic-trim')
               }
@@ -659,7 +659,7 @@ Do not write generic angles. Be specific and surprising.`
                 dateModified: generatedAt,
                 articleUrl: fullArticleUrl,
                 imageUrl: heroImageUrl || undefined,
-                wordCount: factDensityResult.wordCount,
+                wordCount: countArticleWords(finalHtml),
                 faqs: faqs.length > 0 ? faqs : undefined,
                 isHowTo,
                 howToSteps: isHowTo ? extractHowToSteps(fullArticle) : undefined,
@@ -733,10 +733,8 @@ Do not write generic angles. Be specific and surprising.`
             }
 
             try {
-              // Table of contents — only kicks in above the word threshold;
-              // this template currently targets ~1,340 words, so it won't
-              // fire on typical output today unless wordCount settings change.
-              finalHtml = insertTableOfContents(finalHtml, articleWordCount);
+              // Table of contents — use live prose count after length enforcement
+              finalHtml = insertTableOfContents(finalHtml, countArticleWords(finalHtml));
             } catch (tocErr) {
               console.warn('[article-v2] insertTableOfContents failed, continuing:', tocErr);
             }
@@ -746,13 +744,14 @@ Do not write generic angles. Be specific and surprising.`
             const registeredDomains = citationDomain
               ? [citationDomain]
               : (brand ? [`${brand}.com`] : [])
+            const wcBand = wordCountBand(targetWordCount)
             const qr = await runQualityGate(finalHtml, {
               brand,
               keyword,
               authorName: 'Kamran Gul',
               registeredLinkDomains: registeredDomains,
-              minWordCount: Math.floor(targetWordCount * 0.85),
-              maxWordCount: Math.ceil(targetWordCount * 1.08),
+              minWordCount: wcBand.min,
+              maxWordCount: wcBand.max,
               maxTypically: 5,
               userId: (userId as string) || undefined,
               articleId: articleInstanceId,
@@ -955,6 +954,16 @@ Do not write generic angles. Be specific and surprising.`
           };
           console.log(`[internal-links] placed=${linkAudit.totalPlaced} skipped=${placementResult.skipped.length}${linkAudit.note ? ` note="${linkAudit.note}"` : ''}`);
 
+          // Single prose word count after ALL transforms — UI, DB, schema, and QG must agree
+          const finalProseWordCount = countArticleWords(publishedHtml)
+          if (articleQualityGate) {
+            const missingBrand = articleQualityGate.issues.some(i => i.id === 'missing-brand')
+            articleQualityGate.readyToPublish =
+              articleQualityGate.criticalCount === 0 &&
+              articleQualityGate.warningCount <= 2 &&
+              !missingBrand
+          }
+
           // ── Persist to Supabase ──────────────────────────────────────────
           // This is the entire reason the `articles` table had 0 rows in
           // production: this route streamed the generated article back to
@@ -997,7 +1006,7 @@ Do not write generic angles. Be specific and surprising.`
                   meta_description: articleDescription,
                   content: publishedHtml,
                   keyword,
-                  word_count: factDensityResult.wordCount,
+                  word_count: finalProseWordCount,
                   eeat_score: eeatScore,
                   readability_score: readabilityScore,
                   keyword_density: String(keywordDensity),
@@ -1070,6 +1079,8 @@ Do not write generic angles. Be specific and surprising.`
             searchScore, aiScore, eeatScore, readabilityScore, keywordDensity, keywordDensityScore,
             factSourcingScore, factPatchedCount, llmsTxtEntry, humanScore, bannedWordsRemoved, passesDetection,
             rankScore,
+            wordCount: finalProseWordCount,
+            targetWordCount,
             articleId: savedArticleId,
             saveError,
             factDensity: {

@@ -4,30 +4,47 @@ import {
   structureBudgetForWordCount,
   deterministicTrimToTarget,
   exceedsWordCountTarget,
+  wordCountBand,
+  snapWordCount,
 } from './word-count-enforcer'
 import { parseFAQsFromArticle } from './faq-generator'
 
 describe('word-count-enforcer', () => {
-  it('scales structure for 2000 words', () => {
+  it('snaps to 1500 / 2000 / 2500 / 3000 (no 1200)', () => {
+    expect(snapWordCount(1200)).toBe(1500)
+    expect(snapWordCount(1500)).toBe(1500)
+    expect(snapWordCount(1800)).toBe(2000)
+    expect(snapWordCount(2000)).toBe(2000)
+    expect(snapWordCount(2600)).toBe(2500)
+    expect(snapWordCount(3100)).toBe(3000)
+  })
+
+  it('uses ±12% soft band', () => {
+    expect(wordCountBand(2000)).toEqual({ min: 1760, max: 2240 })
+    expect(wordCountBand(1500)).toEqual({ min: 1320, max: 1680 })
+  })
+
+  it('scales structure for 1500 and 2000 words', () => {
+    expect(structureBudgetForWordCount(1500).h2Count).toBe(5)
     const b = structureBudgetForWordCount(2000)
     expect(b.h2Count).toBe(6)
     expect(b.faqCount).toBe(5)
     expect(b.parasPerH2).toBe(3)
   })
 
-  it('strips scripts from word count', () => {
+  it('strips scripts from word count so schema does not inflate UI', () => {
     const html = '<h1>Title</h1><p>one two three four five</p><script type="application/ld+json">{"a":"b c d e f g h i j k"}</script>'
     expect(countArticleWords(html)).toBe(6) // Title + 5 words
   })
 
-  it('deterministically trims oversized articles', () => {
-    const sections = Array.from({ length: 10 }, (_, i) =>
-      `<h2>Section ${i + 1}</h2><p>${'word '.repeat(100)}</p><p>${'more '.repeat(100)}</p>`
+  it('deterministically trims oversized articles within ±12% band', () => {
+    const sections = Array.from({ length: 14 }, (_, i) =>
+      `<h2>Section ${i + 1}</h2><p>${'word '.repeat(120)}</p><p>${'more '.repeat(120)}</p>`
     ).join('')
-    const html = `<h1>EV Charger Guide</h1><p>${'intro '.repeat(50)}</p>${sections}<h2>FAQ</h2><p>${'faq '.repeat(50)}</p><h2>Bottom Line</h2><p>${'end '.repeat(40)}</p>`
+    const html = `<h1>EV Charger Guide</h1><p>${'intro '.repeat(80)}</p>${sections}<h2>FAQ</h2><p>${'faq '.repeat(60)}</p><h2>Bottom Line</h2><p>${'end '.repeat(40)}</p>`
     expect(exceedsWordCountTarget(html, 2000)).toBe(true)
     const trimmed = deterministicTrimToTarget(html, 2000)
-    expect(countArticleWords(trimmed)).toBeLessThanOrEqual(Math.ceil(2000 * 1.08))
+    expect(countArticleWords(trimmed)).toBeLessThanOrEqual(wordCountBand(2000).max)
     expect(trimmed).toMatch(/FAQ/i)
     expect(trimmed).toMatch(/Bottom Line/i)
   })
