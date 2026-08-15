@@ -37,6 +37,26 @@ describe('detectDatedClaims', () => {
     expect(claims.length).toBe(0)
   })
 
+  it('does not flag a historical establishment date in the past', () => {
+    const html = '<p>The Office for Zero Emission Vehicles (OZEV) administers the Electric Vehicle Chargepoint Grant (EVCG), introduced in April 2022.</p>'
+    const claims = detectDatedClaims(html, now)
+    expect(claims.length).toBe(0)
+  })
+
+  it('does not flag when GOV.UK official pages are cited in the sentence', () => {
+    const html = '<p>As of August 2026, the grant is available to renters and flat owners, according to GOV.UK\'s official EV chargepoint grant pages.</p>'
+    const claims = detectDatedClaims(html, now)
+    const unsourced = claims.filter(c => !c.hasSource)
+    expect(unsourced.length).toBe(0)
+  })
+
+  it('does not flag when OZEV is named in a grant policy sentence', () => {
+    const html = '<p>As of August 2026, OZEV grant eligibility covers renters but not homeowners with off-street parking.</p>'
+    const claims = detectDatedClaims(html, now)
+    const unsourced = claims.filter(c => !c.hasSource)
+    expect(unsourced.length).toBe(0)
+  })
+
   it('sets a reviewBy date in the future relative to now', () => {
     const html = '<p>As of August 2026, the grant covers 75% of installation costs.</p>'
     const claims = detectDatedClaims(html, now)

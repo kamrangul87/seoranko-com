@@ -453,18 +453,21 @@ Do not write generic angles. Be specific and surprising.`
             let datedClaimIssues: QualityIssue[] = [];
             try {
               const datedClaims = detectDatedClaims(finalHtml, new Date(generatedAt));
-              const unsourced = datedClaims.filter(c => !c.hasSource);
-              if (unsourced.length > 0) {
-                datedClaimIssues = unsourced.map((claim, i) => ({
+              const unsourced = datedClaims.filter(c => !c.hasSource)
+              const uniqueUnsourced = Array.from(
+                new Map(unsourced.map(c => [c.sentence.trim(), c])).values()
+              )
+              if (uniqueUnsourced.length > 0) {
+                datedClaimIssues = uniqueUnsourced.map((claim, i) => ({
                   id: `dated-claim-${i}`,
-                  severity: 'critical' as const,
+                  severity: 'warning' as const,
                   category: 'dated-policy' as const,
-                  title: `Dated claim with no named source: "${claim.text}"`,
-                  description: `"${claim.sentence}" — a quantitative/policy figure is tied to a specific date but no named source is nearby. Add a citation or named source, or remove the date reference. Re-check by ${claim.reviewBy.slice(0, 10)}.`,
+                  title: `Dated claim — confirm still current: "${claim.text}"`,
+                  description: `"${claim.sentence}" — tied to a date but no named source or link found nearby. Add a GOV.UK citation or verify the figure is still accurate. Re-check by ${claim.reviewBy.slice(0, 10)}.`,
                   location: claim.sentence.slice(0, 100),
                   autoFixable: false,
                 }));
-                console.warn(`[article-v2] dated-claim-detector: ${unsourced.length} unsourced dated claim(s) found`);
+                console.warn(`[article-v2] dated-claim-detector: ${uniqueUnsourced.length} unsourced dated claim(s) found`);
               }
             } catch (datedErr) {
               console.warn('[article-v2] dated-claim detection failed, continuing:', datedErr);
@@ -595,7 +598,7 @@ Do not write generic angles. Be specific and surprising.`
             try {
               // Mechanical scannability safety net — the write prompt's
               // SCANNABILITY RULE is a request, not a guarantee. Split any
-              // paragraph the model still wrote as 7+ sentences before the
+              // paragraph the model still wrote as 6+ sentences before the
               // Quality Gate's scannability check scores it.
               finalHtml = autoSplitDenseParagraphs(finalHtml);
             } catch (splitErr) {

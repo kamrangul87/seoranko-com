@@ -44,15 +44,18 @@ export function validateArticleStructure(articleHtml: string): StructureIssue[] 
     })
   }
 
-  // --- Scannability: count paragraphs over ~6 sentences with no list/bold nearby ---
+  // --- Scannability: count body paragraphs over ~6 sentences ---
+  const META_PARAGRAPH_RE =
+    /\bclass=["'][^"']*(?:article-meta|article-byline|article-dateline|article-last-verified)[^"']*["']/i
   const paragraphs = articleHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gi) || []
   let denseParagraphCount = 0
   for (const p of paragraphs) {
+    if (META_PARAGRAPH_RE.test(p)) continue
     const plainText = p.replace(/<[^>]+>/g, '')
     const sentenceCount = (plainText.match(/[.!?]+/g) || []).length
     if (sentenceCount >= 6) denseParagraphCount++
   }
-  if (denseParagraphCount >= 3) {
+  if (denseParagraphCount >= 4) {
     issues.push({
       severity: 'warning',
       category: 'scannability',

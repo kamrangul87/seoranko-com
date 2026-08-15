@@ -6,6 +6,12 @@ import { ExportPackageButton } from '@/components/ExportPackageButton'
 import { supabase } from '@/lib/supabase-client'
 import type { ArticleOutput, Tone, Country } from '@/types'
 import type { RecurringIssueAlert } from '@/lib/recurring-issue-detector'
+import {
+  BRAND_OPTIONS,
+  BRAND_DOMAINS,
+  DEFAULT_BRAND,
+  WRITE_BRAND_STORAGE_KEY,
+} from '@/lib/brands'
 
 const ALL_COUNTRIES: { value: Country; label: string }[] = [
   { value: 'Global', label: 'Global' },
@@ -56,7 +62,7 @@ export function ArticleWriter() {
   const [country, setCountry]       = useState<Country>('UK')
   const [tone, setTone]             = useState<Tone>('professional')
   const [wordCount, setWordCount]   = useState(2000)
-  const [brand, setBrand]           = useState('')
+  const [brand, setBrand]           = useState(DEFAULT_BRAND)
   const [loading, setLoading]       = useState(false)
 
   // §10 item 16 — NLP moves from a standalone Optimise tab to a Station-3
@@ -124,7 +130,16 @@ export function ArticleWriter() {
     }
 
     if (kw) setKeyword(kw)
+
+    const storedBrand = localStorage.getItem(WRITE_BRAND_STORAGE_KEY)
+    if (storedBrand && BRAND_OPTIONS.some(b => b.value === storedBrand)) {
+      setBrand(storedBrand)
+    }
   }, [searchParams])
+
+  useEffect(() => {
+    if (brand) localStorage.setItem(WRITE_BRAND_STORAGE_KEY, brand)
+  }, [brand])
   const [error, setError]           = useState('')
   const [article, setArticle]       = useState<ArticleOutput | null>(null)
   const [copied, setCopied]         = useState(false)
@@ -181,6 +196,7 @@ export function ArticleWriter() {
           } : undefined,
           internalLinks: [],
           brand,
+          domain: BRAND_DOMAINS[brand] || '',
           userId,
           pageId: clusterBrief?.pageId ?? null,
         }),
@@ -404,13 +420,18 @@ export function ArticleWriter() {
           </div>
           <div>
             <label className="block text-xs font-semibold text-[#374151] mb-1.5">Brand</label>
-            <input
-              type="text"
+            <select
               value={brand}
               onChange={e => setBrand(e.target.value)}
-              placeholder="e.g. autodun"
-              className="w-full bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-4 py-2.5 text-sm focus:outline-none focus:border-[#FF6B2C]/50 transition-colors"
-            />
+              className="w-full bg-[#FAFAF8] border border-[#E8E8E4] rounded-[8px] px-3 py-2.5 text-sm focus:outline-none focus:border-[#FF6B2C]/50 transition-colors"
+            >
+              {BRAND_OPTIONS.map(b => (
+                <option key={b.value} value={b.value}>{b.label}</option>
+              ))}
+            </select>
+            <p className="text-[10px] text-[#9B9B9B] mt-1">
+              Required for schema, internal links, and publish readiness.
+            </p>
           </div>
         </div>
 

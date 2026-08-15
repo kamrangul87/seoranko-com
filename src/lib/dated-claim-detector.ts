@@ -21,6 +21,9 @@ export interface DatedClaim {
 const POLICY_QUANTITATIVE_RE =
   /[£$€]\s?\d|\d+\s?%|\b(grant|scheme|fund(?:ing)?|subsid(?:y|ies)|rebate|allowance|rate|policy|tariff|threshold|cap)\b/i
 
+const HISTORICAL_FRAMING_RE =
+  /\b(introduced|launched|established|created|began|started|enacted|formed|opened|commenced|inaugurated)\b/i
+
 const REVIEW_WINDOW_DAYS = 90
 
 function splitIntoSentences(text: string): string[] {
@@ -30,12 +33,6 @@ function splitIntoSentences(text: string): string[] {
     .filter(Boolean)
 }
 
-// Paragraph-scoped like fact-checker.ts's own paragraphsFromHtml — a link
-// anywhere in the SAME paragraph counts as sourcing for a sentence inside
-// it (matches isSentenceSourced's own href check), which requires keeping
-// each paragraph's raw HTML alongside its plain-text projection rather than
-// stripping tags from the whole document up front (a document-wide strip
-// loses which paragraph a link belonged to entirely).
 function paragraphsFromHtml(html: string): Array<{ innerHtml: string; text: string }> {
   const results: Array<{ innerHtml: string; text: string }> = []
   const re = /<p[^>]*>([\s\S]*?)<\/p>/gi
@@ -48,24 +45,34 @@ function paragraphsFromHtml(html: string): Array<{ innerHtml: string; text: stri
   return results
 }
 
+/** Fixed historical dates ("introduced in April 2022") don't go stale. */
+function isHistoricalEstablishmentClaim(sentence: string, claimDate: Date, now: Date): boolean {
+  if (claimDate >= now) return false
+  return HISTORICAL_FRAMING_RE.test(sentence)
+}
+
+function claimHasSource(sentence: string, innerHtml: string): boolean {
+  return hasNamedSource(sentence) || /href=/i.test(innerHtml)
+}
+
 export function detectDatedClaims(html: string, now: Date): DatedClaim[] {
   const claims: DatedClaim[] = []
   const reviewBy = new Date(now.getTime() + REVIEW_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString()
 
   for (const { innerHtml, text } of paragraphsFromHtml(html)) {
     for (const sentence of splitIntoSentences(text)) {
-      // A quantitative/policy claim with no temporal expression at all
-      // doesn't go stale the same way — only claims explicitly tied to a
-      // point in time (dated) are in scope here.
       if (!POLICY_QUANTITATIVE_RE.test(sentence)) continue
       const temporalMatches = chrono.parse(sentence, now)
       if (temporalMatches.length === 0) continue
 
       for (const match of temporalMatches) {
+        const claimDate = match.start.date()
+        if (isHistoricalEstablishmentClaim(sentence, claimDate, now)) continue
+
         claims.push({
           text: match.text,
           sentence,
-          hasSource: hasNamedSource(sentence) || /href=/i.test(innerHtml),
+          hasSource: claimHasSource(sentence, innerHtml),
           reviewBy,
         })
       }
@@ -75,10 +82,6 @@ export function detectDatedClaims(html: string, now: Date): DatedClaim[] {
   return claims
 }
 
-// Visible evidence the article's dated claims were actually checked as of
-// generation time — rendered near the byline, distinct from `reviewBy`
-// (an internal "check again by" date, not shown in the article body since
-// there's no reader-facing action tied to it).
 export function buildLastVerifiedLine(verifiedAt: string): string {
   const formatted = new Date(verifiedAt).toLocaleDateString('en-US', {
     year: 'numeric', month: 'long', day: 'numeric',

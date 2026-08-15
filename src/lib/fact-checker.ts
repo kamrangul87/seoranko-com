@@ -91,7 +91,37 @@ function splitIntoSentences(text: string): string[] {
 // re-matching NAMED_SOURCE_RE and re-deriving the vague-term exclusion.
 export function hasNamedSource(text: string): boolean {
   const match = text.match(NAMED_SOURCE_RE);
-  return !!match && !VAGUE_ATTRIBUTION_TERMS.has(match[1].toLowerCase());
+  if (match && !VAGUE_ATTRIBUTION_TERMS.has(match[1].toLowerCase())) return true;
+
+  // "According to GOV.UK...", "per Ofgem guidance", "under DVSA rules"
+  if (
+    /\b(according to|per|under|from|as stated (?:on|by|in))\s+(?:the\s+)?(GOV\.UK|gov\.uk|Ofgem|OZEV|Office for Zero Emission Vehicles|DVSA|DVLA|HMRC|NHS|DfT|ONS|Rightmove|Ofcom|FCA|CMA)\b/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+
+  // "GOV.UK's official ... pages/guidance/site" — no reporting verb required
+  if (
+    /\b(GOV\.UK|gov\.uk|Ofgem|OZEV|Office for Zero Emission Vehicles)\s*('s)?\s+official\b/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+
+  // Named regulator/body cited in policy context without a strict verb pattern
+  if (
+    /\b(Office for Zero Emission Vehicles|OZEV|Ofgem|DVSA|DVLA|HMRC|GOV\.UK|gov\.uk)\b/i.test(
+      text,
+    ) &&
+    /\b(grant|scheme|fund|policy|regulation|guidance|tariff|chargepoint)\b/i.test(text)
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 function isSentenceSourced(sentence: string, paragraphHtml: string): boolean {
