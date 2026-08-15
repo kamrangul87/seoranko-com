@@ -44,41 +44,44 @@ function countWords(text: string): number {
 // don't nest block-level markup, only inline formatting/links.
 function splitParagraphHtml(innerHtml: string): string[] {
   const boundaries = sentenceBoundaries(innerHtml)
-  if (boundaries.length === 0) return [innerHtml]
+  // sentenceBoundaries() only reports the N-1 punctuation marks BETWEEN
+  // sentences (the final sentence in a paragraph has no trailing
+  // punctuation-then-capital-letter after it to match against, since
+  // there's nothing left in the string). Appending innerHtml.length turns
+  // that into one END POSITION PER SENTENCE — sentenceEnds.length is the
+  // true sentence count. A prior version compared boundaries.length
+  // directly against MAX_SENTENCES_PER_PARAGRAPH, silently tolerating one
+  // extra sentence per paragraph (a 5-sentence paragraph read as only 4)
+  // and, when the boundary count landed on an exact multiple of MAX, an
+  // "is this the last boundary" special case swallowed the intended split
+  // point entirely — the two compounding off-by-one bugs meant paragraphs
+  // never actually split in practice.
+  const sentenceEnds = [...boundaries, innerHtml.length]
+  const sentenceCount = sentenceEnds.length
 
-  const sentenceCount = boundaries.length
   const wordCount = countWords(innerHtml.replace(/<[^>]+>/g, ' '))
   if (sentenceCount <= MAX_SENTENCES_PER_PARAGRAPH && wordCount <= MAX_WORDS_PER_PARAGRAPH) {
     return [innerHtml]
   }
+  // Only one detectable sentence (or none at all — a run-on with no
+  // punctuation boundary) — nothing safe to split at.
+  if (sentenceCount <= 1) return [innerHtml]
 
-  // Group boundaries into chunks of at most MAX_SENTENCES_PER_PARAGRAPH
-  // sentences each — a simple, deterministic split; word-count overflow on
-  // an individual sentence-heavy chunk is accepted rather than breaking
-  // mid-sentence.
+  // Group sentences into chunks of at most MAX_SENTENCES_PER_PARAGRAPH each
+  // — a simple, deterministic split; word-count overflow on an individual
+  // sentence-heavy chunk is accepted rather than breaking mid-sentence.
   const chunks: string[] = []
   let chunkStart = 0
-  let sentencesInChunk = 0
-  for (let i = 0; i < boundaries.length; i++) {
-    sentencesInChunk++
-    const isLastBoundary = i === boundaries.length - 1
-    if (sentencesInChunk >= MAX_SENTENCES_PER_PARAGRAPH || isLastBoundary) {
-      const end = isLastBoundary ? innerHtml.length : boundaries[i]
-      const chunk = innerHtml.slice(chunkStart, end).trim()
-      if (chunk) chunks.push(chunk)
-      chunkStart = end
-      sentencesInChunk = 0
-    }
-  }
-  // Any trailing fragment after the last detected boundary (no closing
-  // punctuation matched, e.g. HTML tail) belongs with the last chunk.
-  const tail = innerHtml.slice(chunkStart).trim()
-  if (tail) {
-    if (chunks.length > 0) chunks[chunks.length - 1] += ' ' + tail
-    else chunks.push(tail)
+  for (let i = 0; i < sentenceEnds.length; i++) {
+    const isGroupEnd = (i + 1) % MAX_SENTENCES_PER_PARAGRAPH === 0 || i === sentenceEnds.length - 1
+    if (!isGroupEnd) continue
+    const end = sentenceEnds[i]
+    const chunk = innerHtml.slice(chunkStart, end).trim()
+    if (chunk) chunks.push(chunk)
+    chunkStart = end
   }
 
-  return chunks.length > 0 ? chunks : [innerHtml]
+  return chunks.length > 1 ? chunks : [innerHtml]
 }
 
 export function splitDenseParagraphs(html: string): string {

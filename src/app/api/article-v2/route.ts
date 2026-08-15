@@ -791,6 +791,48 @@ Do not write generic angles. Be specific and surprising.`
             } catch (splitErr) {
               console.warn('[article-v2] paragraph-splitter failed, continuing:', splitErr);
             }
+
+            // Reconcile the Quality Gate's scannability finding against the
+            // FINAL html. runQualityGate's RULE 10 scored finalHtml BEFORE
+            // the splitter above ran (same timing gap as the image-placement
+            // check further up), so without this the stored score would
+            // keep reporting a "N paragraphs are 6+ sentences" warning even
+            // after those paragraphs were actually split.
+            try {
+              const remainingScannability = validateArticleStructure(publishedHtml).filter(i => i.category === 'scannability');
+              if (articleQualityGate) {
+                const hadScannabilityIssue = articleQualityGate.issues.some(i => i.category === 'scannability');
+                if (hadScannabilityIssue && remainingScannability.length === 0) {
+                  const removed = articleQualityGate.issues.filter(i => i.category === 'scannability');
+                  articleQualityGate.issues = articleQualityGate.issues.filter(i => i.category !== 'scannability');
+                  articleQualityGate.warningCount = Math.max(0, articleQualityGate.warningCount - removed.filter(i => i.severity === 'warning').length);
+                  articleQualityGate.criticalCount = Math.max(0, articleQualityGate.criticalCount - removed.filter(i => i.severity === 'critical').length);
+                  articleQualityGate.score = Math.min(100, articleQualityGate.score + removed.length * 5);
+                  articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2;
+                } else if (!hadScannabilityIssue && remainingScannability.length > 0) {
+                  // Safety net only — shouldn't normally fire once the
+                  // splitter above ran, but a paragraph that's over budget
+                  // on words alone (not sentence count) could still slip
+                  // through un-flagged by structure-validator's own
+                  // sentence-only threshold in rare shapes.
+                  const mapped: QualityIssue[] = remainingScannability.map((si, i) => ({
+                    id: `structure-scannability-post-${i}`,
+                    severity: si.severity,
+                    category: si.category,
+                    title: si.message,
+                    description: si.message,
+                    autoFixable: false,
+                  }));
+                  articleQualityGate.issues = [...articleQualityGate.issues, ...mapped];
+                  articleQualityGate.warningCount += mapped.filter(m => m.severity === 'warning').length;
+                  articleQualityGate.criticalCount += mapped.filter(m => m.severity === 'critical').length;
+                  articleQualityGate.score = Math.max(0, articleQualityGate.score - mapped.length * 5);
+                  articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2;
+                }
+              }
+            } catch (reconcileErr) {
+              console.warn('[article-v2] scannability reconciliation failed, continuing:', reconcileErr);
+            }
           } catch (err) {
             console.warn('[article-v2] humanization/images failed, continuing without:', err);
           }
