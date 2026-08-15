@@ -291,7 +291,7 @@ function ResearchPanel() {
             Step 2 — Cluster {selected.size} selected keyword{selected.size > 1 ? 's' : ''}
           </p>
           <div className="flex flex-wrap gap-2 mb-3">
-            {[...selected].map(kw => (
+            {Array.from(selected).map(kw => (
               <span key={kw} className="text-xs bg-white border border-[#E8E8E4] rounded-full px-3 py-1 text-[#374151]">
                 {kw}
               </span>

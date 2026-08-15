@@ -94,5 +94,5 @@ export function mergeClusterKeywords(
     const k = kw.trim()
     if (k && k.toLowerCase() !== primary) merged.add(k)
   }
-  return [...merged]
+  return Array.from(merged)
 }
