@@ -115,8 +115,27 @@ export function RANKODiagnosisPanel({ siteUrl, siteId }: Props) {
   const [wpConnected, setWpConnected] = useState<boolean | null>(null)
   const [tagToken, setTagToken] = useState<string | null>(null)
   const [showConnectModal, setShowConnectModal] = useState(false)
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
   const domain = siteUrl.replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+
+  async function copyText(key: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedKey(key)
+      setTimeout(() => setCopiedKey(null), 1800)
+    } catch {
+      setError('Could not copy — allow clipboard access in the browser')
+    }
+  }
+
+  function isCannibalisationIssue(issue: RANKOIssue): boolean {
+    return issue.id === 'cannibalisation' || /cannibal|keyword conflict/i.test(`${issue.id} ${issue.title}`)
+  }
+
+  function handleCannibalisationReview() {
+    router.push('/dashboard/topical-map?tab=cannibalisation')
+  }
 
   // Reload last saved diagnosis when browsing the Diagnose tab
   useEffect(() => {
@@ -294,6 +313,10 @@ export function RANKODiagnosisPanel({ siteUrl, siteId }: Props) {
   }
 
   function handleReviewFix(issue: RANKOIssue) {
+    if (isCannibalisationIssue(issue)) {
+      handleCannibalisationReview()
+      return
+    }
     const articleId = issue.affectedArticleIds?.[0]
     const params = new URLSearchParams({ tab: 'improve', instruction: issue.fix })
     if (articleId) params.set('articleId', articleId)
@@ -339,11 +362,32 @@ export function RANKODiagnosisPanel({ siteUrl, siteId }: Props) {
     // Site-level issue we can genuinely fix on the live site
     const siteFix = noArticle ? siteFixTypeFor(issue) : null
     const isSiteLevelFix = Boolean(siteFix && siteId)
+    const cannibal = isCannibalisationIssue(issue)
 
     return (
       <div className="space-y-2">
+        {cannibal && (
+          <p className="text-xs text-gray-600 bg-white/70 border border-orange-100 rounded-lg px-3 py-2">
+            Open the conflict list to copy each brief, merge plan, or differentiate rewrite — one pair at a time.
+          </p>
+        )}
         <div className="flex gap-2 flex-wrap">
-          {isSiteLevelFix ? (
+          {cannibal ? (
+            <>
+              <button
+                onClick={handleCannibalisationReview}
+                className="text-xs font-medium bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg transition-colors"
+              >
+                Open conflict list →
+              </button>
+              <button
+                onClick={() => copyText(`issue-${issue.id}`, `${issue.title}\n\n${issue.whyItHurts}\n\nWhat to do:\n${issue.fix}`)}
+                className="text-xs font-medium bg-white border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:border-orange-300 transition-colors"
+              >
+                {copiedKey === `issue-${issue.id}` ? 'Copied ✓' : 'Copy summary'}
+              </button>
+            </>
+          ) : isSiteLevelFix ? (
             // Site-level issue: connect the site or apply the fix to it.
             // Never route these to the Article Improver — there is no article.
             <button
@@ -374,14 +418,27 @@ export function RANKODiagnosisPanel({ siteUrl, siteId }: Props) {
           ) : noArticle ? (
             // Site-level issue with no automated fix — there is no article to
             // improve, so don't offer a button that navigates to the Improver.
-            null
-          ) : (
             <button
-              onClick={() => handleReviewFix(issue)}
-              className="text-xs font-medium bg-white border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:border-gray-400 transition-colors"
+              onClick={() => copyText(`issue-${issue.id}`, `${issue.title}\n\n${issue.fix}`)}
+              className="text-xs font-medium bg-white border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:border-orange-300 transition-colors"
             >
-              👁 Review &amp; apply
+              {copiedKey === `issue-${issue.id}` ? 'Copied ✓' : 'Copy how to fix'}
             </button>
+          ) : (
+            <>
+              <button
+                onClick={() => handleReviewFix(issue)}
+                className="text-xs font-medium bg-white border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:border-gray-400 transition-colors"
+              >
+                Review &amp; apply
+              </button>
+              <button
+                onClick={() => copyText(`issue-${issue.id}`, `${issue.title}\n\n${issue.fix}`)}
+                className="text-xs font-medium bg-white border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg hover:border-orange-300 transition-colors"
+              >
+                {copiedKey === `issue-${issue.id}` ? 'Copied ✓' : 'Copy fix'}
+              </button>
+            </>
           )}
         </div>
 
@@ -562,7 +619,15 @@ export function RANKODiagnosisPanel({ siteUrl, siteId }: Props) {
               <span className="w-5 h-5 bg-orange-500 text-white rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">
                 {i + 1}
               </span>
-              {action}
+              <div className="flex-1 min-w-0">
+                <p>{action}</p>
+                <button
+                  onClick={() => copyText(`action-${i}`, action)}
+                  className="mt-1 text-xs font-medium text-orange-600 hover:text-orange-700"
+                >
+                  {copiedKey === `action-${i}` ? 'Copied ✓' : 'Copy this action'}
+                </button>
+              </div>
             </li>
           ))}
         </ol>

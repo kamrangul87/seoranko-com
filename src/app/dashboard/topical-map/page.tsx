@@ -34,6 +34,24 @@ function RefreshCw({ className }: { className?: string }) {
 export default function PlanPage() {
   const [section, setSection] = useState<'topical-map' | 'cannibalisation'>('topical-map')
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const tab = params.get('tab')
+    if (tab === 'cannibalisation' || tab === 'cannibalization') {
+      setSection('cannibalisation')
+    }
+  }, [])
+
+  function selectSection(next: 'topical-map' | 'cannibalisation') {
+    setSection(next)
+    if (typeof window === 'undefined') return
+    const url = new URL(window.location.href)
+    if (next === 'cannibalisation') url.searchParams.set('tab', 'cannibalisation')
+    else url.searchParams.delete('tab')
+    window.history.replaceState({}, '', url.toString())
+  }
+
   return (
     <div className="flex h-screen bg-[#FAFAF8] text-[#0F0F0F] overflow-hidden" style={{ fontFamily: "'Outfit', sans-serif", fontSize: '15px' }}>
       <DashboardNav />
@@ -43,7 +61,7 @@ export default function PlanPage() {
             {(['topical-map', 'cannibalisation'] as const).map(s => (
               <button
                 key={s}
-                onClick={() => setSection(s)}
+                onClick={() => selectSection(s)}
                 className={`text-sm px-4 py-1.5 rounded-full font-medium transition-colors ${
                   section === s
                     ? 'bg-[#FF6B2C] text-white'
@@ -393,28 +411,30 @@ function TopicalMapContent() {
                     {(cluster.missingSubtopics || []).map((topic: string, k: number) => (
                       <div
                         key={k}
-                        className="flex flex-wrap items-center gap-2 text-xs bg-purple-50 text-purple-800 border border-purple-200 px-2.5 py-1.5 rounded-lg"
+                        className="flex flex-col sm:flex-row sm:items-center gap-2 text-xs bg-purple-50 text-purple-800 border border-purple-200 px-3 py-2.5 rounded-lg"
                       >
-                        <span className="flex-1 min-w-[10rem]">+ {topic}</span>
-                        <button
-                          onClick={() => copyText(`gap-${i}-${k}`, topic)}
-                          className="text-purple-700 hover:text-purple-900 font-medium"
-                        >
-                          {copiedKey === `gap-${i}-${k}` ? 'Copied' : 'Copy'}
-                        </button>
-                        <button
-                          onClick={() => writeIdea(topic)}
-                          className="text-orange-600 hover:text-orange-700 font-medium"
-                        >
-                          Write
-                        </button>
-                        <button
-                          onClick={() => dismissGap(i, topic)}
-                          disabled={saving}
-                          className="text-gray-400 hover:text-red-600 disabled:opacity-50"
-                        >
-                          Dismiss
-                        </button>
+                        <span className="flex-1 min-w-0 font-medium">+ {topic}</span>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => copyText(`gap-${i}-${k}`, topic)}
+                            className="px-2.5 py-1.5 rounded-md bg-white border border-purple-200 font-medium text-purple-800 hover:border-orange-300"
+                          >
+                            {copiedKey === `gap-${i}-${k}` ? 'Copied ✓' : 'Copy idea'}
+                          </button>
+                          <button
+                            onClick={() => writeIdea(topic)}
+                            className="px-2.5 py-1.5 rounded-md bg-orange-500 text-white font-medium hover:bg-orange-600"
+                          >
+                            Write this
+                          </button>
+                          <button
+                            onClick={() => dismissGap(i, topic)}
+                            disabled={saving}
+                            className="px-2.5 py-1.5 rounded-md text-gray-500 hover:text-red-600 disabled:opacity-50"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
