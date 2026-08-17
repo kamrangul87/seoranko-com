@@ -16,6 +16,10 @@ import { lintProse } from './prose-linter'
 import { checkTopicAlignment } from '@/lib/topic-alignment'
 import { countArticleWords } from '@/lib/word-count'
 import { parseFAQsFromArticle } from '@/lib/faq-generator'
+import {
+  applyGuardedRegexReplace,
+  scrubInsertionCorruption,
+} from '@/lib/sentence-integrity'
 
 // AI slop patterns — expanded from anti-slop GitHub repo
 const AI_SLOP_PATTERNS = [
@@ -861,14 +865,16 @@ export async function runQualityGate(
   }
 
   // Fix 4: Grant-figure hedges — add "(verify at GOV.UK)" next to unsourced caps
+  // Guarded: never accept a splice that leaves ".350." or splits the sentence.
   if (issues.some(i => i.category === 'grant-figure' && i.autoFixable)) {
-    articleAfterAutoFix = articleAfterAutoFix.replace(
+    const grantFix = applyGuardedRegexReplace(
+      articleAfterAutoFix,
       /\bup to (\d+%|£\d+)\b(?!\s*\(verify at GOV\.UK\))/gi,
-      (match) => {
-        autoFixedCount++
-        return `${match} (verify at GOV.UK)`
-      }
+      (match) => `${match} (verify at GOV.UK)`,
+      'grant-figure-verify',
     )
+    articleAfterAutoFix = grantFix.html
+    autoFixedCount += grantFix.appliedCount
     // Re-evaluate — clear criticals that are now hedged
     const remainingGrant = evaluateGrantFigureClaims(articleAfterAutoFix)
     const stillCritical = new Set(
@@ -878,7 +884,6 @@ export async function runQualityGate(
       if (i.category !== 'grant-figure') return true
       return stillCritical.has(i.id)
     })
-    // Add any remaining critical grant issues (positions may have shifted — replace set)
     const clearedGrant = !remainingGrant.some(i => i.severity === 'critical')
     if (clearedGrant) {
       issues = issues.filter(i => i.category !== 'grant-figure')
@@ -914,6 +919,11 @@ export async function runQualityGate(
   }
 
   articleAfterAutoFix = articleAfterAutoFix.replace(/\s{2,}/g, ' ').trim()
+
+  // Final corruption scrub — catches any residual ".350." / similar shapes
+  const scrubbed = scrubInsertionCorruption(articleAfterAutoFix)
+  articleAfterAutoFix = scrubbed.html
+  if (scrubbed.fixes > 0) autoFixedCount += scrubbed.fixes
 
   // The "typically" auto-fix above already runs automatically and silently
   // reduces the count in articleAfterAutoFix — but issues/score were computed

@@ -177,6 +177,11 @@ export function ArticleWriter() {
   const [copied, setCopied]         = useState(false)
   const [progressLabel, setProgressLabel] = useState('')
   const [recurringAlerts, setRecurringAlerts] = useState<RecurringIssueAlert[]>([])
+  const [fixAllRunning, setFixAllRunning] = useState(false)
+  const [fixAllReport, setFixAllReport] = useState<import('@/components/QualityGatePanel').FixAllReport | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [draftHtml, setDraftHtml] = useState('')
+  const [recheckRunning, setRecheckRunning] = useState(false)
 
   // Fix 5 (recurring-issue tracker) — after a generation completes, check
   // whether any Quality Gate issue category has shown up in 3+ of the last 5
@@ -190,12 +195,117 @@ export function ArticleWriter() {
       .catch(() => {})
   }, [article])
 
+  async function runFixAll() {
+    if (!article) return
+    setFixAllRunning(true)
+    setFixAllReport(null)
+    try {
+      const res = await fetch('/api/article-fix-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          articleHtml: article.article,
+          keyword,
+          brand,
+          domain,
+          targetWordCount: wordCount,
+          articleId: article.articleId,
+          save: !!article.articleId,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.blocked) {
+        setError(data.warning || data.error || 'Fix All failed')
+        return
+      }
+      setArticle({
+        ...article,
+        article: data.html,
+        wordCount: countArticleWords(data.html),
+        qualityGate: data.qualityGate,
+      })
+      setDraftHtml(data.html)
+      setFixAllReport({
+        fixed: data.fixed || [],
+        stillNeedsManualReview: data.stillNeedsManualReview || [],
+        summary: data.summary || '',
+        scoreBefore: data.qualityGateBefore?.score,
+        scoreAfter: data.qualityGate?.score,
+      })
+      setEditing(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Fix All failed')
+    } finally {
+      setFixAllRunning(false)
+    }
+  }
+
+  async function recheckQualityGate() {
+    if (!article) return
+    setRecheckRunning(true)
+    try {
+      const html = editing ? draftHtml : article.article
+      const res = await fetch('/api/article-quality-recheck', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          articleHtml: html,
+          keyword,
+          brand,
+          domain,
+          targetWordCount: wordCount,
+          applyAutoFixes: false,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error || 'Quality Gate recheck failed')
+        return
+      }
+      setArticle({
+        ...article,
+        article: html,
+        wordCount: countArticleWords(html),
+        qualityGate: data.qualityGate,
+      })
+      setFixAllReport(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Quality Gate recheck failed')
+    } finally {
+      setRecheckRunning(false)
+    }
+  }
+
+  function startEditing() {
+    if (!article) return
+    setDraftHtml(article.article)
+    setEditing(true)
+  }
+
+  function cancelEditing() {
+    setEditing(false)
+    setDraftHtml(article?.article || '')
+  }
+
+  function saveEdits() {
+    if (!article) return
+    setArticle({
+      ...article,
+      article: draftHtml,
+      wordCount: countArticleWords(draftHtml),
+    })
+    setEditing(false)
+    setFixAllReport(null)
+  }
+
   async function generate() {
     if (!keyword.trim()) return
     setLoading(true)
     setError('')
     setArticle(null)
     setProgressLabel('Starting…')
+    setFixAllReport(null)
+    setEditing(false)
 
     try {
       // userId was previously hardcoded to '' here, which made
@@ -623,7 +733,12 @@ export function ArticleWriter() {
 
           {/* Quality Gate */}
           {article.qualityGate && (
-            <QualityGatePanel result={article.qualityGate} />
+            <QualityGatePanel
+              result={article.qualityGate}
+              onFixAll={runFixAll}
+              fixAllRunning={fixAllRunning}
+              fixAllReport={fixAllReport}
+            />
           )}
 
           {/* Internal links — always visible, success or not, so a zero-link
@@ -653,17 +768,103 @@ export function ArticleWriter() {
             </div>
           )}
 
-          {/* Article HTML */}
+          {/* Article HTML — view / inline edit */}
           <div className="bg-white border border-[#E8E8E4] rounded-[10px] overflow-hidden">
-            <div className="px-5 py-3 border-b border-[#E8E8E4] flex items-center justify-between">
+            <div className="px-5 py-3 border-b border-[#E8E8E4] flex items-center justify-between gap-2 flex-wrap">
               <p className="text-xs font-semibold text-[#374151] uppercase tracking-wide">Article</p>
-              <span className="text-xs text-[#9B9B9B]">{wordCountDisplay.toLocaleString()} words</span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-[#9B9B9B]">{wordCountDisplay.toLocaleString()} words</span>
+                {!editing ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={startEditing}
+                      className="text-xs font-medium px-3 py-1.5 border border-[#E8E8E4] rounded-[6px] hover:border-[#FF6B2C]/40 transition-colors"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={recheckQualityGate}
+                      disabled={recheckRunning}
+                      className="text-xs font-medium px-3 py-1.5 border border-[#E8E8E4] rounded-[6px] hover:border-[#FF6B2C]/40 disabled:opacity-50 transition-colors"
+                    >
+                      {recheckRunning ? 'Re-checking…' : 'Re-check Quality Gate'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={cancelEditing}
+                      className="text-xs font-medium px-3 py-1.5 border border-[#E8E8E4] rounded-[6px] transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={saveEdits}
+                      className="text-xs font-semibold px-3 py-1.5 bg-[#0F0F0F] text-white rounded-[6px] transition-colors"
+                    >
+                      Save edits
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setRecheckRunning(true)
+                        try {
+                          const res = await fetch('/api/article-quality-recheck', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              articleHtml: draftHtml,
+                              keyword,
+                              brand,
+                              domain,
+                              targetWordCount: wordCount,
+                            }),
+                          })
+                          const data = await res.json()
+                          if (res.ok && article) {
+                            setArticle({
+                              ...article,
+                              article: draftHtml,
+                              wordCount: countArticleWords(draftHtml),
+                              qualityGate: data.qualityGate,
+                            })
+                            setEditing(false)
+                            setFixAllReport(null)
+                          } else {
+                            setError(data.error || 'Recheck failed')
+                          }
+                        } finally {
+                          setRecheckRunning(false)
+                        }
+                      }}
+                      disabled={recheckRunning}
+                      className="text-xs font-semibold px-3 py-1.5 bg-[#FF6B2C] text-white rounded-[6px] disabled:opacity-50 transition-colors"
+                    >
+                      {recheckRunning ? 'Saving…' : 'Save & re-check'}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
-            <div
-              className="prose prose-sm max-w-none p-6"
-              style={{ fontFamily: "'Outfit', sans-serif" }}
-              dangerouslySetInnerHTML={{ __html: article.article }}
-            />
+            {editing ? (
+              <textarea
+                value={draftHtml}
+                onChange={e => setDraftHtml(e.target.value)}
+                className="w-full min-h-[480px] p-6 text-sm font-mono leading-relaxed border-0 focus:outline-none focus:ring-0 bg-[#FAFAF8]"
+                spellCheck
+                aria-label="Edit article HTML"
+              />
+            ) : (
+              <div
+                className="prose prose-sm max-w-none p-6"
+                style={{ fontFamily: "'Outfit', sans-serif" }}
+                dangerouslySetInnerHTML={{ __html: article.article }}
+              />
+            )}
           </div>
         </div>
       )}

@@ -11,6 +11,7 @@ import { generateArticleSchema, detectHowTo } from '@/lib/schema-generator';
 import { getBrandSettings } from '@/lib/brand-settings';
 import { appendSocialMetaTags } from '@/lib/social-meta-tags';
 import { extractArticleDescription, dedupeMetaDescriptionTags } from '@/lib/extract-meta-description';
+import { scrubInsertionCorruption } from '@/lib/sentence-integrity';
 import { buildCanonicalTag } from '@/lib/canonical-builder';
 import { pingIndexNow } from '@/lib/indexnow';
 import { humanizeArticle } from '@/lib/humanizer';
@@ -779,6 +780,8 @@ Do not write generic angles. Be specific and surprising.`
               issues: qr.issues, blockers: qr.blockers, readyToPublish: qr.readyToPublish,
             }
             if (qr.autoFixedCount > 0) console.log(`[article-v2] quality-gate: auto-fixed ${qr.autoFixedCount} issues, score=${qr.score}`)
+            // Extra scrub after gate autofixes (grant hedges etc.) so ".350." never ships
+            finalHtml = scrubInsertionCorruption(finalHtml).html
           } catch (qErr) {
             console.warn('[article-v2] quality gate failed, continuing:', qErr)
           }

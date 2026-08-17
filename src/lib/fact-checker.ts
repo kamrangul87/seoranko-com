@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { MODEL_FOR } from '@/lib/model-router';
+import { isSafeTextPatch, splitIntoSentences } from '@/lib/sentence-integrity';
 
 export interface FlaggedClaim {
   claim: string;
@@ -76,14 +77,6 @@ function paragraphsFromHtml(html: string): Array<{ innerHtml: string; text: stri
   return results;
 }
 
-function splitIntoSentences(text: string): string[] {
-  return text
-    .split(/(?<=[.!?])\s+(?=[A-Z"'])/)
-    .map(s => s.trim())
-    .filter(Boolean);
-}
-
-// Names a specific organisation/source, not just a generic reporting verb.
 // Reject matches where the captured "source name" is itself a vague noun
 // (e.g. "Researchers say...") that's capitalised only by sentence position.
 // Exported so other pattern-based checks (dated-claim-detector.ts) can reuse
@@ -211,18 +204,9 @@ RULES:
       const key = String(i + 1);
       const patched = patches[key];
       if (!patched || patched === flagged.sentence || !patchedArticle.includes(flagged.sentence)) return;
-      // A pure hedging/attribution edit should never introduce a new
-      // sentence boundary. When it does, the model has hedged one clause
-      // and left the rest as a dangling fragment (e.g. an original "...
-      // averaging around £3,200, with some reaching £5,000 or more."
-      // coming back as "...averaging around £3,200, with some reaching
-      // higher amounts. £5,000 or more." — grammatically valid punctuation,
-      // but "£5,000 or more." has no subject or verb of its own). Reject
-      // and keep the original sentence rather than ship a broken one —
-      // an unhedged but grammatically intact sentence is safer than a
-      // hedged but broken one.
-      if (splitIntoSentences(patched).length > splitIntoSentences(flagged.sentence).length) {
-        console.warn('[fact-checker] rejected a patch that split one sentence into multiple:', flagged.sentence.slice(0, 80));
+      // Shared integrity guard — reject sentence splits / insertion corruption
+      if (!isSafeTextPatch(flagged.sentence, patched)) {
+        console.warn('[fact-checker] rejected a patch that failed sentence integrity:', flagged.sentence.slice(0, 80));
         return;
       }
       patchedArticle = patchedArticle.replace(flagged.sentence, patched);

@@ -8,6 +8,11 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import { MODEL_FOR } from '@/lib/model-router'
+import {
+  applyGuardedReplace,
+  scrubInsertionCorruption,
+  hasInsertionCorruption,
+} from '@/lib/sentence-integrity'
 
 export interface MergeArtifact {
   matchedText: string
@@ -18,13 +23,15 @@ export interface MergeArtifact {
 // Broadened detection patterns covering the known bug shapes seen in
 // production: truncated words before a period, merged sentences with
 // no space, and stray mid-word punctuation like "18%. months" or
-// "Network.s Association" / "22kW. units"
+// "Network.s Association" / "22kW. units" / "require.ehicles"
 const MERGE_ARTIFACT_PATTERNS = [
   /\b[a-z]{2,}\.\s?[a-z]\s[a-z]{2,}\b/g,             // "ificant.t network" style (any word length)
   /\b[A-Za-z]{3,}\.[a-z]\s+[A-Z][a-z]+/g,            // "Network.s Association" — period mid-word
   /\b\d+[a-zA-Z]*\.\s+[a-z]{2,}\b/g,                 // "22kW. units" — period after unit/number
   /\b\d+%\.\s+[a-z]{3,}\b/g,                         // "18%. months" style — number+percent then broken clause
   /[a-z]\.[A-Z][a-z]+/g,                             // "word.Next" — missing space after period
+  /\b[a-z]{3,}\.[a-z]{3,}\b/g,                       // "require.ehicles" — truncated word after period
+  /\)\.\d+\./g,                                       // "(verify…).350." — duplicated figure after insert
 ]
 
 // Mechanical fixes for merge shapes that have an obvious correct form — no
@@ -52,18 +59,18 @@ export function applyDeterministicMergeFixes(articleContent: string): { content:
     return `${pct} ${word}`
   })
 
+  // Scrub known insertion corruption (verify paren +.350. etc.)
+  const scrubbed = scrubInsertionCorruption(content)
+  content = scrubbed.html
+  fixesMade += scrubbed.fixes
+
   return { content, fixesMade }
 }
 
 // Detects directly against the real content (not a stripped copy) — the
 // repair step below splices the fix back in by finding `matchedText`
 // verbatim, which only works if detection ran against the exact same
-// string being mutated. (An earlier version of this detector scanned a
-// whitespace-collapsed, tag-stripped copy for `sentenceContext`, then tried
-// to find that collapsed text inside the original HTML — a substring that,
-// once real HTML tags and multi-line whitespace are back in the mix, almost
-// never matches, so the repair silently no-ops while still burning a Claude
-// call and reporting a false `repairsMade` count.)
+// string being mutated.
 export function detectMergeArtifacts(articleContent: string): MergeArtifact[] {
   const artifacts: MergeArtifact[] = []
 
@@ -74,10 +81,9 @@ export function detectMergeArtifacts(articleContent: string): MergeArtifact[] {
       const contextStart = Math.max(0, match.index - 80)
       const contextEnd = Math.min(articleContent.length, match.index + 80)
       const sentenceContext = articleContent.slice(contextStart, contextEnd)
-      // Skip matches inside an href/src/style attribute value — a URL or
-      // inline style is not prose and isn't safe to hand to Claude for a
-      // "clean this sentence up" rewrite.
       if (/(href|src|style)=["'][^"']*$/i.test(articleContent.slice(contextStart, match.index))) continue
+      if (/https?:\/\//i.test(match[0])) continue
+      if (/^(e\.g|i\.e|etc)\b/i.test(match[0])) continue
       artifacts.push({
         matchedText: match[0],
         index: match.index,
@@ -90,8 +96,6 @@ export function detectMergeArtifacts(articleContent: string): MergeArtifact[] {
 
 const client = new Anthropic()
 
-// Repair ONE broken sentence at a time — cheap, targeted, doesn't
-// risk introducing new issues by regenerating the whole article
 export async function repairMergeArtifact(
   articleContent: string,
   artifact: MergeArtifact
@@ -121,12 +125,19 @@ around it, no HTML tags unless the original substring already contained them.`
   const fixed = response.content[0].type === 'text' ? response.content[0].text.trim() : artifact.matchedText
   if (!fixed) return articleContent
 
-  // matchedText was captured from this exact string by detectMergeArtifacts,
-  // so it is guaranteed to be found — replaces only the first occurrence.
-  return articleContent.replace(artifact.matchedText, fixed)
+  const { html, applied } = applyGuardedReplace(
+    articleContent,
+    artifact.matchedText,
+    fixed,
+    'merge-artifact',
+  )
+  if (!applied) {
+    console.warn('[merge-artifact-repair] integrity guard rejected repair for:', artifact.matchedText)
+    return articleContent
+  }
+  return html
 }
 
-// Full repair pass — detect all artifacts, fix each one, return clean content
 export async function repairAllMergeArtifacts(
   articleContent: string
 ): Promise<{ content: string; repairsMade: number }> {
@@ -135,19 +146,27 @@ export async function repairAllMergeArtifacts(
   let currentContent = deterministic.content
   let repairsMade = deterministic.fixesMade
 
-  // Re-detect after each fix since positions shift — cap at 5 to avoid
-  // runaway loops on genuinely malformed content
   for (let i = 0; i < 5; i++) {
     const artifacts = detectMergeArtifacts(currentContent)
     if (artifacts.length === 0) break
 
     try {
+      const before = currentContent
       currentContent = await repairMergeArtifact(currentContent, artifacts[0])
-      repairsMade++
+      if (currentContent !== before) repairsMade++
+      else break
     } catch (err) {
       console.warn('[merge-artifact-repair] repair call failed, stopping pass:', err)
       break
     }
+  }
+
+  const scrubbed = scrubInsertionCorruption(currentContent)
+  currentContent = scrubbed.html
+  repairsMade += scrubbed.fixes
+
+  if (hasInsertionCorruption(currentContent)) {
+    console.warn('[merge-artifact-repair] residual insertion corruption still present after repair pass')
   }
 
   return { content: currentContent, repairsMade }

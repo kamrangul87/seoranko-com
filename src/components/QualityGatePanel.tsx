@@ -23,8 +23,20 @@ interface QualityGateResult {
   readyToPublish: boolean
 }
 
+export interface FixAllReport {
+  fixed: Array<{ id: string; title: string; how: string }>
+  stillNeedsManualReview: Array<{ id: string; title: string; reason: string }>
+  summary: string
+  scoreBefore?: number
+  scoreAfter?: number
+}
+
 interface QualityGatePanelProps {
   result: QualityGateResult
+  onFixAll?: () => void
+  fixAllRunning?: boolean
+  fixAllReport?: FixAllReport | null
+  /** @deprecated use onFixAll — kept for callers that only had single Auto-fix */
   onAutoFix?: () => void
   autoFixing?: boolean
 }
@@ -73,8 +85,18 @@ function IconChevronUp({ className }: { className?: string }) {
   )
 }
 
-export function QualityGatePanel({ result, onAutoFix, autoFixing }: QualityGatePanelProps) {
+export function QualityGatePanel({
+  result,
+  onFixAll,
+  fixAllRunning,
+  fixAllReport,
+  onAutoFix,
+  autoFixing,
+}: QualityGatePanelProps) {
   const [expanded, setExpanded] = useState(!result.readyToPublish)
+  const runFix = onFixAll || onAutoFix
+  const fixing = fixAllRunning || autoFixing
+  const hasIssues = result.issues.length > 0 || result.criticalCount > 0 || result.warningCount > 0
 
   const statusColor = result.readyToPublish
     ? '#1D9E75'
@@ -128,14 +150,14 @@ export function QualityGatePanel({ result, onAutoFix, autoFixing }: QualityGateP
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {!result.readyToPublish && result.issues.some(i => i.autoFixable) && onAutoFix && (
+          {hasIssues && runFix && (
             <button
-              onClick={(e) => { e.stopPropagation(); onAutoFix() }}
-              disabled={autoFixing}
-              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-white border border-gray-200 rounded-lg hover:border-gray-300 transition-colors"
+              onClick={(e) => { e.stopPropagation(); runFix() }}
+              disabled={fixing}
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-[#0F0F0F] text-white rounded-lg hover:bg-[#333] disabled:opacity-50 transition-colors"
             >
               <IconWrench className="w-3 h-3" />
-              {autoFixing ? 'Fixing...' : 'Auto-fix'}
+              {fixing ? 'Fixing all…' : 'Fix All Issues'}
             </button>
           )}
           {expanded
@@ -147,6 +169,33 @@ export function QualityGatePanel({ result, onAutoFix, autoFixing }: QualityGateP
 
       {expanded && (
         <div className="p-4 space-y-2 bg-white">
+          {fixAllReport && (
+            <div className="mb-3 p-3 rounded-lg border border-[#E8E8E4] bg-[#FAFAF8] space-y-2">
+              <p className="text-xs font-semibold text-[#0F0F0F]">{fixAllReport.summary}</p>
+              {fixAllReport.scoreBefore != null && fixAllReport.scoreAfter != null && (
+                <p className="text-xs text-[#6B6B6B]">
+                  Score: {fixAllReport.scoreBefore} → {fixAllReport.scoreAfter}
+                </p>
+              )}
+              {fixAllReport.fixed.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold text-green-800 mb-1">Fixed automatically</p>
+                  {fixAllReport.fixed.map(f => (
+                    <p key={f.id} className="text-[11px] text-green-700">✓ {f.title} — {f.how}</p>
+                  ))}
+                </div>
+              )}
+              {fixAllReport.stillNeedsManualReview.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold text-amber-800 mb-1">Still needs manual review</p>
+                  {fixAllReport.stillNeedsManualReview.map(f => (
+                    <p key={f.id} className="text-[11px] text-amber-700">• {f.title} — {f.reason}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {result.issues.length === 0 ? (
             <p className="text-sm text-green-600 text-center py-2">
               ✓ All quality checks passed
@@ -173,6 +222,9 @@ export function QualityGatePanel({ result, onAutoFix, autoFixing }: QualityGateP
                     )}
                     {issue.autoFixable && issue.autoFixDescription && (
                       <p className="text-xs text-blue-600 mt-1">✦ {issue.autoFixDescription}</p>
+                    )}
+                    {!issue.autoFixable && (
+                      <p className="text-xs text-gray-500 mt-1">Manual review required</p>
                     )}
                   </div>
                   <div className="flex-shrink-0">
