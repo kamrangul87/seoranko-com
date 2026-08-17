@@ -65,6 +65,16 @@ function IconMinus({ className }: { className?: string }) {
     </svg>
   )
 }
+function IconTrash({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6" /><path d="M14 11v6" />
+      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+    </svg>
+  )
+}
 function IconPlus({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -130,7 +140,9 @@ export function RankingAgentDashboard() {
   const [addError, setAddError] = useState<string | null>(null)
   const [checking, setChecking] = useState<string | null>(null)
   const [diagnosing, setDiagnosing] = useState<string | null>(null)
+  const [diagnoseErrors, setDiagnoseErrors] = useState<Record<string, string>>({})
   const [diagnoses, setDiagnoses] = useState<Record<string, RANKODiagnosis>>({})
+  const [removing, setRemoving] = useState<string | null>(null)
   // Keyed by `${articleId}:${issueId}` — an issue id repeats across articles
   const [fixingIssue, setFixingIssue] = useState<string | null>(null)
   const [fixedIssues, setFixedIssues] = useState<Record<string, boolean>>({})
@@ -365,6 +377,11 @@ export function RankingAgentDashboard() {
 
   async function diagnoseArticle(article: TrackedArticle) {
     setDiagnosing(article.id)
+    setDiagnoseErrors(prev => {
+      const next = { ...prev }
+      delete next[article.id]
+      return next
+    })
     try {
       const res = await fetch('/api/ranko/diagnose', {
         method: 'POST',
@@ -374,14 +391,48 @@ export function RankingAgentDashboard() {
           trackedArticleId: article.id,
         })
       })
-      const data = await res.json()
-      if (data.diagnosis) {
-        setDiagnoses(prev => ({ ...prev, [article.id]: data.diagnosis }))
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.diagnosis) {
+        setDiagnoseErrors(prev => ({
+          ...prev,
+          [article.id]: data.error || `Diagnosis failed (${res.status})`,
+        }))
+        return
       }
+      setDiagnoses(prev => ({ ...prev, [article.id]: data.diagnosis }))
     } catch (err) {
       console.error('RANKO diagnosis failed:', err)
+      setDiagnoseErrors(prev => ({
+        ...prev,
+        [article.id]: String(err) || 'Diagnosis failed — try again',
+      }))
     } finally {
       setDiagnosing(null)
+    }
+  }
+
+  async function removeTracked(article: TrackedArticle) {
+    if (!confirm(`Stop tracking “${article.keyword}”? Rank history for this URL will be removed.`)) return
+    setRemoving(article.id)
+    try {
+      const res = await fetch(`/api/rank/track?id=${encodeURIComponent(article.id)}`, {
+        method: 'DELETE',
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setLoadError(data.error || 'Could not remove tracked article')
+        return
+      }
+      setArticles(prev => prev.filter(a => a.id !== article.id))
+      setDiagnoses(prev => {
+        const next = { ...prev }
+        delete next[article.id]
+        return next
+      })
+    } catch (err) {
+      setLoadError(String(err))
+    } finally {
+      setRemoving(null)
     }
   }
 
@@ -729,8 +780,27 @@ export function RankingAgentDashboard() {
                   }
                   {checking === article.id ? 'Checking...' : 'Check now'}
                 </button>
+
+                <button
+                  onClick={() => removeTracked(article)}
+                  disabled={removing === article.id}
+                  className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-600 transition-colors disabled:opacity-50"
+                  title="Stop tracking"
+                >
+                  {removing === article.id
+                    ? <IconLoader2 className="w-3 h-3 animate-spin" />
+                    : <IconTrash className="w-3 h-3" />
+                  }
+                  {removing === article.id ? 'Removing…' : 'Remove'}
+                </button>
               </div>
             </div>
+
+            {diagnoseErrors[article.id] && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-lg break-words">
+                {diagnoseErrors[article.id]}
+              </p>
+            )}
 
             {/* RANKO Diagnosis panel */}
             {diagnoses[article.id] && (() => {

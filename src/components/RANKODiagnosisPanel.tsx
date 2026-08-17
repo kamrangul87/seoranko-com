@@ -104,7 +104,9 @@ function IconEye({ className }: { className?: string }) {
 export function RANKODiagnosisPanel({ siteUrl, siteId }: Props) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const [loadingSaved, setLoadingSaved] = useState(true)
   const [diagnosis, setDiagnosis] = useState<RANKODiagnosis | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [expandedIssue, setExpandedIssue] = useState<string | null>(null)
   const [fixingId, setFixingId] = useState<string | null>(null)
   const [fixedIds, setFixedIds] = useState<Record<string, string>>({})
@@ -115,6 +117,33 @@ export function RANKODiagnosisPanel({ siteUrl, siteId }: Props) {
   const [showConnectModal, setShowConnectModal] = useState(false)
 
   const domain = siteUrl.replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+
+  // Reload last saved diagnosis when browsing the Diagnose tab
+  useEffect(() => {
+    let cancelled = false
+    setDiagnosis(null)
+    setError(null)
+    setLoadingSaved(true)
+
+    fetch(`/api/ranko/diagnose?siteUrl=${encodeURIComponent(siteUrl)}`)
+      .then(async res => {
+        const data = await res.json().catch(() => ({}))
+        if (cancelled) return
+        if (!res.ok) {
+          setError(data.error || 'Could not load previous diagnosis')
+          return
+        }
+        if (data.diagnosis) setDiagnosis(data.diagnosis)
+      })
+      .catch(err => {
+        if (!cancelled) setError(String(err))
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSaved(false)
+      })
+
+    return () => { cancelled = true }
+  }, [siteUrl])
 
   // Is this site connected to a CMS? Determines whether a site-level issue
   // offers "Fix automatically" or "Connect & fix".
@@ -273,16 +302,22 @@ export function RANKODiagnosisPanel({ siteUrl, siteId }: Props) {
 
   async function runDiagnosis() {
     setLoading(true)
+    setError(null)
     try {
       const res = await fetch('/api/ranko/diagnose', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ siteUrl })
       })
-      const data = await res.json()
-      if (data.diagnosis) setDiagnosis(data.diagnosis)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.diagnosis) {
+        setError(data.error || `Diagnosis failed (${res.status}). Try again in a moment.`)
+        return
+      }
+      setDiagnosis(data.diagnosis)
     } catch (err) {
       console.error('RANKO diagnosis failed:', err)
+      setError(String(err) || 'Diagnosis failed — check your connection and try again.')
     } finally {
       setLoading(false)
     }
@@ -401,6 +436,17 @@ export function RANKODiagnosisPanel({ siteUrl, siteId }: Props) {
     return styles[risk] || styles.safe
   }
 
+  if (loadingSaved && !diagnosis) {
+    return (
+      <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center">
+        <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
+          <IconLoader className="w-4 h-4 animate-spin" />
+          Loading last diagnosis…
+        </div>
+      </div>
+    )
+  }
+
   if (!diagnosis) {
     return (
       <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center">
@@ -422,6 +468,11 @@ export function RANKODiagnosisPanel({ siteUrl, siteId }: Props) {
         {loading && (
           <p className="text-xs text-gray-400 mt-3">
             Analysing GEO signals · checking content quality · detecting conflicts · synthesising with Claude Sonnet...
+          </p>
+        )}
+        {error && (
+          <p className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-lg mt-4 max-w-md mx-auto break-words">
+            {error}
           </p>
         )}
       </div>
@@ -458,8 +509,20 @@ export function RANKODiagnosisPanel({ siteUrl, siteId }: Props) {
           <div className="text-right">
             <div className="text-4xl font-bold" style={{ color }}>{diagnosis.healthScore}</div>
             <div className="text-xs font-medium capitalize" style={{ color }}>{diagnosis.overallHealth.replace('-', ' ')}</div>
+            <button
+              onClick={runDiagnosis}
+              disabled={loading}
+              className="mt-2 text-xs text-orange-600 hover:text-orange-700 disabled:opacity-50"
+            >
+              {loading ? 'Re-running…' : 'Re-run diagnosis'}
+            </button>
           </div>
         </div>
+        {error && (
+          <p className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-lg mb-3 break-words">
+            {error}
+          </p>
+        )}
         <div className="w-full bg-gray-200 rounded-full h-2 mb-3">
           <div className="h-2 rounded-full transition-all" style={{ width: `${diagnosis.healthScore}%`, background: color }} />
         </div>

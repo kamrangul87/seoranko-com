@@ -13,6 +13,7 @@ interface ROIArticle {
   perplexity_cited: boolean | null
   freshness_status: string
   positions_gained: number | null
+  deleted_at: string | null
 }
 
 function TrendUp({ className }: { className?: string }) {
@@ -47,9 +48,16 @@ function FileText({ className }: { className?: string }) {
   )
 }
 
+function toSlug(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'article'
+}
+
 export function ContentROIDashboard() {
   const [articles, setArticles] = useState<ROIArticle[]>([])
   const [loading, setLoading] = useState(true)
+  const [actionId, setActionId] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [showDeleted, setShowDeleted] = useState(false)
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -63,15 +71,30 @@ export function ContentROIDashboard() {
 
   async function load() {
     setLoading(true)
+    setActionError(null)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setLoading(false); return }
 
-    const { data: articleRows } = await supabase
+    // Prefer soft-delete aware select; fall back if column not migrated yet
+    let articleRows: any[] | null = null
+    const withDeleted = await supabase
       .from('articles')
-      .select('id, title, keyword, created_at, rank_score')
+      .select('id, title, keyword, created_at, rank_score, deleted_at')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
-      .limit(50)
+      .limit(80)
+
+    if (withDeleted.error) {
+      const fallback = await supabase
+        .from('articles')
+        .select('id, title, keyword, created_at, rank_score')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(50)
+      articleRows = (fallback.data || []).map((a: any) => ({ ...a, deleted_at: null }))
+    } else {
+      articleRows = withDeleted.data
+    }
 
     if (!articleRows?.length) { setLoading(false); setArticles([]); return }
 
@@ -96,7 +119,8 @@ export function ContentROIDashboard() {
         current_position: t?.current_position || null,
         perplexity_cited: t?.perplexity_cited ?? null,
         freshness_status: t?.freshness_status || 'fresh',
-        positions_gained: t?.position_change ? -t.position_change : null
+        positions_gained: t?.position_change ? -t.position_change : null,
+        deleted_at: a.deleted_at || null,
       }
     })
 
@@ -104,11 +128,96 @@ export function ContentROIDashboard() {
     setLoading(false)
   }
 
-  const totalArticles = articles.length
-  const rankedArticles = articles.filter(a => a.current_position !== null)
+  async function deleteArticle(article: ROIArticle) {
+    if (!confirm(`Delete “${article.title}”? You can retrieve it later from Deleted articles.`)) return
+    setActionId(article.id)
+    setActionError(null)
+    try {
+      const res = await fetch(`/api/articles/manage?id=${encodeURIComponent(article.id)}`, {
+        method: 'DELETE',
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setActionError(data.error || 'Delete failed')
+        return
+      }
+      if (data.mode === 'hard') {
+        setArticles(prev => prev.filter(a => a.id !== article.id))
+      } else {
+        setArticles(prev => prev.map(a =>
+          a.id === article.id ? { ...a, deleted_at: new Date().toISOString() } : a
+        ))
+        setShowDeleted(true)
+      }
+    } catch (err) {
+      setActionError(String(err))
+    } finally {
+      setActionId(null)
+    }
+  }
+
+  async function restoreArticle(article: ROIArticle) {
+    setActionId(article.id)
+    setActionError(null)
+    try {
+      const res = await fetch('/api/articles/manage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: article.id, action: 'restore' }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setActionError(data.error || 'Retrieve failed')
+        return
+      }
+      setArticles(prev => prev.map(a =>
+        a.id === article.id ? { ...a, deleted_at: null } : a
+      ))
+    } catch (err) {
+      setActionError(String(err))
+    } finally {
+      setActionId(null)
+    }
+  }
+
+  async function downloadArticle(article: ROIArticle) {
+    setActionId(article.id)
+    setActionError(null)
+    try {
+      const res = await fetch('/api/articles/manage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: article.id, action: 'download' }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.content) {
+        setActionError(data.error || 'Download failed')
+        return
+      }
+      const blob = new Blob([data.content], { type: 'text/html;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${toSlug(data.keyword || data.title || article.title)}.html`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setActionError(String(err))
+    } finally {
+      setActionId(null)
+    }
+  }
+
+  const active = articles.filter(a => !a.deleted_at)
+  const deleted = articles.filter(a => !!a.deleted_at)
+
+  const totalArticles = active.length
+  const rankedArticles = active.filter(a => a.current_position !== null)
   const page1Articles = rankedArticles.filter(a => a.current_position! <= 10)
-  const citedArticles = articles.filter(a => a.perplexity_cited === true)
-  const totalPositionsGained = articles
+  const citedArticles = active.filter(a => a.perplexity_cited === true)
+  const totalPositionsGained = active
     .filter(a => a.positions_gained !== null && a.positions_gained > 0)
     .reduce((sum, a) => sum + (a.positions_gained || 0), 0)
 
@@ -120,6 +229,88 @@ export function ContentROIDashboard() {
     if (pos <= 20) return 'text-amber-600'
     if (pos <= 50) return 'text-orange-600'
     return 'text-red-500'
+  }
+
+  function ArticleRow({ article, mode }: { article: ROIArticle; mode: 'active' | 'deleted' }) {
+    const busy = actionId === article.id
+    return (
+      <div className="flex items-center gap-3 px-4 py-3">
+        <div className="text-xs text-gray-400 w-20 flex-shrink-0">
+          {new Date(article.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-800 truncate">{article.title}</p>
+          <p className="text-xs text-gray-400 truncate">{article.keyword}</p>
+        </div>
+
+        <div className="text-center w-14">
+          <div className={`text-sm font-bold ${article.rank_score && article.rank_score >= 80 ? 'text-green-600' : article.rank_score && article.rank_score >= 60 ? 'text-amber-600' : 'text-gray-400'}`}>
+            {article.rank_score || '—'}
+          </div>
+          <div className="text-xs text-gray-400">RANK</div>
+        </div>
+
+        <div className="text-center w-14">
+          <div className={`text-sm font-bold ${positionColor(article.current_position)}`}>
+            {article.current_position ? `#${article.current_position}` : '—'}
+          </div>
+          <div className="text-xs text-gray-400">Position</div>
+        </div>
+
+        <div className="text-center w-16">
+          {article.positions_gained !== null ? (
+            <div className={`text-sm font-bold flex items-center justify-center gap-0.5 ${article.positions_gained > 0 ? 'text-green-600' : article.positions_gained < 0 ? 'text-red-500' : 'text-gray-400'}`}>
+              {article.positions_gained > 0
+                ? <TrendUp className="w-3 h-3" />
+                : article.positions_gained < 0
+                  ? <TrendDown className="w-3 h-3" />
+                  : <MinusIcon className="w-3 h-3" />}
+              {article.positions_gained > 0 ? `+${article.positions_gained}` : article.positions_gained}
+            </div>
+          ) : (
+            <div className="text-sm text-gray-300">—</div>
+          )}
+          <div className="text-xs text-gray-400">Change</div>
+        </div>
+
+        <div className="text-center w-14">
+          <div className={`text-sm font-bold ${article.perplexity_cited === true ? 'text-purple-600' : article.perplexity_cited === false ? 'text-red-400' : 'text-gray-300'}`}>
+            {article.perplexity_cited === true ? '✓' : article.perplexity_cited === false ? '✗' : '—'}
+          </div>
+          <div className="text-xs text-gray-400">AI cited</div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-shrink-0 w-36 justify-end">
+          {mode === 'active' ? (
+            <>
+              <button
+                onClick={() => downloadArticle(article)}
+                disabled={busy}
+                className="text-xs text-gray-500 hover:text-orange-600 disabled:opacity-50"
+              >
+                {busy ? '…' : 'Download'}
+              </button>
+              <button
+                onClick={() => deleteArticle(article)}
+                disabled={busy}
+                className="text-xs text-gray-400 hover:text-red-600 disabled:opacity-50"
+              >
+                Delete
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => restoreArticle(article)}
+              disabled={busy}
+              className="text-xs text-orange-600 hover:text-orange-700 font-medium disabled:opacity-50"
+            >
+              {busy ? 'Retrieving…' : 'Retrieve'}
+            </button>
+          )}
+        </div>
+      </div>
+    )
   }
 
   if (loading) {
@@ -148,6 +339,12 @@ export function ContentROIDashboard() {
         </button>
       </div>
 
+      {actionError && (
+        <p className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-lg break-words">
+          {actionError}
+        </p>
+      )}
+
       {/* Summary metrics */}
       <div className="grid grid-cols-4 gap-3">
         {[
@@ -165,11 +362,19 @@ export function ContentROIDashboard() {
 
       {/* Articles ROI table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100">
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
           <p className="text-sm font-medium text-gray-800">Article performance</p>
+          {deleted.length > 0 && (
+            <button
+              onClick={() => setShowDeleted(v => !v)}
+              className="text-xs text-gray-500 hover:text-orange-600"
+            >
+              {showDeleted ? 'Hide' : 'Show'} deleted ({deleted.length})
+            </button>
+          )}
         </div>
         <div className="divide-y divide-gray-100">
-          {articles.length === 0 && (
+          {active.length === 0 && (
             <p className="text-sm text-gray-400 text-center py-8 px-6">
               Content ROI tracks articles written in SEORANKO. Tracked URLs in the
               Track tab aren&rsquo;t counted here — they live on your own site, so
@@ -179,63 +384,25 @@ export function ContentROIDashboard() {
               </a>.
             </p>
           )}
-          {articles.map(article => (
-            <div key={article.id} className="flex items-center gap-3 px-4 py-3">
-              {/* Date */}
-              <div className="text-xs text-gray-400 w-20 flex-shrink-0">
-                {new Date(article.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-              </div>
-
-              {/* Title */}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-800 truncate">{article.title}</p>
-                <p className="text-xs text-gray-400 truncate">{article.keyword}</p>
-              </div>
-
-              {/* RANK score */}
-              <div className="text-center w-14">
-                <div className={`text-sm font-bold ${article.rank_score && article.rank_score >= 80 ? 'text-green-600' : article.rank_score && article.rank_score >= 60 ? 'text-amber-600' : 'text-gray-400'}`}>
-                  {article.rank_score || '—'}
-                </div>
-                <div className="text-xs text-gray-400">RANK</div>
-              </div>
-
-              {/* Position */}
-              <div className="text-center w-14">
-                <div className={`text-sm font-bold ${positionColor(article.current_position)}`}>
-                  {article.current_position ? `#${article.current_position}` : '—'}
-                </div>
-                <div className="text-xs text-gray-400">Position</div>
-              </div>
-
-              {/* Positions gained */}
-              <div className="text-center w-16">
-                {article.positions_gained !== null ? (
-                  <div className={`text-sm font-bold flex items-center justify-center gap-0.5 ${article.positions_gained > 0 ? 'text-green-600' : article.positions_gained < 0 ? 'text-red-500' : 'text-gray-400'}`}>
-                    {article.positions_gained > 0
-                      ? <TrendUp className="w-3 h-3" />
-                      : article.positions_gained < 0
-                        ? <TrendDown className="w-3 h-3" />
-                        : <MinusIcon className="w-3 h-3" />}
-                    {article.positions_gained > 0 ? `+${article.positions_gained}` : article.positions_gained}
-                  </div>
-                ) : (
-                  <div className="text-sm text-gray-300">—</div>
-                )}
-                <div className="text-xs text-gray-400">Change</div>
-              </div>
-
-              {/* AI cited */}
-              <div className="text-center w-14">
-                <div className={`text-sm font-bold ${article.perplexity_cited === true ? 'text-purple-600' : article.perplexity_cited === false ? 'text-red-400' : 'text-gray-300'}`}>
-                  {article.perplexity_cited === true ? '✓' : article.perplexity_cited === false ? '✗' : '—'}
-                </div>
-                <div className="text-xs text-gray-400">AI cited</div>
-              </div>
-            </div>
+          {active.map(article => (
+            <ArticleRow key={article.id} article={article} mode="active" />
           ))}
         </div>
       </div>
+
+      {showDeleted && deleted.length > 0 && (
+        <div className="bg-white rounded-xl border border-dashed border-gray-300 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-sm font-medium text-gray-700">Deleted articles</p>
+            <p className="text-xs text-gray-400 mt-0.5">Retrieve restores an article to the ROI list</p>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {deleted.map(article => (
+              <ArticleRow key={article.id} article={article} mode="deleted" />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
