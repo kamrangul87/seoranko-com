@@ -38,6 +38,7 @@ import {
   buildOutlineLockedWritePrompt,
 } from '@/lib/article-outline';
 import { insertTableOfContents } from '@/lib/table-of-contents';
+import { toSlugPath } from '@/lib/slug';
 import { autoSplitDenseParagraphs } from '@/lib/scannability-fixer';
 import { validateArticleStructure } from '@/lib/structure-validator';
 import { assertSchemaCompleteness } from '@/lib/schema-validate';
@@ -326,7 +327,7 @@ Do not write generic angles. Be specific and surprising.`
         try {
           fullArticle = await writeOnce(writePrompt)
 
-          let validated = await validateAndCorrect(fullArticle, keyword, market, liveFacts);
+          let validated = await validateAndCorrect(fullArticle, keyword, market, liveFacts, brand || '', citationDomain);
           fullArticle = validated.article;
           if (validated.corrections.length > 0) {
             console.log('[article-v2] validation corrections:', validated.corrections);
@@ -352,7 +353,7 @@ Do not write generic angles. Be specific and surprising.`
             )
             if (retryText.length > 500) {
               fullArticle = retryText;
-              validated = await validateAndCorrect(fullArticle, keyword, market, liveFacts);
+              validated = await validateAndCorrect(fullArticle, keyword, market, liveFacts, brand || '', citationDomain);
               fullArticle = validated.article;
               topicAlignment = checkTopicAlignment(fullArticle, keyword);
               console.log('[article-v2] topic retry result:', topicAlignment);
@@ -405,7 +406,7 @@ Do not write generic angles. Be specific and surprising.`
           const articleTitle = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : keyword;
           // Re-resolved after humanize/schema prep from finalHtml — early value is a placeholder
           let articleDescription = extractArticleDescription(fullArticle, keyword);
-          const articleSlug = `/${keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+          const articleSlug = toSlugPath(keyword);
           // Schema generation moved below, after heroImageUrl is known —
           // real image URL is passed into generateArticleSchema directly.
           const answerFirst = checkAnswerFirst(fullArticle);
@@ -414,13 +415,14 @@ Do not write generic angles. Be specific and surprising.`
           const { searchScore, aiScore } = scoreHtmlLocally(fullArticle, keyword);
           const eeatScore = calculateEEATScore(fullArticle);
           const readabilityScore = calculateReadabilityScore(fullArticle);
-          const keywordDensityDetail = analyzeKeywordDensity(fullArticle, keyword);
+          const densityTarget = primaryTopicPhrase(keyword) || coreKeywordPhrase(keyword) || keyword;
+          const keywordDensityDetail = analyzeKeywordDensity(fullArticle, densityTarget);
           const keywordDensity = keywordDensityDetail.density;
           const keywordDensityScore = keywordDensityDetail.score;
           if (keywordDensityDetail.possibleScoringBug) {
             console.warn(
               `[article-v2] keyword density score (${keywordDensityScore}/100) looks too low given ` +
-              `${keywordDensityDetail.occurrences} occurrences of "${keyword}" in ${keywordDensityDetail.totalWords} words — check content-scorer.ts for a scoring bug.`
+              `${keywordDensityDetail.occurrences} occurrences of "${densityTarget}" in ${keywordDensityDetail.totalWords} words — check content-scorer.ts for a scoring bug.`
             );
           }
           const rankScore = computeRankScore({
@@ -431,7 +433,7 @@ Do not write generic angles. Be specific and surprising.`
             hasSchema: true,
             answerFirst,
           });
-          const articleUrl = `/${keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+          const articleUrl = toSlugPath(keyword);
           const llmsTxtEntry = generateLlmsTxtEntry(fullArticle, keyword, articleUrl);
 
           // Adaptive image count based on article word count
@@ -786,6 +788,12 @@ Do not write generic angles. Be specific and surprising.`
               ? [citationDomain]
               : (brand ? [`${brand}.com`] : [])
             const wcBand = wordCountBand(targetWordCount)
+            // Recompute floors against the HTML about to be gated (post-humanize / fact-patch)
+            const gateEeat = calculateEEATScore(finalHtml)
+            const gateDensity = analyzeKeywordDensity(
+              finalHtml,
+              primaryTopicPhrase(keyword) || coreKeywordPhrase(keyword) || keyword,
+            )
             const qr = await runQualityGate(finalHtml, {
               brand,
               keyword,
@@ -800,11 +808,12 @@ Do not write generic angles. Be specific and surprising.`
                 ? { entities: entities as string[], topicalGaps: topicalGaps as string[] }
                 : undefined,
               secondaryKeywords: filteredSecondaries,
-              // Dead/fake citations are stripped above — logged to console,
-              // not surfaced as blocking QG issues (published HTML is clean).
               extraIssues: datedClaimIssues.length > 0 ? datedClaimIssues : undefined,
-              // Matches schema-generator: omit logo warnings when no logo_url.
               expectOrganizationLogo: !!brandSettings.logoUrl,
+              eeatScore: gateEeat,
+              keywordDensityPct: gateDensity.density,
+              keywordDensityScore: gateDensity.score,
+              factSourcingScore,
             })
             finalHtml = qr.articleAfterAutoFix
             articleQualityGate = {
@@ -868,7 +877,7 @@ Do not write generic angles. Be specific and surprising.`
                   articleQualityGate.issues = [...articleQualityGate.issues, imageIssue];
                   articleQualityGate.warningCount += 1;
                   articleQualityGate.score = Math.max(0, articleQualityGate.score - 5);
-                  articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2;
+                  articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2 && !articleQualityGate.issues.some(i => i.id === 'missing-brand' || i.id === 'brand-mismatch' || (i.category === 'score-floor' && i.severity === 'critical'));
                 }
 
                 // image-placement structure issues (figure right after a heading,
@@ -889,7 +898,7 @@ Do not write generic angles. Be specific and surprising.`
                   articleQualityGate.issues = [...articleQualityGate.issues, ...mapped];
                   articleQualityGate.warningCount += mapped.length;
                   articleQualityGate.score = Math.max(0, articleQualityGate.score - mapped.length * 5);
-                  articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2;
+                  articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2 && !articleQualityGate.issues.some(i => i.id === 'missing-brand' || i.id === 'brand-mismatch' || (i.category === 'score-floor' && i.severity === 'critical'));
                 }
 
                 controller.enqueue(encoder.encode(
@@ -954,7 +963,7 @@ Do not write generic angles. Be specific and surprising.`
                   articleQualityGate.warningCount = Math.max(0, articleQualityGate.warningCount - removed.filter(i => i.severity === 'warning').length);
                   articleQualityGate.criticalCount = Math.max(0, articleQualityGate.criticalCount - removed.filter(i => i.severity === 'critical').length);
                   articleQualityGate.score = Math.min(100, articleQualityGate.score + removed.length * 5);
-                  articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2;
+                  articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2 && !articleQualityGate.issues.some(i => i.id === 'missing-brand' || i.id === 'brand-mismatch' || (i.category === 'score-floor' && i.severity === 'critical'));
                 } else if (!hadScannabilityIssue && remainingScannability.length > 0) {
                   // Safety net only — shouldn't normally fire once the
                   // splitter above ran, but a paragraph that's over budget
@@ -973,7 +982,7 @@ Do not write generic angles. Be specific and surprising.`
                   articleQualityGate.warningCount += mapped.filter(m => m.severity === 'warning').length;
                   articleQualityGate.criticalCount += mapped.filter(m => m.severity === 'critical').length;
                   articleQualityGate.score = Math.max(0, articleQualityGate.score - mapped.length * 5);
-                  articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2;
+                  articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2 && !articleQualityGate.issues.some(i => i.id === 'missing-brand' || i.id === 'brand-mismatch' || (i.category === 'score-floor' && i.severity === 'critical'));
                 }
               }
             } catch (reconcileErr) {
@@ -1001,10 +1010,16 @@ Do not write generic angles. Be specific and surprising.`
           const finalProseWordCount = countArticleWords(publishedHtml)
           if (articleQualityGate) {
             const missingBrand = articleQualityGate.issues.some(i => i.id === 'missing-brand')
+            const brandMismatch = articleQualityGate.issues.some(i => i.id === 'brand-mismatch')
+            const scoreFloorFail = articleQualityGate.issues.some(
+              i => i.category === 'score-floor' && i.severity === 'critical'
+            )
             articleQualityGate.readyToPublish =
               articleQualityGate.criticalCount === 0 &&
               articleQualityGate.warningCount <= 2 &&
-              !missingBrand
+              !missingBrand &&
+              !brandMismatch &&
+              !scoreFloorFail
           }
 
           // ── Persist to Supabase ──────────────────────────────────────────

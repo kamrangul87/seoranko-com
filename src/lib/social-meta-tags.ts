@@ -2,7 +2,7 @@
 // Callers must pass a real description from extractArticleDescription —
 // never invent "Article about {keyword}" here.
 
-import { stripSeoDescriptionTags } from '@/lib/extract-meta-description'
+import { stripSeoDescriptionTags, truncateAtWordBoundary } from '@/lib/extract-meta-description'
 
 export interface SocialMetaTagsInput {
   title: string
@@ -14,9 +14,10 @@ export interface SocialMetaTagsInput {
 export function buildSocialMetaTags(input: SocialMetaTagsInput): string {
   const { title, description, url, imageUrl } = input
   const safeTitle = title.replace(/"/g, '&quot;')
-  const seoDesc = description.length > 160 ? `${description.slice(0, 157)}...` : description
+  const seoDesc = truncateAtWordBoundary(description, 160, description.length > 160)
   const safeSeoDesc = seoDesc.replace(/"/g, '&quot;')
-  const safeDesc = (description.length > 200 ? `${description.slice(0, 197)}...` : description).replace(/"/g, '&quot;')
+  const longDesc = truncateAtWordBoundary(description, 200, description.length > 200)
+  const safeDesc = longDesc.replace(/"/g, '&quot;')
   const safeUrl = url.replace(/"/g, '&quot;')
 
   return [

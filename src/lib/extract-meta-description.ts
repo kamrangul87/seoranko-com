@@ -23,6 +23,30 @@ function cleanDesc(raw: string): string {
   return decodeHtmlEntities(raw).replace(/\s+/g, ' ').trim()
 }
 
+/** Truncate at the nearest word/sentence boundary under `max`, never mid-word. */
+export function truncateAtWordBoundary(text: string, max: number, ellipsis = false): string {
+  const cleaned = cleanDesc(text)
+  if (!cleaned || cleaned.length <= max) return cleaned
+
+  const budget = ellipsis ? Math.max(1, max - 3) : max
+  let slice = cleaned.slice(0, budget)
+
+  // Prefer sentence end
+  const sentenceEnd = Math.max(slice.lastIndexOf('. '), slice.lastIndexOf('! '), slice.lastIndexOf('? '))
+  if (sentenceEnd >= Math.floor(budget * 0.55)) {
+    slice = slice.slice(0, sentenceEnd + 1).trim()
+  } else {
+    const sp = slice.lastIndexOf(' ')
+    if (sp >= Math.floor(budget * 0.5)) slice = slice.slice(0, sp).trim()
+    else slice = slice.trim()
+  }
+
+  // Strip dangling punctuation left by the cut
+  slice = slice.replace(/[,:;–—-]+$/g, '').trim()
+  if (!slice) return cleaned.slice(0, budget).trim()
+  return ellipsis ? `${slice}...` : slice
+}
+
 function isGenericFallback(desc: string, keyword?: string): boolean {
   if (!desc) return true
   if (GENERIC_ABOUT.test(desc)) return true
@@ -57,7 +81,7 @@ function extractFirstParagraph(html: string): string | null {
   if (!match?.[1]) return null
   const text = cleanDesc(match[1].replace(/<[^>]+>/g, ' '))
   if (text.length < 40) return null
-  return text.slice(0, 160)
+  return truncateAtWordBoundary(text, 160)
 }
 
 /**
@@ -75,15 +99,17 @@ export function extractArticleDescription(html: string, keyword = ''): string {
 
   if (candidates.length > 0) {
     const best = candidates[0]
-    return best.length > 160 ? `${best.slice(0, 157)}...` : best
+    return best.length > 160 ? truncateAtWordBoundary(best, 160, true) : best
   }
 
   if (keyword.trim()) {
     const titleMatch = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)
     const title = titleMatch ? cleanDesc(titleMatch[1].replace(/<[^>]+>/g, ' ')) : ''
-    if (title.length >= 40) return title.slice(0, 160)
-    return `${keyword.trim()} — practical guide with costs, options, and what to check before you buy.`
-      .slice(0, 160)
+    if (title.length >= 40) return truncateAtWordBoundary(title, 160)
+    return truncateAtWordBoundary(
+      `${keyword.trim()} — practical guide with costs, options, and what to check before you buy.`,
+      160,
+    )
   }
 
   return ''

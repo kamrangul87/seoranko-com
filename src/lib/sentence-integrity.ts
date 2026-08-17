@@ -18,8 +18,8 @@ export function splitIntoSentences(text: string): string[] {
 
 /** Known corruption shapes from auto-insertions / bad merges. */
 export const INSERTION_CORRUPTION_PATTERNS: RegExp[] = [
-  // "require.ehicles" — truncated word glued after a period
-  /\b[a-z]{3,}\.[a-z]{3,}\b/,
+  // "require.ehicles" — truncated word glued after a period (exclude TLDs)
+  /\b[a-z]{4,}\.(?!uk\b|com\b|org\b|net\b|gov\b|edu\b|co\b|io\b|ai\b)[a-z]{4,}\b/,
   // "(verify at GOV.UK).350." — duplicated figure after parenthetical insert
   /\)\.\d+\./,
   // "£350 (verify at GOV.UK).350."
@@ -28,6 +28,10 @@ export const INSERTION_CORRUPTION_PATTERNS: RegExp[] = [
   /\.\s*[a-z]{1,2}\.(?=\s|$)/,
   // double period / period immediately before digit mid-prose: ".350."
   /(?<=\w)\.(\d{2,})\.(?=\s|[A-Z])/,
+  // "Approved Document S.t S" — truncated splice mid-title
+  /\b[A-Za-z]+\s+[A-Z]\.t\s+[A-Z]\b/,
+  // "installations.ce of" — truncated suffix before a preposition
+  /\b[a-z]{5,}\.[a-z]{1,3}\s+(?:of|the|a|and|for|in|to|on)\b/,
 ]
 
 export function hasInsertionCorruption(text: string): boolean {
@@ -150,10 +154,30 @@ export function scrubInsertionCorruption(html: string): { html: string; fixes: n
     return ').'
   })
 
-  // "require.ehicles " mid-prose (lowercase.lowercase) — can't restore the
-  // missing letter safely; mark by joining with space so QG/merge LLM can fix:
-  // only auto-fix when the second token looks truncated (< full dictionary word
-  // heuristic: starts mid-consonant cluster). Prefer leaving for merge repair.
+  // "Approved Document S.t S" → "Approved Document S"
+  content = content.replace(/\b([A-Za-z]+)\s+([A-Z])\.t\s+\2\b/g, (_m, word: string, letter: string) => {
+    fixes++
+    return `${word} ${letter}`
+  })
+
+  // "installations.ce of" → "installations of"
+  content = content.replace(
+    /\b([a-z]{5,})\.([a-z]{1,3})\s+(of|the|a|and|for|in|to|on)\b/g,
+    (_m, word: string, _frag: string, prep: string) => {
+      fixes++
+      return `${word} ${prep}`
+    },
+  )
+
+  // "require.ehicles" / "province.ce" — drop truncated lowercase.lowercase glue
+  // (never touch known TLDs / file extensions)
+  const tldLike = new Set(['uk', 'com', 'org', 'net', 'gov', 'edu', 'co', 'io', 'ai', 'html', 'json', 'xml'])
+  content = content.replace(/\b([a-z]{4,})\.([a-z]{4,})\b/g, (m, a: string, b: string) => {
+    if (tldLike.has(b) || tldLike.has(a)) return m
+    fixes++
+    return a
+  })
+
   // "word.Next" missing space is handled by merge-artifact-repair.
 
   return { html: content, fixes }

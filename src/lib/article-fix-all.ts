@@ -9,6 +9,9 @@ import { repairAllMergeArtifacts, applyDeterministicMergeFixes } from '@/lib/mer
 import { autoSplitDenseParagraphs } from '@/lib/scannability-fixer'
 import { scrubInsertionCorruption, hasInsertionCorruption } from '@/lib/sentence-integrity'
 import { wordCountBand } from '@/lib/word-count'
+import { improveArticle } from '@/lib/article-improver'
+import { calculateEEATScore, analyzeKeywordDensity } from '@/lib/content-scorer'
+import { primaryTopicPhrase, coreKeywordPhrase } from '@/lib/topic-alignment'
 
 export interface FixAllOptions {
   html: string
@@ -34,6 +37,16 @@ function issueKey(i: QualityIssue): string {
   return `${i.id}::${i.category}`
 }
 
+function scoreOpts(html: string, keyword: string) {
+  const densityTarget = primaryTopicPhrase(keyword) || coreKeywordPhrase(keyword) || keyword
+  const dens = analyzeKeywordDensity(html, densityTarget)
+  return {
+    eeatScore: calculateEEATScore(html),
+    keywordDensityPct: dens.density,
+    keywordDensityScore: dens.score,
+  }
+}
+
 export async function fixAllArticleIssues(opts: FixAllOptions): Promise<FixAllResult> {
   const {
     keyword,
@@ -55,6 +68,7 @@ export async function fixAllArticleIssues(opts: FixAllOptions): Promise<FixAllRe
     maxWordCount: band.max,
     userId,
     articleId,
+    ...scoreOpts(opts.html, keyword),
   }
 
   const qualityGateBefore = await runQualityGate(opts.html, gateOpts)
@@ -62,19 +76,14 @@ export async function fixAllArticleIssues(opts: FixAllOptions): Promise<FixAllRe
   const fixed: FixAllResult['fixed'] = []
   const beforeIds = new Set(qualityGateBefore.issues.map(issueKey))
 
-  // Track autofixes already applied inside runQualityGate
   if (qualityGateBefore.autoFixedCount > 0) {
-    const cleared = qualityGateBefore.issues.filter(i => i.autoFixable)
-    // Issues still listed after autofix weren't fully cleared; infer from score path
     fixed.push({
       id: 'quality-gate-autofix',
       title: `Applied ${qualityGateBefore.autoFixedCount} Quality Gate auto-fix(es)`,
-      how: 'AI-slop removal, typically reduction, grant-figure hedges, cross-brand link strip, FAQ schema',
+      how: 'Brand mismatch rewrite, AI-slop removal, typically reduction, grant-figure hedges, cross-brand link strip, FAQ schema',
     })
-    void cleared
   }
 
-  // Merge-artifact / insertion-corruption repair
   if (hasInsertionCorruption(html) || applyDeterministicMergeFixes(html).fixesMade > 0 || /copy-error|merge/i.test(qualityGateBefore.issues.map(i => i.category).join(','))) {
     const before = html
     const repaired = await repairAllMergeArtifacts(html)
@@ -98,7 +107,6 @@ export async function fixAllArticleIssues(opts: FixAllOptions): Promise<FixAllRe
     }
   }
 
-  // Scannability — split dense paragraphs when flagged
   if (qualityGateBefore.issues.some(i => i.category === 'scannability')) {
     const split = autoSplitDenseParagraphs(html)
     if (split !== html) {
@@ -111,9 +119,84 @@ export async function fixAllArticleIssues(opts: FixAllOptions): Promise<FixAllRe
     }
   }
 
-  // Final scrub + re-run gate for honest residual report
+  if (qualityGateBefore.issues.some(i => i.id === 'score-floor-eeat')) {
+    try {
+      const before = html
+      const improved = await improveArticle({
+        articleContent: html,
+        target: 'eeat',
+        currentScore: calculateEEATScore(html),
+        keyword,
+        title: keyword,
+        brand,
+      })
+      html = improved.improvedContent || html
+      if (html !== before) {
+        fixed.push({
+          id: 'score-floor-eeat',
+          title: 'Improved E-E-A-T signals',
+          how: improved.changesSummary || 'E-E-A-T improve pass',
+        })
+      }
+    } catch (err) {
+      console.warn('[fix-all] E-E-A-T improve failed:', err)
+    }
+  }
+
+  if (qualityGateBefore.issues.some(i => i.id === 'score-floor-keyword-density')) {
+    try {
+      const before = html
+      const dens = analyzeKeywordDensity(html, primaryTopicPhrase(keyword) || keyword)
+      const improved = await improveArticle({
+        articleContent: html,
+        target: 'keyword_density',
+        currentScore: dens.score,
+        keyword,
+        title: keyword,
+        brand,
+      })
+      html = improved.improvedContent || html
+      if (html !== before) {
+        fixed.push({
+          id: 'score-floor-keyword-density',
+          title: 'Improved keyword density',
+          how: improved.changesSummary || 'Keyword density improve pass',
+        })
+      }
+    } catch (err) {
+      console.warn('[fix-all] keyword density improve failed:', err)
+    }
+  }
+
+  if (qualityGateBefore.issues.some(i => i.id === 'score-floor-fact-sourcing')) {
+    try {
+      const before = html
+      const improved = await improveArticle({
+        articleContent: html,
+        target: 'fact_sourcing',
+        currentScore: 30,
+        keyword,
+        title: keyword,
+        brand,
+      })
+      html = improved.improvedContent || html
+      if (html !== before) {
+        fixed.push({
+          id: 'score-floor-fact-sourcing',
+          title: 'Improved fact sourcing',
+          how: improved.changesSummary || 'Fact sourcing improve pass',
+        })
+      }
+    } catch (err) {
+      console.warn('[fix-all] fact sourcing improve failed:', err)
+    }
+  }
+
   html = scrubInsertionCorruption(html).html
-  const qualityGateAfter = await runQualityGate(html, gateOpts)
+  const qualityGateAfter = await runQualityGate(html, {
+    ...gateOpts,
+    ...scoreOpts(html, keyword),
+  })
   html = qualityGateAfter.articleAfterAutoFix || html
 
   if (qualityGateAfter.autoFixedCount > 0 && qualityGateAfter.autoFixedCount !== qualityGateBefore.autoFixedCount) {
@@ -134,7 +217,6 @@ export async function fixAllArticleIssues(opts: FixAllOptions): Promise<FixAllRe
         : (i.description || 'Requires human confirmation or a brand/context setting'),
     }))
 
-  // Prefer issues that were present before and cleared
   const afterIds = new Set(qualityGateAfter.issues.map(issueKey))
   for (const issue of qualityGateBefore.issues) {
     if (!afterIds.has(issueKey(issue)) && !fixed.some(f => f.id === issue.id)) {

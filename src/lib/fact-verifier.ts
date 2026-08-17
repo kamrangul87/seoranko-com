@@ -3,6 +3,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { MODEL_FOR } from './model-router';
+import { applyGuardedReplace } from '@/lib/sentence-integrity';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
@@ -265,7 +266,8 @@ IMPORTANT: Limit fact_audit to maximum 15 items. Limit edits_to_apply to maximum
   let finalArticle = generatedArticle;
   for (const edit of audit.edits_to_apply || []) {
     if (edit.find && edit.replace !== undefined) {
-      finalArticle = finalArticle.replace(edit.find, edit.replace);
+      const { html, applied } = applyGuardedReplace(finalArticle, edit.find, edit.replace, 'editorial-audit')
+      if (applied) finalArticle = html
     }
   }
   return { ...audit, final_article: finalArticle };

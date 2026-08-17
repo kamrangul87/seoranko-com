@@ -320,6 +320,8 @@ export type IssueCategory =
   | 'brief-coverage'
   | 'secondary-keyword-coverage'
   | 'topic-alignment'
+  | 'brand-mismatch'
+  | 'score-floor'
 
 export interface QualityIssue {
   id: string
@@ -473,6 +475,124 @@ export function checkSecondaryKeywordCoverage(articleContent: string, secondaryK
   }]
 }
 
+/** Known rivals / frequent hallucinations — block if they appear when brand is set. */
+const RIVAL_BRAND_PATTERNS: Array<{ re: RegExp; label: string }> = [
+  { re: /\bauto\s*trader(?:\.com)?\b/i, label: 'Auto Trader' },
+  { re: /\bautotrader(?:\.com)?\b/i, label: 'Auto Trader' },
+  { re: /\bwhat\s*car\??\b/i, label: 'What Car' },
+  { re: /\bparkers\b/i, label: 'Parkers' },
+  { re: /\bcarwow\b/i, label: 'Carwow' },
+  { re: /\bzap-?map\b/i, label: 'Zapmap' },
+]
+
+export function detectWrongBrandInBody(articleContent: string, brand: string): QualityIssue | null {
+  const expected = brand.trim()
+  if (!expected) return null
+  const expectedNorm = expected.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const plain = articleContent
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+
+  for (const { re, label } of RIVAL_BRAND_PATTERNS) {
+    const labelNorm = label.toLowerCase().replace(/[^a-z0-9]/g, '')
+    if (expectedNorm.includes(labelNorm) || labelNorm.includes(expectedNorm)) continue
+    if (re.test(plain)) {
+      return {
+        id: 'brand-mismatch',
+        severity: 'critical',
+        category: 'brand-mismatch',
+        title: `Wrong brand in article body: "${label}" (configured brand is "${expected}")`,
+        description: `Body text mentions "${label}", which is not your configured brand. This is a brand-safety failure — do not publish until the body uses "${expected}" only.`,
+        autoFixable: true,
+        autoFixDescription: `Replace "${label}" with "${expected}"`,
+      }
+    }
+  }
+
+  // "At SomeCompany," intro that isn't the configured brand
+  const atMatch = plain.match(/\bAt\s+([A-Z][A-Za-z0-9 .'-]{1,40}?)\s*,\s*we\b/)
+  if (atMatch) {
+    const named = atMatch[1].replace(/\.com$/i, '').trim()
+    const namedNorm = named.toLowerCase().replace(/[^a-z0-9]/g, '')
+    if (namedNorm && namedNorm !== expectedNorm && !expectedNorm.includes(namedNorm) && !namedNorm.includes(expectedNorm)) {
+      return {
+        id: 'brand-mismatch',
+        severity: 'critical',
+        category: 'brand-mismatch',
+        title: `Intro names "${named}" but configured brand is "${expected}"`,
+        description: `The opening "At ${named}, we…" does not match your brand setting. Regenerate or Fix All before publishing.`,
+        autoFixable: true,
+        autoFixDescription: `Rewrite intro to use "${expected}"`,
+      }
+    }
+  }
+
+  return null
+}
+
+/** Hard floors on individual metrics — a good blended score must not hide these. */
+export function scoreFloorIssues(opts: {
+  eeatScore?: number
+  keywordDensityPct?: number
+  keywordDensityScore?: number
+  factSourcingScore?: number
+  keyword: string
+}): QualityIssue[] {
+  const out: QualityIssue[] = []
+  const {
+    eeatScore,
+    keywordDensityPct,
+    keywordDensityScore,
+    factSourcingScore,
+    keyword,
+  } = opts
+
+  // E-E-A-T floor
+  if (typeof eeatScore === 'number' && eeatScore < 50) {
+    out.push({
+      id: 'score-floor-eeat',
+      severity: 'critical',
+      category: 'score-floor',
+      title: `E-E-A-T score ${eeatScore}/100 is below the publish floor (50)`,
+      description: 'Experience, expertise, authoritativeness, or trust signals are too weak. Improve author byline, first-person experience, and authoritative citations before publishing.',
+      autoFixable: true,
+      autoFixDescription: 'Run Fix All / Improve E-E-A-T',
+    })
+  }
+
+  // Keyword density / presence floor
+  const densityMissing =
+    (typeof keywordDensityPct === 'number' && keywordDensityPct < 0.15) ||
+    (typeof keywordDensityScore === 'number' && keywordDensityScore < 20)
+  if (densityMissing) {
+    out.push({
+      id: 'score-floor-keyword-density',
+      severity: 'critical',
+      category: 'score-floor',
+      title: `Keyword density too low for "${keyword}" (${keywordDensityPct?.toFixed(1) ?? '0.0'}% / score ${keywordDensityScore ?? 0})`,
+      description: 'The primary keyword barely appears in the body. An article must not show Ready to publish with near-zero keyword presence.',
+      autoFixable: true,
+      autoFixDescription: 'Run Fix All / Improve keyword density',
+    })
+  }
+
+  // Fact sourcing floor (when score was computed)
+  if (typeof factSourcingScore === 'number' && factSourcingScore < 40) {
+    out.push({
+      id: 'score-floor-fact-sourcing',
+      severity: 'critical',
+      category: 'score-floor',
+      title: `Fact sourcing score ${factSourcingScore}/100 is below the publish floor (40)`,
+      description: 'Too many unsourced claims remain. Add named-source attributions before publishing.',
+      autoFixable: true,
+      autoFixDescription: 'Run Fix All / Improve fact sourcing',
+    })
+  }
+
+  return out
+}
+
 // ============================================================
 // MAIN QUALITY GATE FUNCTION
 // ============================================================
@@ -518,17 +638,13 @@ export async function runQualityGate(
     expectedImageCount?: number
     brief?: { entities: string[]; topicalGaps: string[] }
     secondaryKeywords?: string[]
-    // Issues computed by the caller before this gate runs — e.g. broken/fake
-    // citation links, already resolved via HTTP checks by
-    // citation-link-validator.ts against the (already-patched) articleContent
-    // being passed in here. Kept as a caller-supplied list rather than an
-    // async check inside this gate so the async link-validation step can run
-    // once, before the fact-sourcing patch, and its results (a stripped
-    // article + issues) both feed forward correctly.
     extraIssues?: QualityIssue[]
-    // When false, logo was intentionally omitted by schema-generator.ts
-    // (no brand_settings.logo_url) — validator must not flag it afterward.
     expectOrganizationLogo?: boolean
+    /** Hard floors — force needs-review when any critical metric is too low. */
+    eeatScore?: number
+    keywordDensityPct?: number
+    keywordDensityScore?: number
+    factSourcingScore?: number
   }
 ): Promise<QualityGateResult> {
 
@@ -543,17 +659,44 @@ export async function runQualityGate(
     articleId,
     expectedImageCount,
     brief,
+    keyword,
     secondaryKeywords,
     extraIssues,
-    expectOrganizationLogo = true,
-  } = options
+    expectOrganizationLogo,
+    eeatScore,
+    keywordDensityPct,
+    keywordDensityScore,
+    factSourcingScore,
+  } = {
+    expectOrganizationLogo: true,
+    ...options,
+  } as {
+    brand: string
+    authorName: string
+    registeredLinkDomains: string[]
+    minWordCount?: number
+    maxWordCount?: number
+    maxTypically?: number
+    userId?: string
+    articleId?: string
+    expectedImageCount?: number
+    brief?: { entities: string[]; topicalGaps: string[] }
+    keyword: string
+    secondaryKeywords?: string[]
+    extraIssues?: QualityIssue[]
+    expectOrganizationLogo?: boolean
+    eeatScore?: number
+    keywordDensityPct?: number
+    keywordDensityScore?: number
+    factSourcingScore?: number
+  }
 
   let issues: QualityIssue[] = extraIssues ? [...extraIssues] : []
   let articleAfterAutoFix = articleContent
   let autoFixedCount = 0
 
   // ---- RULE 0: Topic must match the requested keyword (blocks crypto-for-ev-charger disasters) ----
-  const topicCheck = checkTopicAlignment(articleContent, options.keyword)
+  const topicCheck = checkTopicAlignment(articleContent, keyword)
   if (!topicCheck.aligned) {
     issues.push({
       id: 'topic-alignment-failed',
@@ -768,7 +911,20 @@ export async function runQualityGate(
       description: 'Generated without brand/site context, so internal linking, schema publisher identity, canonical URL, and OG tags fall back to placeholders. Fine for testing other markets/keywords; set a brand and regenerate before publishing.',
       autoFixable: false,
     })
+  } else {
+    // Brand-safety: block publish when body text names a rival / wrong company
+    const brandMismatch = detectWrongBrandInBody(articleContent, brand)
+    if (brandMismatch) issues.push(brandMismatch)
   }
+
+  // ---- RULE 7c: Hard floors on individual scores (never hide behind a blended gate score) ----
+  issues.push(...scoreFloorIssues({
+    eeatScore,
+    keywordDensityPct,
+    keywordDensityScore,
+    factSourcingScore,
+    keyword,
+  }))
 
   // ---- RULE 8: Word count ----
   if (wordCount < minWordCount) {
@@ -823,44 +979,98 @@ export async function runQualityGate(
   }
 
   // ---- AUTO-FIX PASS ----
-  // Fix 1: Remove cross-brand links
+  // Fix 0: Wrong brand in body → replace with configured brand
+  if (brand && issues.some(i => i.id === 'brand-mismatch' && i.autoFixable)) {
+    for (const { re, label } of RIVAL_BRAND_PATTERNS) {
+      const labelNorm = label.toLowerCase().replace(/[^a-z0-9]/g, '')
+      const brandNorm = brand.toLowerCase().replace(/[^a-z0-9]/g, '')
+      if (brandNorm.includes(labelNorm)) continue
+      const fixed = applyGuardedRegexReplace(
+        articleAfterAutoFix,
+        re,
+        () => brand,
+        `brand-replace-${label}`,
+      )
+      if (fixed.appliedCount > 0) {
+        articleAfterAutoFix = fixed.html
+        autoFixedCount += fixed.appliedCount
+      }
+    }
+    const introFix = applyGuardedRegexReplace(
+      articleAfterAutoFix,
+      /\bAt\s+(?!Kamran)([A-Z][A-Za-z0-9 .'-]{1,40}?)\s*,\s*we\b/g,
+      (match, named: string) => {
+        const n = named.replace(/\.com$/i, '').trim().toLowerCase().replace(/[^a-z0-9]/g, '')
+        const expected = brand.toLowerCase().replace(/[^a-z0-9]/g, '')
+        if (n === expected || expected.includes(n) || n.includes(expected)) return match
+        return `At ${brand}, we`
+      },
+      'brand-intro-rewrite',
+    )
+    if (introFix.appliedCount > 0) {
+      articleAfterAutoFix = introFix.html
+      autoFixedCount += introFix.appliedCount
+    }
+    // Re-check — clear brand-mismatch if resolved
+    if (!detectWrongBrandInBody(articleAfterAutoFix, brand)) {
+      issues = issues.filter(i => i.id !== 'brand-mismatch')
+    }
+  }
+
+  // Fix 1: Remove cross-brand links (guarded)
   if (issues.some(i => i.category === 'cross-brand-link' && i.autoFixable)) {
-    articleAfterAutoFix = articleAfterAutoFix.replace(
+    const linkFix = applyGuardedRegexReplace(
+      articleAfterAutoFix,
       /<a[^>]*href=["'][^"']*["'][^>]*>([^<]*)<\/a>/gi,
-      (match, anchorText) => {
+      (match, anchorText: string) => {
         const hrefMatch = match.match(/href=["']https?:\/\/([^/"']+)/)
         if (!hrefMatch) return match
         const domain = hrefMatch[1].replace('www.', '')
         const isWrongBrand = ['autodun.com', 'seoranko.com', 'fitford.com'].some(d =>
           domain.includes(d) && !registeredLinkDomains.some(r => domain.includes(r))
         )
-        if (isWrongBrand) { autoFixedCount++; return anchorText }
+        if (isWrongBrand) return anchorText
         return match
-      }
+      },
+      'cross-brand-link-strip',
     )
+    articleAfterAutoFix = linkFix.html
+    autoFixedCount += linkFix.appliedCount
   }
 
-  // Fix 2: Reduce "typically" overuse
+  // Fix 2: Reduce "typically" overuse (guarded)
   const typIssue = issues.find(i => i.id === 'hedging-typically' && i.autoFixable)
   if (typIssue) {
     let count = 0
-    articleAfterAutoFix = articleAfterAutoFix.replace(/\btypically\b/gi, (match) => {
-      count++
-      if (count > maxTypically) { autoFixedCount++; return '' }
-      return match
-    })
-    articleAfterAutoFix = articleAfterAutoFix.replace(/\s{2,}/g, ' ')
+    const typFix = applyGuardedRegexReplace(
+      articleAfterAutoFix,
+      /\btypically\b/gi,
+      (match) => {
+        count++
+        if (count > maxTypically) return ''
+        return match
+      },
+      'typically-reduce',
+    )
+    articleAfterAutoFix = typFix.html.replace(/\s{2,}/g, ' ')
+    autoFixedCount += typFix.appliedCount
   }
 
-  // Fix 3: Remove auto-fixable AI slop patterns
+  // Fix 3: Remove auto-fixable AI slop patterns (guarded)
   for (const pattern of AI_SLOP_PATTERNS) {
     const slopIssue = issues.find(
       i => i.category === 'ai-slop' && i.autoFixable &&
       i.location && pattern.test(i.location)
     )
     if (slopIssue) {
-      articleAfterAutoFix = articleAfterAutoFix.replace(pattern, '')
-      autoFixedCount++
+      const slopFix = applyGuardedRegexReplace(
+        articleAfterAutoFix,
+        pattern,
+        () => '',
+        'ai-slop-remove',
+      )
+      articleAfterAutoFix = slopFix.html
+      autoFixedCount += slopFix.appliedCount
     }
   }
 
@@ -956,10 +1166,22 @@ export async function runQualityGate(
   const score = Math.max(0, 100 - (criticalCount * 20) - (warningCount * 5))
   const passed = criticalCount === 0
   const missingBrand = issues.some(i => i.id === 'missing-brand')
-  // Brand-less drafts: warning severity (doesn't tank the score) but never readyToPublish
-  const readyToPublish = criticalCount === 0 && warningCount <= 2 && !missingBrand
+  const brandMismatch = issues.some(i => i.id === 'brand-mismatch')
+  const scoreFloorFail = issues.some(i => i.category === 'score-floor' && i.severity === 'critical')
+  // Brand-less drafts / wrong brand / failed score floors never readyToPublish
+  const readyToPublish =
+    criticalCount === 0 &&
+    warningCount <= 2 &&
+    !missingBrand &&
+    !brandMismatch &&
+    !scoreFloorFail
   const blockers = issues
-    .filter(i => i.severity === 'critical' || i.id === 'missing-brand')
+    .filter(i =>
+      i.severity === 'critical' ||
+      i.id === 'missing-brand' ||
+      i.id === 'brand-mismatch' ||
+      i.category === 'score-floor'
+    )
     .map(i => `[${i.category.toUpperCase()}] ${i.title}`)
 
   void logQualityGateRun(userId, articleId, issues)

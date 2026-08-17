@@ -169,8 +169,8 @@ You MUST use the LOCKED H1 as your <h1> (polish wording slightly but keep the sa
 You MUST use the LOCKED H2 sections as your <h2> headings in order.
 
 TARGET: ${wordCount} words | TONE: ${tone} | DATE: ${month} ${year}
-AUTHOR: Kamran Gul${brand !== 'the publisher' ? `, ${brand}` : ''} — never invent other author names
-${domain ? `SITE: ${domain} — mention the brand naturally once in the intro` : ''}
+AUTHOR: Kamran Gul${brand !== 'the publisher' ? `, founder of ${brand}` : ''} — never invent other author or company names
+${brand !== 'the publisher' ? `BRAND (exact): "${brand}"${domain ? ` (${domain})` : ''} — mention "${brand}" once naturally in the intro (e.g. "At ${brand}, we…"). NEVER invent or substitute other company names (Auto Trader, What Car, Parkers, etc.).` : (domain ? `SITE: ${domain}` : '')}
 ${secondary ? `Mention these related terms naturally once each where relevant: ${secondary}` : ''}
 ${uniqueAngle ? `Unique angle to include briefly: ${uniqueAngle}` : ''}
 

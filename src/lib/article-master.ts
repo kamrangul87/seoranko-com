@@ -7,6 +7,7 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRet
 import { MODEL_FOR } from '@/lib/model-router';
 import { sanitiseForTransport } from '@/lib/sanitise-text';
 import { normalizeMarketForAuthority, marketLabel } from '@/lib/markets';
+import { scrubInsertionCorruption, applyGuardedRegexReplace } from '@/lib/sentence-integrity';
 
 export type ArticleMode = 'generate' | 'competitor' | 'improve';
 
@@ -777,31 +778,70 @@ export async function validateAndCorrect(
   keyword = '',
   market = 'Global',
   liveFacts = '',
+  brandName = '',
+  brandDomain = '',
 ): Promise<{ article: string; corrections: string[] }> {
   const corrections: string[] = [];
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().toLocaleString('en-GB', { month: 'long' });
   const isoDate = new Date().toISOString().split('T')[0];
+  const displayBrand = brandName.trim() || 'the publisher'
+  const siteUrl = brandDomain.trim()
+    ? (brandDomain.startsWith('http') ? brandDomain.replace(/\/$/, '') : `https://${brandDomain.replace(/^https?:\/\//, '').replace(/\/$/, '')}`)
+    : ''
 
   let corrected = article;
 
+  // FIX 0 — Strip hallucinated rival brands from body (brand-safety)
+  const rivalBrandPatterns: Array<{ re: RegExp; label: string }> = [
+    { re: /\bauto\s*trader\.com\b/gi, label: 'Auto Trader' },
+    { re: /\bauto\s*trader\b/gi, label: 'Auto Trader' },
+    { re: /\bautotrader\b/gi, label: 'Auto Trader' },
+    { re: /\bwhat\s*car\??\b/gi, label: 'What Car' },
+    { re: /\bparkers\b/gi, label: 'Parkers' },
+  ]
+  if (displayBrand !== 'the publisher') {
+    for (const { re, label } of rivalBrandPatterns) {
+      if (re.test(corrected) && !displayBrand.toLowerCase().includes(label.toLowerCase().replace(/\s/g, ''))) {
+        corrected = corrected.replace(re, displayBrand)
+        corrections.push(`Replaced hallucinated brand "${label}" with "${displayBrand}"`)
+      }
+    }
+    // "At SomeWrongBrand," intro when brand is set
+    corrected = corrected.replace(
+      /\bAt\s+(?!Kamran)([A-Z][A-Za-z0-9 .'-]{1,40}?)\s*,\s*we\b/g,
+      (match, named: string) => {
+        const n = named.replace(/\.com$/i, '').trim().toLowerCase()
+        const expected = displayBrand.toLowerCase()
+        if (n === expected || n.replace(/\s/g, '') === expected.replace(/\s/g, '')) return match
+        corrections.push(`Rewrote intro brand "${named}" → "${displayBrand}"`)
+        return `At ${displayBrand}, we`
+      },
+    )
+  }
+
   // FIX 1 — Replace fake author names (HTML + plain text + About the Author)
+  const brandEsc = displayBrand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const fakeAuthorByLine = /By\s+<strong>(?!Kamran Gul)([A-Z][a-z]+\s+[A-Z][a-z]+)<\/strong>/g;
   const fakeAuthorPlain = /\bBy\s+(?!Kamran Gul)([A-Z][a-z]+\s+[A-Z][a-z]+)(?=\s*[|,]|\s*$)/g;
-  const fakeAuthorStrong = /<strong>(?!Kamran Gul|Autodun)([A-Z][a-z]+\s+[A-Z][a-z]+)<\/strong>\s+is\s+(an?\s+)?(automotive|technical|senior|experienced|award|financial)/gi;
+  const fakeAuthorStrong = new RegExp(
+    `<strong>(?!Kamran Gul|${brandEsc})([A-Z][a-z]+\\s+[A-Z][a-z]+)<\\/strong>\\s+is\\s+(an?\\s+)?(automotive|technical|senior|experienced|award|financial)`,
+    'gi',
+  )
   const fakeSchemaAuthor = /"author":\s*\{\s*"@type":\s*"Person",\s*"name":\s*"(?!Kamran Gul)([^"]+)"/g;
   const fakeBylineBlock = /<p[^>]*>\s*<strong>Byline:<\/strong>[\s\S]*?<\/p>/gi;
   const fakeAboutAuthor = /<h2[^>]*>\s*About the Author\s*<\/h2>[\s\S]*?(?=<h2|$)/gi;
+
+  const aboutAuthorHtml = displayBrand !== 'the publisher'
+    ? `<h2>About the Author</h2>\n<p><strong>Kamran Gul</strong> is the founder of ${displayBrand}${siteUrl ? `, an independent publisher at ${siteUrl.replace(/^https?:\/\//, '')}` : ''}.</p>\n`
+    : `<h2>About the Author</h2>\n<p><strong>Kamran Gul</strong> is an independent researcher and writer.</p>\n`
 
   if (fakeBylineBlock.test(corrected)) {
     corrected = corrected.replace(fakeBylineBlock, '');
     corrections.push('Removed invented byline block');
   }
   if (fakeAboutAuthor.test(corrected)) {
-    corrected = corrected.replace(
-      fakeAboutAuthor,
-      '<h2>About the Author</h2>\n<p><strong>Kamran Gul</strong> is the founder of Autodun, an independent vehicle intelligence platform.</p>\n'
-    );
+    corrected = corrected.replace(fakeAboutAuthor, aboutAuthorHtml);
     corrections.push('Replaced fake About the Author section with Kamran Gul');
   }
   if (fakeAuthorPlain.test(corrected)) {
@@ -813,7 +853,10 @@ export async function validateAndCorrect(
     corrections.push('Replaced invented author name with Kamran Gul');
   }
   if (fakeAuthorStrong.test(corrected)) {
-    corrected = corrected.replace(fakeAuthorStrong, '<strong>Kamran Gul</strong> is the founder of Autodun, an independent vehicle intelligence platform.');
+    const bio = displayBrand !== 'the publisher'
+      ? `<strong>Kamran Gul</strong> is the founder of ${displayBrand}.`
+      : `<strong>Kamran Gul</strong> is an independent researcher and writer.`
+    corrected = corrected.replace(fakeAuthorStrong, bio);
     corrections.push('Fixed author bio to Kamran Gul');
   }
   if (fakeSchemaAuthor.test(corrected)) {
@@ -839,11 +882,20 @@ export async function validateAndCorrect(
     corrections.push(`Fixed schema datePublished to ${isoDate}`);
   }
 
-  // FIX 3 — Fix publisher in schema
-  const wrongPublisher = /"publisher":\s*\{\s*"@type":\s*"Organization",\s*"name":\s*"(?!Autodun)([^"]+)"/g;
-  if (wrongPublisher.test(corrected)) {
-    corrected = corrected.replace(wrongPublisher, '"publisher": {"@type": "Organization", "name": "Autodun", "url": "https://autodun.com"');
-    corrections.push('Fixed schema publisher to Autodun');
+  // FIX 3 — Fix publisher in schema to configured brand (never hardcode a specific company)
+  if (displayBrand !== 'the publisher') {
+    const wrongPublisher = new RegExp(
+      `"publisher":\\s*\\{\\s*"@type":\\s*"Organization",\\s*"name":\\s*"(?!${brandEsc})([^"]+)"`,
+      'g',
+    )
+    if (wrongPublisher.test(corrected)) {
+      const pubUrl = siteUrl || ''
+      corrected = corrected.replace(
+        wrongPublisher,
+        `"publisher": {"@type": "Organization", "name": "${displayBrand}"${pubUrl ? `, "url": "${pubUrl}"` : ''}`,
+      );
+      corrections.push(`Fixed schema publisher to ${displayBrand}`);
+    }
   }
 
   // FIX 4 — Remove fake credentials
@@ -855,27 +907,38 @@ export async function validateAndCorrect(
 
   // FIX 5 — Add footer if missing
   if (!corrected.includes('Last updated') && !corrected.includes('last updated')) {
+    const founderLine = displayBrand !== 'the publisher'
+      ? `Written by <strong>Kamran Gul</strong>, Founder of ${displayBrand}.`
+      : `Written by <strong>Kamran Gul</strong>.`
     corrected = corrected.replace(
       '</article>',
-      `<p class="article-meta"><em>Last updated: ${currentMonth} ${currentYear}. Always verify regulatory details with the official ${market} sources.</em></p>\n<p class="article-author">Written by <strong>Kamran Gul</strong>, Founder of Autodun.</p>\n</article>`
+      `<p class="article-meta"><em>Last updated: ${currentMonth} ${currentYear}. Always verify regulatory details with the official ${market} sources.</em></p>\n<p class="article-author">${founderLine}</p>\n</article>`
     );
     if (corrected.includes('article-meta')) {
       corrections.push('Added missing last-updated footer');
     }
   }
 
-  // FIX 6 — Remove invented document reference codes (e.g. TB/432, SI 2018/1313)
+  // FIX 6 — Remove invented document reference codes (guarded)
   const inventedDocRefs = /(?:document|guidance|note|circular|bulletin|directive|specification|standard)\s+[A-Z]{1,4}[\/\-]\d{2,5}[a-z]?\b/gi;
   if (inventedDocRefs.test(corrected)) {
-    corrected = corrected.replace(
+    const r1 = applyGuardedRegexReplace(
+      corrected,
       /(?:including\s+)?(?:guidance\s+)?document\s+[A-Z]{1,4}[\/\-]\d{2,5}[a-z]?\s+(?:which\s+[^,\.]+)?/gi,
-      ''
-    );
-    corrected = corrected.replace(
+      () => '',
+      'invented-doc-ref',
+    )
+    corrected = r1.html
+    const r2 = applyGuardedRegexReplace(
+      corrected,
       /,?\s*[A-Z]{1,4}[\/\-]\d{2,5}[a-z]?\s+(?:covers?|states?|requires?|mandates?)[^,\.]+/gi,
-      ''
-    );
-    corrections.push('Removed invented document reference code — replaced with verified URL');
+      () => '',
+      'invented-doc-clause',
+    )
+    corrected = r2.html
+    if (r1.appliedCount + r2.appliedCount > 0) {
+      corrections.push('Removed invented document reference code');
+    }
   }
 
   // FIX 7 — Flag unattributed specific statistics
@@ -901,6 +964,13 @@ export async function validateAndCorrect(
     corrections.push(...factCheck.corrections);
   } catch {
     // Never let the fact-check break article delivery
+  }
+
+  // Always scrub insertion corruption left by any of the above patches
+  const scrubbed = scrubInsertionCorruption(corrected)
+  if (scrubbed.fixes > 0) {
+    corrected = scrubbed.html
+    corrections.push(`Scrubbed ${scrubbed.fixes} insertion-corruption fragment(s)`)
   }
 
   return { article: corrected, corrections };
