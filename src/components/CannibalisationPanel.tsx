@@ -47,10 +47,16 @@ async function authHeaders(): Promise<HeadersInit | null> {
   }
 }
 
-async function parseJson(res: Response): Promise<{ ok: boolean; status: number; data: any }> {
+type CannibalApiPayload = {
+  success?: boolean
+  result?: CannibalResult | null
+  error?: string
+}
+
+async function parseJson(res: Response): Promise<{ ok: boolean; status: number; data: CannibalApiPayload }> {
   const text = await res.text()
   try {
-    return { ok: res.ok, status: res.status, data: JSON.parse(text) }
+    return { ok: res.ok, status: res.status, data: JSON.parse(text) as CannibalApiPayload }
   } catch {
     return {
       ok: false,
