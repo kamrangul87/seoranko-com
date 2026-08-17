@@ -7,7 +7,6 @@ import { describe, expect, it } from 'vitest'
 import {
   QUALITY_PIPELINE_STAGES,
   applyPipelineStageEvent,
-  criticalStopReason,
   formatPipelineStageMarker,
   formatPipelineStoppedMarker,
   initialPipelineStageState,
