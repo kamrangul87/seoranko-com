@@ -8,6 +8,7 @@ import { runQualityGate, type QualityGateResult, type QualityIssue } from '@/lib
 import { repairAllMergeArtifacts, applyDeterministicMergeFixes } from '@/lib/merge-artifact-repair'
 import { autoSplitDenseParagraphs } from '@/lib/scannability-fixer'
 import { scrubInsertionCorruption, hasInsertionCorruption } from '@/lib/sentence-integrity'
+import { assertImageUrlsPreserved } from '@/lib/html-text-transform'
 import { wordCountBand } from '@/lib/word-count'
 import { improveArticle } from '@/lib/article-improver'
 import { calculateEEATScore, analyzeKeywordDensity } from '@/lib/content-scorer'
@@ -73,6 +74,7 @@ export async function fixAllArticleIssues(opts: FixAllOptions): Promise<FixAllRe
 
   const qualityGateBefore = await runQualityGate(opts.html, gateOpts)
   let html = qualityGateBefore.articleAfterAutoFix || opts.html
+  assertImageUrlsPreserved(opts.html, html)
   const fixed: FixAllResult['fixed'] = []
   const beforeIds = new Set(qualityGateBefore.issues.map(issueKey))
 
@@ -193,11 +195,13 @@ export async function fixAllArticleIssues(opts: FixAllOptions): Promise<FixAllRe
   }
 
   html = scrubInsertionCorruption(html).html
+  assertImageUrlsPreserved(opts.html, html)
   const qualityGateAfter = await runQualityGate(html, {
     ...gateOpts,
     ...scoreOpts(html, keyword),
   })
   html = qualityGateAfter.articleAfterAutoFix || html
+  assertImageUrlsPreserved(opts.html, html)
 
   if (qualityGateAfter.autoFixedCount > 0 && qualityGateAfter.autoFixedCount !== qualityGateBefore.autoFixedCount) {
     fixed.push({

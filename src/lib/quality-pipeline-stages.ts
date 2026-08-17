@@ -20,7 +20,7 @@ export type PipelineStageId =
   | 'brand-topic'
   | 'quality-gate'
 
-export type PipelineStageStatus = 'pending' | 'running' | 'pass' | 'fail' | 'fixed' | 'skipped'
+export type PipelineStageStatus = 'pending' | 'running' | 'pass' | 'fail' | 'fixed' | 'partial' | 'skipped'
 
 export interface PipelineStageDef {
   id: PipelineStageId

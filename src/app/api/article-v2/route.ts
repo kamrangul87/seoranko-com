@@ -12,6 +12,7 @@ import { getBrandSettings } from '@/lib/brand-settings';
 import { appendSocialMetaTags } from '@/lib/social-meta-tags';
 import { extractArticleDescription, dedupeMetaDescriptionTags } from '@/lib/extract-meta-description';
 import { scrubInsertionCorruption, hasInsertionCorruption } from '@/lib/sentence-integrity';
+import { assertImageUrlsPreserved } from '@/lib/html-text-transform';
 import { buildCanonicalTag } from '@/lib/canonical-builder';
 import { pingIndexNow } from '@/lib/indexnow';
 import { humanizeArticle } from '@/lib/humanizer';
@@ -27,7 +28,7 @@ import {
   scoreHtmlLocally,
 } from '@/lib/content-scorer';
 import { MODEL_FOR } from '@/lib/model-router';
-import { runQualityGate, detectWrongBrandInBody, type QualityIssue } from '@/lib/article-quality-gate';
+import { runQualityGate, detectWrongBrandInBody, recomputeQualityGateTotals, qualityGateStageStatus, type QualityIssue } from '@/lib/article-quality-gate';
 import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
 import { enforceWordCountLimit, countArticleWords, deterministicTrimToTarget, wordCountBand, snapWordCount } from '@/lib/word-count-enforcer';
 import { stripReplaceableJsonLd } from '@/lib/schema-dedupe';
@@ -170,7 +171,7 @@ export async function POST(req: NextRequest) {
         const send = (chunk: string) => controller.enqueue(encoder.encode(chunk));
         const emitStage = (
           id: PipelineStageId,
-          status: 'running' | 'pass' | 'fail' | 'fixed' | 'skipped',
+          status: 'running' | 'pass' | 'fail' | 'fixed' | 'partial' | 'skipped',
           detail?: string,
         ) => {
           send(formatPipelineStageMarker({
@@ -958,7 +959,9 @@ export async function POST(req: NextRequest) {
             }
             if (qr.autoFixedCount > 0) console.log(`[article-v2] quality-gate: auto-fixed ${qr.autoFixedCount} issues, score=${qr.score}`)
             // Extra scrub after gate autofixes (grant hedges etc.) so ".350." never ships
+            const beforePostGateScrub = finalHtml
             finalHtml = scrubInsertionCorruption(finalHtml).html
+            assertImageUrlsPreserved(beforePostGateScrub, finalHtml)
 
             const criticalStops = qr.issues.filter(i => isCriticalPipelineStopIssue(i))
             if (criticalStops.length > 0) {
@@ -979,11 +982,9 @@ export async function POST(req: NextRequest) {
               abortCritical('quality-gate', reason)
               return
             }
-            emitStage(
-              'quality-gate',
-              qr.autoFixedCount > 0 ? 'fixed' : (qr.passed ? 'pass' : 'fail'),
-              `Score ${qr.score}/100 · ${qr.criticalCount} critical · ${qr.warningCount} warning${qr.autoFixedCount ? ` · ${qr.autoFixedCount} auto-fixed` : ''}`,
-            )
+            // Do NOT emit pass/fixed here — image injection + scannability
+            // reconciliation still mutate issues/score. Final stage is emitted
+            // once below from the single post-reconciliation reading.
           } catch (qErr) {
             console.warn('[article-v2] quality gate failed, continuing:', qErr)
             emitStage('quality-gate', 'fail', qErr instanceof Error ? qErr.message : 'Quality Gate error')
@@ -1035,10 +1036,11 @@ export async function POST(req: NextRequest) {
                     description: `This article was supposed to have ${imageSet.imageStats.requested} images but only ${imageSet.imageStats.generated} generated successfully. Every image provider (Gemini, Pexels, pollinations.ai) failed for at least one slot — check API keys and daily rate limits: ${imageSet.imageStats.failures.join('; ')}`,
                     autoFixable: false,
                   };
-                  articleQualityGate.issues = [...articleQualityGate.issues, imageIssue];
-                  articleQualityGate.warningCount += 1;
-                  articleQualityGate.score = Math.max(0, articleQualityGate.score - 5);
-                  articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2 && !articleQualityGate.issues.some(i => i.id === 'missing-brand' || i.id === 'brand-mismatch' || (i.category === 'score-floor' && i.severity === 'critical'));
+                  articleQualityGate = recomputeQualityGateTotals({
+                    ...articleQualityGate,
+                    issues: [...articleQualityGate.issues, imageIssue],
+                    articleAfterAutoFix: publishedHtml,
+                  })
                 }
 
                 // image-placement structure issues (figure right after a heading,
@@ -1056,14 +1058,21 @@ export async function POST(req: NextRequest) {
                     description: si.message,
                     autoFixable: false,
                   }));
-                  articleQualityGate.issues = [...articleQualityGate.issues, ...mapped];
-                  articleQualityGate.warningCount += mapped.length;
-                  articleQualityGate.score = Math.max(0, articleQualityGate.score - mapped.length * 5);
-                  articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2 && !articleQualityGate.issues.some(i => i.id === 'missing-brand' || i.id === 'brand-mismatch' || (i.category === 'score-floor' && i.severity === 'critical'));
+                  articleQualityGate = recomputeQualityGateTotals({
+                    ...articleQualityGate,
+                    issues: [...articleQualityGate.issues, ...mapped],
+                    articleAfterAutoFix: publishedHtml,
+                  })
                 }
 
+                // Final scrub must not touch injected image URLs
+                const beforeImgScrub = publishedHtml
+                publishedHtml = scrubInsertionCorruption(publishedHtml).html
+                assertImageUrlsPreserved(beforeImgScrub, publishedHtml)
+                assertImageUrlsPreserved(withImages, publishedHtml)
+
                 controller.enqueue(encoder.encode(
-                  `\n<!--SEORANKO_WITH_IMAGES_START-->\n${withImages}\n<!--SEORANKO_WITH_IMAGES_END-->`
+                  `\n<!--SEORANKO_WITH_IMAGES_START-->\n${publishedHtml}\n<!--SEORANKO_WITH_IMAGES_END-->`
                 ));
                 controller.enqueue(encoder.encode(
                   `\n<!--SEORANKO_IMAGE_SET_START-->${JSON.stringify({
@@ -1087,11 +1096,11 @@ export async function POST(req: NextRequest) {
                     description: msg,
                     autoFixable: false,
                   };
-                  articleQualityGate.issues = [...articleQualityGate.issues, blockIssue];
-                  articleQualityGate.criticalCount += 1;
-                  articleQualityGate.passed = false;
-                  articleQualityGate.readyToPublish = false;
-                  articleQualityGate.blockers = [...articleQualityGate.blockers, `[IMAGE-COMPLETENESS] ${blockIssue.title}`];
+                  articleQualityGate = recomputeQualityGateTotals({
+                    ...articleQualityGate,
+                    issues: [...articleQualityGate.issues, blockIssue],
+                    articleAfterAutoFix: publishedHtml,
+                  })
                 }
                 // publishedHtml stays at finalHtml (pre-injection) — the
                 // figureless state is what gets blocked from saving below,
@@ -1103,7 +1112,9 @@ export async function POST(req: NextRequest) {
             // before save, so figure/figcaption markup doesn't shift
             // paragraph boundaries computed earlier in the pipeline.
             try {
+              const beforeSplit = publishedHtml
               publishedHtml = splitDenseParagraphs(publishedHtml);
+              assertImageUrlsPreserved(beforeSplit, publishedHtml)
             } catch (splitErr) {
               console.warn('[article-v2] paragraph-splitter failed, continuing:', splitErr);
             }
@@ -1119,12 +1130,11 @@ export async function POST(req: NextRequest) {
               if (articleQualityGate) {
                 const hadScannabilityIssue = articleQualityGate.issues.some(i => i.category === 'scannability');
                 if (hadScannabilityIssue && remainingScannability.length === 0) {
-                  const removed = articleQualityGate.issues.filter(i => i.category === 'scannability');
-                  articleQualityGate.issues = articleQualityGate.issues.filter(i => i.category !== 'scannability');
-                  articleQualityGate.warningCount = Math.max(0, articleQualityGate.warningCount - removed.filter(i => i.severity === 'warning').length);
-                  articleQualityGate.criticalCount = Math.max(0, articleQualityGate.criticalCount - removed.filter(i => i.severity === 'critical').length);
-                  articleQualityGate.score = Math.min(100, articleQualityGate.score + removed.length * 5);
-                  articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2 && !articleQualityGate.issues.some(i => i.id === 'missing-brand' || i.id === 'brand-mismatch' || (i.category === 'score-floor' && i.severity === 'critical'));
+                  articleQualityGate = recomputeQualityGateTotals({
+                    ...articleQualityGate,
+                    issues: articleQualityGate.issues.filter(i => i.category !== 'scannability'),
+                    articleAfterAutoFix: publishedHtml,
+                  })
                 } else if (!hadScannabilityIssue && remainingScannability.length > 0) {
                   // Safety net only — shouldn't normally fire once the
                   // splitter above ran, but a paragraph that's over budget
@@ -1139,11 +1149,11 @@ export async function POST(req: NextRequest) {
                     description: si.message,
                     autoFixable: false,
                   }));
-                  articleQualityGate.issues = [...articleQualityGate.issues, ...mapped];
-                  articleQualityGate.warningCount += mapped.filter(m => m.severity === 'warning').length;
-                  articleQualityGate.criticalCount += mapped.filter(m => m.severity === 'critical').length;
-                  articleQualityGate.score = Math.max(0, articleQualityGate.score - mapped.length * 5);
-                  articleQualityGate.readyToPublish = articleQualityGate.criticalCount === 0 && articleQualityGate.warningCount <= 2 && !articleQualityGate.issues.some(i => i.id === 'missing-brand' || i.id === 'brand-mismatch' || (i.category === 'score-floor' && i.severity === 'critical'));
+                  articleQualityGate = recomputeQualityGateTotals({
+                    ...articleQualityGate,
+                    issues: [...articleQualityGate.issues, ...mapped],
+                    articleAfterAutoFix: publishedHtml,
+                  })
                 }
               }
             } catch (reconcileErr) {
@@ -1169,19 +1179,6 @@ export async function POST(req: NextRequest) {
 
           // Single prose word count after ALL transforms — UI, DB, schema, and QG must agree
           const finalProseWordCount = countArticleWords(publishedHtml)
-          if (articleQualityGate) {
-            const missingBrand = articleQualityGate.issues.some(i => i.id === 'missing-brand')
-            const brandMismatch = articleQualityGate.issues.some(i => i.id === 'brand-mismatch')
-            const scoreFloorFail = articleQualityGate.issues.some(
-              i => i.category === 'score-floor' && i.severity === 'critical'
-            )
-            articleQualityGate.readyToPublish =
-              articleQualityGate.criticalCount === 0 &&
-              articleQualityGate.warningCount <= 2 &&
-              !missingBrand &&
-              !brandMismatch &&
-              !scoreFloorFail
-          }
 
           // ── Persist to Supabase ──────────────────────────────────────────
           // This is the entire reason the `articles` table had 0 rows in
@@ -1202,25 +1199,57 @@ export async function POST(req: NextRequest) {
             // Do not discard — save proceeds; Quality Gate already scores keyword density.
             console.warn('[article-v2] pre-save topic soft-warn:', saveTopicCheck.reason);
             if (articleQualityGate) {
-              articleQualityGate.issues.push({
-                id: 'topic-alignment',
-                severity: 'warning',
-                category: 'topic-alignment',
-                title: 'Topic alignment is weak',
-                description: saveTopicCheck.reason || 'Review the H1 and keyword mentions before publishing',
-                autoFixable: false,
+              articleQualityGate = recomputeQualityGateTotals({
+                ...articleQualityGate,
+                issues: [
+                  ...articleQualityGate.issues,
+                  {
+                    id: 'topic-alignment',
+                    severity: 'warning',
+                    category: 'topic-alignment',
+                    title: 'Topic alignment is weak',
+                    description: saveTopicCheck.reason || 'Review the H1 and keyword mentions before publishing',
+                    autoFixable: false,
+                  },
+                ],
+                articleAfterAutoFix: publishedHtml,
               })
-              articleQualityGate.warningCount = (articleQualityGate.warningCount || 0) + 1
             }
           } else if (saveTopicCheck.warning && articleQualityGate) {
-            articleQualityGate.issues.push({
-              id: 'topic-alignment-light',
-              severity: 'info',
-              category: 'topic-alignment',
-              title: 'Keyword density is light',
-              description: saveTopicCheck.warning,
-              autoFixable: false,
+            articleQualityGate = recomputeQualityGateTotals({
+              ...articleQualityGate,
+              issues: [
+                ...articleQualityGate.issues,
+                {
+                  id: 'topic-alignment-light',
+                  severity: 'info',
+                  category: 'topic-alignment',
+                  title: 'Keyword density is light',
+                  description: saveTopicCheck.warning,
+                  autoFixable: false,
+                },
+              ],
+              articleAfterAutoFix: publishedHtml,
             })
+          }
+
+          // Single source of truth for pipeline stage + Article Scores panel:
+          // recompute once after every post-QG mutation, then emit Final Quality
+          // Gate from that same object (also sent in SEORANKO_SCORES).
+          if (articleQualityGate) {
+            articleQualityGate = recomputeQualityGateTotals({
+              ...articleQualityGate,
+              articleAfterAutoFix: publishedHtml,
+            })
+            const stage = qualityGateStageStatus(articleQualityGate)
+            emitStage(
+              'quality-gate',
+              stage.status,
+              `Score ${articleQualityGate.score}/100 · ${stage.detailSuffix}` +
+                (articleQualityGate.autoFixedCount
+                  ? ` · ${articleQualityGate.autoFixedCount} auto-fixed`
+                  : ''),
+            )
           }
           if (hardBlockReasons.length > 0) {
             // FIX 1 / FIX 2 hard gate: a hero image was generated but never

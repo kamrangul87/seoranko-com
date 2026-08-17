@@ -20,6 +20,7 @@ import {
   applyGuardedRegexReplace,
   scrubInsertionCorruption,
 } from '@/lib/sentence-integrity'
+import { assertImageUrlsPreserved, transformHtmlTextNodes } from '@/lib/html-text-transform'
 
 // AI slop patterns — expanded from anti-slop GitHub repo
 const AI_SLOP_PATTERNS = [
@@ -344,6 +345,68 @@ export interface QualityGateResult {
   articleAfterAutoFix: string
   readyToPublish: boolean
   blockers: string[]
+}
+
+/** Recompute score/counts/ready from the current issues list (single source of truth). */
+export function recomputeQualityGateTotals(
+  gate: Pick<QualityGateResult, 'issues' | 'autoFixedCount' | 'articleAfterAutoFix'> &
+    Partial<Pick<QualityGateResult, 'passed' | 'score' | 'criticalCount' | 'warningCount' | 'readyToPublish' | 'blockers'>>,
+): QualityGateResult {
+  const issues = gate.issues
+  const criticalCount = issues.filter(i => i.severity === 'critical').length
+  const warningCount = issues.filter(i => i.severity === 'warning').length
+  const score = Math.max(0, 100 - (criticalCount * 20) - (warningCount * 5))
+  const passed = criticalCount === 0
+  const missingBrand = issues.some(i => i.id === 'missing-brand')
+  const brandMismatch = issues.some(i => i.id === 'brand-mismatch')
+  const scoreFloorFail = issues.some(i => i.category === 'score-floor' && i.severity === 'critical')
+  const readyToPublish =
+    criticalCount === 0 &&
+    warningCount <= 2 &&
+    !missingBrand &&
+    !brandMismatch &&
+    !scoreFloorFail
+  const blockers = issues
+    .filter(i =>
+      i.severity === 'critical' ||
+      i.id === 'missing-brand' ||
+      i.id === 'brand-mismatch' ||
+      i.category === 'score-floor'
+    )
+    .map(i => `[${i.category.toUpperCase()}] ${i.title}`)
+
+  return {
+    passed,
+    score,
+    issues,
+    criticalCount,
+    warningCount,
+    autoFixedCount: gate.autoFixedCount,
+    articleAfterAutoFix: gate.articleAfterAutoFix,
+    readyToPublish,
+    blockers,
+  }
+}
+
+/** Honest pipeline-stage status for a finished Quality Gate reading. */
+export function qualityGateStageStatus(gate: Pick<QualityGateResult, 'autoFixedCount' | 'criticalCount' | 'warningCount' | 'passed'>): {
+  status: 'pass' | 'fail' | 'fixed' | 'partial'
+  detailSuffix: string
+} {
+  const open = gate.criticalCount + gate.warningCount
+  if (gate.criticalCount > 0) {
+    return { status: 'fail', detailSuffix: `${open} issue(s) remain` }
+  }
+  if (open > 0 && gate.autoFixedCount > 0) {
+    return { status: 'partial', detailSuffix: `partially fixed, ${open} issue(s) remain` }
+  }
+  if (open > 0) {
+    return { status: 'fail', detailSuffix: `${open} issue(s) remain` }
+  }
+  if (gate.autoFixedCount > 0) {
+    return { status: 'fixed', detailSuffix: `${gate.autoFixedCount} auto-fixed` }
+  }
+  return { status: 'pass', detailSuffix: 'no open issues' }
 }
 
 // Every image is meant to be validated (uploaded + resolvable) before
@@ -1038,53 +1101,59 @@ export async function runQualityGate(
     autoFixedCount += linkFix.appliedCount
   }
 
-  // Fix 2: Reduce "typically" overuse (guarded)
+  // Fix 2: Reduce "typically" overuse — text nodes only (never attributes/JSON-LD)
   const typIssue = issues.find(i => i.id === 'hedging-typically' && i.autoFixable)
   if (typIssue) {
     let count = 0
-    const typFix = applyGuardedRegexReplace(
-      articleAfterAutoFix,
-      /\btypically\b/gi,
-      (match) => {
-        count++
-        if (count > maxTypically) return ''
-        return match
-      },
-      'typically-reduce',
-    )
-    articleAfterAutoFix = typFix.html.replace(/\s{2,}/g, ' ')
-    autoFixedCount += typFix.appliedCount
+    articleAfterAutoFix = transformHtmlTextNodes(articleAfterAutoFix, (text) => {
+      const typFix = applyGuardedRegexReplace(
+        text,
+        /\btypically\b/gi,
+        (match) => {
+          count++
+          if (count > maxTypically) return ''
+          return match
+        },
+        'typically-reduce',
+      )
+      autoFixedCount += typFix.appliedCount
+      return typFix.html.replace(/[^\S\n]{2,}/g, ' ')
+    })
   }
 
-  // Fix 3: Remove auto-fixable AI slop patterns (guarded)
+  // Fix 3: Remove auto-fixable AI slop patterns — text nodes only
   for (const pattern of AI_SLOP_PATTERNS) {
     const slopIssue = issues.find(
       i => i.category === 'ai-slop' && i.autoFixable &&
       i.location && pattern.test(i.location)
     )
     if (slopIssue) {
-      const slopFix = applyGuardedRegexReplace(
-        articleAfterAutoFix,
-        pattern,
-        () => '',
-        'ai-slop-remove',
-      )
-      articleAfterAutoFix = slopFix.html
-      autoFixedCount += slopFix.appliedCount
+      articleAfterAutoFix = transformHtmlTextNodes(articleAfterAutoFix, (text) => {
+        const slopFix = applyGuardedRegexReplace(
+          text,
+          pattern,
+          () => '',
+          'ai-slop-remove',
+        )
+        autoFixedCount += slopFix.appliedCount
+        return slopFix.html
+      })
     }
   }
 
   // Fix 4: Grant-figure hedges — add "(verify at GOV.UK)" next to unsourced caps
   // Guarded: never accept a splice that leaves ".350." or splits the sentence.
   if (issues.some(i => i.category === 'grant-figure' && i.autoFixable)) {
-    const grantFix = applyGuardedRegexReplace(
-      articleAfterAutoFix,
-      /\bup to (\d+%|£\d+)\b(?!\s*\(verify at GOV\.UK\))/gi,
-      (match) => `${match} (verify at GOV.UK)`,
-      'grant-figure-verify',
-    )
-    articleAfterAutoFix = grantFix.html
-    autoFixedCount += grantFix.appliedCount
+    articleAfterAutoFix = transformHtmlTextNodes(articleAfterAutoFix, (text) => {
+      const grantFix = applyGuardedRegexReplace(
+        text,
+        /\bup to (\d+%|£\d+)\b(?!\s*\(verify at GOV\.UK\))/gi,
+        (match) => `${match} (verify at GOV.UK)`,
+        'grant-figure-verify',
+      )
+      autoFixedCount += grantFix.appliedCount
+      return grantFix.html
+    })
     // Re-evaluate — clear criticals that are now hedged
     const remainingGrant = evaluateGrantFigureClaims(articleAfterAutoFix)
     const stillCritical = new Set(
@@ -1128,12 +1197,18 @@ export async function runQualityGate(
     }
   }
 
-  articleAfterAutoFix = articleAfterAutoFix.replace(/\s{2,}/g, ' ').trim()
+  // Do NOT collapse whitespace across the whole HTML document — that would
+  // rewrite attribute values and JSON-LD. Prose double-spaces are already
+  // normalised inside the text-node autofixes above.
 
   // Final corruption scrub — catches any residual ".350." / similar shapes
+  // (text-node scoped; asserts image URLs unchanged)
+  const beforeScrub = articleAfterAutoFix
   const scrubbed = scrubInsertionCorruption(articleAfterAutoFix)
   articleAfterAutoFix = scrubbed.html
   if (scrubbed.fixes > 0) autoFixedCount += scrubbed.fixes
+  assertImageUrlsPreserved(beforeScrub, articleAfterAutoFix)
+  assertImageUrlsPreserved(articleContent, articleAfterAutoFix)
 
   // The "typically" auto-fix above already runs automatically and silently
   // reduces the count in articleAfterAutoFix — but issues/score were computed
@@ -1160,31 +1235,14 @@ export async function runQualityGate(
   // cost 5x the score penalty or produce 5 rows in the recurring-issue log.
   issues = consolidateDuplicateIssues(issues)
 
-  // ---- COMPUTE FINAL SCORE ----
-  const criticalCount = issues.filter(i => i.severity === 'critical').length
-  const warningCount = issues.filter(i => i.severity === 'warning').length
-  const score = Math.max(0, 100 - (criticalCount * 20) - (warningCount * 5))
-  const passed = criticalCount === 0
-  const missingBrand = issues.some(i => i.id === 'missing-brand')
-  const brandMismatch = issues.some(i => i.id === 'brand-mismatch')
-  const scoreFloorFail = issues.some(i => i.category === 'score-floor' && i.severity === 'critical')
-  // Brand-less drafts / wrong brand / failed score floors never readyToPublish
-  const readyToPublish =
-    criticalCount === 0 &&
-    warningCount <= 2 &&
-    !missingBrand &&
-    !brandMismatch &&
-    !scoreFloorFail
-  const blockers = issues
-    .filter(i =>
-      i.severity === 'critical' ||
-      i.id === 'missing-brand' ||
-      i.id === 'brand-mismatch' ||
-      i.category === 'score-floor'
-    )
-    .map(i => `[${i.category.toUpperCase()}] ${i.title}`)
+  // ---- COMPUTE FINAL SCORE (single source of truth) ----
+  const totals = recomputeQualityGateTotals({
+    issues,
+    autoFixedCount,
+    articleAfterAutoFix,
+  })
 
   void logQualityGateRun(userId, articleId, issues)
 
-  return { passed, score, issues, criticalCount, warningCount, autoFixedCount, articleAfterAutoFix, readyToPublish, blockers }
+  return totals
 }

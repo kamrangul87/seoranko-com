@@ -416,6 +416,7 @@ export function ArticleWriter() {
             const latest = stageEvents[stageEvents.length - 1]
             if (latest.status === 'running') setProgressLabel(latest.label)
             else if (latest.status === 'fail') setProgressLabel(`${latest.label} — failed`)
+            else if (latest.status === 'partial') setProgressLabel(`${latest.label} — partially fixed`)
             else if (latest.status === 'fixed') setProgressLabel(`${latest.label} — fixed`)
             else if (latest.status === 'pass') setProgressLabel(`${latest.label} ✓`)
           }
@@ -423,7 +424,21 @@ export function ArticleWriter() {
         }
       }
 
-      setProgressLabel(prev => (prev.startsWith('Stopped:') ? prev : 'Complete ✓'))
+      {
+        const events = parsePipelineStageMarkers(full)
+        const lastQg = [...events].reverse().find(e => e.id === 'quality-gate')
+        if (parsePipelineStoppedMarker(full)) {
+          /* progressLabel already set from stopped reason */
+        } else if (lastQg?.status === 'partial') {
+          setProgressLabel(`Partially fixed — ${lastQg.detail || 'issues remain'}`)
+        } else if (lastQg?.status === 'fail') {
+          setProgressLabel('Quality Gate — failed')
+        } else if (lastQg?.status === 'fixed' || lastQg?.status === 'pass') {
+          setProgressLabel(lastQg.detail ? `Complete · ${lastQg.detail}` : 'Complete ✓')
+        } else {
+          setProgressLabel('Complete ✓')
+        }
+      }
 
       // Stream error check
       const streamErrBlock = full.match(/<!--SEORANKO_ERROR_START-->([\s\S]*?)<!--SEORANKO_ERROR_END-->/)
@@ -721,6 +736,7 @@ export function ArticleWriter() {
               const statusClass =
                 stage.status === 'pass' ? 'text-[#1D9E75]'
                 : stage.status === 'fixed' ? 'text-[#1D9E75]'
+                : stage.status === 'partial' ? 'text-[#B45309]'
                 : stage.status === 'fail' ? 'text-red-600'
                 : stage.status === 'running' ? 'text-[#0F0F0F]'
                 : stage.status === 'skipped' ? 'text-[#C4C4C0]'
@@ -728,6 +744,7 @@ export function ArticleWriter() {
               const mark =
                 stage.status === 'pass' ? '✓'
                 : stage.status === 'fixed' ? '✓ fixed'
+                : stage.status === 'partial' ? '~ partial'
                 : stage.status === 'fail' ? '✕'
                 : stage.status === 'running' ? '…'
                 : stage.status === 'skipped' ? '—'

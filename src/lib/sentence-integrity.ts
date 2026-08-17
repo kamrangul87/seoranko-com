@@ -6,6 +6,8 @@
  * count or leaves a stray fragment, reject it and keep the original text.
  */
 
+import { assertImageUrlsPreserved, transformHtmlTextNodes } from '@/lib/html-text-transform'
+
 export function splitIntoSentences(text: string): string[] {
   return text
     .replace(/<[^>]+>/g, ' ')
@@ -34,8 +36,16 @@ export const INSERTION_CORRUPTION_PATTERNS: RegExp[] = [
   /\b[a-z]{5,}\.[a-z]{1,3}\s+(?:of|the|a|and|for|in|to|on)\b/,
 ]
 
+/** Mask URLs + multi-label hostnames so domain labels never look like merge glue. */
+function maskUrlsAndHostnames(text: string): string {
+  return text
+    .replace(/https?:\/\/[^\s<>"']+/gi, (m) => ' '.repeat(m.length))
+    // foo.supabase.co / energynetworks.org / www.example.com
+    .replace(/\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)+\.[a-z]{2,24}\b/gi, (m) => ' '.repeat(m.length))
+}
+
 export function hasInsertionCorruption(text: string): boolean {
-  const plain = text.replace(/<[^>]+>/g, ' ')
+  const plain = maskUrlsAndHostnames(text.replace(/<[^>]+>/g, ' '))
   return INSERTION_CORRUPTION_PATTERNS.some(re => re.test(plain))
 }
 
@@ -128,57 +138,77 @@ export function applyGuardedRegexReplace(
   return { html: out, appliedCount }
 }
 
+const TLD_LIKE = new Set([
+  'uk', 'com', 'org', 'net', 'gov', 'edu', 'co', 'io', 'ai',
+  'html', 'json', 'xml', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'svg',
+])
+
 /**
  * Deterministic scrub for known post-insertion corruption left in the wild.
  * Safe to run after any autofix pass.
+ *
+ * CRITICAL: only rewrites HTML text nodes — never src/href/content attributes,
+ * never JSON-LD <script> bodies. A prior whole-HTML replace treated
+ * "projectref.supabase" as merge glue and destroyed every Supabase Storage URL.
+ *
+ * After scrubbing, asserts every image URL from the input is still intact.
  */
 export function scrubInsertionCorruption(html: string): { html: string; fixes: number } {
-  let content = html
   let fixes = 0
 
-  // "(verify at GOV.UK).350." → "(verify at GOV.UK)."
-  content = content.replace(/(\(verify at GOV\.UK\))\.\d+\./gi, (_m, paren: string) => {
-    fixes++
-    return `${paren}.`
-  })
+  const scrubText = (text: string): string => {
+    let content = text
 
-  // "£350 (verify at GOV.UK).350." → "£350 (verify at GOV.UK)."
-  content = content.replace(/(£\d+)\s*(\(verify at GOV\.UK\))\.\1\./gi, (_m, amount: string, paren: string) => {
-    fixes++
-    return `${amount} ${paren}.`
-  })
-
-  // Generic: ").123." after any parenthetical → ")."
-  content = content.replace(/\)\.(\d{2,})\.(?=\s|[A-Z])/g, () => {
-    fixes++
-    return ').'
-  })
-
-  // "Approved Document S.t S" → "Approved Document S"
-  content = content.replace(/\b([A-Za-z]+)\s+([A-Z])\.t\s+\2\b/g, (_m, word: string, letter: string) => {
-    fixes++
-    return `${word} ${letter}`
-  })
-
-  // "installations.ce of" → "installations of"
-  content = content.replace(
-    /\b([a-z]{5,})\.([a-z]{1,3})\s+(of|the|a|and|for|in|to|on)\b/g,
-    (_m, word: string, _frag: string, prep: string) => {
+    // "(verify at GOV.UK).350." → "(verify at GOV.UK)."
+    content = content.replace(/(\(verify at GOV\.UK\))\.\d+\./gi, (_m, paren: string) => {
       fixes++
-      return `${word} ${prep}`
-    },
-  )
+      return `${paren}.`
+    })
 
-  // "require.ehicles" / "province.ce" — drop truncated lowercase.lowercase glue
-  // (never touch known TLDs / file extensions)
-  const tldLike = new Set(['uk', 'com', 'org', 'net', 'gov', 'edu', 'co', 'io', 'ai', 'html', 'json', 'xml'])
-  content = content.replace(/\b([a-z]{4,})\.([a-z]{4,})\b/g, (m, a: string, b: string) => {
-    if (tldLike.has(b) || tldLike.has(a)) return m
-    fixes++
-    return a
-  })
+    // "£350 (verify at GOV.UK).350." → "£350 (verify at GOV.UK)."
+    content = content.replace(/(£\d+)\s*(\(verify at GOV\.UK\))\.\1\./gi, (_m, amount: string, paren: string) => {
+      fixes++
+      return `${amount} ${paren}.`
+    })
 
-  // "word.Next" missing space is handled by merge-artifact-repair.
+    // Generic: ").123." after any parenthetical → ")."
+    content = content.replace(/\)\.(\d{2,})\.(?=\s|[A-Z])/g, () => {
+      fixes++
+      return ').'
+    })
 
-  return { html: content, fixes }
+    // "Approved Document S.t S" → "Approved Document S"
+    content = content.replace(/\b([A-Za-z]+)\s+([A-Z])\.t\s+\2\b/g, (_m, word: string, letter: string) => {
+      fixes++
+      return `${word} ${letter}`
+    })
+
+    // "installations.ce of" → "installations of"
+    content = content.replace(
+      /\b([a-z]{5,})\.([a-z]{1,3})\s+(of|the|a|and|for|in|to|on)\b/g,
+      (_m, word: string, _frag: string, prep: string) => {
+        fixes++
+        return `${word} ${prep}`
+      },
+    )
+
+    // "require.ehicles" / "province.ce" — drop truncated lowercase.lowercase glue.
+    // NEVER treat hostname labels as glue: "ddfbo….supabase.co" must stay intact.
+    content = content.replace(/\b([a-z]{4,})\.([a-z]{4,})\b/g, (m, a: string, b: string, offset: number) => {
+      if (TLD_LIKE.has(b) || TLD_LIKE.has(a)) return m
+      const after = content.slice(offset + m.length)
+      // Next label is a TLD → this is a hostname (foo.supabase.co)
+      if (/^\.(?:[a-z]{2,24})\b/i.test(after)) return m
+      const before = content.slice(Math.max(0, offset - 16), offset)
+      if (/https?:\/\/$/i.test(before) || /\/\/[\w.-]*$/i.test(before)) return m
+      fixes++
+      return a
+    })
+
+    return content
+  }
+
+  const out = transformHtmlTextNodes(html, scrubText)
+  assertImageUrlsPreserved(html, out)
+  return { html: out, fixes }
 }
