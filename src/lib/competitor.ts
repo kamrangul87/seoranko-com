@@ -1,10 +1,9 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { MODEL_FOR } from '@/lib/model-router';
+import { getAnthropicClient } from '@/lib/anthropic'
+import { LOCATION_CODES } from '@/lib/rank-tracker';
 
 // maxRetries lets the SDK auto-retry 429s using the server's Retry-After header.
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
-
-import { MODEL_FOR } from '@/lib/model-router';
-import { LOCATION_CODES } from '@/lib/rank-tracker';
+const anthropic = getAnthropicClient({ maxRetries: 5 });
 
 export async function getTopCompetitorUrls(keyword: string, market: string): Promise<string[]> {
   // Was a 4-country ternary falling through to 2826 (UK) for everything

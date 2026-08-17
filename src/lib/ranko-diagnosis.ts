@@ -5,6 +5,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropicClient } from '@/lib/anthropic'
 import { runGEOAudit } from './geo-auditor'
 import { detectCannibalization } from './cannibalization-detector'
 import { scoreEntityCoverage, auditHeadingStructure, auditAuthorityLinks } from './aeo-signals'
@@ -42,7 +43,7 @@ export interface RANKODiagnosis {
   estimatedWeeksToImpact: number
 }
 
-const client = new Anthropic()
+const client = getAnthropicClient()
 
 export async function runRANKODiagnosis(
   userId: string,

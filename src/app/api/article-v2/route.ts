@@ -27,6 +27,7 @@ import {
   scoreHtmlLocally,
 } from '@/lib/content-scorer';
 import { MODEL_FOR } from '@/lib/model-router';
+import { getAnthropicClient } from '@/lib/anthropic'
 import { runQualityGate, type QualityIssue } from '@/lib/article-quality-gate';
 import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
 import { enforceWordCountLimit, countArticleWords, deterministicTrimToTarget, wordCountBand, snapWordCount } from '@/lib/word-count-enforcer';
@@ -46,7 +47,7 @@ import { splitDenseParagraphs } from '@/lib/paragraph-splitter';
 
 export const maxDuration = 300;
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
+const anthropic = getAnthropicClient({ maxRetries: 5 });
 
 // Service role, not anon — articles/pages/user_profiles RLS is
 // auth.uid() = user_id (or = id). A server route has no forwarded user JWT

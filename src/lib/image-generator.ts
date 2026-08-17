@@ -5,6 +5,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenAI } from '@google/genai';
 import { parse, HTMLElement } from 'node-html-parser';
 import { MODEL_FOR } from '@/lib/model-router';
+import { getAnthropicClient } from '@/lib/anthropic'
 import {
   buildStockSearchQuery,
   stockRelevanceScore,
@@ -121,7 +122,7 @@ export async function detectNicheAndStyle(
     }
   }
 
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+  const anthropic = getAnthropicClient();
 
   const res = await anthropic.messages.create({
     model: MODEL_FOR.imagePromptGeneration,
@@ -166,7 +167,7 @@ async function buildImagePrompts(
   niche: ArticleNiche,
   styleDescriptor: string,
 ): Promise<{ placement: string; prompt: string; alt: string; caption: string }[]> {
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+  const anthropic = getAnthropicClient();
   const nicheStyle = NICHE_VISUAL[niche];
   const fullStyle = `${nicheStyle}, ${styleDescriptor}`;
 

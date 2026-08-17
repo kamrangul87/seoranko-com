@@ -3,6 +3,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { MODEL_FOR } from '@/lib/model-router';
+import { getAnthropicClient } from '@/lib/anthropic'
 import { extractMetaComment } from '@/lib/extract-meta-description';
 
 export function calculateEEATScore(html: string): number {
@@ -242,7 +243,7 @@ export async function improveEEAT(
     return { html, score: currentScore, summary: 'All EEAT signals already present' };
   }
 
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+  const anthropic = getAnthropicClient();
   const res = await anthropic.messages.create({
     model: MODEL_FOR.scoreImprovement,
     max_tokens: 3000,
@@ -294,7 +295,7 @@ export async function improveReadability(
     return { html, score: currentScore, summary: 'No long paragraphs or run-on sentences found' };
   }
 
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+  const anthropic = getAnthropicClient();
   const issues: string[] = [];
   if (longParas.length > 0) issues.push(`${longParas.length} paragraphs over 100 words — split each into 2-3 shorter paragraphs`);
   if (avgSentLen > 25) issues.push(`Average sentence length is ${Math.round(avgSentLen)} words — aim for under 20 words`);
@@ -357,7 +358,7 @@ export async function improveKeywordDensity(
     };
   }
 
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+  const anthropic = getAnthropicClient();
   const instruction = tooLow
     ? `The keyword "${keyword}" appears too rarely (${currentDensity}%). Naturally add it to 3-5 more paragraphs (in the opening sentence, a subheading, and the conclusion if possible). Target density: 0.8–1.5%.`
     : `The keyword "${keyword}" is overused (${currentDensity}%). Replace some exact-match occurrences with natural synonyms or related phrases to bring density below 2.5%.`;

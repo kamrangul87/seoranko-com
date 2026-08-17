@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropicClient } from '@/lib/anthropic'
 import { runQualityGate } from './article-quality-gate'
 import { repairAllMergeArtifacts } from './merge-artifact-repair'
 
@@ -152,7 +153,7 @@ Return the complete improved article with your changes applied.
 At the end, add: <!-- CHANGES: [brief list of what you changed] -->`
 }
 
-const client = new Anthropic()
+const client = getAnthropicClient()
 
 const TARGETED_PROMPT = `You are an expert SEO editor applying ONE specific, targeted fix to an article.
 

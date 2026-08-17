@@ -3,6 +3,7 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import { MODEL_FOR } from '@/lib/model-router'
+import { getAnthropicClient } from '@/lib/anthropic'
 import {
   countArticleWords,
   wordCountBand,
@@ -18,7 +19,7 @@ export {
 } from '@/lib/word-count'
 export type { WordCountOption } from '@/lib/word-count'
 
-const client = new Anthropic()
+const client = getAnthropicClient()
 
 /**
  * Deterministic trim when LLM condense still overshoots.

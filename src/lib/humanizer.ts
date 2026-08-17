@@ -1,8 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { MODEL_FOR } from './model-router';
+import { getAnthropicClient } from './anthropic'
 import { repairAllMergeArtifacts } from './merge-artifact-repair';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 3 });
+const anthropic = getAnthropicClient({ maxRetries: 3 });
 
 export const BANNED_WORDS = [
   'delve', 'leverage', 'harness', 'robust', 'showcasing', 'vibrant', 'pivotal',

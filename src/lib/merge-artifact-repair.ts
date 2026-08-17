@@ -8,6 +8,7 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import { MODEL_FOR } from '@/lib/model-router'
+import { getAnthropicClient } from '@/lib/anthropic'
 import {
   applyGuardedReplace,
   scrubInsertionCorruption,
@@ -94,7 +95,7 @@ export function detectMergeArtifacts(articleContent: string): MergeArtifact[] {
   return artifacts
 }
 
-const client = new Anthropic()
+const client = getAnthropicClient()
 
 export async function repairMergeArtifact(
   articleContent: string,

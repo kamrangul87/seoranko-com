@@ -5,9 +5,10 @@
 // This engine uses a Supabase whitelist as the source of truth.
 
 import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropicClient } from '@/lib/anthropic'
 import { createClient } from '@supabase/supabase-js'
 
-const aiClient = new Anthropic()
+const aiClient = getAnthropicClient()
 
 export interface RegisteredLink {
   id: string

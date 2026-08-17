@@ -8,8 +8,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { MODEL_FOR } from './model-router';
+import { getAnthropicClient } from './anthropic'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 2 });
+const anthropic = getAnthropicClient({ maxRetries: 2 });
 
 export type CitationSource =
   | 'site_audit'

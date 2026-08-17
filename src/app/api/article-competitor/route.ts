@@ -19,10 +19,11 @@ import {
   scoreHtmlLocally,
 } from '@/lib/content-scorer';
 import { MODEL_FOR } from '@/lib/model-router';
+import { getAnthropicClient } from '@/lib/anthropic'
 
 export const maxDuration = 300;
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
+const anthropic = getAnthropicClient({ maxRetries: 5 });
 
 async function enrichArticleWithMissingFacts(
   article: string,

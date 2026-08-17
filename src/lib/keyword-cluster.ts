@@ -11,8 +11,9 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import { MODEL_FOR } from '@/lib/model-router'
+import { getAnthropicClient } from '@/lib/anthropic'
 
-const client = new Anthropic()
+const client = getAnthropicClient()
 
 export interface KeywordClusterInput {
   keyword: string

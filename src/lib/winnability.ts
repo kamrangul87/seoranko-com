@@ -8,6 +8,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropicClient } from '@/lib/anthropic'
 
 export type WinnabilityVerdict =
   | 'highly-winnable'    // Top 10 dominated by informational content, low-DR sites
@@ -80,7 +81,7 @@ function classifyResultType(item: any): string {
   return 'other'
 }
 
-const client = new Anthropic()
+const client = getAnthropicClient()
 
 export async function scoreWinnability(
   keyword: string,

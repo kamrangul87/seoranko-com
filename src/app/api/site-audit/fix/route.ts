@@ -7,9 +7,10 @@ import { upsertFix, siteIdFromDomain } from '@/lib/supabase/fixes-db';
 import { fetchPageSignals, scorePage } from '@/lib/site-audit/scorer';
 import { humanizeArticle } from '@/lib/humanizer';
 import { MODEL_FOR } from '@/lib/model-router';
+import { getAnthropicClient } from '@/lib/anthropic'
 import { LOCATION_CODES } from '@/lib/rank-tracker';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
+const anthropic = getAnthropicClient({ maxRetries: 5 });
 export const maxDuration = 300;
 
 const GOOGLE_2026 = `Google 2026 Key Ranking Factors:

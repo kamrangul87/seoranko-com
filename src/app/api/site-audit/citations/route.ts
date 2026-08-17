@@ -5,8 +5,9 @@ import { createClient } from '@supabase/supabase-js';
 import { normalizeDomain } from '@/lib/supabase/audit-db';
 
 import { MODEL_FOR } from '@/lib/model-router';
+import { getAnthropicClient } from '@/lib/anthropic'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 2 });
+const anthropic = getAnthropicClient({ maxRetries: 2 });
 
 function getSupabase() {
   return createClient(
