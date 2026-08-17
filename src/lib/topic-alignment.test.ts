@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { checkTopicAlignment, assertNonEmptyKeyword, getKeywordTokens } from './topic-alignment'
+import {
+  checkTopicAlignment,
+  assertNonEmptyKeyword,
+  getKeywordTokens,
+  coreKeywordPhrase,
+  primaryTopicPhrase,
+  filterRelatedKeywords,
+} from './topic-alignment'
 import { outlineMatchesKeyword, type ArticleOutline } from './article-outline'
 
 const cryptoArticle = `
@@ -21,6 +28,30 @@ const evArticle = `
 <p>Most UK homes install a 7kW ev charger for overnight charging. A dedicated ev charger circuit is usually required.</p>
 `
 
+const longKeywordArticle = `
+<h1>EV Charger Types Comparison: Level 1, Level 2 and DC Fast Charging</h1>
+<p>Choosing between EV charger types matters for home and public charging. Level 1, Level 2 and DC fast charging each suit different drivers.</p>
+<h2>Level 1 EV Charger Basics</h2>
+<p>A Level 1 EV charger plugs into a standard socket and is slow but simple.</p>
+<h2>Level 2 EV Charger</h2>
+<p>Level 2 is the most common home EV charger type for overnight top-ups.</p>
+<h2>DC Fast Charging</h2>
+<p>DC fast charging tops up long journeys quickly at public hubs.</p>
+`
+
+describe('keyword normalisation', () => {
+  it('strips parentheticals from long keywords', () => {
+    expect(coreKeywordPhrase('EV charger types comparison (Level 1, 2, DC fast charging)'))
+      .toBe('EV charger types comparison')
+    expect(primaryTopicPhrase('EV charger types comparison (Level 1, 2, DC fast charging)'))
+      .toContain('charger')
+  })
+
+  it('tokenises multi-word keywords including short terms like ev', () => {
+    expect(getKeywordTokens('ev charger')).toEqual(['ev', 'charger'])
+  })
+})
+
 describe('checkTopicAlignment', () => {
   it('flags crypto article for ev charger', () => {
     const r = checkTopicAlignment(cryptoArticle, 'ev charger')
@@ -37,14 +68,28 @@ describe('checkTopicAlignment', () => {
     expect(r.aligned).toBe(true)
   })
 
+  it('passes long parenthetical keyword without requiring exact full-phrase density', () => {
+    const kw = 'EV charger types comparison (Level 1, 2, DC fast charging)'
+    const r = checkTopicAlignment(longKeywordArticle, kw)
+    expect(r.aligned).toBe(true)
+  })
+
   it('rejects empty keyword', () => {
     expect(checkTopicAlignment(evArticle, '').aligned).toBe(false)
     expect(() => assertNonEmptyKeyword('')).toThrow('KEYWORD_REQUIRED')
     expect(assertNonEmptyKeyword('  ev charger  ')).toBe('ev charger')
   })
+})
 
-  it('tokenises multi-word keywords including short terms like ev', () => {
-    expect(getKeywordTokens('ev charger')).toEqual(['ev', 'charger'])
+describe('filterRelatedKeywords', () => {
+  it('drops unrelated near-me secondaries from a types-comparison brief', () => {
+    const kept = filterRelatedKeywords(
+      'EV charger types comparison (Level 1, 2, DC fast charging)',
+      ['ev chargers stations near me', 'ev charger types', 'mot check']
+    )
+    expect(kept).toContain('ev charger types')
+    expect(kept).not.toContain('mot check')
+    expect(kept.some(k => /near me/i.test(k))).toBe(false)
   })
 })
 

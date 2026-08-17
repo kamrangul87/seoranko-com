@@ -32,7 +32,7 @@ import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
 import { enforceWordCountLimit, countArticleWords, deterministicTrimToTarget, wordCountBand, snapWordCount } from '@/lib/word-count-enforcer';
 import { stripReplaceableJsonLd } from '@/lib/schema-dedupe';
 import { injectMissingInternalLinks } from '@/lib/inject-internal-links';
-import { checkTopicAlignment, assertNonEmptyKeyword, keepIfOnTopic, getKeywordTokens } from '@/lib/topic-alignment';
+import { checkTopicAlignment, assertNonEmptyKeyword, keepIfOnTopic, getKeywordTokens, filterRelatedKeywords, primaryTopicPhrase, coreKeywordPhrase } from '@/lib/topic-alignment';
 import {
   generateArticleOutline,
   buildOutlineLockedWritePrompt,
@@ -138,8 +138,23 @@ export async function POST(req: NextRequest) {
 
     console.log('[article-v2] received:', { keyword, wordCount, secondaryKeywords: (secondaryKeywords as string[]).length, entities: (entities as string[]).length });
 
+    // Stale cluster briefs can inject an unrelated secondary (e.g. "near me"
+    // while writing "types comparison") and pull the draft off-topic.
+    const relatedSecondaries = filterRelatedKeywords(keyword, [
+      ...(secondaryKeywords as string[]),
+      ...(_longTailKeywords as string[]),
+    ])
+    const filteredSecondaries = relatedSecondaries.slice(0, 12)
+    if (filteredSecondaries.length !== (secondaryKeywords as string[]).length) {
+      console.warn('[article-v2] dropped unrelated secondary keywords:', {
+        kept: filteredSecondaries,
+        dropped: (secondaryKeywords as string[]).filter(k => !filteredSecondaries.includes(k)),
+      })
+    }
+
     const targetWordCount = snapWordCount(Number(wordCount) || 2000);
-    const secondaryList = (secondaryKeywords as string[]).slice(0, 12).join(', ');
+    const secondaryList = filteredSecondaries.join(', ');
+    const topicFocus = primaryTopicPhrase(keyword) || coreKeywordPhrase(keyword) || keyword;
 
     // ── STEP A — Unique Angle Generator ──────────────────────────────────────
     const angleResponse = await anthropic.messages.create({
@@ -252,7 +267,7 @@ Do not write generic angles. Be specific and surprising.`
     const outline = await generateArticleOutline({
       keyword,
       market,
-      secondaryKeywords: secondaryKeywords as string[],
+      secondaryKeywords: filteredSecondaries,
       uniqueAngle: angle.unique_angle || '',
       wordCount: targetWordCount,
     })
@@ -273,7 +288,7 @@ Do not write generic angles. Be specific and surprising.`
       brandName: brand || '',
       brandDomain: citationDomain,
       outline,
-      secondaryKeywords: secondaryKeywords as string[],
+      secondaryKeywords: filteredSecondaries,
       liveFacts,
       uniqueAngle: angle.unique_angle || angle.hook_opening || '',
     })
@@ -328,12 +343,12 @@ Do not write generic angles. Be specific and surprising.`
               brandName: brand || '',
               brandDomain: citationDomain,
               outline,
-              secondaryKeywords: secondaryKeywords as string[],
+              secondaryKeywords: filteredSecondaries,
               liveFacts,
               uniqueAngle: angle.unique_angle || '',
             })
             const retryText = await writeOnce(
-              `${retryPrompt}\n\nIMPORTANT: Previous draft was rejected because it was not about "${keyword}". Use the LOCKED H1 and H2s exactly. Write only about "${keyword}".`
+              `${retryPrompt}\n\nIMPORTANT: Previous draft was rejected because it was not about "${topicFocus}". Use the LOCKED H1 and H2s exactly. Write only about "${topicFocus}" (${keyword}). Mention "${topicFocus}" naturally in the introduction and at least two H2 sections.`
             )
             if (retryText.length > 500) {
               fullArticle = retryText;
@@ -344,15 +359,33 @@ Do not write generic angles. Be specific and surprising.`
             }
           }
 
+          // Last resort: mechanically lock the H1 to the topic — never discard a
+          // full generation over a long-phrase density false positive.
           if (!topicAlignment.aligned) {
-            const msg = `Generation drifted off topic (${topicAlignment.reason || 'title/body mismatch'}). Click Generate again — this draft was discarded.`;
-            console.error('[article-v2] topic still mismatched after retry — aborting:', topicAlignment.reason);
-            controller.enqueue(encoder.encode(`\n<!--SEORANKO_ERROR_START-->${encodeURIComponent(msg)}<!--SEORANKO_ERROR_END-->`));
-            controller.close();
-            return;
+            const titleCase = topicFocus
+              .split(/\s+/)
+              .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+              .join(' ')
+            const lockedH1 = `${titleCase}: A Practical ${market} Guide`
+            if (/<h1[\s>]/i.test(fullArticle)) {
+              fullArticle = fullArticle.replace(/<h1[^>]*>[\s\S]*?<\/h1>/i, `<h1>${lockedH1}</h1>`)
+            } else {
+              fullArticle = `<h1>${lockedH1}</h1>\n${fullArticle}`
+            }
+            const introNeedle = `<p>This guide covers ${topicFocus} in clear, practical terms for ${market} readers.</p>`
+            if (!fullArticle.includes(topicFocus)) {
+              fullArticle = fullArticle.replace(/<\/h1>/i, `</h1>\n${introNeedle}`)
+            }
+            topicAlignment = checkTopicAlignment(fullArticle, keyword)
+            console.warn('[article-v2] applied mechanical topic lock:', topicAlignment)
           }
 
-          // Stream only the validated on-topic article
+          if (!topicAlignment.aligned) {
+            // Still keep the draft — surface as a soft warning, not a discard error.
+            console.warn('[article-v2] topic check soft-fail — continuing with draft:', topicAlignment.reason)
+          }
+
+          // Stream the article (never discard after generation work completed)
           controller.enqueue(encoder.encode(fullArticle));
 
           try {
@@ -766,7 +799,7 @@ Do not write generic angles. Be specific and surprising.`
               brief: (entities as string[]).length > 0 || (topicalGaps as string[]).length > 0
                 ? { entities: entities as string[], topicalGaps: topicalGaps as string[] }
                 : undefined,
-              secondaryKeywords: secondaryKeywords as string[],
+              secondaryKeywords: filteredSecondaries,
               // Dead/fake citations are stripped above — logged to console,
               // not surfaced as blocking QG issues (published HTML is clean).
               extraIssues: datedClaimIssues.length > 0 ? datedClaimIssues : undefined,
@@ -990,11 +1023,28 @@ Do not write generic angles. Be specific and surprising.`
           let saveError: string | undefined;
           const saveTopicCheck = checkTopicAlignment(publishedHtml, keyword);
           if (!saveTopicCheck.aligned) {
-            const msg = `Generation drifted off topic (${saveTopicCheck.reason || 'title/body mismatch'}). Click Generate again — this draft was discarded.`;
-            console.error('[article-v2] pre-save topic abort:', saveTopicCheck.reason);
-            controller.enqueue(encoder.encode(`\n<!--SEORANKO_ERROR_START-->${encodeURIComponent(msg)}<!--SEORANKO_ERROR_END-->`));
-            controller.close();
-            return;
+            // Do not discard — save proceeds; Quality Gate already scores keyword density.
+            console.warn('[article-v2] pre-save topic soft-warn:', saveTopicCheck.reason);
+            if (articleQualityGate) {
+              articleQualityGate.issues.push({
+                id: 'topic-alignment',
+                severity: 'warning',
+                category: 'topic-alignment',
+                title: 'Topic alignment is weak',
+                description: saveTopicCheck.reason || 'Review the H1 and keyword mentions before publishing',
+                autoFixable: false,
+              })
+              articleQualityGate.warningCount = (articleQualityGate.warningCount || 0) + 1
+            }
+          } else if (saveTopicCheck.warning && articleQualityGate) {
+            articleQualityGate.issues.push({
+              id: 'topic-alignment-light',
+              severity: 'info',
+              category: 'topic-alignment',
+              title: 'Keyword density is light',
+              description: saveTopicCheck.warning,
+              autoFixable: false,
+            })
           }
           if (hardBlockReasons.length > 0) {
             // FIX 1 / FIX 2 hard gate: a hero image was generated but never

@@ -17,6 +17,7 @@ import {
   WRITE_DOMAIN_STORAGE_KEY,
 } from '@/lib/brands'
 import { countArticleWords, snapWordCount } from '@/lib/word-count'
+import { filterRelatedKeywords } from '@/lib/topic-alignment'
 
 const ALL_COUNTRIES = MARKETS.map(m => ({ value: m.value as Country, label: m.label }))
 
@@ -194,6 +195,28 @@ export function ArticleWriter() {
       .then(data => setRecurringAlerts(data.alerts || []))
       .catch(() => {})
   }, [article])
+
+  // Drop stale cluster-brief secondaries that don't match the current target
+  // keyword (e.g. brief for "near me" left over while writing "types comparison").
+  useEffect(() => {
+    if (!clusterBrief || !keyword.trim()) return
+    const related = filterRelatedKeywords(keyword, clusterBrief.secondaryKeywords)
+    const relatedLong = filterRelatedKeywords(keyword, clusterBrief.longTailKeywords)
+    if (
+      related.length === clusterBrief.secondaryKeywords.length &&
+      relatedLong.length === clusterBrief.longTailKeywords.length
+    ) return
+
+    if (related.length === 0 && relatedLong.length === 0) {
+      setClusterBrief(null)
+      return
+    }
+    setClusterBrief(prev => prev ? {
+      ...prev,
+      secondaryKeywords: related,
+      longTailKeywords: relatedLong,
+    } : null)
+  }, [keyword, clusterBrief])
 
   async function runFixAll() {
     if (!article) return
