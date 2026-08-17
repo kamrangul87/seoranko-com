@@ -11,7 +11,7 @@ import { generateArticleSchema, detectHowTo } from '@/lib/schema-generator';
 import { getBrandSettings } from '@/lib/brand-settings';
 import { appendSocialMetaTags } from '@/lib/social-meta-tags';
 import { extractArticleDescription, dedupeMetaDescriptionTags } from '@/lib/extract-meta-description';
-import { scrubInsertionCorruption } from '@/lib/sentence-integrity';
+import { scrubInsertionCorruption, hasInsertionCorruption } from '@/lib/sentence-integrity';
 import { buildCanonicalTag } from '@/lib/canonical-builder';
 import { pingIndexNow } from '@/lib/indexnow';
 import { humanizeArticle } from '@/lib/humanizer';
@@ -27,7 +27,7 @@ import {
   scoreHtmlLocally,
 } from '@/lib/content-scorer';
 import { MODEL_FOR } from '@/lib/model-router';
-import { runQualityGate, type QualityIssue } from '@/lib/article-quality-gate';
+import { runQualityGate, detectWrongBrandInBody, type QualityIssue } from '@/lib/article-quality-gate';
 import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
 import { enforceWordCountLimit, countArticleWords, deterministicTrimToTarget, wordCountBand, snapWordCount } from '@/lib/word-count-enforcer';
 import { stripReplaceableJsonLd } from '@/lib/schema-dedupe';
@@ -44,7 +44,14 @@ import { validateArticleStructure } from '@/lib/structure-validator';
 import { assertSchemaCompleteness } from '@/lib/schema-validate';
 import { detectDatedClaims, buildLastVerifiedLine } from '@/lib/dated-claim-detector';
 import { splitDenseParagraphs } from '@/lib/paragraph-splitter';
-
+import {
+  formatPipelineStageMarker,
+  formatPipelineStoppedMarker,
+  criticalStopReason,
+  stageLabel,
+  isCriticalPipelineStopIssue,
+  type PipelineStageId,
+} from '@/lib/quality-pipeline-stages';
 export const maxDuration = 300;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
@@ -157,184 +164,213 @@ export async function POST(req: NextRequest) {
     const secondaryList = filteredSecondaries.join(', ');
     const topicFocus = primaryTopicPhrase(keyword) || coreKeywordPhrase(keyword) || keyword;
 
-    // ── STEP A — Unique Angle Generator ──────────────────────────────────────
-    const angleResponse = await anthropic.messages.create({
-      model: MODEL_FOR.keywordExtraction,
-      max_tokens: 500,
-      messages: [{
-        role: 'user',
-        content: `You are an editorial director.
-
-For the keyword: "${keyword}"
-Secondary keywords: ${secondaryList}
-Market: ${market}
-
-Most articles on this topic cover: basic definitions, general advice, obvious facts.
-
-Your job: identify ONE specific unique angle that:
-1. Most existing articles completely miss
-2. Answers a real question people have but can't find answered
-3. Contains a surprising insight, counterintuitive fact, or data-driven observation
-4. Cannot be easily replicated by AI Overview summaries
-
-Respond in JSON only:
-{
-  "unique_angle": "one sentence description of the angle",
-  "hook_opening": "one surprising opening sentence that grabs attention immediately",
-  "unique_section_title": "H2 heading for the unique section nobody else covers",
-  "unique_section_content": "150 words of genuinely unique insight for this section"
-}
-
-Do not write generic angles. Be specific and surprising.`
-      }]
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const angleCacheHit = ((angleResponse.usage as any).cache_read_input_tokens ?? 0) > 0;
-    console.log(`[model-router] task=keywordExtraction model=${MODEL_FOR.keywordExtraction} inputTokens=${angleResponse.usage.input_tokens} cacheHit=${angleCacheHit}`);
-    const angleText = angleResponse.content[0].type === 'text' ? angleResponse.content[0].text : '{}';
-    let angle = { unique_angle: '', hook_opening: '', unique_section_title: '', unique_section_content: '' };
-    try {
-      angle = JSON.parse(angleText.replace(/```json|```/g, '').trim());
-    } catch {
-      console.error('[article-v2] angle parse failed, continuing without angle');
-    }
-
-    // Discard angles that drift off the requested keyword (prevents derailing the write).
-    const angleBlob = `${angle.unique_angle} ${angle.unique_section_title} ${angle.unique_section_content}`.toLowerCase();
-    const kwTokens = getKeywordTokens(keyword);
-    const angleOnTopic = kwTokens.length === 0 || kwTokens.some((t: string) => angleBlob.includes(t));
-    if (!angleOnTopic) {
-      console.warn('[article-v2] discarding off-topic unique angle for keyword:', keyword);
-      angle = { unique_angle: '', hook_opening: '', unique_section_title: '', unique_section_content: '' };
-    }
-
-    // MOT-specific injected section removed from the write path — it was
-    // previously appended into the master prompt for any EV keyword and diluted
-    // topic focus. Outline-locked writing covers MOT only when keyword is MOT.
-
-    // ── STEP B2 — Live fact verification (web search, any topic/country) ──────
-    const { facts: liveFacts } = await fetchVerifiedFacts(keyword, market);
-
-    // ── STEP C — Centralised master prompt (shared across all 3 article routes)
-    // Brand-aware link registry takes priority over user-provided panel links.
-    // Only links that match the article brand AND score relevant are eligible.
-    //
-    // linksRequestedFromModel tracks whichever list actually got fed into the
-    // write prompt, so the post-write audit checks placement against the
-    // REAL request — it used to unconditionally audit userInternalLinks even
-    // when the registry path was the one actually used, which made a
-    // successful registry-link placement report as if nothing had happened.
-    let resolvedLinksStr = ''
-    let linksRequestedFromModel: InternalLink[] = []
-    let linkUnavailableNote = ''
-    if (brand && userId) {
-      console.log(`[internal-links] brand="${brand}" userId="${userId}" keyword="${keyword}"`)
-      const { links: eligibleLinks, registryRowCount } = await getEligibleLinks(userId, brand, keyword, angle.unique_angle || keyword)
-      console.log(`[internal-links] ${registryRowCount} active row(s) in registry for this user+brand, ${eligibleLinks.length} scored relevant`)
-      if (eligibleLinks.length > 0) {
-        const registryLinksAsInternal: InternalLink[] = eligibleLinks.map(l => ({
-          url: l.pageUrl,
-          anchorText: l.anchorText,
-          context: l.pageDescription || l.pageTitle
-        }))
-        resolvedLinksStr = buildInternalLinksPrompt(registryLinksAsInternal, keyword, angle.unique_angle || keyword)
-        linksRequestedFromModel = registryLinksAsInternal
-      } else if (registryRowCount === 0) {
-        // Distinguish from the "scored too low" case below — this is a
-        // data/account problem (zero rows for this user+brand), not a
-        // relevance-scoring problem. Confirmed in production: this message
-        // used to be identical to the low-score case, which made a wrong-
-        // Supabase-account data issue look like a scoring bug.
-        linkUnavailableNote = `No internal links are registered for brand "${brand}" on this account. Add entries in Settings → Link Registry — the registry is empty for this user+brand combination.`
-      } else {
-        linkUnavailableNote = `${registryRowCount} link(s) are registered for brand "${brand}", but none scored relevant enough for "${keyword}". Check Settings → Link Registry — the entries may need better topic tags, or genuinely aren't close enough to this article.`
-      }
-    } else {
-      console.warn(`[internal-links] SKIPPED — missing context. brand="${brand}" userId="${userId}". This should not happen if the caller is correctly wired — check that the client is sending both.`)
-      linkUnavailableNote = 'No brand or user context for this generation — internal linking from the registry was skipped.'
-    }
-    // Fall back to user-provided links from InternalLinksPanel only if no registry links found
-    if (linksRequestedFromModel.length === 0 && (userInternalLinks as InternalLink[]).length > 0) {
-      resolvedLinksStr = buildInternalLinksPrompt(userInternalLinks as InternalLink[], keyword, angle.unique_angle || keyword)
-      linksRequestedFromModel = userInternalLinks as InternalLink[]
-      linkUnavailableNote = ''
-    }
-    if (linksRequestedFromModel.length === 0 && !linkUnavailableNote) {
-      linkUnavailableNote = 'No internal links were available for this article — neither the registry nor the manual link panel had any entries.'
-    }
-
-    // Outline-first: lock H1/H2s to the keyword BEFORE writing body prose.
-    const outline = await generateArticleOutline({
-      keyword,
-      market,
-      secondaryKeywords: filteredSecondaries,
-      uniqueAngle: angle.unique_angle || '',
-      wordCount: targetWordCount,
-    })
-    if (!outline) {
-      return new Response(
-        JSON.stringify({ error: `Could not build an on-topic outline for "${keyword}". Try again.` }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
-      )
-    }
-    console.log('[article-v2] locked outline:', { h1: outline.h1, h2s: outline.h2s.length })
-
-    // Short keyword-locked write prompt (not the huge master dump — that diluted topic focus).
-    const prompt = buildOutlineLockedWritePrompt({
-      keyword,
-      market,
-      tone,
-      wordCount: targetWordCount,
-      brandName: brand || '',
-      brandDomain: citationDomain,
-      outline,
-      secondaryKeywords: filteredSecondaries,
-      liveFacts,
-      uniqueAngle: angle.unique_angle || angle.hook_opening || '',
-    })
-    if (resolvedLinksStr) {
-      // Append internal-link instructions after the locked outline prompt
-      // without reopening the whole master prompt.
-    }
-    const writePrompt = resolvedLinksStr
-      ? `${prompt}\n\nINTERNAL LINKS (place naturally where relevant):\n${resolvedLinksStr}`
-      : prompt
-
-    // ── STEP D — Generate on-topic article FIRST, then stream validated HTML ─
-    // Do not stream a live first draft: off-topic stock articles (crypto/LLC/stress)
-    // were reaching the UI before retry could replace them.
-    const topicSystem = `You write SEO articles as HTML only. This assignment is ONLY about "${keyword}" for the ${market} market. The H1 must clearly be about "${keyword}". Every section must stay on "${keyword}". Author is always Kamran Gul. Never invent other author names. Never switch to a different subject.`;
-
-    const writeOnce = async (userContent: string): Promise<string> => {
-      const response = await anthropic.messages.create({
-        model: MODEL_FOR.articleWriting,
-        max_tokens: 8000,
-        system: topicSystem,
-        messages: [{ role: 'user', content: userContent }],
-      })
-      const text = response.content[0].type === 'text' ? response.content[0].text : ''
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cacheHit = ((response.usage as any).cache_read_input_tokens ?? 0) > 0
-      console.log(`[model-router] task=articleWriting model=${MODEL_FOR.articleWriting} inputTokens=${response.usage.input_tokens} cacheHit=${cacheHit}`)
-      return text.replace(/^```html?\n?/i, '').replace(/```\s*$/, '').trim()
-    }
-
     const readable = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
+        const send = (chunk: string) => controller.enqueue(encoder.encode(chunk));
+        const emitStage = (
+          id: PipelineStageId,
+          status: 'running' | 'pass' | 'fail' | 'fixed' | 'skipped',
+          detail?: string,
+        ) => {
+          send(formatPipelineStageMarker({
+            id,
+            status,
+            label: stageLabel(id),
+            ...(detail ? { detail } : {}),
+          }));
+        };
+        const abortCritical = (stageId: PipelineStageId, reason: string) => {
+          emitStage(stageId, 'fail', reason);
+          send(formatPipelineStoppedMarker({ stageId, reason, critical: true }));
+          send(`\n<!--SEORANKO_ERROR:${encodeURIComponent(criticalStopReason(stageId, reason))}-->`);
+          controller.close();
+        };
+
         let fullArticle = '';
         try {
+          emitStage('research-outline', 'running');
+          // ── STEP A — Unique Angle Generator ──────────────────────────────────────
+          const angleResponse = await anthropic.messages.create({
+            model: MODEL_FOR.keywordExtraction,
+            max_tokens: 500,
+            messages: [{
+              role: 'user',
+              content: `You are an editorial director.
+
+      For the keyword: "${keyword}"
+      Secondary keywords: ${secondaryList}
+      Market: ${market}
+
+      Most articles on this topic cover: basic definitions, general advice, obvious facts.
+
+      Your job: identify ONE specific unique angle that:
+      1. Most existing articles completely miss
+      2. Answers a real question people have but can't find answered
+      3. Contains a surprising insight, counterintuitive fact, or data-driven observation
+      4. Cannot be easily replicated by AI Overview summaries
+
+      Respond in JSON only:
+      {
+        "unique_angle": "one sentence description of the angle",
+        "hook_opening": "one surprising opening sentence that grabs attention immediately",
+        "unique_section_title": "H2 heading for the unique section nobody else covers",
+        "unique_section_content": "150 words of genuinely unique insight for this section"
+      }
+
+      Do not write generic angles. Be specific and surprising.`
+            }]
+          });
+
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const angleCacheHit = ((angleResponse.usage as any).cache_read_input_tokens ?? 0) > 0;
+          console.log(`[model-router] task=keywordExtraction model=${MODEL_FOR.keywordExtraction} inputTokens=${angleResponse.usage.input_tokens} cacheHit=${angleCacheHit}`);
+          const angleText = angleResponse.content[0].type === 'text' ? angleResponse.content[0].text : '{}';
+          let angle = { unique_angle: '', hook_opening: '', unique_section_title: '', unique_section_content: '' };
+          try {
+            angle = JSON.parse(angleText.replace(/```json|```/g, '').trim());
+          } catch {
+            console.error('[article-v2] angle parse failed, continuing without angle');
+          }
+
+          // Discard angles that drift off the requested keyword (prevents derailing the write).
+          const angleBlob = `${angle.unique_angle} ${angle.unique_section_title} ${angle.unique_section_content}`.toLowerCase();
+          const kwTokens = getKeywordTokens(keyword);
+          const angleOnTopic = kwTokens.length === 0 || kwTokens.some((t: string) => angleBlob.includes(t));
+          if (!angleOnTopic) {
+            console.warn('[article-v2] discarding off-topic unique angle for keyword:', keyword);
+            angle = { unique_angle: '', hook_opening: '', unique_section_title: '', unique_section_content: '' };
+          }
+
+          // MOT-specific injected section removed from the write path — it was
+          // previously appended into the master prompt for any EV keyword and diluted
+          // topic focus. Outline-locked writing covers MOT only when keyword is MOT.
+
+          // ── STEP B2 — Live fact verification (web search, any topic/country) ──────
+          const { facts: liveFacts } = await fetchVerifiedFacts(keyword, market);
+
+          // ── STEP C — Centralised master prompt (shared across all 3 article routes)
+          // Brand-aware link registry takes priority over user-provided panel links.
+          // Only links that match the article brand AND score relevant are eligible.
+          //
+          // linksRequestedFromModel tracks whichever list actually got fed into the
+          // write prompt, so the post-write audit checks placement against the
+          // REAL request — it used to unconditionally audit userInternalLinks even
+          // when the registry path was the one actually used, which made a
+          // successful registry-link placement report as if nothing had happened.
+          let resolvedLinksStr = ''
+          let linksRequestedFromModel: InternalLink[] = []
+          let linkUnavailableNote = ''
+          if (brand && userId) {
+            console.log(`[internal-links] brand="${brand}" userId="${userId}" keyword="${keyword}"`)
+            const { links: eligibleLinks, registryRowCount } = await getEligibleLinks(userId, brand, keyword, angle.unique_angle || keyword)
+            console.log(`[internal-links] ${registryRowCount} active row(s) in registry for this user+brand, ${eligibleLinks.length} scored relevant`)
+            if (eligibleLinks.length > 0) {
+              const registryLinksAsInternal: InternalLink[] = eligibleLinks.map(l => ({
+                url: l.pageUrl,
+                anchorText: l.anchorText,
+                context: l.pageDescription || l.pageTitle
+              }))
+              resolvedLinksStr = buildInternalLinksPrompt(registryLinksAsInternal, keyword, angle.unique_angle || keyword)
+              linksRequestedFromModel = registryLinksAsInternal
+            } else if (registryRowCount === 0) {
+              // Distinguish from the "scored too low" case below — this is a
+              // data/account problem (zero rows for this user+brand), not a
+              // relevance-scoring problem. Confirmed in production: this message
+              // used to be identical to the low-score case, which made a wrong-
+              // Supabase-account data issue look like a scoring bug.
+              linkUnavailableNote = `No internal links are registered for brand "${brand}" on this account. Add entries in Settings → Link Registry — the registry is empty for this user+brand combination.`
+            } else {
+              linkUnavailableNote = `${registryRowCount} link(s) are registered for brand "${brand}", but none scored relevant enough for "${keyword}". Check Settings → Link Registry — the entries may need better topic tags, or genuinely aren't close enough to this article.`
+            }
+          } else {
+            console.warn(`[internal-links] SKIPPED — missing context. brand="${brand}" userId="${userId}". This should not happen if the caller is correctly wired — check that the client is sending both.`)
+            linkUnavailableNote = 'No brand or user context for this generation — internal linking from the registry was skipped.'
+          }
+          // Fall back to user-provided links from InternalLinksPanel only if no registry links found
+          if (linksRequestedFromModel.length === 0 && (userInternalLinks as InternalLink[]).length > 0) {
+            resolvedLinksStr = buildInternalLinksPrompt(userInternalLinks as InternalLink[], keyword, angle.unique_angle || keyword)
+            linksRequestedFromModel = userInternalLinks as InternalLink[]
+            linkUnavailableNote = ''
+          }
+          if (linksRequestedFromModel.length === 0 && !linkUnavailableNote) {
+            linkUnavailableNote = 'No internal links were available for this article — neither the registry nor the manual link panel had any entries.'
+          }
+
+          // Outline-first: lock H1/H2s to the keyword BEFORE writing body prose.
+          const outline = await generateArticleOutline({
+            keyword,
+            market,
+            secondaryKeywords: filteredSecondaries,
+            uniqueAngle: angle.unique_angle || '',
+            wordCount: targetWordCount,
+          })
+          if (!outline) {
+            abortCritical('research-outline', `Could not build an on-topic outline for "${keyword}". Try again.`);
+            return;
+          }
+          console.log('[article-v2] locked outline:', { h1: outline.h1, h2s: outline.h2s.length })
+          emitStage('research-outline', 'pass', `Outline locked (${outline.h2s.length} sections)`);
+
+          // Short keyword-locked write prompt (not the huge master dump — that diluted topic focus).
+          const prompt = buildOutlineLockedWritePrompt({
+            keyword,
+            market,
+            tone,
+            wordCount: targetWordCount,
+            brandName: brand || '',
+            brandDomain: citationDomain,
+            outline,
+            secondaryKeywords: filteredSecondaries,
+            liveFacts,
+            uniqueAngle: angle.unique_angle || angle.hook_opening || '',
+          })
+          if (resolvedLinksStr) {
+            // Append internal-link instructions after the locked outline prompt
+            // without reopening the whole master prompt.
+          }
+          const writePrompt = resolvedLinksStr
+            ? `${prompt}\n\nINTERNAL LINKS (place naturally where relevant):\n${resolvedLinksStr}`
+            : prompt
+
+          // ── STEP D — Generate on-topic article FIRST, then stream validated HTML ─
+          // Do not stream a live first draft: off-topic stock articles (crypto/LLC/stress)
+          // were reaching the UI before retry could replace them.
+          const topicSystem = `You write SEO articles as HTML only. This assignment is ONLY about "${keyword}" for the ${market} market. The H1 must clearly be about "${keyword}". Every section must stay on "${keyword}". Author is always Kamran Gul. Never invent other author names. Never switch to a different subject.`;
+
+          const writeOnce = async (userContent: string): Promise<string> => {
+            const response = await anthropic.messages.create({
+              model: MODEL_FOR.articleWriting,
+              max_tokens: 8000,
+              system: topicSystem,
+              messages: [{ role: 'user', content: userContent }],
+            })
+            const text = response.content[0].type === 'text' ? response.content[0].text : ''
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const cacheHit = ((response.usage as any).cache_read_input_tokens ?? 0) > 0
+            console.log(`[model-router] task=articleWriting model=${MODEL_FOR.articleWriting} inputTokens=${response.usage.input_tokens} cacheHit=${cacheHit}`)
+            return text.replace(/^```html?\n?/i, '').replace(/```\s*$/, '').trim()
+          }
+
+          emitStage('writing-draft', 'running');
           fullArticle = await writeOnce(writePrompt)
 
           let validated = await validateAndCorrect(fullArticle, keyword, market, liveFacts, brand || '', citationDomain);
           fullArticle = validated.article;
           if (validated.corrections.length > 0) {
             console.log('[article-v2] validation corrections:', validated.corrections);
+            emitStage('writing-draft', 'fixed', validated.corrections.slice(0, 3).join('; '));
+          } else {
+            emitStage('writing-draft', 'pass');
           }
 
+          // Brand/topic alignment — critical early gate (abort before post-processing
+          // burns more tokens). Pass status is emitted later in checklist order
+          // (after text-integrity); only failures are surfaced here immediately.
           let topicAlignment = checkTopicAlignment(fullArticle, keyword);
+          let brandTopicFixed = false;
           if (!topicAlignment.aligned) {
+            emitStage('brand-topic', 'running');
             console.error('[article-v2] topic mismatch — retrying from locked outline:', topicAlignment.reason);
             const retryPrompt = buildOutlineLockedWritePrompt({
               keyword,
@@ -356,13 +392,15 @@ Do not write generic angles. Be specific and surprising.`
               validated = await validateAndCorrect(fullArticle, keyword, market, liveFacts, brand || '', citationDomain);
               fullArticle = validated.article;
               topicAlignment = checkTopicAlignment(fullArticle, keyword);
+              brandTopicFixed = true;
               console.log('[article-v2] topic retry result:', topicAlignment);
             }
           }
 
-          // Last resort: mechanically lock the H1 to the topic — never discard a
-          // full generation over a long-phrase density false positive.
+          // Last resort: mechanically lock the H1 to the topic — still abort if
+          // body tokens remain off-topic after this (no silent soft-continue).
           if (!topicAlignment.aligned) {
+            emitStage('brand-topic', 'running');
             const titleCase = topicFocus
               .split(/\s+/)
               .map(w => w.charAt(0).toUpperCase() + w.slice(1))
@@ -378,16 +416,34 @@ Do not write generic angles. Be specific and surprising.`
               fullArticle = fullArticle.replace(/<\/h1>/i, `</h1>\n${introNeedle}`)
             }
             topicAlignment = checkTopicAlignment(fullArticle, keyword)
+            brandTopicFixed = true
             console.warn('[article-v2] applied mechanical topic lock:', topicAlignment)
           }
 
           if (!topicAlignment.aligned) {
-            // Still keep the draft — surface as a soft warning, not a discard error.
-            console.warn('[article-v2] topic check soft-fail — continuing with draft:', topicAlignment.reason)
+            // Stream partial draft so the user can see what failed, then stop.
+            send(fullArticle);
+            abortCritical(
+              'brand-topic',
+              topicAlignment.reason || `Draft is not aligned with keyword "${keyword}"`,
+            );
+            return;
           }
 
-          // Stream the article (never discard after generation work completed)
-          controller.enqueue(encoder.encode(fullArticle));
+          if (brand) {
+            const brandIssue = detectWrongBrandInBody(fullArticle, brand);
+            if (brandIssue) {
+              emitStage('brand-topic', 'running');
+              // validateAndCorrect already tried rival-brand replacement; residual
+              // mismatch is a critical stop — do not continue to a wall of issues.
+              send(fullArticle);
+              abortCritical('brand-topic', brandIssue.title);
+              return;
+            }
+          }
+
+          // Stream the validated draft (post brand/topic gate)
+          send(fullArticle);
 
           try {
             const beforeWc = fullArticle
@@ -486,6 +542,7 @@ Do not write generic angles. Be specific and surprising.`
           // "Last verified" line, so the two always agree.
           const generatedAt = new Date().toISOString();
           try {
+            emitStage('humanize', 'running');
             const [humanized, imageSet] = await Promise.all([
               // 'light' reuses humanizer.ts's existing cost path: skip Claude
               // entirely if the article already scores >=72 with no banned
@@ -527,8 +584,14 @@ Do not write generic angles. Be specific and surprising.`
             if (finalHtml === fullArticle && humanized.humanizedHtml !== fullArticle) {
               // Humanizer drifted — keep original scores from pre-humanize text
               console.warn('[article-v2] humanizer output discarded due to topic drift')
+              emitStage('humanize', 'fixed', 'Humanizer output discarded (topic drift) — kept pre-humanize draft');
+            } else if (bannedWordsRemoved.length > 0 || humanized.humanizedHtml !== fullArticle) {
+              emitStage('humanize', 'fixed', `Human score ${humanScore ?? '—'}/100${bannedWordsRemoved.length ? `; removed ${bannedWordsRemoved.length} banned word(s)` : ''}`);
+            } else {
+              emitStage('humanize', 'pass', `Already clean (human score ${humanScore ?? '—'}/100)`);
             }
 
+            emitStage('citation-links', 'running');
             let citationLinkIssues: CitationLinkIssue[] = [];
             try {
               const beforeCite = finalHtml
@@ -543,11 +606,16 @@ Do not write generic angles. Be specific and surprising.`
                   `[article-v2] citation link validation: stripped ${citationLinkIssues.length} broken/fake citation link(s):`,
                   citationLinkIssues.map(i => `${i.url} (${i.reason}: ${i.detail})`)
                 );
+                emitStage('citation-links', 'fixed', `Stripped ${citationLinkIssues.length} broken/fake citation link(s)`);
+              } else {
+                emitStage('citation-links', 'pass', 'All citation links validated');
               }
             } catch (citationErr) {
               console.warn('[article-v2] citation link validation failed, continuing:', citationErr);
+              emitStage('citation-links', 'pass', 'Citation check skipped (validator error) — continuing');
             }
 
+            emitStage('fact-checking', 'running');
             try {
               const beforeFact = finalHtml
               const factResult = await checkAndPatchFactSourcing(finalHtml, keyword, market);
@@ -556,25 +624,51 @@ Do not write generic angles. Be specific and surprising.`
               factPatchedCount = factResult.result.patchedCount;
               if (factPatchedCount > 0) {
                 console.log(`[article-v2] fact-sourcing: patched ${factPatchedCount} unsourced claims, score=${factSourcingScore}`);
+                emitStage('fact-checking', 'fixed', `Patched ${factPatchedCount} unsourced claim(s); score ${factSourcingScore}/100`);
+              } else {
+                emitStage('fact-checking', 'pass', `Fact sourcing score ${factSourcingScore ?? '—'}/100`);
               }
             } catch (factErr) {
               console.warn('[article-v2] fact-sourcing check failed, continuing:', factErr);
+              emitStage('fact-checking', 'pass', 'Fact-check skipped (error) — continuing');
             }
 
             // Fact-sourcing patches can introduce their own merge artifacts —
             // repair before the Quality Gate scores the article. humanizeArticle
             // already ran its own repair pass on humanized.humanizedHtml; this
             // catches anything the fact-sourcing patch introduced afterward.
+            emitStage('text-integrity', 'running');
+            let integrityFixed = 0;
             try {
               const beforeRepair = finalHtml
               const repairResult = await repairAllMergeArtifacts(finalHtml);
               finalHtml = keepIfOnTopic(beforeRepair, repairResult.content, keyword, 'merge-repair');
+              integrityFixed += repairResult.repairsMade;
               if (repairResult.repairsMade > 0) {
                 console.log(`[article-v2] merge-artifact repair: fixed ${repairResult.repairsMade} broken sentence(s)`);
               }
             } catch (repairErr) {
               console.warn('[article-v2] merge-artifact repair failed, continuing:', repairErr);
             }
+
+            const scrubPass = scrubInsertionCorruption(finalHtml);
+            finalHtml = scrubPass.html;
+            integrityFixed += scrubPass.fixes;
+            if (hasInsertionCorruption(finalHtml)) {
+              send(finalHtml);
+              abortCritical(
+                'text-integrity',
+                'Residual merge/insertion corruption remains after repair (e.g. ".350." or truncated splices). Generation stopped — regenerate or edit manually.',
+              );
+              return;
+            }
+            emitStage(
+              'text-integrity',
+              integrityFixed > 0 ? 'fixed' : 'pass',
+              integrityFixed > 0
+                ? `Repaired ${integrityFixed} integrity issue(s)`
+                : 'No merge artifacts or insertion corruption detected',
+            );
 
             // Dated-claim detection — global/market-agnostic pattern
             // (chrono-node temporal extraction + fact-checker.ts's named-
@@ -681,6 +775,7 @@ Do not write generic angles. Be specific and surprising.`
             articleDescription = extractArticleDescription(finalHtml, keyword) || articleDescription;
 
             try {
+              emitStage('schema-check', 'running');
               schemaResult = generateArticleSchema({
                 title: articleTitle,
                 description: articleDescription,
@@ -724,9 +819,23 @@ Do not write generic angles. Be specific and surprising.`
               if (schemaCheck.blocked) {
                 hardBlockReasons.push(...schemaCheck.reasons);
                 console.error('[article-v2] schema completeness check failed:', schemaCheck.reasons);
+                emitStage('schema-check', 'fail', schemaCheck.reasons.join(' | '));
+              } else {
+                emitStage(
+                  'schema-check',
+                  'pass',
+                  brandSettings.logoUrl
+                    ? 'Article/Organization schema complete (incl. logo)'
+                    : 'Article schema complete (Organization logo not configured for this brand)',
+                );
               }
             } catch (schemaErr) {
               console.warn('[article-v2] schema generation failed, continuing without schema:', schemaErr);
+              emitStage(
+                'schema-check',
+                'fail',
+                schemaErr instanceof Error ? schemaErr.message : 'Schema generation failed',
+              );
             }
 
             try {
@@ -784,6 +893,32 @@ Do not write generic angles. Be specific and surprising.`
 
             // Quality gate — runs after humanization + fact-sourcing; auto-fixes applied to finalHtml
           try {
+            // Brand/topic confirmation in checklist order (critical fails already aborted above)
+            emitStage('brand-topic', 'running');
+            const postProcessTopic = checkTopicAlignment(finalHtml, keyword);
+            if (!postProcessTopic.aligned) {
+              abortCritical(
+                'brand-topic',
+                postProcessTopic.reason || `Article drifted off keyword "${keyword}" during post-processing`,
+              );
+              return;
+            }
+            if (brand) {
+              const lateBrandIssue = detectWrongBrandInBody(finalHtml, brand);
+              if (lateBrandIssue) {
+                abortCritical('brand-topic', lateBrandIssue.title);
+                return;
+              }
+            }
+            emitStage(
+              'brand-topic',
+              brandTopicFixed ? 'fixed' : 'pass',
+              brandTopicFixed
+                ? 'Topic/brand corrected earlier; still aligned after post-processing'
+                : 'Brand and topic match the brief',
+            );
+
+            emitStage('quality-gate', 'running');
             const registeredDomains = citationDomain
               ? [citationDomain]
               : (brand ? [`${brand}.com`] : [])
@@ -824,8 +959,34 @@ Do not write generic angles. Be specific and surprising.`
             if (qr.autoFixedCount > 0) console.log(`[article-v2] quality-gate: auto-fixed ${qr.autoFixedCount} issues, score=${qr.score}`)
             // Extra scrub after gate autofixes (grant hedges etc.) so ".350." never ships
             finalHtml = scrubInsertionCorruption(finalHtml).html
+
+            const criticalStops = qr.issues.filter(i => isCriticalPipelineStopIssue(i))
+            if (criticalStops.length > 0) {
+              const reason = criticalStops.map(i => i.title).join(' | ')
+              // Surface the post-autofix HTML + scores so the user can see what
+              // failed the floor — then stop (no image polish / silent continue).
+              send(`\n<!--SEORANKO_HUMANIZED_START-->\n${finalHtml}\n<!--SEORANKO_HUMANIZED_END-->`)
+              const partialMeta = JSON.stringify({
+                qualityGate: articleQualityGate,
+                eeatScore: gateEeat,
+                keywordDensity: gateDensity.density,
+                keywordDensityScore: gateDensity.score,
+                factSourcingScore,
+                pipelineStopped: true,
+                pipelineStopReason: reason,
+              })
+              send(`\n<!-- SEORANKO_SCORES:${partialMeta} -->`)
+              abortCritical('quality-gate', reason)
+              return
+            }
+            emitStage(
+              'quality-gate',
+              qr.autoFixedCount > 0 ? 'fixed' : (qr.passed ? 'pass' : 'fail'),
+              `Score ${qr.score}/100 · ${qr.criticalCount} critical · ${qr.warningCount} warning${qr.autoFixedCount ? ` · ${qr.autoFixedCount} auto-fixed` : ''}`,
+            )
           } catch (qErr) {
             console.warn('[article-v2] quality gate failed, continuing:', qErr)
+            emitStage('quality-gate', 'fail', qErr instanceof Error ? qErr.message : 'Quality Gate error')
           }
 
           controller.enqueue(encoder.encode(

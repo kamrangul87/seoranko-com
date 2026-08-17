@@ -18,6 +18,13 @@ import {
 } from '@/lib/brands'
 import { countArticleWords, snapWordCount } from '@/lib/word-count'
 import { filterRelatedKeywords } from '@/lib/topic-alignment'
+import {
+  applyPipelineStageEvent,
+  initialPipelineStageState,
+  markRemainingStagesSkipped,
+  parsePipelineStageMarkers,
+  parsePipelineStoppedMarker,
+} from '@/lib/quality-pipeline-stages'
 
 const ALL_COUNTRIES = MARKETS.map(m => ({ value: m.value as Country, label: m.label }))
 
@@ -177,6 +184,8 @@ export function ArticleWriter() {
   const [article, setArticle]       = useState<ArticleOutput | null>(null)
   const [copied, setCopied]         = useState(false)
   const [progressLabel, setProgressLabel] = useState('')
+  const [pipelineStages, setPipelineStages] = useState(initialPipelineStageState)
+  const [pipelineStoppedReason, setPipelineStoppedReason] = useState<string | null>(null)
   const [recurringAlerts, setRecurringAlerts] = useState<RecurringIssueAlert[]>([])
   const [fixAllRunning, setFixAllRunning] = useState(false)
   const [fixAllReport, setFixAllReport] = useState<import('@/components/QualityGatePanel').FixAllReport | null>(null)
@@ -327,6 +336,8 @@ export function ArticleWriter() {
     setError('')
     setArticle(null)
     setProgressLabel('Starting…')
+    setPipelineStages(initialPipelineStageState())
+    setPipelineStoppedReason(null)
     setFixAllReport(null)
     setEditing(false)
 
@@ -388,18 +399,31 @@ export function ArticleWriter() {
         if (done) break
         const chunk = decoder.decode(value, { stream: true })
         full += chunk
-        const estimated = wordCount * 6
-        const pct = Math.min(95, Math.round((full.length / estimated) * 100))
-        if (pct < 20) setProgressLabel('Researching topic…')
-        else if (pct < 40) setProgressLabel('Writing introduction…')
-        else if (pct < 60) setProgressLabel('Adding expert insights…')
-        else if (pct < 80) setProgressLabel('Writing FAQ and conclusion…')
-        else if (full.includes('<!--SEORANKO_WITH_IMAGES_START-->')) setProgressLabel('Images embedded ✓')
-        else if (full.includes('<!--SEORANKO_HUMANIZED_START-->')) setProgressLabel('Generating images…')
-        else setProgressLabel('Humanising article…')
+
+        // Rebuild stage checklist from all markers seen so far (idempotent)
+        const stageEvents = parsePipelineStageMarkers(full)
+        const stopped = parsePipelineStoppedMarker(full)
+        if (stageEvents.length > 0 || stopped) {
+          let next = initialPipelineStageState()
+          for (const ev of stageEvents) {
+            next = applyPipelineStageEvent(next, ev)
+          }
+          if (stopped) {
+            next = markRemainingStagesSkipped(next)
+            setPipelineStoppedReason(stopped.reason)
+            setProgressLabel(`Stopped: ${stopped.reason}`)
+          } else if (stageEvents.length > 0) {
+            const latest = stageEvents[stageEvents.length - 1]
+            if (latest.status === 'running') setProgressLabel(latest.label)
+            else if (latest.status === 'fail') setProgressLabel(`${latest.label} — failed`)
+            else if (latest.status === 'fixed') setProgressLabel(`${latest.label} — fixed`)
+            else if (latest.status === 'pass') setProgressLabel(`${latest.label} ✓`)
+          }
+          setPipelineStages(next)
+        }
       }
 
-      setProgressLabel('Complete ✓')
+      setProgressLabel(prev => (prev.startsWith('Stopped:') ? prev : 'Complete ✓'))
 
       // Stream error check
       const streamErrBlock = full.match(/<!--SEORANKO_ERROR_START-->([\s\S]*?)<!--SEORANKO_ERROR_END-->/)
@@ -410,6 +434,38 @@ export function ArticleWriter() {
           setError(decodeURIComponent(streamErrRaw.trim()))
         } catch {
           setError(streamErrRaw.trim() || 'Generation failed')
+        }
+        setPipelineStages(prev => markRemainingStagesSkipped(prev))
+        // Still try to surface partial HTML when the pipeline stopped mid-way
+        const withImagesMatch = full.match(/\n<!--SEORANKO_WITH_IMAGES_START-->\n([\s\S]*?)\n<!--SEORANKO_WITH_IMAGES_END-->/)
+        const humanizedMatch  = full.match(/\n<!--SEORANKO_HUMANIZED_START-->\n([\s\S]*?)\n<!--SEORANKO_HUMANIZED_END-->/)
+        const partialHtml = withImagesMatch
+          ? withImagesMatch[1].trim()
+          : humanizedMatch
+            ? humanizedMatch[1].trim()
+            : ''
+        if (partialHtml.length > 200) {
+          let qualityGate: ArticleOutput['qualityGate']
+          const scoresMatch = full.match(/\n<!-- SEORANKO_SCORES:(\{[\s\S]*?\}) -->/)
+          if (scoresMatch) {
+            try {
+              const p = JSON.parse(scoresMatch[1])
+              if (p.qualityGate) qualityGate = p.qualityGate
+            } catch { /* ignore */ }
+          }
+          setArticle({
+            seoTitle: keyword.trim(),
+            metaDescription: '',
+            article: partialHtml,
+            wordCount: countArticleWords(partialHtml),
+            eeaScore: 0,
+            readabilityScore: 0,
+            keywordDensity: 0,
+            keywordDensityScore: 0,
+            improvements: [],
+            qualityGate,
+            saveError: 'Generation stopped by Quality Pipeline — article was not saved.',
+          })
         }
         return
       }
@@ -645,20 +701,58 @@ export function ArticleWriter() {
         {error && <p className="text-red-500 text-sm mt-3">{error}</p>}
       </div>
 
-      {/* Progress bar */}
-      {loading && (
+      {/* Quality Pipeline — real per-stage status from the article-v2 stream */}
+      {(loading || pipelineStages.some(s => s.status !== 'pending')) && (
         <div className="bg-white border border-[#E8E8E4] rounded-[10px] p-6 mb-6">
-          <div className="flex justify-between text-xs text-[#6B6B6B] mb-2">
-            <span>{progressLabel}</span>
+          <div className="flex justify-between items-start gap-3 text-xs text-[#6B6B6B] mb-3">
+            <div>
+              <p className="text-sm font-semibold text-[#0F0F0F]">Quality Pipeline</p>
+              <p className="mt-0.5">{progressLabel || 'Starting…'}</p>
+            </div>
+            {loading && (
+              <svg className="w-4 h-4 animate-spin shrink-0 text-[#FF6B2C]" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            )}
           </div>
-          <div className="h-2 bg-[#F5F4F1] rounded-full overflow-hidden">
-            <div className="h-full bg-[#FF6B2C] rounded-full transition-all duration-500 w-3/4 animate-pulse" />
-          </div>
-          <div className="mt-4 flex gap-4 text-xs text-[#9B9B9B] flex-wrap">
-            {['Detecting keyword', 'Auditing content', 'Scraping competitors', 'Verifying facts', 'Generating article', 'Humanising', 'Adding images'].map(s => (
-              <span key={s}>{s}</span>
-            ))}
-          </div>
+          <ol className="space-y-2">
+            {pipelineStages.map((stage, idx) => {
+              const statusClass =
+                stage.status === 'pass' ? 'text-[#1D9E75]'
+                : stage.status === 'fixed' ? 'text-[#1D9E75]'
+                : stage.status === 'fail' ? 'text-red-600'
+                : stage.status === 'running' ? 'text-[#0F0F0F]'
+                : stage.status === 'skipped' ? 'text-[#C4C4C0]'
+                : 'text-[#9B9B9B]'
+              const mark =
+                stage.status === 'pass' ? '✓'
+                : stage.status === 'fixed' ? '✓ fixed'
+                : stage.status === 'fail' ? '✕'
+                : stage.status === 'running' ? '…'
+                : stage.status === 'skipped' ? '—'
+                : String(idx + 1)
+              return (
+                <li key={stage.id} className={`flex gap-3 text-sm ${statusClass}`}>
+                  <span className="w-14 shrink-0 font-mono text-xs pt-0.5">{mark}</span>
+                  <div className="min-w-0">
+                    <p className={`leading-snug ${stage.status === 'running' ? 'font-semibold' : ''}`}>
+                      {stage.label}
+                    </p>
+                    {stage.detail && (
+                      <p className="text-xs text-[#6B6B6B] mt-0.5 break-words">{stage.detail}</p>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
+          </ol>
+          {pipelineStoppedReason && (
+            <div className="mt-4 rounded-[8px] border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              <p className="font-semibold">Pipeline stopped</p>
+              <p className="text-xs mt-1">{pipelineStoppedReason}</p>
+            </div>
+          )}
         </div>
       )}
 
