@@ -1,6 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { MODEL_FOR } from '@/lib/model-router';
-import { getAnthropicClient } from '@/lib/anthropic'
 import { isSafeTextPatch, splitIntoSentences } from '@/lib/sentence-integrity';
 
 export interface FlaggedClaim {
@@ -179,7 +178,7 @@ export async function checkAndPatchFactSourcing(
   let patchedCount = 0;
 
   try {
-    const client = getAnthropicClient();
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
     const response = await client.messages.create({
       model: MODEL_FOR.bannedWordDetection,
       max_tokens: 2048,

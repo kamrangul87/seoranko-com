@@ -14,7 +14,6 @@ import { queueCitationTest } from '@/lib/citation-tester';
 import { checkAndPatchFactSourcing } from '@/lib/fact-checker';
 import { calculateEEATScore, calculateReadabilityScore, calculateKeywordDensity } from '@/lib/content-scorer';
 import { MODEL_FOR } from '@/lib/model-router';
-import { getAnthropicClient } from '@/lib/anthropic'
 import { runQualityGate } from '@/lib/article-quality-gate';
 import { checkContentIdentity } from '@/lib/content-identity-guard';
 
@@ -23,7 +22,7 @@ import { checkContentIdentity } from '@/lib/content-identity-guard';
 // ~2 minutes — 60s kills the function mid-stream.
 export const maxDuration = 300;
 
-const anthropic = getAnthropicClient({ maxRetries: 5 });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
 
 interface Audit {
   word_count: number;

@@ -1,11 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { MODEL_FOR } from '@/lib/model-router';
-import { getAnthropicClient } from '@/lib/anthropic'
-import { sanitiseForTransport } from '@/lib/sanitise-text';
-import { normalizeMarketForAuthority, marketLabel } from '@/lib/markets';
+import Anthropic from '@anthropic-ai/sdk';
 
 // maxRetries lets the SDK auto-retry 429s using the server's Retry-After header.
-const anthropic = getAnthropicClient({ maxRetries: 5 });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
+
+import { MODEL_FOR } from '@/lib/model-router';
+import { sanitiseForTransport } from '@/lib/sanitise-text';
+import { normalizeMarketForAuthority, marketLabel } from '@/lib/markets';
 
 export type ArticleMode = 'generate' | 'competitor' | 'improve';
 

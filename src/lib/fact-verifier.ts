@@ -3,9 +3,8 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { MODEL_FOR } from './model-router';
-import { getAnthropicClient } from './anthropic'
 
-const anthropic = getAnthropicClient();
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
 // ─── TYPES ───────────────────────────────────────────────
 

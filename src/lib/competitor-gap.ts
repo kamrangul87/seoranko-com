@@ -3,7 +3,6 @@
 // Gap vs HasData/python-for-seo N-gram analysis: SEORANKO closes the gap automatically
 
 import Anthropic from '@anthropic-ai/sdk'
-import { getAnthropicClient } from '@/lib/anthropic'
 import { fetchPageContent } from './fetch-page-content'
 
 export interface CompetitorGapResult {
@@ -20,7 +19,7 @@ export interface CompetitorGapResult {
   autoFillContent: string
 }
 
-const client = getAnthropicClient()
+const client = new Anthropic()
 
 // Shared with the RANKO fix flow — see src/lib/fetch-page-content.ts
 const fetchArticleContent = (url: string) => fetchPageContent(url)

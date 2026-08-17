@@ -5,9 +5,8 @@ import { upsertAuditResults, insertAuditHistory, getAuditResults, normalizeUrl, 
 import { AuditIssue, PageSignals, DomainSignals, fetchPageSignals, scorePage } from '@/lib/site-audit/scorer';
 
 import { MODEL_FOR } from '@/lib/model-router';
-import { getAnthropicClient } from '@/lib/anthropic'
 
-const anthropic = getAnthropicClient({ maxRetries: 3 });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 3 });
 export const maxDuration = 300;
 
 // ── STEP A: Discover all URLs from a domain via sitemap ───────────────────────

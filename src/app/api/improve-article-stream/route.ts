@@ -1,6 +1,5 @@
 import { NextRequest } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
-import { getAnthropicClient } from '@/lib/anthropic'
 
 export const maxDuration = 120
 
@@ -84,7 +83,7 @@ Return the full improved article. End with: <!-- CHANGES: [what changed] -->`
 export async function POST(req: NextRequest) {
   const { articleContent, target, currentScore, keyword } = await req.json()
 
-  const client = getAnthropicClient()
+  const client = new Anthropic()
   const systemPrompt = (IMPROVE_PROMPTS[target] || IMPROVE_PROMPTS.all)
     .replace('{KEYWORD}', keyword || '')
 

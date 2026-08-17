@@ -2,11 +2,10 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import { MODEL_FOR } from '@/lib/model-router'
-import { getAnthropicClient } from '@/lib/anthropic'
 import { getKeywordTokens } from '@/lib/topic-alignment'
 import { structureBudgetForWordCount } from '@/lib/word-count'
 
-const anthropic = getAnthropicClient({ maxRetries: 3 })
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 3 })
 
 export interface ArticleOutline {
   h1: string

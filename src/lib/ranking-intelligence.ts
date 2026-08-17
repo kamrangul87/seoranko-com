@@ -3,7 +3,6 @@
 // and decides what to do about it automatically
 
 import Anthropic from '@anthropic-ai/sdk'
-import { getAnthropicClient } from '@/lib/anthropic'
 
 export interface RankingDiagnosis {
   overallHealth: 'excellent' | 'good' | 'needs-work' | 'critical'
@@ -33,7 +32,7 @@ export interface ArticleRankingContext {
   serpFeatures: string[]
 }
 
-const client = getAnthropicClient()
+const client = new Anthropic()
 
 export async function diagnoseRankingIssues(
   context: ArticleRankingContext

@@ -3,7 +3,6 @@
 // Gap vs repos: allanreda + jmelm93 detect only. SEORANKO detects AND fixes.
 
 import Anthropic from '@anthropic-ai/sdk'
-import { getAnthropicClient } from '@/lib/anthropic'
 
 export interface CannibalPair {
   article1Id: string
@@ -52,7 +51,7 @@ function getSharedTerms(kw1: string, kw2: string): string[] {
   return Array.from(set1).filter(x => set2.has(x))
 }
 
-const client = getAnthropicClient()
+const client = new Anthropic()
 
 export async function detectCannibalization(
   articles: Array<{ id: string; title: string; keyword: string; content?: string }>

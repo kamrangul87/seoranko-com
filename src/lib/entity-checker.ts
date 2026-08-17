@@ -8,9 +8,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { MODEL_FOR } from '@/lib/model-router';
-import { getAnthropicClient } from '@/lib/anthropic'
 
-const anthropic = getAnthropicClient({ maxRetries: 2 });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 2 });
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export interface EntityPresence {

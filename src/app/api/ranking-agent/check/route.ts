@@ -6,9 +6,8 @@ import { getLatestCitationResult } from '@/lib/citation-tester';
 import { recordScoreSnapshot } from '@/lib/drift-tracker';
 
 import { MODEL_FOR } from '@/lib/model-router';
-import { getAnthropicClient } from '@/lib/anthropic'
 
-const anthropic = getAnthropicClient({ maxRetries: 5 });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
 
 // Created lazily inside the handler (not at module scope) so the build's page-data
 // collection step doesn't crash when env vars aren't present yet.

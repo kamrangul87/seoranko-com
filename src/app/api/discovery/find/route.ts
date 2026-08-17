@@ -5,9 +5,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { parseJsonResponse } from "@/lib/anthropic";
 import { getCachedEntityPresence } from "@/lib/entity-checker";
 import { MODEL_FOR } from "@/lib/model-router";
-import { getAnthropicClient } from '@/lib/anthropic'
 
-const anthropic = getAnthropicClient();
+const anthropic = new Anthropic();
 
 function sse(data: object): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`);

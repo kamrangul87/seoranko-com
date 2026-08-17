@@ -4,7 +4,6 @@
 // SEORANKO analyses the existing content library and builds the map from what already exists.
 
 import Anthropic from '@anthropic-ai/sdk'
-import { getAnthropicClient } from '@/lib/anthropic'
 
 export interface TopicalCluster {
   pillarTopic: string
@@ -35,7 +34,7 @@ export interface TopicalMapResult {
   generatedAt: string
 }
 
-const client = getAnthropicClient()
+const client = new Anthropic()
 
 export async function buildTopicalMap(
   articles: Array<{

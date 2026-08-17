@@ -23,7 +23,6 @@
 import { z } from 'zod'
 import Anthropic from '@anthropic-ai/sdk'
 import { MODEL_FOR } from './model-router'
-import { getAnthropicClient } from './anthropic'
 
 export const STRUCTURED_ARTICLE_WRITING_ENABLED =
   process.env.STRUCTURED_ARTICLE_WRITING_ENABLED === 'true'
@@ -109,7 +108,7 @@ export async function generateStructuredArticle(prompt: string): Promise<Structu
       'generateStructuredArticle called while STRUCTURED_ARTICLE_WRITING_ENABLED is not set — this path is scaffold-only, not ready for production traffic.'
     )
   }
-  const anthropic = getAnthropicClient()
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
   const response = await anthropic.messages.create({
     model: MODEL_FOR.structuredArticleWriting,
     max_tokens: 8000,
