@@ -1,8 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Detects keyword cannibalisation and generates automated fix plans
-// Gap vs repos: allanreda + jmelm93 detect only. SEORANKO detects AND fixes.
+// Detects keyword cannibalisation and generates automated fix plans.
+// Mechanical first (Jaccard + rules), then one batched Haiku call for the
+// top pairs — never O(n²) sequential LLM (that timed out on Hobby / Vercel).
 
 import Anthropic from '@anthropic-ai/sdk'
+import { MODEL_FOR } from '@/lib/model-router'
 
 export interface CannibalPair {
   article1Id: string
@@ -26,43 +28,72 @@ export interface CannibalResult {
   checkedAt: string
 }
 
-function jaccardSimilarity(kw1: string, kw2: string): number {
-  const tokenise = (s: string) => new Set(
-    s.toLowerCase()
+const STOP = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'how', 'what', 'why'])
+
+function tokenise(s: string): Set<string> {
+  return new Set(
+    (s || '')
+      .toLowerCase()
       .replace(/[^a-z0-9\s]/g, '')
       .split(/\s+/)
-      .filter(w => w.length > 2 && !['the', 'and', 'for', 'with', 'that', 'this', 'how', 'what', 'why'].includes(w))
+      .filter(w => w.length > 2 && !STOP.has(w))
   )
+}
 
+export function jaccardSimilarity(kw1: string, kw2: string): number {
   const set1 = tokenise(kw1)
   const set2 = tokenise(kw2)
   const intersection = new Set(Array.from(set1).filter(x => set2.has(x)))
   const union = new Set([...Array.from(set1), ...Array.from(set2)])
-
   return union.size === 0 ? 0 : (intersection.size / union.size) * 100
 }
 
-function getSharedTerms(kw1: string, kw2: string): string[] {
-  const tokenise = (s: string) => new Set(
-    s.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 2)
-  )
+export function getSharedTerms(kw1: string, kw2: string): string[] {
   const set1 = tokenise(kw1)
   const set2 = tokenise(kw2)
   return Array.from(set1).filter(x => set2.has(x))
 }
 
-const client = new Anthropic()
+/** Deterministic recommendation from overlap — no LLM required. */
+export function ruleBasedJudgement(overlapScore: number, a1Title: string, a2Title: string): Pick<CannibalPair, 'recommendation' | 'fixPlan' | 'severity'> {
+  if (overlapScore >= 70) {
+    return {
+      recommendation: 'merge',
+      severity: 'high',
+      fixPlan: `Merge “${a1Title}” into “${a2Title}” (or the reverse) and 301-redirect the weaker URL — they target the same intent and split rankings.`,
+    }
+  }
+  if (overlapScore >= 55) {
+    return {
+      recommendation: 'differentiate',
+      severity: 'medium',
+      fixPlan: `Rewrite one article so it targets a clearly different sub-intent than the other — keep both pages only if their keywords stop overlapping.`,
+    }
+  }
+  return {
+    recommendation: 'monitor',
+    severity: 'low',
+    fixPlan: 'Shared terms exist but intents may differ — monitor rankings before merging or rewriting.',
+  }
+}
+
+const MAX_LLM_PAIRS = 8
 
 export async function detectCannibalization(
   articles: Array<{ id: string; title: string; keyword: string; content?: string }>
 ): Promise<CannibalResult> {
-
   const pairs: CannibalPair[] = []
 
-  for (let i = 0; i < articles.length; i++) {
-    for (let j = i + 1; j < articles.length; j++) {
-      const a1 = articles[i]
-      const a2 = articles[j]
+  const safe = articles.map(a => ({
+    ...a,
+    title: (a.title || a.keyword || 'Untitled').trim(),
+    keyword: (a.keyword || a.title || '').trim(),
+  })).filter(a => a.keyword.length > 0)
+
+  for (let i = 0; i < safe.length; i++) {
+    for (let j = i + 1; j < safe.length; j++) {
+      const a1 = safe[i]
+      const a2 = safe[j]
 
       const kwOverlap = jaccardSimilarity(a1.keyword, a2.keyword)
       const titleOverlap = jaccardSimilarity(a1.title, a2.title)
@@ -70,42 +101,11 @@ export async function detectCannibalization(
 
       if (overlapScore < 40) continue
 
-      const sharedTerms = getSharedTerms(a1.keyword + ' ' + a1.title, a2.keyword + ' ' + a2.title)
-
-      const fixResponse = await client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 300,
-        messages: [{
-          role: 'user',
-          content: `Two articles may be cannibalising each other:
-
-Article 1: "${a1.title}" (keyword: "${a1.keyword}")
-Article 2: "${a2.title}" (keyword: "${a2.keyword}")
-Overlap score: ${Math.round(overlapScore)}%
-Shared terms: ${sharedTerms.join(', ')}
-
-Should these be MERGED (one redirects to the other), DIFFERENTIATED (rewrite one to target a distinctly different sub-intent), or just MONITORED?
-
-Respond JSON only:
-{
-  "recommendation": "merge|differentiate|monitor",
-  "fixPlan": "specific one-sentence action to take",
-  "severity": "high|medium|low"
-}`
-        }]
-      })
-
-      let recommendation: 'merge' | 'differentiate' | 'monitor' = 'monitor'
-      let fixPlan = 'Monitor these two articles — they share some terms but may target different intents.'
-      let severity: 'high' | 'medium' | 'low' = overlapScore > 70 ? 'high' : overlapScore > 55 ? 'medium' : 'low'
-
-      try {
-        const text = fixResponse.content[0].type === 'text' ? fixResponse.content[0].text : '{}'
-        const data = JSON.parse(text.replace(/```json|```/g, '').trim())
-        recommendation = data.recommendation || recommendation
-        fixPlan = data.fixPlan || fixPlan
-        severity = data.severity || severity
-      } catch { /* use defaults */ }
+      const sharedTerms = getSharedTerms(
+        `${a1.keyword} ${a1.title}`,
+        `${a2.keyword} ${a2.title}`
+      )
+      const judged = ruleBasedJudgement(overlapScore, a1.title, a2.title)
 
       pairs.push({
         article1Id: a1.id,
@@ -116,10 +116,57 @@ Respond JSON only:
         article2Keyword: a2.keyword,
         overlapScore: Math.round(overlapScore),
         sharedTerms,
-        recommendation,
-        fixPlan,
-        severity
+        ...judged,
       })
+    }
+  }
+
+  // One batched Haiku call for the worst pairs — never a loop of N LLM calls
+  const sortedDraft = pairs.sort((a, b) => b.overlapScore - a.overlapScore)
+  const toRefine = sortedDraft.slice(0, MAX_LLM_PAIRS)
+
+  if (toRefine.length > 0 && process.env.ANTHROPIC_API_KEY) {
+    try {
+      const client = new Anthropic()
+      const list = toRefine.map((p, i) =>
+        `${i + 1}. A:"${p.article1Title}" (kw: ${p.article1Keyword}) vs B:"${p.article2Title}" (kw: ${p.article2Keyword}) — overlap ${p.overlapScore}%`
+      ).join('\n')
+
+      const fixResponse = await client.messages.create({
+        model: MODEL_FOR.cannibalizationJudge,
+        max_tokens: 1200,
+        messages: [{
+          role: 'user',
+          content: `You are an SEO editor judging keyword cannibalisation pairs.
+
+For each numbered pair, choose merge | differentiate | monitor, a one-sentence fixPlan, and severity high|medium|low.
+
+Pairs:
+${list}
+
+Respond JSON only:
+{ "judgements": [ { "index": 1, "recommendation": "merge", "fixPlan": "...", "severity": "high" } ] }`
+        }]
+      })
+
+      const text = fixResponse.content[0].type === 'text' ? fixResponse.content[0].text : '{}'
+      const data = JSON.parse(text.replace(/```json|```/g, '').trim())
+      const judgements: any[] = Array.isArray(data.judgements) ? data.judgements : []
+
+      for (const j of judgements) {
+        const idx = Number(j.index) - 1
+        if (idx < 0 || idx >= toRefine.length) continue
+        const target = toRefine[idx]
+        if (j.recommendation === 'merge' || j.recommendation === 'differentiate' || j.recommendation === 'monitor') {
+          target.recommendation = j.recommendation
+        }
+        if (typeof j.fixPlan === 'string' && j.fixPlan.trim()) target.fixPlan = j.fixPlan.trim()
+        if (j.severity === 'high' || j.severity === 'medium' || j.severity === 'low') {
+          target.severity = j.severity
+        }
+      }
+    } catch {
+      // Keep rule-based judgements — check must still succeed
     }
   }
 

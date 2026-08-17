@@ -505,7 +505,7 @@ function ResearchPanel() {
       {/* Also see */}
       <div className="flex items-center gap-4 pt-2 border-t border-[#E8E8E4]">
         <span className="text-xs text-[#9B9B9B]">Also:</span>
-        <Link href="/dashboard/keywords/topical-map" className="text-xs text-[#6B6B6B] hover:text-[#FF6B2C] transition-colors">
+        <Link href="/dashboard/topical-map" className="text-xs text-[#6B6B6B] hover:text-[#FF6B2C] transition-colors">
           View topical map →
         </Link>
         <Link href="/dashboard/keywords/serp-intent" className="text-xs text-[#6B6B6B] hover:text-[#FF6B2C] transition-colors">

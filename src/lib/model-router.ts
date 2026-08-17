@@ -26,4 +26,6 @@ export const MODEL_FOR = {
   keywordExtraction: MODELS.HAIKU,
   keywordCluster: MODELS.HAIKU,
   mergeArtifactRepair: MODELS.HAIKU,
+  cannibalizationJudge: MODELS.HAIKU,
+  topicalMapCluster: MODELS.HAIKU,
 } as const

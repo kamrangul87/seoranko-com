@@ -31,10 +31,6 @@ function RefreshCw({ className }: { className?: string }) {
 }
 
 // §10 item 13 / §5 — this page is now the "Plan" nav screen (Station 2).
-// It previously had no shell of its own (it was embedded content, only ever
-// reached via a redirect into Keywords). Cannibalisation moved in here too,
-// since §3 frames it as a Station 2 gate ("route it to Station 3 as a
-// revision" — preventing cannibalisation, not just detecting it later).
 export default function PlanPage() {
   const [section, setSection] = useState<'topical-map' | 'cannibalisation'>('topical-map')
 
@@ -69,6 +65,15 @@ export default function PlanPage() {
   )
 }
 
+async function getBearerHeaders(): Promise<HeadersInit | null> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session?.access_token) return null
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${session.access_token}`,
+  }
+}
+
 function TopicalMapContent() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
@@ -76,27 +81,23 @@ function TopicalMapContent() {
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   const [addingLinkFor, setAddingLinkFor] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
-  // Same pattern as ContentROIDashboard (the working reference)
-
-  // Load the last saved map on mount — previously this page always showed
-  // the static empty state ("Generate your first article") regardless of
-  // real article count, because nothing checked for existing results until
-  // the user clicked "Build topical map" themselves.
   useEffect(() => {
     let cancelled = false
     async function loadExisting() {
       try {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session) { setInitialLoading(false); return }
+        const headers = await getBearerHeaders()
+        if (!headers) { setInitialLoading(false); return }
         const res = await fetch('/api/topical-map', {
-          headers: { 'Authorization': `Bearer ${session.access_token}` },
+          headers,
           credentials: 'include'
         })
         const data = await res.json()
         if (!cancelled && data.success && data.result) setResult(data.result)
       } catch {
-        // Silent — falls through to the normal empty state, same as before
+        // Silent — falls through to empty state
       } finally {
         if (!cancelled) setInitialLoading(false)
       }
@@ -109,11 +110,8 @@ function TopicalMapContent() {
     setLoading(true)
     setError(null)
     try {
-      // Get the session client-side (same as ContentROIDashboard's getUser pattern)
-      // and pass the access token as a Bearer header so the API route doesn't need
-      // to read cookies (which silently fails in Next.js 14 Route Handlers on refresh)
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
+      const headers = await getBearerHeaders()
+      if (!headers) {
         setError('Not logged in — please refresh the page')
         setLoading(false)
         return
@@ -121,13 +119,10 @@ function TopicalMapContent() {
 
       const res = await fetch('/api/topical-map', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
+        headers,
         credentials: 'include'
       })
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
       if (data.success) setResult(data.result)
       else setError(data.error || 'Failed to build map')
     } catch (err) {
@@ -137,16 +132,79 @@ function TopicalMapContent() {
     }
   }
 
-  // "These two articles don't link to each other" -> add this internal link,
-  // per the follow-up feature request. Real internal links in this pipeline
-  // only ever come from internal_link_registry (never a direct article-to-
-  // article HTML link — confirmed via research) — so this creates a
-  // registry row making the pillar eligible to be linked from the member,
-  // then hands off to Improve with an instruction to actually add it now.
-  // Creating the registry row alone would only affect FUTURE generations,
-  // not the article sitting in this cluster today — the whole point of a
-  // one-click action is that it results in a real change, not just a row
-  // nobody acts on.
+  async function persistMap(next: any) {
+    setSaving(true)
+    setError(null)
+    try {
+      const headers = await getBearerHeaders()
+      if (!headers) {
+        setError('Not logged in — please refresh the page')
+        return
+      }
+      const res = await fetch('/api/topical-map', {
+        method: 'PATCH',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify({ map_data: next }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.success) {
+        setError(data.error || 'Could not save map changes')
+        return
+      }
+      setResult(data.result || next)
+    } catch (err) {
+      setError(String(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function copyText(key: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedKey(key)
+      setTimeout(() => setCopiedKey(null), 1500)
+    } catch {
+      setError('Could not copy — browser blocked clipboard access')
+    }
+  }
+
+  function writeIdea(topic: string) {
+    router.push(`/dashboard/keywords?q=${encodeURIComponent(topic)}`)
+  }
+
+  function dismissGap(clusterIndex: number, topic: string) {
+    if (!result) return
+    const next = {
+      ...result,
+      clusters: result.clusters.map((c: any, i: number) =>
+        i !== clusterIndex
+          ? c
+          : {
+              ...c,
+              missingSubtopics: (c.missingSubtopics || []).filter((t: string) => t !== topic),
+            }
+      ),
+    }
+    void persistMap(next)
+  }
+
+  function deleteCluster(clusterIndex: number) {
+    if (!result) return
+    const cluster = result.clusters[clusterIndex]
+    if (!cluster) return
+    if (!confirm(`Remove the “${cluster.pillarTopic}” cluster from this map? You can rebuild the map later.`)) return
+    const next = {
+      ...result,
+      clusters: result.clusters.filter((_: any, i: number) => i !== clusterIndex),
+      topRecommendation: result.clusters.length <= 1
+        ? 'Rebuild the map after writing more articles.'
+        : result.topRecommendation,
+    }
+    void persistMap(next)
+  }
+
   async function addInternalLink(sourcePage: any, targetPage: any) {
     if (!sourcePage.brand || sourcePage.brand !== targetPage.brand || !targetPage.url) return
     setAddingLinkFor(sourcePage.articleId)
@@ -165,7 +223,7 @@ function TopicalMapContent() {
 
       if (!existing) {
         let siteUrl = ''
-        try { siteUrl = new URL(targetPage.url).origin } catch { /* leave blank, matches LinkRegistryManager's own fallback */ }
+        try { siteUrl = new URL(targetPage.url).origin } catch { /* leave blank */ }
         await supabase.from('internal_link_registry').insert({
           user_id: session.user.id,
           brand: targetPage.brand,
@@ -173,10 +231,6 @@ function TopicalMapContent() {
           page_url: targetPage.url,
           page_title: targetPage.title,
           topic_tags: [],
-          // Deterministic anchor text (the target's own title) rather than an
-          // AI-generated one — keeps this a snappy one-click action instead
-          // of adding an LLM round-trip; editable later the same way any
-          // other registry entry is (delete and re-add via Settings).
           anchor_text: targetPage.title,
           is_active: true,
         })
@@ -191,30 +245,38 @@ function TopicalMapContent() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold text-gray-900">Topical Map</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            Auto-built from your existing articles — shows clusters, gaps, and orphaned content.
+            Groups your SEORANKO articles into topic clusters, highlights content gaps, and suggests what to write next.
           </p>
         </div>
         <button
           onClick={generateMap}
-          disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-xl disabled:opacity-50 transition-colors"
+          disabled={loading || saving}
+          className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-xl disabled:opacity-50 transition-colors flex-shrink-0"
         >
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          {loading ? 'Building map...' : 'Build topical map'}
+          {loading ? 'Building map...' : result ? 'Rebuild map' : 'Build topical map'}
         </button>
       </div>
 
+      <div className="text-xs text-gray-500 bg-white border border-gray-200 rounded-xl px-4 py-3 space-y-1">
+        <p><span className="font-medium text-gray-700">How to use:</span> purple chips are missing subtopics — Copy the idea, Write it in Keywords, or Dismiss if it is not relevant.</p>
+        <p>Delete removes a whole cluster from this saved map (does not delete articles). Rebuild regenerates clusters from your current library.</p>
+      </div>
+
       {error && (
-        <div className="p-3 bg-red-50 rounded-lg border border-red-200 text-sm text-red-700">{error}</div>
+        <div className="p-3 bg-red-50 rounded-lg border border-red-200 text-sm text-red-700 break-words">{error}</div>
+      )}
+
+      {saving && (
+        <p className="text-xs text-gray-400">Saving map changes…</p>
       )}
 
       {result && (
         <div className="space-y-4">
-          {/* Summary */}
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-gray-50 rounded-xl p-4 text-center">
               <div className="text-2xl font-bold text-gray-800">{result.clusters.length}</div>
@@ -226,27 +288,67 @@ function TopicalMapContent() {
             </div>
             <div className="bg-gray-50 rounded-xl p-4 text-center">
               <div className="text-2xl font-bold text-purple-600">
-                {result.clusters.flatMap((c: any) => c.missingSubtopics).length}
+                {result.clusters.flatMap((c: any) => c.missingSubtopics || []).length}
               </div>
               <div className="text-xs text-gray-500 mt-1">Missing subtopics</div>
             </div>
           </div>
 
-          {/* Top recommendation */}
           <div className="p-4 bg-orange-50 rounded-xl border border-orange-200">
-            <p className="text-sm font-semibold text-orange-800 mb-1">Top recommendation</p>
-            <p className="text-sm text-orange-700">{result.topRecommendation}</p>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-orange-800 mb-1">Top recommendation</p>
+                <p className="text-sm text-orange-700">{result.topRecommendation}</p>
+              </div>
+              <button
+                onClick={() => copyText('rec', result.topRecommendation || '')}
+                className="text-xs text-orange-700 hover:text-orange-900 flex-shrink-0"
+              >
+                {copiedKey === 'rec' ? 'Copied' : 'Copy'}
+              </button>
+            </div>
           </div>
 
-          {/* Clusters */}
+          {result.orphanArticles?.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+              <p className="text-sm font-medium text-amber-800 mb-2">Orphaned articles</p>
+              <ul className="space-y-1">
+                {result.orphanArticles.map((idOrTitle: string, i: number) => (
+                  <li key={i} className="text-xs text-amber-700 truncate">• {idOrTitle}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {result.clusters.map((cluster: any, i: number) => (
             <div key={i} className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
                   <h3 className="text-sm font-semibold text-gray-900">{cluster.pillarTopic}</h3>
-                  <p className="text-xs text-gray-400">Keyword: {cluster.pillarKeyword}</p>
+                  <p className="text-xs text-gray-400 truncate">Keyword: {cluster.pillarKeyword}</p>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <button
+                      onClick={() => copyText(`kw-${i}`, cluster.pillarKeyword || cluster.pillarTopic || '')}
+                      className="text-xs text-gray-500 hover:text-orange-600"
+                    >
+                      {copiedKey === `kw-${i}` ? 'Copied' : 'Copy keyword'}
+                    </button>
+                    <button
+                      onClick={() => writeIdea(cluster.pillarKeyword || cluster.pillarTopic)}
+                      className="text-xs text-orange-600 hover:text-orange-700 font-medium"
+                    >
+                      Research in Keywords →
+                    </button>
+                    <button
+                      onClick={() => deleteCluster(i)}
+                      disabled={saving}
+                      className="text-xs text-gray-400 hover:text-red-600 disabled:opacity-50"
+                    >
+                      Delete cluster
+                    </button>
+                  </div>
                 </div>
-                <div className="text-right">
+                <div className="text-right flex-shrink-0">
                   <div className={`text-2xl font-bold ${cluster.topicalAuthorityScore >= 70 ? 'text-green-600' : cluster.topicalAuthorityScore >= 40 ? 'text-amber-600' : 'text-red-500'}`}>
                     {cluster.topicalAuthorityScore}
                   </div>
@@ -254,17 +356,10 @@ function TopicalMapContent() {
                 </div>
               </div>
 
-              {/* Cluster pages */}
               <div className="space-y-1.5">
                 {(() => {
                   const pillarPage = cluster.clusterPages.find((p: any) => p.subtopic === 'Pillar page')
                   return cluster.clusterPages.map((page: any, j: number) => {
-                    // Only offer the action when both pages share a brand —
-                    // buildTopicalMap clusters across the whole account, not
-                    // scoped per brand, so a cluster can in principle mix
-                    // brands; linking across them would be exactly the
-                    // cross-brand mistake internal_link_registry's brand
-                    // scoping exists to prevent.
                     const canSuggestLink =
                       pillarPage && page.subtopic !== 'Pillar page' && !page.linksToPillar &&
                       page.brand && page.brand === pillarPage.brand && pillarPage.url
@@ -291,15 +386,36 @@ function TopicalMapContent() {
                 })()}
               </div>
 
-              {/* Missing subtopics */}
-              {cluster.missingSubtopics.length > 0 && (
+              {(cluster.missingSubtopics || []).length > 0 && (
                 <div className="pt-2 border-t border-gray-100">
                   <p className="text-xs font-medium text-gray-500 mb-1.5">Missing subtopics (content gaps):</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {cluster.missingSubtopics.map((topic: string, k: number) => (
-                      <span key={k} className="text-xs bg-purple-50 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-full">
-                        + {topic}
-                      </span>
+                  <div className="space-y-2">
+                    {(cluster.missingSubtopics || []).map((topic: string, k: number) => (
+                      <div
+                        key={k}
+                        className="flex flex-wrap items-center gap-2 text-xs bg-purple-50 text-purple-800 border border-purple-200 px-2.5 py-1.5 rounded-lg"
+                      >
+                        <span className="flex-1 min-w-[10rem]">+ {topic}</span>
+                        <button
+                          onClick={() => copyText(`gap-${i}-${k}`, topic)}
+                          className="text-purple-700 hover:text-purple-900 font-medium"
+                        >
+                          {copiedKey === `gap-${i}-${k}` ? 'Copied' : 'Copy'}
+                        </button>
+                        <button
+                          onClick={() => writeIdea(topic)}
+                          className="text-orange-600 hover:text-orange-700 font-medium"
+                        >
+                          Write
+                        </button>
+                        <button
+                          onClick={() => dismissGap(i, topic)}
+                          disabled={saving}
+                          className="text-gray-400 hover:text-red-600 disabled:opacity-50"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </div>

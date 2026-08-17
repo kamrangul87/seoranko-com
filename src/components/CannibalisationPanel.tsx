@@ -1,9 +1,9 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { supabase } from '@/lib/supabase-client'
 import type { CannibalPair, CannibalResult } from '@/lib/cannibalization-detector'
 
-// Inline SVG icons (lucide-react not installed)
 function IconAlertTriangle({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -38,30 +38,92 @@ function IconArrowRight({ className }: { className?: string }) {
   )
 }
 
+async function authHeaders(): Promise<HeadersInit | null> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session?.access_token) return null
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${session.access_token}`,
+  }
+}
+
+async function parseJson(res: Response): Promise<{ ok: boolean; status: number; data: any }> {
+  const text = await res.text()
+  try {
+    return { ok: res.ok, status: res.status, data: JSON.parse(text) }
+  } catch {
+    return {
+      ok: false,
+      status: res.status,
+      data: { error: `Check failed (${res.status}) — server returned a non-JSON response` },
+    }
+  }
+}
+
 export function CannibalisationPanel() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const [initialLoading, setInitialLoading] = useState(true)
   const [result, setResult] = useState<CannibalResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadSaved() {
+      try {
+        const headers = await authHeaders()
+        if (!headers) { setInitialLoading(false); return }
+        const res = await fetch('/api/cannibalization', {
+          headers,
+          credentials: 'include',
+        })
+        const { data } = await parseJson(res)
+        if (!cancelled && data.success && data.result) setResult(data.result)
+      } catch {
+        // Fall through to empty state
+      } finally {
+        if (!cancelled) setInitialLoading(false)
+      }
+    }
+    loadSaved()
+    return () => { cancelled = true }
+  }, [])
 
   async function runCheck() {
     setLoading(true)
     setError(null)
     try {
-      // The route authenticates from the session cookie — same pattern as the
-      // other panels, no Bearer header needed.
+      const headers = await authHeaders()
+      if (!headers) {
+        setError('Not logged in — refresh the page and try again')
+        return
+      }
       const res = await fetch('/api/cannibalization', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include'
+        headers,
+        credentials: 'include',
       })
-      const data = await res.json()
-      if (res.ok && data.success) setResult(data.result)
-      else setError(data.error || 'Check failed')
-    } catch {
-      setError('Could not run the check — try again')
+      const { ok, data } = await parseJson(res)
+      if (ok && data.success && data.result) {
+        setResult(data.result)
+      } else {
+        setError(data.error || 'Check failed')
+      }
+    } catch (err) {
+      setError(String(err) || 'Could not run the check — try again')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function copyText(key: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedKey(key)
+      setTimeout(() => setCopiedKey(null), 1500)
+    } catch {
+      setError('Could not copy — browser blocked clipboard access')
     }
   }
 
@@ -70,6 +132,15 @@ export function CannibalisationPanel() {
     medium: 'bg-amber-50 border-amber-200',
     low: 'bg-gray-50 border-gray-200'
   }[s] || 'bg-gray-50 border-gray-200')
+
+  if (initialLoading && !result) {
+    return (
+      <div className="text-center py-16 text-sm text-gray-400 flex items-center justify-center gap-2">
+        <IconLoader className="w-4 h-4 animate-spin" />
+        Loading last check…
+      </div>
+    )
+  }
 
   if (!result) {
     return (
@@ -87,7 +158,7 @@ export function CannibalisationPanel() {
           {loading ? <IconLoader className="w-4 h-4 animate-spin" /> : <IconGitMerge className="w-4 h-4" />}
           {loading ? 'Checking your articles…' : 'Run cannibalisation check'}
         </button>
-        {error && <p className="text-xs text-red-600 mt-3">{error}</p>}
+        {error && <p className="text-xs text-red-600 mt-3 px-6 break-words">{error}</p>}
       </div>
     )
   }
@@ -100,6 +171,11 @@ export function CannibalisationPanel() {
             {result.totalConflicts} conflict{result.totalConflicts !== 1 ? 's' : ''} found
           </h3>
           <p className="text-xs text-gray-500 mt-0.5">{result.topAction}</p>
+          {result.checkedAt && (
+            <p className="text-xs text-gray-400 mt-1">
+              Checked {new Date(result.checkedAt).toLocaleString('en-GB')}
+            </p>
+          )}
         </div>
         <button
           onClick={runCheck}
@@ -110,7 +186,7 @@ export function CannibalisationPanel() {
         </button>
       </div>
 
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {error && <p className="text-xs text-red-600 break-words">{error}</p>}
 
       {result.pairs.length === 0 ? (
         <div className="p-4 bg-green-50 border border-green-200 rounded-xl text-sm text-green-700">
@@ -138,14 +214,22 @@ export function CannibalisationPanel() {
               <span className="font-medium">{pair.article2Keyword}</span>
             </div>
             <p className="text-xs text-gray-600 mb-2">{pair.fixPlan}</p>
-            {pair.recommendation === 'differentiate' && (
+            <div className="flex flex-wrap gap-3">
               <button
-                onClick={() => router.push(`/dashboard/improve?articleId=${encodeURIComponent(pair.article1Id)}&instruction=${encodeURIComponent(pair.fixPlan)}`)}
-                className="text-xs font-medium text-orange-600 hover:text-orange-700"
+                onClick={() => copyText(`fix-${i}`, pair.fixPlan)}
+                className="text-xs text-gray-500 hover:text-orange-600"
               >
-                Differentiate &ldquo;{pair.article1Title}&rdquo; now →
+                {copiedKey === `fix-${i}` ? 'Copied' : 'Copy fix'}
               </button>
-            )}
+              {pair.recommendation === 'differentiate' && (
+                <button
+                  onClick={() => router.push(`/dashboard/improve?articleId=${encodeURIComponent(pair.article1Id)}&instruction=${encodeURIComponent(pair.fixPlan)}`)}
+                  className="text-xs font-medium text-orange-600 hover:text-orange-700"
+                >
+                  Differentiate &ldquo;{pair.article1Title}&rdquo; now →
+                </button>
+              )}
+            </div>
           </div>
         ))
       )}

@@ -4,6 +4,7 @@
 // SEORANKO analyses the existing content library and builds the map from what already exists.
 
 import Anthropic from '@anthropic-ai/sdk'
+import { MODEL_FOR } from '@/lib/model-router'
 
 export interface TopicalCluster {
   pillarTopic: string
@@ -62,7 +63,7 @@ export async function buildTopicalMap(
   ).join('\n')
 
   const clusterResponse = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: MODEL_FOR.topicalMapCluster,
     max_tokens: 2000,
     messages: [{
       role: 'user',
