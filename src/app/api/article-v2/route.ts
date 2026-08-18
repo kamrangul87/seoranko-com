@@ -676,13 +676,10 @@ export async function POST(req: NextRequest) {
                 : 'No merge artifacts or insertion corruption detected',
             );
 
-            // Dated-claim detection — global/market-agnostic pattern
-            // (chrono-node temporal extraction + fact-checker.ts's named-
-            // source check), runs on the humanized+fact-checked text before
-            // schema/enrichment tags are appended so it only ever scans
-            // real article prose. Unsourced results become blocking Quality
-            // Gate issues below, alongside the citation-link issues.
-            let datedClaimIssues: QualityIssue[] = [];
+            // Dated-claim / stale-year detection now lives inside runQualityGate
+            // (buildDatedPolicyIssues) so recheck and Fix All use the same
+            // findings and DATED_POLICY_SEVERITY. article-v2 only logs here
+            // for early visibility before the final artifact is built.
             try {
               const datedClaims = detectDatedClaims(finalHtml, new Date(generatedAt));
               const unsourced = datedClaims.filter(c => !c.hasSource)
@@ -690,25 +687,12 @@ export async function POST(req: NextRequest) {
                 new Map(unsourced.map(c => [c.sentence.trim(), c])).values()
               )
               if (uniqueUnsourced.length > 0) {
-                datedClaimIssues = uniqueUnsourced.map((claim, i) => ({
-                  id: `dated-claim-${i}`,
-                  severity: 'warning' as const,
-                  category: 'dated-policy' as const,
-                  title: `Dated claim — confirm still current: "${claim.text}"`,
-                  description: `"${claim.sentence}" — tied to a date but no named source or link found nearby. Add a GOV.UK citation or verify the figure is still accurate. Re-check by ${claim.reviewBy.slice(0, 10)}.`,
-                  location: claim.sentence.slice(0, 100),
-                  autoFixable: false,
-                }));
-                console.warn(`[article-v2] dated-claim-detector: ${uniqueUnsourced.length} unsourced dated claim(s) found`);
+                console.warn(`[article-v2] dated-claim-detector: ${uniqueUnsourced.length} unsourced dated claim(s) found (will surface via Quality Gate)`);
               }
             } catch (datedErr) {
               console.warn('[article-v2] dated-claim detection failed, continuing:', datedErr);
             }
 
-            // Stale year check — separate from the sourced-claim logic above.
-            // Catches a flat wrong year in the title/headings/meta description
-            // (e.g. "Used EV Buyers in 2024" on an article dated August 2026),
-            // not just an unsourced-but-plausible dated figure in body prose.
             try {
               const publishYear = new Date(generatedAt).getFullYear();
               const staleYears = detectStaleYearReferences(
@@ -716,19 +700,7 @@ export async function POST(req: NextRequest) {
                 publishYear,
               );
               if (staleYears.length > 0) {
-                const uniqueStaleYears = Array.from(
-                  new Map(staleYears.map(s => [`${s.location}:${s.text}`, s])).values()
-                );
-                datedClaimIssues.push(...uniqueStaleYears.map((s, i) => ({
-                  id: `stale-year-${i}`,
-                  severity: 'warning' as const,
-                  category: 'dated-policy' as const,
-                  title: `Stale year in ${s.location}: "${s.year}" (article is dated ${publishYear})`,
-                  description: `${s.location === 'title' ? 'Title' : s.location === 'heading' ? 'A heading (and its table-of-contents entry)' : 'The meta description'} says "${s.text}" — mentions ${s.year}, but this article's datePublished/dateModified/"Last verified" line all say ${publishYear}. Update the year or confirm it's intentional (e.g. a genuine historical reference).`,
-                  location: s.text.slice(0, 100),
-                  autoFixable: false,
-                })));
-                console.warn(`[article-v2] stale-year check: ${uniqueStaleYears.length} year reference(s) don't match publish year ${publishYear}`);
+                console.warn(`[article-v2] stale-year check: ${staleYears.length} year reference(s) don't match publish year ${publishYear}`);
               }
             } catch (staleYearErr) {
               console.warn('[article-v2] stale-year check failed, continuing:', staleYearErr);
@@ -1003,10 +975,12 @@ export async function POST(req: NextRequest) {
                   ? { entities: entities as string[], topicalGaps: topicalGaps as string[] }
                   : undefined,
                 secondaryKeywords: filteredSecondaries,
-                extraIssues: [
-                  ...(datedClaimIssues.length > 0 ? datedClaimIssues : []),
-                  ...imageExtraIssues,
-                ],
+                extraIssues: imageExtraIssues,
+                datedPolicy: {
+                  now: new Date(generatedAt),
+                  title: articleTitle,
+                  metaDescription: articleDescription,
+                },
                 expectOrganizationLogo: expectOrganizationLogoFromPolicy(logoPolicy),
                 eeatScore: gateEeat,
                 keywordDensityPct: gateDensity.density,

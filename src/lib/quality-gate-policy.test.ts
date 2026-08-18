@@ -3,6 +3,7 @@ import {
   resolveLogoPolicy,
   expectOrganizationLogoFromPolicy,
   DATED_POLICY_SEVERITY,
+  GRANT_FIGURE_CITATION_POLICY,
 } from './quality-gate-policy'
 
 describe('resolveLogoPolicy', () => {
@@ -40,7 +41,13 @@ describe('resolveLogoPolicy', () => {
 })
 
 describe('DATED_POLICY_SEVERITY', () => {
-  it('documents info severity for Phase 5 convergence (Phase 1 does not change scoring)', () => {
-    expect(DATED_POLICY_SEVERITY).toBe('info')
+  it('is warning for every dated-policy finding (QG / recheck / Fix All)', () => {
+    expect(DATED_POLICY_SEVERITY).toBe('warning')
+  })
+})
+
+describe('GRANT_FIGURE_CITATION_POLICY', () => {
+  it('documents document-level-once citation for repeated figures', () => {
+    expect(GRANT_FIGURE_CITATION_POLICY).toBe('document-level-once')
   })
 })
