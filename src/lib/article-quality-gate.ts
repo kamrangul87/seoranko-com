@@ -600,6 +600,7 @@ export function scoreFloorIssues(opts: {
   keywordDensityPct?: number
   keywordDensityScore?: number
   factSourcingScore?: number
+  humanScore?: number
   keyword: string
 }): QualityIssue[] {
   const out: QualityIssue[] = []
@@ -608,6 +609,7 @@ export function scoreFloorIssues(opts: {
     keywordDensityPct,
     keywordDensityScore,
     factSourcingScore,
+    humanScore,
     keyword,
   } = opts
 
@@ -650,6 +652,24 @@ export function scoreFloorIssues(opts: {
       description: 'Too many unsourced claims remain. Add named-source attributions before publishing.',
       autoFixable: true,
       autoFixDescription: 'Run Fix All / Improve fact sourcing',
+    })
+  }
+
+  // Human Score / AI-detection-risk floor — 72 is not a new arbitrary
+  // number, it's the same threshold humanizer.ts already uses to compute
+  // its own passesDetection flag. Confirmed live: an article scored 60/100
+  // with an explicit "May trigger detection" warning still showed "Ready
+  // to publish" at 90/100 overall, because human score fed the blended
+  // score but had no floor of its own — same class of bug the E-E-A-T/
+  // density/fact-sourcing floors above were added to close.
+  if (typeof humanScore === 'number' && humanScore < 72) {
+    out.push({
+      id: 'score-floor-human-score',
+      severity: 'critical',
+      category: 'score-floor',
+      title: `Human score ${humanScore}/100 is below the publish floor (72) — may trigger AI-content detection`,
+      description: 'The humanizer\'s own detection-risk threshold was not met. Publishing content likely to be flagged as AI-generated risks the site\'s credibility and search visibility — run Humanize again or edit manually before publishing.',
+      autoFixable: false,
     })
   }
 
@@ -708,6 +728,7 @@ export async function runQualityGate(
     keywordDensityPct?: number
     keywordDensityScore?: number
     factSourcingScore?: number
+    humanScore?: number
   }
 ): Promise<QualityGateResult> {
 
@@ -730,6 +751,7 @@ export async function runQualityGate(
     keywordDensityPct,
     keywordDensityScore,
     factSourcingScore,
+    humanScore,
   } = {
     expectOrganizationLogo: true,
     ...options,
@@ -752,6 +774,7 @@ export async function runQualityGate(
     keywordDensityPct?: number
     keywordDensityScore?: number
     factSourcingScore?: number
+    humanScore?: number
   }
 
   let issues: QualityIssue[] = extraIssues ? [...extraIssues] : []
@@ -986,6 +1009,7 @@ export async function runQualityGate(
     keywordDensityPct,
     keywordDensityScore,
     factSourcingScore,
+    humanScore,
     keyword,
   }))
 

@@ -81,6 +81,37 @@ describe('brand mismatch + score floors', () => {
     expect(floors.every(i => i.severity === 'critical')).toBe(true)
   })
 
+  // Confirmed live: an article scored Human Score 60/100 with an explicit
+  // "May trigger detection" warning, yet still showed "Ready to publish"
+  // at 90/100 overall — human score fed the blended score but had no floor
+  // of its own, same class of bug the other floors above exist to close.
+  // 72 mirrors humanizer.ts's own passesDetection threshold, not a new
+  // number invented here.
+  it('score floors block ready when human score is below the detection-risk threshold', () => {
+    const floors = scoreFloorIssues({
+      eeatScore: 90,
+      keywordDensityPct: 2,
+      keywordDensityScore: 80,
+      factSourcingScore: 80,
+      humanScore: 60,
+      keyword: 'ev charger',
+    })
+    expect(floors.some(i => i.id === 'score-floor-human-score')).toBe(true)
+    expect(floors.find(i => i.id === 'score-floor-human-score')?.severity).toBe('critical')
+  })
+
+  it('does not add a human-score floor issue when the score clears the threshold', () => {
+    const floors = scoreFloorIssues({
+      eeatScore: 90,
+      keywordDensityPct: 2,
+      keywordDensityScore: 80,
+      factSourcingScore: 80,
+      humanScore: 85,
+      keyword: 'ev charger',
+    })
+    expect(floors.some(i => i.id === 'score-floor-human-score')).toBe(false)
+  })
+
   it('runQualityGate auto-fixes Auto Trader and never leaves ready with wrong brand', async () => {
     const html = `
       <h1>EV Charger Types Comparison</h1>

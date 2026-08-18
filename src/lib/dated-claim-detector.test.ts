@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { detectDatedClaims, buildLastVerifiedLine } from './dated-claim-detector'
+import { detectDatedClaims, detectStaleYearReferences, extractHeadingTexts, buildLastVerifiedLine } from './dated-claim-detector'
 
 describe('detectDatedClaims', () => {
   const now = new Date('2026-08-13T00:00:00Z')
@@ -62,6 +62,66 @@ describe('detectDatedClaims', () => {
     const claims = detectDatedClaims(html, now)
     expect(claims.length).toBeGreaterThan(0)
     expect(new Date(claims[0].reviewBy).getTime()).toBeGreaterThan(now.getTime())
+  })
+})
+
+describe('extractHeadingTexts', () => {
+  it('pulls plain text out of every H2, stripping inline markup', () => {
+    const html = '<h2>What Is <strong>CCS</strong> Charging?</h2><p>...</p><h2>Used EV Buyers in 2024</h2>'
+    expect(extractHeadingTexts(html)).toEqual(['What Is CCS Charging?', 'Used EV Buyers in 2024'])
+  })
+})
+
+describe('detectStaleYearReferences', () => {
+  // Confirmed live (article da83d673): datePublished/dateModified/"Last
+  // verified" all say August 2026, but the H2 heading, its table-of-
+  // contents entry, and the meta description all said "used EV buyers in
+  // 2024" — two years stale, and never caught because this is a flat wrong
+  // year, not an unsourced quantitative claim (detectDatedClaims's domain).
+  it('flags a heading year that does not match the publish year', () => {
+    const found = detectStaleYearReferences(
+      { headings: ['Used EV Buyers in 2024: What You Need to Know'] },
+      2026,
+    )
+    expect(found).toHaveLength(1)
+    expect(found[0]).toMatchObject({ location: 'heading', year: 2024 })
+  })
+
+  it('flags a stale year in the title and meta description too', () => {
+    const found = detectStaleYearReferences(
+      {
+        title: 'EV Buying Guide 2024',
+        metaDescription: 'A guide for used EV buyers in 2024.',
+      },
+      2026,
+    )
+    const locations = found.map(f => f.location).sort()
+    expect(locations).toEqual(['meta-description', 'title'])
+  })
+
+  it('does not flag a year that matches the publish year', () => {
+    const found = detectStaleYearReferences(
+      { title: 'EV Charger Guide 2026', headings: ['What Changed in 2026'] },
+      2026,
+    )
+    expect(found).toHaveLength(0)
+  })
+
+  it('does not flag text with no year at all', () => {
+    const found = detectStaleYearReferences(
+      { title: 'EV Charger Connector Standards Explained', headings: ['Type 2 vs CCS'] },
+      2026,
+    )
+    expect(found).toHaveLength(0)
+  })
+
+  it('flags multiple distinct stale years in the same heading separately', () => {
+    const found = detectStaleYearReferences(
+      { headings: ['EV Sales: 2023 vs 2024 Comparison'] },
+      2026,
+    )
+    expect(found).toHaveLength(2)
+    expect(found.map(f => f.year).sort()).toEqual([2023, 2024])
   })
 })
 

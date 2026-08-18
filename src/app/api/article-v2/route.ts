@@ -43,7 +43,7 @@ import { toSlugPath } from '@/lib/slug';
 import { autoSplitDenseParagraphs } from '@/lib/scannability-fixer';
 import { validateArticleStructure } from '@/lib/structure-validator';
 import { assertSchemaCompleteness } from '@/lib/schema-validate';
-import { detectDatedClaims, buildLastVerifiedLine } from '@/lib/dated-claim-detector';
+import { detectDatedClaims, detectStaleYearReferences, extractHeadingTexts, buildLastVerifiedLine } from '@/lib/dated-claim-detector';
 import { splitDenseParagraphs } from '@/lib/paragraph-splitter';
 import {
   formatPipelineStageMarker,
@@ -700,6 +700,35 @@ export async function POST(req: NextRequest) {
               console.warn('[article-v2] dated-claim detection failed, continuing:', datedErr);
             }
 
+            // Stale year check — separate from the sourced-claim logic above.
+            // Catches a flat wrong year in the title/headings/meta description
+            // (e.g. "Used EV Buyers in 2024" on an article dated August 2026),
+            // not just an unsourced-but-plausible dated figure in body prose.
+            try {
+              const publishYear = new Date(generatedAt).getFullYear();
+              const staleYears = detectStaleYearReferences(
+                { title: articleTitle, headings: extractHeadingTexts(finalHtml), metaDescription: articleDescription },
+                publishYear,
+              );
+              if (staleYears.length > 0) {
+                const uniqueStaleYears = Array.from(
+                  new Map(staleYears.map(s => [`${s.location}:${s.text}`, s])).values()
+                );
+                datedClaimIssues.push(...uniqueStaleYears.map((s, i) => ({
+                  id: `stale-year-${i}`,
+                  severity: 'warning' as const,
+                  category: 'dated-policy' as const,
+                  title: `Stale year in ${s.location}: "${s.year}" (article is dated ${publishYear})`,
+                  description: `${s.location === 'title' ? 'Title' : s.location === 'heading' ? 'A heading (and its table-of-contents entry)' : 'The meta description'} says "${s.text}" — mentions ${s.year}, but this article's datePublished/dateModified/"Last verified" line all say ${publishYear}. Update the year or confirm it's intentional (e.g. a genuine historical reference).`,
+                  location: s.text.slice(0, 100),
+                  autoFixable: false,
+                })));
+                console.warn(`[article-v2] stale-year check: ${uniqueStaleYears.length} year reference(s) don't match publish year ${publishYear}`);
+              }
+            } catch (staleYearErr) {
+              console.warn('[article-v2] stale-year check failed, continuing:', staleYearErr);
+            }
+
             if (imageSet?.hero?.url) {
               heroImageUrl = imageSet.hero.url;
             }
@@ -950,6 +979,7 @@ export async function POST(req: NextRequest) {
               keywordDensityPct: gateDensity.density,
               keywordDensityScore: gateDensity.score,
               factSourcingScore,
+              humanScore,
             })
             finalHtml = qr.articleAfterAutoFix
             articleQualityGate = {
@@ -975,6 +1005,7 @@ export async function POST(req: NextRequest) {
                 keywordDensity: gateDensity.density,
                 keywordDensityScore: gateDensity.score,
                 factSourcingScore,
+                humanScore,
                 pipelineStopped: true,
                 pipelineStopReason: reason,
               })

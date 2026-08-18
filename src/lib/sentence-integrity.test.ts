@@ -63,4 +63,35 @@ describe('sentence-integrity', () => {
     expect(html).not.toMatch(/\)\.350\./)
     expect(splitIntoSentences(html.replace(/<[^>]+>/g, ' ')).length).toBeGreaterThanOrEqual(1)
   })
+
+  // Confirmed live (article da83d673): a fact-sourcing hedge patch turned
+  // "...accept between 50 kW and 150 kW." into "...accept between 50 kW
+  // and lower speeds. and 150 kW." — a fragment spliced mid-clause. Neither
+  // the old corruption-pattern list nor the sentence-count check caught it,
+  // because splitIntoSentences only counts a new sentence when the period
+  // is followed by a CAPITAL letter, and "and" here is lowercase.
+  it('detects the exact "50 kW and lower speeds. and 150 kW." splice shape', () => {
+    const corrupted = 'though most UK EVs currently accept between 50 kW and lower speeds. and 150 kW.'
+    expect(hasInsertionCorruption(corrupted)).toBe(true)
+  })
+
+  it('rejects the exact fact-checker hedge patch that produced the live bug', () => {
+    const original = 'though most UK EVs currently accept between 50 kW and 150 kW.'
+    const patched = 'though most UK EVs currently accept between 50 kW and lower speeds. and 150 kW.'
+    // The old bug: sentence count was equal both before and after (the
+    // splitter never saw "and" as a new sentence), so this used to pass.
+    expect(splitIntoSentences(original).length).toBe(splitIntoSentences(patched).length)
+    expect(isSafeTextPatch(original, patched)).toBe(false)
+  })
+
+  it('does not false-positive on legitimate abbreviations followed by lowercase text', () => {
+    expect(hasInsertionCorruption('Costs vary by region, e.g. urban areas pay more.')).toBe(false)
+    expect(hasInsertionCorruption('Installation takes approx. two hours on average.')).toBe(false)
+  })
+
+  it('still accepts a genuinely clean hedge patch after the new pattern was added', () => {
+    const original = 'Most UK EVs accept between 50 kW and 150 kW.'
+    const hedged = 'Most UK EVs typically accept between around 50 kW and 150 kW.'
+    expect(isSafeTextPatch(original, hedged)).toBe(true)
+  })
 })

@@ -82,6 +82,61 @@ export function detectDatedClaims(html: string, now: Date): DatedClaim[] {
   return claims
 }
 
+// ── Stale year in title/headings/meta description ───────────────────────
+// Separate from the sourced-claim logic above by design: that check flags
+// a QUANTITATIVE claim tied to a date with no named source nearby (e.g. "as
+// of August 2026, the grant covers 75%"). This one catches a different,
+// simpler defect — a flat WRONG year sitting in a title, heading, or meta
+// description (e.g. "Used EV Buyers in 2024" on an article whose
+// datePublished/dateModified/"Last verified" line all say August 2026).
+// No historical-establishment exemption here (unlike detectDatedClaims'
+// isHistoricalEstablishmentClaim): a title/heading/description is a topic
+// label asserting "this is current as of <year>", not a sentence reporting
+// a fixed past event — any year that isn't the actual publish year is
+// either stale or, at minimum, needs a human to confirm it's intentional.
+
+export interface StaleYearReference {
+  location: 'title' | 'heading' | 'meta-description'
+  text: string
+  year: number
+}
+
+const YEAR_RE = /\b(?:19|20)\d{2}\b/g
+
+export function extractHeadingTexts(html: string): string[] {
+  const headings: string[] = []
+  const re = /<h2[^>]*>([\s\S]*?)<\/h2>/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html)) !== null) {
+    const text = m[1].replace(/<[^>]+>/g, '').trim()
+    if (text) headings.push(text)
+  }
+  return headings
+}
+
+export function detectStaleYearReferences(
+  input: { title?: string; headings?: string[]; metaDescription?: string },
+  publishYear: number,
+): StaleYearReference[] {
+  const found: StaleYearReference[] = []
+
+  const scan = (location: StaleYearReference['location'], text: string | undefined) => {
+    if (!text) return
+    const years = text.match(YEAR_RE)
+    if (!years) return
+    for (const raw of years) {
+      const year = parseInt(raw, 10)
+      if (year !== publishYear) found.push({ location, text, year })
+    }
+  }
+
+  scan('title', input.title)
+  for (const heading of input.headings || []) scan('heading', heading)
+  scan('meta-description', input.metaDescription)
+
+  return found
+}
+
 export function buildLastVerifiedLine(verifiedAt: string): string {
   const formatted = new Date(verifiedAt).toLocaleDateString('en-US', {
     year: 'numeric', month: 'long', day: 'numeric',

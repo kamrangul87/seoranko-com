@@ -26,14 +26,32 @@ export const INSERTION_CORRUPTION_PATTERNS: RegExp[] = [
   /\)\.\d+\./,
   // "£350 (verify at GOV.UK).350."
   /£\d+[^.…]{0,40}\)\.\d+\./,
-  // orphaned "word." fragment of 1–3 chars after a period+space that's mid-token
-  /\.\s*[a-z]{1,2}\.(?=\s|$)/,
+  // orphaned "word." fragment of 1–3 chars after a period+space that's mid-token.
+  // Excludes "e.g."/"i.e." — found while adding the splice check below: this
+  // pattern's generic 1-2-letter-fragment shape also matches those two very
+  // common, entirely legitimate abbreviations, which would have wrongly
+  // rejected any patch that added one and, worse, could hard-abort an
+  // otherwise-fine article at route.ts's absolute hasInsertionCorruption check.
+  /(?<!\be)(?<!\bi)\.\s*[a-z]{1,2}\.(?=\s|$)/,
   // double period / period immediately before digit mid-prose: ".350."
   /(?<=\w)\.(\d{2,})\.(?=\s|[A-Z])/,
   // "Approved Document S.t S" — truncated splice mid-title
   /\b[A-Za-z]+\s+[A-Z]\.t\s+[A-Z]\b/,
   // "installations.ce of" — truncated suffix before a preposition
   /\b[a-z]{5,}\.[a-z]{1,3}\s+(?:of|the|a|and|for|in|to|on)\b/,
+  // "50 kW and lower speeds. and 150 kW." — a period immediately followed
+  // by a lowercase coordinating conjunction/preposition is the residue of
+  // a fragment spliced mid-clause (confirmed live: a fact-sourcing hedge
+  // patch turned "...accept between 50 kW and 150 kW." into exactly this).
+  // Real English prose never legitimately starts a new sentence with a
+  // lowercase conjunction, so this is a narrow, low-false-positive signal
+  // — deliberately scoped to conjunctions/prepositions rather than "any
+  // lowercase word" to avoid tripping on legitimate abbreviations (e.g.
+  // "approx. 50kW", "St. Ives"). This is the specific shape
+  // isSafeTextPatch's sentence-count check misses: splitIntoSentences only
+  // counts a new sentence when the period is followed by a CAPITAL letter,
+  // so a lowercase splice doesn't register as "one more sentence" at all.
+  /\.\s+(?:and|or|but|nor|yet|so|with|of|to|for|in|on|at|as)\b/,
 ]
 
 /** Mask URLs + multi-label hostnames so domain labels never look like merge glue. */
