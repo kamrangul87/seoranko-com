@@ -10,26 +10,18 @@
 // final HTML shape).
 
 import { parse } from 'node-html-parser'
-import { maskDomainLikeTokens } from './article-quality-gate'
+import { sentenceBoundaryOffsets } from './sentence-boundaries'
 
 const MAX_SENTENCES_PER_PARAGRAPH = 4
 const MAX_WORDS_PER_PARAGRAPH = 90
 
 // Splits on sentence-ending punctuation followed by whitespace + a capital
-// letter/quote — same boundary heuristic used elsewhere in this codebase
-// (fact-checker.ts's splitIntoSentences). Domain-like tokens are masked
-// first (not stripped — length-preserving) purely to stop a sentence
-// boundary being misdetected inside a masked run; splitting always happens
-// against the ORIGINAL text, using the same character offsets.
+// letter/quote — shared with scannability-fixer / structure-validator via
+// sentence-boundaries.ts. Domain-like tokens are masked first (not stripped
+// — length-preserving) so a TLD never becomes a false boundary; splitting
+// always happens against the ORIGINAL text at those offsets.
 function sentenceBoundaries(text: string): number[] {
-  const masked = maskDomainLikeTokens(text)
-  const boundaries: number[] = []
-  const re = /[.!?]+(?=\s+[A-Z"'‘“])/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(masked)) !== null) {
-    boundaries.push(m.index + m[0].length)
-  }
-  return boundaries
+  return sentenceBoundaryOffsets(text)
 }
 
 function countWords(text: string): number {

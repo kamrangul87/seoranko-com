@@ -14,6 +14,16 @@ describe('maskDomainLikeTokens', () => {
     expect(masked).not.toContain('energynetworks.org')
     expect(masked).toContain('details')
   })
+
+  it('preserves letter case so capital-led domains still look like sentence starts', () => {
+    const text = 'Done. Energynetworks.org has the map.'
+    const masked = maskDomainLikeTokens(text)
+    expect(masked.length).toBe(text.length)
+    // First letter of the masked domain must stay uppercase for
+    // sentenceBoundaryOffsets' (?=\s+[A-Z]) lookahead.
+    const afterPeriod = masked.slice(text.indexOf('.') + 1).trimStart()
+    expect(afterPeriod[0]).toBe('X')
+  })
 })
 
 describe('countSentences', () => {
@@ -34,6 +44,14 @@ describe('sentenceBoundaryOffsets', () => {
     const offsets = sentenceBoundaryOffsets(text)
     expect(offsets.length).toBe(1)
     expect(text.slice(0, offsets[0])).toContain('today.')
+  })
+
+  it('still finds a boundary when the next sentence starts with a domain', () => {
+    const text =
+      'Visit gov.uk for grant eligibility before you pay a deposit. Energynetworks.org helps you identify your DNO region quickly.'
+    const offsets = sentenceBoundaryOffsets(text)
+    expect(offsets.length).toBe(1)
+    expect(text.slice(offsets[0]).trimStart().startsWith('Energynetworks.org')).toBe(true)
   })
 })
 

@@ -85,6 +85,23 @@ describe('splitDenseParagraphs', () => {
     expect(result).toContain('gov.uk')
   })
 
+  it('does not inflate sentence count on energynetworks.org / gov.uk (Matrix E)', () => {
+    // Four real sentences with domain citations — naive period counting
+    // would treat TLDs as extra sentence ends and could force a split.
+    const html =
+      `<h1>Title</h1><p>` +
+      `Confirm the scheme details on gov.uk before you apply. ` +
+      `Capacity maps live on energynetworks.org for every DNO region. ` +
+      `Your installer still has to notify the network under G99. ` +
+      `Get that assessment in writing before any deposit is paid.` +
+      `</p>`
+    const result = splitDenseParagraphs(html)
+    const paragraphs = Array.from(result.matchAll(/<p>([\s\S]*?)<\/p>/g)).map(m => m[1])
+    expect(paragraphs).toHaveLength(1)
+    expect(result).toContain('gov.uk')
+    expect(result).toContain('energynetworks.org')
+  })
+
   it('returns empty/falsy input unchanged', () => {
     expect(splitDenseParagraphs('')).toBe('')
   })

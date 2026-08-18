@@ -4,15 +4,22 @@
  * Domain-like tokens (gov.uk, energynetworks.org) must be masked before
  * counting or splitting on "." — otherwise TLDs inflate sentence counts.
  *
- * Phase 0 creates the module; Phase 3 wires it into structure-validator
- * scannability counting. paragraph-splitter may re-export from here later.
+ * Wired into structure-validator, scannability-fixer, and paragraph-splitter
+ * so every pass uses the same domain-safe counter / offset helper.
  */
 
 const DOMAIN_TOKEN_RE = /\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\b/gi
 
-/** Length-preserving mask so offsets stay aligned with the original string. */
+/** Length-preserving mask so offsets stay aligned with the original string.
+ *  Letter case is preserved so sentence-boundary heuristics that look for a
+ *  following capital (e.g. after ". Energynetworks.org …") still work.
+ *  Non-letters (dots, hyphens, digits) become `x` so TLDs never look like
+ *  sentence terminals to /[.!?]+/ counters.
+ */
 export function maskDomainLikeTokens(text: string): string {
-  return text.replace(DOMAIN_TOKEN_RE, (m) => 'x'.repeat(m.length))
+  return text.replace(DOMAIN_TOKEN_RE, (m) =>
+    Array.from(m, (ch) => (ch >= 'A' && ch <= 'Z' ? 'X' : 'x')).join(''),
+  )
 }
 
 /**

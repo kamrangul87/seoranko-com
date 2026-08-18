@@ -5,6 +5,12 @@
 // structure-validator.ts's scannability check (and readers) never see a
 // dense block regardless of whether the write prompt's SCANNABILITY RULE
 // was actually followed.
+//
+// Sentence counting/splitting MUST go through sentence-boundaries.ts so
+// domain-like tokens (gov.uk, energynetworks.org) never inflate counts or
+// create false split points — same contract as structure-validator.
+
+import { countSentences, sentenceBoundaryOffsets } from './sentence-boundaries'
 
 const META_PARAGRAPH_RE =
   /\bclass=["'][^"']*(?:article-meta|article-byline|article-dateline|article-last-verified)[^"']*["']/i
@@ -13,15 +19,19 @@ function splitDenseParagraphOnce(articleHtml: string): string {
   return articleHtml.replace(/<p([^>]*)>([\s\S]*?)<\/p>/gi, (match, attrs, innerHtml) => {
     if (META_PARAGRAPH_RE.test(match)) return match
 
-    const plainText = innerHtml.replace(/<[^>]+>/g, '')
-    const sentences = innerHtml.split(/(?<=[.!?])\s+(?=[A-Z<])/)
+    const plainText = innerHtml.replace(/<[^>]+>/g, ' ')
+    const sentenceCount = countSentences(plainText)
+    if (sentenceCount < 6) return match
 
-    const sentenceCount = (plainText.match(/[.!?]+/g) || []).length
-    if (sentenceCount < 6 || sentences.length < 6) return match
+    // Domain-safe end offsets (same helper as paragraph-splitter). Append
+    // string length so the final sentence is included in the midpoint split.
+    const sentenceEnds = [...sentenceBoundaryOffsets(innerHtml), innerHtml.length]
+    if (sentenceEnds.length < 6) return match
 
-    const midpoint = Math.ceil(sentences.length / 2)
-    const firstHalf = sentences.slice(0, midpoint).join(' ').trim()
-    const secondHalf = sentences.slice(midpoint).join(' ').trim()
+    const midpoint = Math.ceil(sentenceEnds.length / 2)
+    const splitAt = sentenceEnds[midpoint - 1]
+    const firstHalf = innerHtml.slice(0, splitAt).trim()
+    const secondHalf = innerHtml.slice(splitAt).trim()
     if (!firstHalf || !secondHalf) return match
 
     return `<p${attrs}>${firstHalf}</p>\n<p${attrs}>${secondHalf}</p>`
