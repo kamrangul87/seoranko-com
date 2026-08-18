@@ -62,9 +62,94 @@ function maskUrlsAndHostnames(text: string): string {
     .replace(/\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)+\.[a-z]{2,24}\b/gi, (m) => ' '.repeat(m.length))
 }
 
+/**
+ * Closed-class words that legitimately appear in reduplication
+ * ("more and more", "time after time", "step by step").
+ */
+const BRIDGE_ALLOW = new Set([
+  'and', 'or', 'but', 'by', 'after', 'before', 'upon', 'into', 'onto', 'from',
+  'with', 'over', 'under', 'between', 'to', 'of', 'in', 'on', 'at', 'as', 'for',
+  'the', 'a', 'an', 'vs', 'versus',
+])
+
+const STOPWORDS = new Set([
+  'the', 'a', 'an', 'and', 'or', 'but', 'to', 'of', 'in', 'on', 'at', 'as', 'for',
+  'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been', 'that', 'this',
+  'it', 'its', 'your', 'our', 'their', 'his', 'her', 'my',
+])
+
+function tokenizeWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9£$€'\-]+/gi, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+}
+
+/**
+ * Live merge shapes with NO mid-word punctuation — duplicated / overlapping
+ * phrases instead (confirmed 2026-08-18 live article-v2 output):
+ *
+ * 1. "scope of work infrastructure work needed"
+ *    → content word repeated with one content word between ("work … work")
+ *
+ * 2. "home charger installation. EV charger installation,"
+ *    → 2–4 word phrase ending sentence N reappears at the start of N+1
+ *
+ * Also catches exact adjacent repeated 2–4 word phrases ("the cost the cost").
+ */
+export function hasOverlappingPhraseCorruption(text: string): boolean {
+  const plain = maskUrlsAndHostnames(text.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()
+  if (!plain) return false
+
+  // Exact adjacent repeated 2–4 word phrase
+  if (/\b((?:[A-Za-z][A-Za-z0-9'-]*\s+){1,3}[A-Za-z][A-Za-z0-9'-]*)\s+\1\b/i.test(plain)) {
+    return true
+  }
+
+  // Content word repeated with exactly one content bridge between
+  // ("work infrastructure work") — not "more and more" / "time after time"
+  const wordRepeat = /\b([A-Za-z][A-Za-z0-9'-]{3,})\s+([A-Za-z][A-Za-z0-9'-]{3,})\s+\1\b/gi
+  let m: RegExpExecArray | null
+  while ((m = wordRepeat.exec(plain)) !== null) {
+    const bridge = m[2].toLowerCase()
+    if (!BRIDGE_ALLOW.has(bridge)) return true
+  }
+
+  // Cross-sentence: ending n-gram of sentence A overlaps start of sentence B
+  const sentences = splitIntoSentences(plain)
+  for (let i = 0; i < sentences.length - 1; i++) {
+    const a = tokenizeWords(sentences[i].replace(/[.!?]+$/, ''))
+    const b = tokenizeWords(sentences[i + 1])
+    if (a.length < 2 || b.length < 2) continue
+    const aTail = a.slice(-4)
+    const bHead = b.slice(0, 5)
+    for (let n = 4; n >= 2; n--) {
+      if (aTail.length < n) continue
+      const gram = aTail.slice(-n)
+      // Require at least one non-stopword in the shared gram
+      if (!gram.some(w => !STOPWORDS.has(w) && w.length >= 4)) continue
+      for (let j = 0; j <= bHead.length - n; j++) {
+        const slice = bHead.slice(j, j + n)
+        if (slice.every((w, k) => w === gram[k])) return true
+      }
+    }
+  }
+
+  return false
+}
+
 export function hasInsertionCorruption(text: string): boolean {
-  const plain = maskUrlsAndHostnames(text.replace(/<[^>]+>/g, ' '))
-  return INSERTION_CORRUPTION_PATTERNS.some(re => re.test(plain))
+  // Check per block-level segment so </p><p> does not invent
+  // "needed. as a…" lowercase-conjunction false positives.
+  const blocks = text.split(/<\/?(?:p|div|h[1-6]|li|section|article|td|th|figcaption)(?:\s[^>]*)?>/i)
+  for (const block of blocks) {
+    const plain = maskUrlsAndHostnames(block.replace(/<[^>]+>/g, ' '))
+    if (!plain.trim()) continue
+    if (INSERTION_CORRUPTION_PATTERNS.some(re => re.test(plain))) return true
+    if (hasOverlappingPhraseCorruption(plain)) return true
+  }
+  return false
 }
 
 /**
@@ -162,6 +247,74 @@ const TLD_LIKE = new Set([
 ])
 
 /**
+ * Merge adjacent sentences when sentence B opens by repeating a 2–4 word
+ * phrase that ended sentence A (live: "…home charger installation. EV
+ * charger installation, adding…").
+ */
+function scrubCrossSentencePhraseOverlap(text: string): { text: string; fixes: number } {
+  let fixes = 0
+  let current = text
+  // Iterate until no more merges (chained overlaps are rare but cheap).
+  for (let pass = 0; pass < 5; pass++) {
+    const parts = current.split(/(?<=[.!?])(\s+)(?=[A-Z"'£$€(0-9])/)
+    if (parts.length < 3) break
+
+    let mergedThisPass = false
+    for (let i = 0; i + 2 < parts.length; i += 2) {
+      const left = parts[i]
+      const right = parts[i + 2]
+      const aWords = tokenizeWords(left.replace(/[.!?]+$/, ''))
+      const bWords = tokenizeWords(right)
+      if (aWords.length < 2 || bWords.length < 2) continue
+
+      const aTail = aWords.slice(-4)
+      let merged: string | null = null
+
+      outer: for (let n = 4; n >= 2; n--) {
+        if (aTail.length < n || bWords.length < n) continue
+        const gram = aTail.slice(-n)
+        if (!gram.some(w => !STOPWORDS.has(w) && w.length >= 4)) continue
+
+        for (const prefixLen of [1, 0] as const) {
+          if (bWords.length < prefixLen + n) continue
+          const slice = bWords.slice(prefixLen, prefixLen + n)
+          if (!slice.every((w, k) => w === gram[k])) continue
+
+          const dropCount = prefixLen + n
+          const wordRe = /[A-Za-z0-9£$€][A-Za-z0-9'-]*/g
+          let matched = 0
+          let endIdx = 0
+          let wm: RegExpExecArray | null
+          while ((wm = wordRe.exec(right)) !== null) {
+            matched++
+            endIdx = wm.index + wm[0].length
+            if (matched >= dropCount) break
+          }
+          let remainder = right.slice(endIdx).replace(/^\s*/, '')
+          if (remainder && !/^[,;:]/.test(remainder)) remainder = `, ${remainder}`
+          else if (remainder) remainder = remainder.replace(/^([,;:])\s*/, '$1 ')
+          merged = `${left.replace(/[.!?]+$/, '')}${remainder}`
+          break outer
+        }
+      }
+
+      if (!merged) continue
+
+      parts[i] = merged
+      parts.splice(i + 1, 2)
+      fixes++
+      mergedThisPass = true
+      current = parts.join('')
+      break
+    }
+
+    if (!mergedThisPass) break
+  }
+
+  return { text: current, fixes }
+}
+
+/**
  * Deterministic scrub for known post-insertion corruption left in the wild.
  * Safe to run after any autofix pass.
  *
@@ -222,6 +375,23 @@ export function scrubInsertionCorruption(html: string): { html: string; fixes: n
       fixes++
       return a
     })
+
+    // "scope of work infrastructure work" → "scope of infrastructure work"
+    // Content-word reduplication with a content bridge (not "more and more").
+    content = content.replace(
+      /\b([A-Za-z][A-Za-z0-9'-]{3,})\s+([A-Za-z][A-Za-z0-9'-]{3,})\s+\1\b/g,
+      (m, repeated: string, bridge: string) => {
+        if (BRIDGE_ALLOW.has(bridge.toLowerCase())) return m
+        fixes++
+        return `${bridge} ${repeated}`
+      },
+    )
+
+    // "home charger installation. EV charger installation, adding…" →
+    // "home charger installation, adding…"
+    const cross = scrubCrossSentencePhraseOverlap(content)
+    content = cross.text
+    fixes += cross.fixes
 
     return content
   }

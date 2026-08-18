@@ -4,6 +4,8 @@
 // structural regressions the same way the schema validator catches
 // missing schema fields.
 
+import { countSentences } from './sentence-boundaries'
+
 export interface StructureIssue {
   severity: 'critical' | 'warning'
   category: 'heading-hierarchy' | 'image-placement' | 'scannability' | 'heading-rhythm'
@@ -45,6 +47,8 @@ export function validateArticleStructure(articleHtml: string): StructureIssue[] 
   }
 
   // --- Scannability: count body paragraphs over ~6 sentences ---
+  // Phase 3: use domain-masked sentence counting (gov.uk / energynetworks.org
+  // must not inflate counts — same bug class as paragraph-splitter).
   const META_PARAGRAPH_RE =
     /\bclass=["'][^"']*(?:article-meta|article-byline|article-dateline|article-last-verified)[^"']*["']/i
   const paragraphs = articleHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gi) || []
@@ -52,7 +56,7 @@ export function validateArticleStructure(articleHtml: string): StructureIssue[] 
   for (const p of paragraphs) {
     if (META_PARAGRAPH_RE.test(p)) continue
     const plainText = p.replace(/<[^>]+>/g, '')
-    const sentenceCount = (plainText.match(/[.!?]+/g) || []).length
+    const sentenceCount = countSentences(plainText)
     if (sentenceCount >= 6) denseParagraphCount++
   }
   if (denseParagraphCount >= 4) {

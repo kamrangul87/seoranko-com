@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   splitIntoSentences,
   hasInsertionCorruption,
+  hasOverlappingPhraseCorruption,
   isSafeTextPatch,
   applyGuardedReplace,
   applyGuardedRegexReplace,
@@ -94,4 +95,45 @@ describe('sentence-integrity', () => {
     const hedged = 'Most UK EVs typically accept between around 50 kW and 150 kW.'
     expect(isSafeTextPatch(original, hedged)).toBe(true)
   })
+
+  // Live 2026-08-18 article-v2: duplicated/overlapping phrases with NO mid-word
+  // punctuation — a different corruption class than require.ehicles / .350.
+  it('detects "scope of work infrastructure work" overlapping phrase merge', () => {
+    const literal =
+      'total costs frequently appear to reach approximately £1,500 to £5,000 or more depending on the scope of work infrastructure work needed.'
+    expect(hasInsertionCorruption(literal)).toBe(true)
+    expect(hasOverlappingPhraseCorruption(literal)).toBe(true)
+  })
+
+  it('detects "charger installation. EV charger installation" cross-sentence duplicate', () => {
+    const literal =
+      'the entire unit may potentially need replacing as a safety condition for home charger installation. EV charger installation, adding £300 to £700 to your project.'
+    expect(hasInsertionCorruption(literal)).toBe(true)
+    expect(hasOverlappingPhraseCorruption(literal)).toBe(true)
+  })
+
+  it('scrubs both live overlapping-phrase shapes', () => {
+    const html = `<p>depending on the scope of work infrastructure work needed.</p>
+<p>as a safety condition for home charger installation. EV charger installation, adding £300 to £700 to your project.</p>`
+    const { html: out, fixes } = scrubInsertionCorruption(html)
+    expect(fixes).toBeGreaterThan(0)
+    expect(out).toContain('scope of infrastructure work needed')
+    expect(out).not.toMatch(/work infrastructure work/)
+    expect(out).toMatch(/home charger installation,\s*adding £300/)
+    expect(out).not.toMatch(/installation\.\s*EV charger installation/)
+    expect(hasInsertionCorruption(out)).toBe(false)
+  })
+
+  it('does not false-positive on legitimate reduplication (more and more / time after time)', () => {
+    expect(hasOverlappingPhraseCorruption('Prices get more and more competitive each year.')).toBe(false)
+    expect(hasOverlappingPhraseCorruption('Check the unit time after time during the first week.')).toBe(false)
+    expect(hasOverlappingPhraseCorruption('Follow the guide step by step before ordering.')).toBe(false)
+  })
+
+  it('rejects a patch that introduces overlapping phrase corruption', () => {
+    const original = 'depending on the infrastructure work needed.'
+    const patched = 'depending on the scope of work infrastructure work needed.'
+    expect(isSafeTextPatch(original, patched)).toBe(false)
+  })
 })
+
