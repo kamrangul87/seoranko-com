@@ -23,6 +23,11 @@ export interface FixAllOptions {
   targetWordCount?: number
   userId?: string
   articleId?: string
+  /**
+   * Logo policy from brand_settings — when omitted, QG does not require
+   * Organization.logo (matches article-v2 / product rule).
+   */
+  expectOrganizationLogo?: boolean
 }
 
 export interface FixAllResult {
@@ -57,6 +62,7 @@ export async function fixAllArticleIssues(opts: FixAllOptions): Promise<FixAllRe
     targetWordCount = 2000,
     userId,
     articleId,
+    expectOrganizationLogo = false,
   } = opts
 
   const band = wordCountBand(targetWordCount)
@@ -69,6 +75,7 @@ export async function fixAllArticleIssues(opts: FixAllOptions): Promise<FixAllRe
     maxWordCount: band.max,
     userId,
     articleId,
+    expectOrganizationLogo,
     ...scoreOpts(opts.html, keyword),
   }
 

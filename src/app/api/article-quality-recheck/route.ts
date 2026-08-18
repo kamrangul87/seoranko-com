@@ -3,6 +3,11 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { runQualityGate } from '@/lib/article-quality-gate'
 import { wordCountBand } from '@/lib/word-count'
+import { getBrandSettings } from '@/lib/brand-settings'
+import {
+  resolveLogoPolicy,
+  expectOrganizationLogoFromPolicy,
+} from '@/lib/quality-gate-policy'
 
 export const maxDuration = 60
 
@@ -39,6 +44,18 @@ export async function POST(req: NextRequest) {
       ? [String(domain).replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase()]
       : []
 
+    let brandSettings = { configured: false, logoUrl: null as string | null }
+    try {
+      brandSettings = brand
+        ? await getBrandSettings(user.id, brand)
+        : { configured: false, logoUrl: null }
+    } catch (err) {
+      console.warn('[article-quality-recheck] getBrandSettings failed:', err)
+    }
+    const expectOrganizationLogo = expectOrganizationLogoFromPolicy(
+      resolveLogoPolicy({ brandSettings }),
+    )
+
     const qr = await runQualityGate(articleHtml, {
       brand: brand || '',
       keyword,
@@ -47,6 +64,7 @@ export async function POST(req: NextRequest) {
       minWordCount: band.min,
       maxWordCount: band.max,
       userId: user.id,
+      expectOrganizationLogo,
     })
 
     const html = applyAutoFixes ? (qr.articleAfterAutoFix || articleHtml) : articleHtml

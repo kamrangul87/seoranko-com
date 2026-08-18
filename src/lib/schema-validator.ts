@@ -271,7 +271,7 @@ export function validateSchema(
   options: SchemaValidationOptions = {},
 ): SchemaValidationResult {
   const resolvedOptions: SchemaValidationOptions = {
-    expectOrganizationLogo: options.expectOrganizationLogo ?? true,
+    expectOrganizationLogo: options.expectOrganizationLogo ?? false,
   }
   const blocks = extractJsonLdBlocks(articleHtml)
   const issues: SchemaIssue[] = []
