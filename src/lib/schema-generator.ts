@@ -60,7 +60,7 @@ const MARKET_LANGUAGE_TAGS: Record<string, string> = {
   'new zealand': 'en-NZ',
   'ireland': 'en-IE',
 }
-function languageTagForMarket(market?: string): string {
+export function languageTagForMarket(market?: string): string {
   if (!market) return 'en'
   return MARKET_LANGUAGE_TAGS[market.trim().toLowerCase()] || 'en'
 }

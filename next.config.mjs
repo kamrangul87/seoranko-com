@@ -1,6 +1,25 @@
+const PUBLISH_DOMAIN = process.env.NEXT_PUBLIC_PUBLISH_DOMAIN || 'blog.seoranko.com'
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: { serverComponentsExternalPackages: ['sharp'] },
+  // Hosted publish route (Step 2): serves under a SEORANKO subdomain via a
+  // rewrite rather than a real subdirectory — the actual file-based route
+  // stays app/(public)/blog/[brand]/[slug] (see publish-hosted.ts's
+  // buildHostedPublicUrl comment), so adding a custom-domain tier later
+  // only needs a new rewrite rule, not a change to the route itself.
+  // Host-gated (has: [{ type: 'host', ... }]) so the primary app domain's
+  // own root-level routing is completely unaffected.
+  async rewrites() {
+    return {
+      beforeFiles: [
+        { source: '/robots.txt', has: [{ type: 'host', value: PUBLISH_DOMAIN }], destination: '/robots.txt' },
+        { source: '/:brand/sitemap.xml', has: [{ type: 'host', value: PUBLISH_DOMAIN }], destination: '/blog/:brand/sitemap.xml' },
+        { source: '/:brand/llms.txt', has: [{ type: 'host', value: PUBLISH_DOMAIN }], destination: '/blog/:brand/llms.txt' },
+        { source: '/:brand/:slug', has: [{ type: 'host', value: PUBLISH_DOMAIN }], destination: '/blog/:brand/:slug' },
+      ],
+    }
+  },
   async redirects() {
     return [
       // Old hub URLs → new structure

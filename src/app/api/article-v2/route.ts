@@ -1180,6 +1180,25 @@ export async function POST(req: NextRequest) {
           // Single prose word count after ALL transforms — UI, DB, schema, and QG must agree
           const finalProseWordCount = countArticleWords(publishedHtml)
 
+          // Structured copy of the JSON-LD already embedded as <script> tags
+          // inside publishedHtml — for the hosted publish route to inject
+          // directly (single source: schemaResult) rather than re-parsing it
+          // back out of the content HTML at render time.
+          const schemaJsonForDb = schemaResult
+            ? [
+                schemaResult.articleSchema,
+                schemaResult.faqSchema,
+                schemaResult.howToSchema,
+                schemaResult.breadcrumbSchema,
+                schemaResult.organizationSchema,
+              ]
+                .filter((s): s is string => !!s)
+                .map(s => {
+                  try { return JSON.parse(s) } catch { return null }
+                })
+                .filter(Boolean)
+            : null;
+
           // ── Persist to Supabase ──────────────────────────────────────────
           // This is the entire reason the `articles` table had 0 rows in
           // production: this route streamed the generated article back to
@@ -1278,6 +1297,10 @@ export async function POST(req: NextRequest) {
                   status: 'draft',
                   brand: brand || null, // never fabricate a company name in persisted data
                   article_url: articleUrl,
+                  market,
+                  schema_json: schemaJsonForDb,
+                  hero_image_url: heroImageUrl || null,
+                  faqs: faqs.length > 0 ? faqs : [],
                   rank_score: rankScore,
                   fact_density_score: factDensityResult.score,
                   human_score: humanScore ?? null,
