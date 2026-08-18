@@ -1041,11 +1041,9 @@ export async function runQualityGate(
   }
 
   // ---- RULE 10: Article structure — heading hierarchy, scannability, heading rhythm ----
-  // image-placement is deliberately NOT expected to fire from this call: images
-  // haven't been injected into articleContent yet at this point in the pipeline
-  // (same timing as RULE 9 — see article-v2/route.ts, which runs a second,
-  // targeted validateArticleStructure() call against the post-injection HTML
-  // specifically for that category).
+  // Phase 1 final-artifact pipeline runs Quality Gate AFTER image injection +
+  // schema sync, so image-placement and scannability apply to the same HTML
+  // that is saved/streamed (see buildFinalArticleArtifact).
   for (const structureIssue of validateArticleStructure(articleContent)) {
     issues.push({
       id: `structure-${structureIssue.category}-${issues.length}`,

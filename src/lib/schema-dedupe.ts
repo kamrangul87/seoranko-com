@@ -45,6 +45,18 @@ export function stripReplaceableJsonLd(html: string): string {
   })
 }
 
+/**
+ * Idempotent schema sync step: strip all replaceable JSON-LD, then append
+ * exactly one canonical combined script block set. Safe to call repeatedly —
+ * a second call with the same `combinedScriptTag` yields one block per type.
+ */
+export function applyGeneratedSchemaToHtml(html: string, combinedScriptTag: string): string {
+  const stripped = stripReplaceableJsonLd(html).replace(/\n{3,}/g, '\n\n').trimEnd()
+  const tag = combinedScriptTag.trim()
+  if (!tag) return stripped
+  return stripped ? `${stripped}\n\n${tag}` : tag
+}
+
 export function countSchemaType(html: string, type: string): number {
   let count = 0
   const re = new RegExp(SCHEMA_SCRIPT_RE.source, 'gi')

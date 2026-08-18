@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stripReplaceableJsonLd, countSchemaType } from './schema-dedupe'
+import { stripReplaceableJsonLd, countSchemaType, applyGeneratedSchemaToHtml } from './schema-dedupe'
 import { injectMissingInternalLinks } from './inject-internal-links'
 
 describe('stripReplaceableJsonLd', () => {
@@ -15,6 +15,26 @@ describe('stripReplaceableJsonLd', () => {
     expect(countSchemaType(stripped, 'FAQPage')).toBe(0)
     expect(stripped).toContain('EV Charger')
     expect(stripped).toContain('Body text')
+  })
+})
+
+describe('applyGeneratedSchemaToHtml', () => {
+  it('is idempotent — second apply keeps one Article and one Organization', () => {
+    const body = `<h1>Title</h1><p>Body citing gov.uk guidance.</p>`
+    const tag = [
+      `<script type="application/ld+json">{"@type":"Article","headline":"Title","image":"https://cdn.example.com/h.webp"}</script>`,
+      `<script type="application/ld+json">{"@type":"Organization","name":"Brand"}</script>`,
+    ].join('\n')
+    const once = applyGeneratedSchemaToHtml(
+      `${body}\n<script type="application/ld+json">{"@type":"Article","headline":"Stale"}</script>`,
+      tag,
+    )
+    const twice = applyGeneratedSchemaToHtml(once, tag)
+    expect(countSchemaType(once, 'Article')).toBe(1)
+    expect(countSchemaType(twice, 'Article')).toBe(1)
+    expect(countSchemaType(twice, 'Organization')).toBe(1)
+    expect(twice).toContain('https://cdn.example.com/h.webp')
+    expect(twice).not.toContain('"headline":"Stale"')
   })
 })
 

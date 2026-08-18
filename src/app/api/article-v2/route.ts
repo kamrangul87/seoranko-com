@@ -7,7 +7,7 @@ import { getEligibleLinks } from '@/lib/internal-link-engine';
 import type { InternalLink } from '@/lib/article-master';
 import { scoreFactDensity } from '@/lib/fact-density';
 import { parseFAQsFromArticle } from '@/lib/faq-generator';
-import { generateArticleSchema, detectHowTo } from '@/lib/schema-generator';
+import { detectHowTo, type GeneratedSchema } from '@/lib/schema-generator';
 import { getBrandSettings } from '@/lib/brand-settings';
 import { appendSocialMetaTags } from '@/lib/social-meta-tags';
 import { extractArticleDescription, dedupeMetaDescriptionTags } from '@/lib/extract-meta-description';
@@ -16,7 +16,7 @@ import { assertImageUrlsPreserved } from '@/lib/html-text-transform';
 import { buildCanonicalTag } from '@/lib/canonical-builder';
 import { pingIndexNow } from '@/lib/indexnow';
 import { humanizeArticle } from '@/lib/humanizer';
-import { generateArticleImages, injectImagesIntoArticle } from '@/lib/image-generator';
+import { generateArticleImages } from '@/lib/image-generator';
 import { recordScoreSnapshot } from '@/lib/drift-tracker';
 import { queueCitationTest } from '@/lib/citation-tester';
 import { checkAndPatchFactSourcing } from '@/lib/fact-checker';
@@ -31,7 +31,6 @@ import { MODEL_FOR } from '@/lib/model-router';
 import { runQualityGate, detectWrongBrandInBody, recomputeQualityGateTotals, qualityGateStageStatus, type QualityIssue } from '@/lib/article-quality-gate';
 import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
 import { enforceWordCountLimit, countArticleWords, deterministicTrimToTarget, wordCountBand, snapWordCount } from '@/lib/word-count-enforcer';
-import { stripReplaceableJsonLd } from '@/lib/schema-dedupe';
 import { injectMissingInternalLinks } from '@/lib/inject-internal-links';
 import { checkTopicAlignment, assertNonEmptyKeyword, keepIfOnTopic, getKeywordTokens, filterRelatedKeywords, primaryTopicPhrase, coreKeywordPhrase } from '@/lib/topic-alignment';
 import {
@@ -41,10 +40,15 @@ import {
 import { insertTableOfContents } from '@/lib/table-of-contents';
 import { toSlugPath } from '@/lib/slug';
 import { autoSplitDenseParagraphs } from '@/lib/scannability-fixer';
-import { validateArticleStructure } from '@/lib/structure-validator';
 import { assertSchemaCompleteness } from '@/lib/schema-validate';
 import { detectDatedClaims, detectStaleYearReferences, extractHeadingTexts, buildLastVerifiedLine } from '@/lib/dated-claim-detector';
-import { splitDenseParagraphs } from '@/lib/paragraph-splitter';
+import {
+  buildFinalArticleArtifact,
+} from '@/lib/final-article-artifact';
+import {
+  resolveLogoPolicy,
+  expectOrganizationLogoFromPolicy,
+} from '@/lib/quality-gate-policy';
 import {
   formatPipelineStageMarker,
   formatPipelineStoppedMarker,
@@ -53,6 +57,7 @@ import {
   isCriticalPipelineStopIssue,
   type PipelineStageId,
 } from '@/lib/quality-pipeline-stages';
+
 export const maxDuration = 300;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 5 });
@@ -526,7 +531,7 @@ export async function POST(req: NextRequest) {
           // Hoisted alongside finalHtml/publishedHtml above — built inside
           // the try block once heroImageUrl is known, but referenced again
           // below when the API response is assembled.
-          let schemaResult: ReturnType<typeof generateArticleSchema> | null = null;
+          let schemaResult: GeneratedSchema | null = null;
           // One id for this whole generation request — used both as the
           // image storage folder's uniqueness suffix (so two articles on
           // the same keyword never overwrite each other's images, see
@@ -761,13 +766,13 @@ export async function POST(req: NextRequest) {
               }
             }
 
-            // Strip model-invented JSON-LD so we append exactly one Article/FAQ/etc set
-            finalHtml = stripReplaceableJsonLd(finalHtml)
+            // ── FINAL ARTIFACT PIPELINE (Phase 1) ──────────────────────────
+            // Order: prose → images → paragraph/scannability → schema sync →
+            // final Quality Gate → score/save/stream. The same canonical HTML
+            // must drive publish, save, UI stream, and final QG scoring.
+            // See FINAL_ARTIFACT_PIPELINE_ORDER in final-article-artifact.ts.
 
-            // Schema must reflect the actual brand/site this article is being
-            // written for — never SEORANKO itself (SEORANKO is the tool, not
-            // the publisher of the client's content) and never a hardcoded
-            // author name regardless of who the brand actually is.
+            // Schema publisher identity — never SEORANKO as a silent default.
             const schemaOrgName = brand || citationDomain || 'this site';
             // organizationUrl previously ONLY came from the separate `domain`
             // field — if that was empty (as here: brand='ev.autodun.com' but
@@ -800,130 +805,25 @@ export async function POST(req: NextRequest) {
             } catch (brandErr) {
               console.warn('[article-v2] getBrandSettings failed, continuing without brand settings:', brandErr);
             }
+            const logoPolicy = resolveLogoPolicy({ brandSettings });
 
             // Re-extract after humanize/fact patches so META hyphens & model tags stay in sync
             articleDescription = extractArticleDescription(finalHtml, keyword) || articleDescription;
 
             try {
-              emitStage('schema-check', 'running');
-              schemaResult = generateArticleSchema({
-                title: articleTitle,
-                description: articleDescription,
-                keyword,
-                market,
-                // generateArticleSchema hardcodes author.@type to "Person" —
-                // passing an org/brand name here would claim a person is
-                // literally named "autodun" or a domain string. organizationName
-                // below is the correctly-typed Organization field (publisher)
-                // this fix is actually for; author identity is a separate,
-                // deliberately-deferred question (see prior session notes on
-                // the author-bio template assuming a specific person).
-                authorName: 'Kamran Gul',
-                publishDate: generatedAt,
-                dateModified: generatedAt,
-                articleUrl: fullArticleUrl,
-                imageUrl: heroImageUrl || undefined,
-                wordCount: countArticleWords(finalHtml),
-                faqs: faqs.length > 0 ? faqs : undefined,
-                isHowTo,
-                howToSteps: isHowTo ? extractHowToSteps(fullArticle) : undefined,
-                organizationName: schemaOrgName,
-                organizationUrl: schemaOrgUrl,
-                organizationLogoUrl: brandSettings.logoUrl || undefined,
-              });
-              finalHtml = `${finalHtml}\n\n${schemaResult.combinedScriptTag}`;
-
-              // Hard pre-save assertion (FIX 2) — Article.image and
-              // Organization.logo, per Google's structured-data guidance.
-              // Missing Article.image always blocks; missing
-              // Organization.logo only blocks once this brand has genuinely
-              // configured settings (mirrors RULE 6's existing suppression
-              // for a brand that's never touched Settings at all — see
-              // article-quality-gate.ts).
-              const schemaCheck = assertSchemaCompleteness({
-                imageUrl: schemaResult.imageUrl,
-                organizationLogoUrl: schemaResult.organizationLogoUrl,
-                logoOmittedReason: schemaResult.logoOmittedReason,
-                hasBrandSettingsConfigured: brandSettings.configured,
-              });
-              if (schemaCheck.blocked) {
-                hardBlockReasons.push(...schemaCheck.reasons);
-                console.error('[article-v2] schema completeness check failed:', schemaCheck.reasons);
-                emitStage('schema-check', 'fail', schemaCheck.reasons.join(' | '));
-              } else {
-                emitStage(
-                  'schema-check',
-                  'pass',
-                  brandSettings.logoUrl
-                    ? 'Article/Organization schema complete (incl. logo)'
-                    : 'Article schema complete (Organization logo not configured for this brand)',
-                );
-              }
-            } catch (schemaErr) {
-              console.warn('[article-v2] schema generation failed, continuing without schema:', schemaErr);
-              emitStage(
-                'schema-check',
-                'fail',
-                schemaErr instanceof Error ? schemaErr.message : 'Schema generation failed',
-              );
-            }
-
-            try {
-              // Strip any model-emitted description tags first, then append one
-              // consistent set — avoids duplicate name=description (good + "Article about…").
-              finalHtml = appendSocialMetaTags(finalHtml, {
-                title: articleTitle,
-                description: articleDescription,
-                url: fullArticleUrl,
-                imageUrl: heroImageUrl,
-              });
-            } catch (socialErr) {
-              console.warn('[article-v2] social meta tags failed, continuing without them:', socialErr);
-            }
-
-            // Safety net if anything else re-introduced a second description
-            finalHtml = dedupeMetaDescriptionTags(finalHtml);
-
-            try {
-              // Same fullArticleUrl already computed above for the schema
-              // and OG tags (including its https://example.com fallback
-              // when brand/domain is genuinely absent), so the canonical
-              // tag, schema, and OG tags always agree on the URL.
-              finalHtml = `${finalHtml}\n\n${buildCanonicalTag(fullArticleUrl)}`;
-            } catch (canonicalErr) {
-              console.warn('[article-v2] canonical tag failed, continuing without it:', canonicalErr);
-            }
-
-            try {
-              // Visible evidence of when dated claims (if any were found
-              // above) were checked — same generatedAt instant schema's
-              // dateModified was set from, so the visible date and the
-              // schema date always agree.
-              finalHtml = `${finalHtml}\n\n${buildLastVerifiedLine(generatedAt)}`;
-            } catch (verifiedErr) {
-              console.warn('[article-v2] "Last verified" line failed, continuing without it:', verifiedErr);
-            }
-
-            try {
-              // Mechanical scannability safety net — the write prompt's
-              // SCANNABILITY RULE is a request, not a guarantee. Split any
-              // paragraph the model still wrote as 6+ sentences before the
-              // Quality Gate's scannability check scores it.
+              // Mechanical scannability safety net on prose (before images).
               finalHtml = autoSplitDenseParagraphs(finalHtml);
             } catch (splitErr) {
               console.warn('[article-v2] autoSplitDenseParagraphs failed, continuing:', splitErr);
             }
 
             try {
-              // Table of contents — use live prose count after length enforcement
               finalHtml = insertTableOfContents(finalHtml, countArticleWords(finalHtml));
             } catch (tocErr) {
               console.warn('[article-v2] insertTableOfContents failed, continuing:', tocErr);
             }
 
-            // Quality gate — runs after humanization + fact-sourcing; auto-fixes applied to finalHtml
-          try {
-            // Brand/topic confirmation in checklist order (critical fails already aborted above)
+            // Brand/topic confirmation before final-artifact assembly
             emitStage('brand-topic', 'running');
             const postProcessTopic = checkTopicAlignment(finalHtml, keyword);
             if (!postProcessTopic.aligned) {
@@ -948,160 +848,101 @@ export async function POST(req: NextRequest) {
                 : 'Brand and topic match the brief',
             );
 
-            emitStage('quality-gate', 'running');
-            const registeredDomains = citationDomain
-              ? [citationDomain]
-              : (brand ? [`${brand}.com`] : [])
-            const wcBand = wordCountBand(targetWordCount)
-            // Recompute floors against the HTML about to be gated (post-humanize / fact-patch)
-            const gateEeat = calculateEEATScore(finalHtml)
-            const gateDensity = analyzeKeywordDensity(
+            // Progressive UX: stream prose snapshot (not used for final QG/save)
+            controller.enqueue(encoder.encode(
+              `\n<!--SEORANKO_HUMANIZED_START-->\n${finalHtml}\n<!--SEORANKO_HUMANIZED_END-->`
+            ));
+
+            // ── Build canonical final artifact (images → split → schema) ──
+            emitStage('schema-check', 'running');
+            let gateEeat = calculateEEATScore(finalHtml)
+            let gateDensity = analyzeKeywordDensity(
               finalHtml,
               primaryTopicPhrase(keyword) || coreKeywordPhrase(keyword) || keyword,
             )
-            const qr = await runQualityGate(finalHtml, {
-              brand,
-              keyword,
-              authorName: 'Kamran Gul',
-              registeredLinkDomains: registeredDomains,
-              minWordCount: wcBand.min,
-              maxWordCount: wcBand.max,
-              maxTypically: 5,
-              userId: (userId as string) || undefined,
-              articleId: articleInstanceId,
-              brief: (entities as string[]).length > 0 || (topicalGaps as string[]).length > 0
-                ? { entities: entities as string[], topicalGaps: topicalGaps as string[] }
-                : undefined,
-              secondaryKeywords: filteredSecondaries,
-              extraIssues: datedClaimIssues.length > 0 ? datedClaimIssues : undefined,
-              expectOrganizationLogo: !!brandSettings.logoUrl,
-              eeatScore: gateEeat,
-              keywordDensityPct: gateDensity.density,
-              keywordDensityScore: gateDensity.score,
-              factSourcingScore,
-              humanScore,
-            })
-            finalHtml = qr.articleAfterAutoFix
-            articleQualityGate = {
-              passed: qr.passed, score: qr.score, criticalCount: qr.criticalCount,
-              warningCount: qr.warningCount, autoFixedCount: qr.autoFixedCount,
-              issues: qr.issues, blockers: qr.blockers, readyToPublish: qr.readyToPublish,
-            }
-            if (qr.autoFixedCount > 0) console.log(`[article-v2] quality-gate: auto-fixed ${qr.autoFixedCount} issues, score=${qr.score}`)
-            // Extra scrub after gate autofixes (grant hedges etc.) so ".350." never ships
-            const beforePostGateScrub = finalHtml
-            finalHtml = scrubInsertionCorruption(finalHtml).html
-            assertImageUrlsPreserved(beforePostGateScrub, finalHtml)
+            try {
+              const artifact = buildFinalArticleArtifact({
+                proseHtml: finalHtml,
+                imageSet,
+                schemaInput: {
+                  title: articleTitle,
+                  description: articleDescription,
+                  keyword,
+                  market,
+                  // generateArticleSchema hardcodes author.@type to "Person" —
+                  // organizationName below is the correctly-typed publisher.
+                  authorName: 'Kamran Gul',
+                  publishDate: generatedAt,
+                  dateModified: generatedAt,
+                  articleUrl: fullArticleUrl!,
+                  faqs: faqs.length > 0 ? faqs : undefined,
+                  isHowTo,
+                  howToSteps: isHowTo ? extractHowToSteps(fullArticle) : undefined,
+                  organizationName: schemaOrgName,
+                  organizationUrl: schemaOrgUrl,
+                  organizationLogoUrl: brandSettings.logoUrl || undefined,
+                },
+                enrichBeforeSchema: (html, primaryImageUrl) => {
+                  let enriched = html
+                  try {
+                    enriched = appendSocialMetaTags(enriched, {
+                      title: articleTitle,
+                      description: articleDescription,
+                      url: fullArticleUrl!,
+                      imageUrl: primaryImageUrl || heroImageUrl,
+                    });
+                  } catch (socialErr) {
+                    console.warn('[article-v2] social meta tags failed, continuing without them:', socialErr);
+                  }
+                  enriched = dedupeMetaDescriptionTags(enriched);
+                  try {
+                    enriched = `${enriched}\n\n${buildCanonicalTag(fullArticleUrl!)}`;
+                  } catch (canonicalErr) {
+                    console.warn('[article-v2] canonical tag failed, continuing without it:', canonicalErr);
+                  }
+                  try {
+                    enriched = `${enriched}\n\n${buildLastVerifiedLine(generatedAt)}`;
+                  } catch (verifiedErr) {
+                    console.warn('[article-v2] "Last verified" line failed, continuing without it:', verifiedErr);
+                  }
+                  return enriched
+                },
+              });
 
-            const criticalStops = qr.issues.filter(i => isCriticalPipelineStopIssue(i))
-            if (criticalStops.length > 0) {
-              const reason = criticalStops.map(i => i.title).join(' | ')
-              // Surface the post-autofix HTML + scores so the user can see what
-              // failed the floor — then stop (no image polish / silent continue).
-              send(`\n<!--SEORANKO_HUMANIZED_START-->\n${finalHtml}\n<!--SEORANKO_HUMANIZED_END-->`)
-              const partialMeta = JSON.stringify({
-                qualityGate: articleQualityGate,
-                eeatScore: gateEeat,
-                keywordDensity: gateDensity.density,
-                keywordDensityScore: gateDensity.score,
-                factSourcingScore,
-                humanScore,
-                pipelineStopped: true,
-                pipelineStopReason: reason,
-              })
-              send(`\n<!-- SEORANKO_SCORES:${partialMeta} -->`)
-              abortCritical('quality-gate', reason)
-              return
-            }
-            // Do NOT emit pass/fixed here — image injection + scannability
-            // reconciliation still mutate issues/score. Final stage is emitted
-            // once below from the single post-reconciliation reading.
-          } catch (qErr) {
-            console.warn('[article-v2] quality gate failed, continuing:', qErr)
-            emitStage('quality-gate', 'fail', qErr instanceof Error ? qErr.message : 'Quality Gate error')
-          }
+              if (artifact.imageHandOffError) {
+                hardBlockReasons.push(artifact.imageHandOffError);
+                console.error('[article-v2] image injection post-condition failed:', artifact.imageHandOffError);
+              }
 
-          controller.enqueue(encoder.encode(
-              `\n<!--SEORANKO_HUMANIZED_START-->\n${finalHtml}\n<!--SEORANKO_HUMANIZED_END-->`
-            ));
-          publishedHtml = finalHtml;
+              schemaResult = artifact.schemaResult;
+              if (artifact.primaryImageUrl) {
+                heroImageUrl = artifact.primaryImageUrl;
+              }
+              publishedHtml = artifact.html;
 
-            // Image injection ALWAYS runs when imageSet resolved, regardless
-            // of whether any enrichment step above failed — this is the
-            // actual fix for the "images generated but never inserted" bug
-            // (FIX 1). Previously this whole block lived inside the same
-            // try/catch as every unrelated step above it, so a
-            // getBrandSettings/schema/social-tag failure discarded imageSet
-            // entirely even though it had already resolved successfully.
-            if (imageSet) {
-              try {
-                const withImages = injectImagesIntoArticle(finalHtml, imageSet);
+              // Hard publish/save gate on the SYNCHRONIZED artifact (distinct
+              // from Quality Gate schema recommendations below).
+              const schemaCheck = assertSchemaCompleteness({
+                imageUrl: schemaResult.imageUrl,
+                organizationLogoUrl: schemaResult.organizationLogoUrl,
+                logoOmittedReason: schemaResult.logoOmittedReason,
+                hasBrandSettingsConfigured: brandSettings.configured,
+              });
+              if (schemaCheck.blocked) {
+                hardBlockReasons.push(...schemaCheck.reasons);
+                console.error('[article-v2] schema completeness check failed:', schemaCheck.reasons);
+                emitStage('schema-check', 'fail', schemaCheck.reasons.join(' | '));
+              } else {
+                emitStage(
+                  'schema-check',
+                  'pass',
+                  brandSettings.logoUrl
+                    ? 'Article/Organization schema complete on final artifact (incl. logo)'
+                    : 'Article schema complete on final artifact (Organization logo not configured for this brand)',
+                );
+              }
 
-                // Hard post-condition: a hero image exists but the
-                // serialized HTML has zero <figure> tags means injection
-                // silently no-opped — never save a figureless article when
-                // images were actually generated.
-                const figureCount = (withImages.match(/<figure[\s>]/gi) || []).length;
-                if (imageSet.hero?.url && figureCount === 0) {
-                  throw new Error(
-                    `Image hand-off post-condition failed: imageSet.hero.url is set (${imageSet.hero.url}) but the serialized article has 0 <figure> tags after injection.`
-                  );
-                }
-
-                publishedHtml = withImages;
-
-                // Images are injected AFTER the Quality Gate already ran (finalHtml
-                // never has <img> tags at that point — they're streamed separately
-                // for progressive UX), so image completeness is checked here instead.
-                // imageSet.imageStats.failures is the authoritative signal for "every
-                // provider failed this slot" — counting <img> tags in the final HTML
-                // wouldn't catch it, because a failed slot still gets a pollinations.ai
-                // fallback URL injected (existing behaviour, unrelated to this change)
-                // rather than being left empty.
-                if (imageSet.imageStats.failures.length > 0 && articleQualityGate) {
-                  const imageIssue: QualityIssue = {
-                    id: 'image-count-mismatch',
-                    severity: 'warning',
-                    category: 'image-completeness',
-                    title: `${imageSet.imageStats.failures.length} image(s) failed to generate`,
-                    description: `This article was supposed to have ${imageSet.imageStats.requested} images but only ${imageSet.imageStats.generated} generated successfully. Every image provider (Gemini, Pexels, pollinations.ai) failed for at least one slot — check API keys and daily rate limits: ${imageSet.imageStats.failures.join('; ')}`,
-                    autoFixable: false,
-                  };
-                  articleQualityGate = recomputeQualityGateTotals({
-                    ...articleQualityGate,
-                    issues: [...articleQualityGate.issues, imageIssue],
-                    articleAfterAutoFix: publishedHtml,
-                  })
-                }
-
-                // image-placement structure issues (figure right after a heading,
-                // no lead-in text) can only be checked now that images actually
-                // exist in the HTML — runQualityGate's RULE 10 ran on finalHtml
-                // before injection, so that category is always trivially empty
-                // there. Same timing pattern as the imageStats merge above.
-                const placementIssues = validateArticleStructure(withImages).filter(i => i.category === 'image-placement');
-                if (placementIssues.length > 0 && articleQualityGate) {
-                  const mapped: QualityIssue[] = placementIssues.map((si, i) => ({
-                    id: `structure-image-placement-post-${i}`,
-                    severity: si.severity,
-                    category: si.category,
-                    title: si.message,
-                    description: si.message,
-                    autoFixable: false,
-                  }));
-                  articleQualityGate = recomputeQualityGateTotals({
-                    ...articleQualityGate,
-                    issues: [...articleQualityGate.issues, ...mapped],
-                    articleAfterAutoFix: publishedHtml,
-                  })
-                }
-
-                // Final scrub must not touch injected image URLs
-                const beforeImgScrub = publishedHtml
-                publishedHtml = scrubInsertionCorruption(publishedHtml).html
-                assertImageUrlsPreserved(beforeImgScrub, publishedHtml)
-                assertImageUrlsPreserved(withImages, publishedHtml)
-
+              if (imageSet) {
                 controller.enqueue(encoder.encode(
                   `\n<!--SEORANKO_WITH_IMAGES_START-->\n${publishedHtml}\n<!--SEORANKO_WITH_IMAGES_END-->`
                 ));
@@ -1114,81 +955,112 @@ export async function POST(req: NextRequest) {
                     imageStats: imageSet.imageStats,
                   })}<!--SEORANKO_IMAGE_SET_END-->`
                 ));
-              } catch (imgInjectErr) {
-                const msg = imgInjectErr instanceof Error ? imgInjectErr.message : String(imgInjectErr);
-                console.error('[article-v2] image injection post-condition failed:', msg);
-                hardBlockReasons.push(msg);
-                if (articleQualityGate) {
-                  const blockIssue: QualityIssue = {
-                    id: 'image-figure-hand-off-failed',
-                    severity: 'critical',
-                    category: 'image-completeness',
-                    title: 'Hero image generated but not present in article HTML',
-                    description: msg,
-                    autoFixable: false,
-                  };
-                  articleQualityGate = recomputeQualityGateTotals({
-                    ...articleQualityGate,
-                    issues: [...articleQualityGate.issues, blockIssue],
-                    articleAfterAutoFix: publishedHtml,
-                  })
-                }
-                // publishedHtml stays at finalHtml (pre-injection) — the
-                // figureless state is what gets blocked from saving below,
-                // not silently shipped.
               }
-            }
 
-            // Paragraph-splitter (FIX 3) — after image injection, right
-            // before save, so figure/figcaption markup doesn't shift
-            // paragraph boundaries computed earlier in the pipeline.
-            try {
-              const beforeSplit = publishedHtml
-              publishedHtml = splitDenseParagraphs(publishedHtml);
-              assertImageUrlsPreserved(beforeSplit, publishedHtml)
-            } catch (splitErr) {
-              console.warn('[article-v2] paragraph-splitter failed, continuing:', splitErr);
-            }
-
-            // Reconcile the Quality Gate's scannability finding against the
-            // FINAL html. runQualityGate's RULE 10 scored finalHtml BEFORE
-            // the splitter above ran (same timing gap as the image-placement
-            // check further up), so without this the stored score would
-            // keep reporting a "N paragraphs are 6+ sentences" warning even
-            // after those paragraphs were actually split.
-            try {
-              const remainingScannability = validateArticleStructure(publishedHtml).filter(i => i.category === 'scannability');
-              if (articleQualityGate) {
-                const hadScannabilityIssue = articleQualityGate.issues.some(i => i.category === 'scannability');
-                if (hadScannabilityIssue && remainingScannability.length === 0) {
-                  articleQualityGate = recomputeQualityGateTotals({
-                    ...articleQualityGate,
-                    issues: articleQualityGate.issues.filter(i => i.category !== 'scannability'),
-                    articleAfterAutoFix: publishedHtml,
-                  })
-                } else if (!hadScannabilityIssue && remainingScannability.length > 0) {
-                  // Safety net only — shouldn't normally fire once the
-                  // splitter above ran, but a paragraph that's over budget
-                  // on words alone (not sentence count) could still slip
-                  // through un-flagged by structure-validator's own
-                  // sentence-only threshold in rare shapes.
-                  const mapped: QualityIssue[] = remainingScannability.map((si, i) => ({
-                    id: `structure-scannability-post-${i}`,
-                    severity: si.severity,
-                    category: si.category,
-                    title: si.message,
-                    description: si.message,
-                    autoFixable: false,
-                  }));
-                  articleQualityGate = recomputeQualityGateTotals({
-                    ...articleQualityGate,
-                    issues: [...articleQualityGate.issues, ...mapped],
-                    articleAfterAutoFix: publishedHtml,
-                  })
-                }
+              // ── Final Quality Gate on the SAME canonical artifact ──────
+              emitStage('quality-gate', 'running');
+              const registeredDomains = citationDomain
+                ? [citationDomain]
+                : (brand ? [`${brand}.com`] : [])
+              const wcBand = wordCountBand(targetWordCount)
+              gateEeat = calculateEEATScore(publishedHtml)
+              gateDensity = analyzeKeywordDensity(
+                publishedHtml,
+                primaryTopicPhrase(keyword) || coreKeywordPhrase(keyword) || keyword,
+              )
+              const imageExtraIssues: QualityIssue[] = []
+              if (imageSet && imageSet.imageStats.failures.length > 0) {
+                imageExtraIssues.push({
+                  id: 'image-count-mismatch',
+                  severity: 'warning',
+                  category: 'image-completeness',
+                  title: `${imageSet.imageStats.failures.length} image(s) failed to generate`,
+                  description: `This article was supposed to have ${imageSet.imageStats.requested} images but only ${imageSet.imageStats.generated} generated successfully. Every image provider (Gemini, Pexels, pollinations.ai) failed for at least one slot — check API keys and daily rate limits: ${imageSet.imageStats.failures.join('; ')}`,
+                  autoFixable: false,
+                })
               }
-            } catch (reconcileErr) {
-              console.warn('[article-v2] scannability reconciliation failed, continuing:', reconcileErr);
+              if (artifact.imageHandOffError) {
+                imageExtraIssues.push({
+                  id: 'image-figure-hand-off-failed',
+                  severity: 'critical',
+                  category: 'image-completeness',
+                  title: 'Hero image generated but not present in article HTML',
+                  description: artifact.imageHandOffError,
+                  autoFixable: false,
+                })
+              }
+              const qr = await runQualityGate(publishedHtml, {
+                brand,
+                keyword,
+                authorName: 'Kamran Gul',
+                registeredLinkDomains: registeredDomains,
+                minWordCount: wcBand.min,
+                maxWordCount: wcBand.max,
+                maxTypically: 5,
+                userId: (userId as string) || undefined,
+                articleId: articleInstanceId,
+                brief: (entities as string[]).length > 0 || (topicalGaps as string[]).length > 0
+                  ? { entities: entities as string[], topicalGaps: topicalGaps as string[] }
+                  : undefined,
+                secondaryKeywords: filteredSecondaries,
+                extraIssues: [
+                  ...(datedClaimIssues.length > 0 ? datedClaimIssues : []),
+                  ...imageExtraIssues,
+                ],
+                expectOrganizationLogo: expectOrganizationLogoFromPolicy(logoPolicy),
+                eeatScore: gateEeat,
+                keywordDensityPct: gateDensity.density,
+                keywordDensityScore: gateDensity.score,
+                factSourcingScore,
+                humanScore,
+              })
+              publishedHtml = qr.articleAfterAutoFix
+              finalHtml = publishedHtml
+              articleQualityGate = {
+                passed: qr.passed, score: qr.score, criticalCount: qr.criticalCount,
+                warningCount: qr.warningCount, autoFixedCount: qr.autoFixedCount,
+                issues: qr.issues, blockers: qr.blockers, readyToPublish: qr.readyToPublish,
+              }
+              if (qr.autoFixedCount > 0) console.log(`[article-v2] quality-gate: auto-fixed ${qr.autoFixedCount} issues, score=${qr.score}`)
+
+              const beforePostGateScrub = publishedHtml
+              publishedHtml = scrubInsertionCorruption(publishedHtml).html
+              assertImageUrlsPreserved(beforePostGateScrub, publishedHtml)
+              finalHtml = publishedHtml
+
+              const criticalStops = qr.issues.filter(i => isCriticalPipelineStopIssue(i))
+              if (criticalStops.length > 0) {
+                const reason = criticalStops.map(i => i.title).join(' | ')
+                send(`\n<!--SEORANKO_HUMANIZED_START-->\n${publishedHtml}\n<!--SEORANKO_HUMANIZED_END-->`)
+                const partialMeta = JSON.stringify({
+                  qualityGate: articleQualityGate,
+                  eeatScore: gateEeat,
+                  keywordDensity: gateDensity.density,
+                  keywordDensityScore: gateDensity.score,
+                  factSourcingScore,
+                  humanScore,
+                  pipelineStopped: true,
+                  pipelineStopReason: reason,
+                })
+                send(`\n<!-- SEORANKO_SCORES:${partialMeta} -->`)
+                abortCritical('quality-gate', reason)
+                return
+              }
+              // Final quality-gate stage status is emitted once below from the
+              // single post-save-topic reading of articleQualityGate.
+            } catch (finalErr) {
+              console.warn('[article-v2] final artifact / quality gate failed, continuing:', finalErr)
+              emitStage(
+                'schema-check',
+                'fail',
+                finalErr instanceof Error ? finalErr.message : 'Final artifact assembly failed',
+              )
+              emitStage(
+                'quality-gate',
+                'fail',
+                finalErr instanceof Error ? finalErr.message : 'Quality Gate error',
+              )
+              publishedHtml = finalHtml
             }
           } catch (err) {
             console.warn('[article-v2] humanization/images failed, continuing without:', err);
@@ -1198,7 +1070,7 @@ export async function POST(req: NextRequest) {
           // model (registry-sourced links take priority — see STEP C), not
           // unconditionally the user-provided panel list, and against the
           // final processed text so placement reflects what's really shipping.
-          const placementResult = auditPlacedLinks(finalHtml, linksRequestedFromModel);
+          const placementResult = auditPlacedLinks(publishedHtml, linksRequestedFromModel);
           const linkAudit = {
             ...placementResult,
             totalPlaced: placementResult.placed.length,
