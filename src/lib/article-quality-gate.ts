@@ -21,6 +21,14 @@ import {
   scrubInsertionCorruption,
 } from '@/lib/sentence-integrity'
 import { assertImageUrlsPreserved, transformHtmlTextNodes } from '@/lib/html-text-transform'
+import {
+  DATED_POLICY_SEVERITY,
+} from '@/lib/quality-gate-policy'
+import {
+  detectDatedClaims,
+  detectStaleYearReferences,
+  extractHeadingTexts,
+} from '@/lib/dated-claim-detector'
 
 // AI slop patterns — expanded from anti-slop GitHub repo
 const AI_SLOP_PATTERNS = [
@@ -55,7 +63,8 @@ const DANGEROUS_FACT_PATTERNS = [
   {
     pattern: /\b(as of|from) (january|february|march|april|may|june|july|august|september|october|november|december) 20\d{2}\b.*?(grant|scheme|fund|subsid)/i,
     message: 'Dated grant/scheme claim — confirm this is still current policy',
-    severity: 'info' as const,
+    // Severity must match DATED_POLICY_SEVERITY — never diverge per pass.
+    severity: DATED_POLICY_SEVERITY,
     category: 'dated-policy' as const,
   },
 ]
@@ -168,35 +177,163 @@ function isClaimBoundToCitation(claim: Claim, allCitations: Citation[]): boolean
   return false
 }
 
-function evaluateGrantFigureClaims(articleContent: string): QualityIssue[] {
+const INLINE_VERIFY_RE =
+  /\b(verify|confirm|check|see|refer to)\b.{0,40}\b(gov\.uk|government|official)/i
+
+function claimHasInlineVerification(articleContent: string, claim: Claim): boolean {
+  const localContext = articleContent.slice(
+    Math.max(0, claim.position - 150),
+    Math.min(articleContent.length, claim.position + 150),
+  )
+  return INLINE_VERIFY_RE.test(localContext)
+}
+
+/**
+ * Grant/financial figures — document-level claim-citation binding.
+ *
+ * Policy (GRANT_FIGURE_CITATION_POLICY = document-level-once):
+ * one GOV.UK citation (or one verify hedge near any restatement) clears the
+ * figure for the whole article. Repeated "up to £350" lines do not each need
+ * their own nearby cite. Emit one issue per unique figure text.
+ */
+export function evaluateGrantFigureClaims(articleContent: string): QualityIssue[] {
   const issues: QualityIssue[] = []
   const citations = extractCitations(articleContent)
   const claims = extractFinancialClaims(articleContent)
 
+  const byFigure = new Map<string, Claim[]>()
   for (const claim of claims) {
-    const localContext = articleContent.slice(
-      Math.max(0, claim.position - 150),
-      Math.min(articleContent.length, claim.position + 150)
-    )
-    const hasInlineVerification = /\b(verify|confirm|check|see|refer to)\b.{0,40}\b(gov\.uk|government|official)/i.test(localContext)
-    const isBoundToCitation = isClaimBoundToCitation(claim, citations)
+    const key = claim.text.toLowerCase().replace(/\s+/g, ' ').trim()
+    if (!byFigure.has(key)) byFigure.set(key, [])
+    byFigure.get(key)!.push(claim)
+  }
 
-    const isCited = hasInlineVerification || isBoundToCitation
+  for (const group of Array.from(byFigure.values())) {
+    const unionTopics = new Set<string>()
+    for (const c of group) {
+      for (const t of Array.from(c.topicTerms)) unionTopics.add(t)
+    }
+    const representative: Claim = {
+      text: group[0].text,
+      position: group[0].position,
+      topicTerms: unionTopics,
+    }
+
+    const anyInlineVerification = group.some(c =>
+      claimHasInlineVerification(articleContent, c),
+    )
+    const isBoundToCitation = isClaimBoundToCitation(representative, citations)
+    const isCited = anyInlineVerification || isBoundToCitation
+    const count = group.length
+    const countNote = count > 1 ? ` (appears ${count} times)` : ''
 
     issues.push({
-      id: `fact-grant-figure-${claim.position}`,
+      id: `fact-grant-figure-${group[0].position}`,
       severity: isCited ? 'warning' : 'critical',
       category: 'grant-figure',
       title: isCited
         ? 'Financial figure detected — properly sourced, just double-check it\'s current'
         : 'Specific monetary cap stated — verify this figure is current (grant amounts change frequently)',
       description: isCited
-        ? `Found: "${claim.text}" — a citation to an official source exists in this article covering the same topic. Good practice, just confirm the figure is still accurate.`
-        : `Found: "${claim.text}" — no citation to an official source found anywhere in the article on this topic. Add a GOV.UK link or "(verify at GOV.UK)" next to this figure.`,
+        ? `Found: "${group[0].text}"${countNote} — a citation to an official source exists in this article covering the same topic. One document-level citation covers every restatement; each instance does not need its own nearby cite. Confirm the figure is still accurate.`
+        : `Found: "${group[0].text}"${countNote} — no citation to an official source found anywhere in the article on this topic. Add one GOV.UK link or "(verify at GOV.UK)" — a single document-level citation covers every restatement of this figure.`,
       autoFixable: !isCited,
-      autoFixDescription: !isCited ? 'Auto-fix adds "(verify at GOV.UK)" after the figure' : undefined
+      autoFixDescription: !isCited
+        ? 'Auto-fix adds "(verify at GOV.UK)" after each instance of this figure'
+        : undefined,
     })
   }
+  return issues
+}
+
+function extractTitleFromHtml(html: string): string | undefined {
+  const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
+  if (!m) return undefined
+  const text = m[1].replace(/<[^>]+>/g, '').trim()
+  return text || undefined
+}
+
+function extractMetaDescriptionFromHtml(html: string): string | undefined {
+  const named = html.match(
+    /<meta[^>]+name=["']description["'][^>]*content=["']([^"']*)["'][^>]*>/i,
+  )
+  if (named?.[1]) return named[1].trim()
+  const contentFirst = html.match(
+    /<meta[^>]+content=["']([^"']*)["'][^>]*name=["']description["'][^>]*>/i,
+  )
+  return contentFirst?.[1]?.trim() || undefined
+}
+
+/**
+ * Chrono dated-claims + stale-year findings, always at DATED_POLICY_SEVERITY.
+ * Shared by article-v2 / recheck / Fix All via runQualityGate — never build
+ * these issues in a caller with a different severity.
+ */
+export function buildDatedPolicyIssues(
+  articleContent: string,
+  opts?: {
+    now?: Date
+    title?: string
+    metaDescription?: string
+  },
+): QualityIssue[] {
+  const now = opts?.now ?? new Date()
+  const issues: QualityIssue[] = []
+
+  try {
+    const datedClaims = detectDatedClaims(articleContent, now)
+    const unsourced = datedClaims.filter(c => !c.hasSource)
+    const uniqueUnsourced = Array.from(
+      new Map(unsourced.map(c => [c.sentence.trim(), c])).values(),
+    )
+    for (let i = 0; i < uniqueUnsourced.length; i++) {
+      const claim = uniqueUnsourced[i]
+      issues.push({
+        id: `dated-claim-${i}`,
+        severity: DATED_POLICY_SEVERITY,
+        category: 'dated-policy',
+        title: `Dated claim — confirm still current: "${claim.text}"`,
+        description: `"${claim.sentence}" — tied to a date but no named source or link found nearby. Add a GOV.UK citation or verify the figure is still accurate. Re-check by ${claim.reviewBy.slice(0, 10)}.`,
+        location: claim.sentence.slice(0, 100),
+        autoFixable: false,
+      })
+    }
+  } catch (err) {
+    console.warn('[article-quality-gate] dated-claim detection failed:', err)
+  }
+
+  try {
+    const publishYear = now.getFullYear()
+    const title = opts?.title ?? extractTitleFromHtml(articleContent)
+    const metaDescription =
+      opts?.metaDescription ?? extractMetaDescriptionFromHtml(articleContent)
+    const staleYears = detectStaleYearReferences(
+      {
+        title,
+        headings: extractHeadingTexts(articleContent),
+        metaDescription,
+      },
+      publishYear,
+    )
+    const uniqueStaleYears = Array.from(
+      new Map(staleYears.map(s => [`${s.location}:${s.text}`, s])).values(),
+    )
+    for (let i = 0; i < uniqueStaleYears.length; i++) {
+      const s = uniqueStaleYears[i]
+      issues.push({
+        id: `stale-year-${i}`,
+        severity: DATED_POLICY_SEVERITY,
+        category: 'dated-policy',
+        title: `Stale year in ${s.location}: "${s.year}" (article is dated ${publishYear})`,
+        description: `${s.location === 'title' ? 'Title' : s.location === 'heading' ? 'A heading (and its table-of-contents entry)' : 'The meta description'} says "${s.text}" — mentions ${s.year}, but this article's datePublished/dateModified/"Last verified" line all say ${publishYear}. Update the year or confirm it's intentional (e.g. a genuine historical reference).`,
+        location: s.text.slice(0, 100),
+        autoFixable: false,
+      })
+    }
+  } catch (err) {
+    console.warn('[article-quality-gate] stale-year detection failed:', err)
+  }
+
   return issues
 }
 
@@ -729,6 +866,16 @@ export async function runQualityGate(
     keywordDensityScore?: number
     factSourcingScore?: number
     humanScore?: number
+    /**
+     * Dated-policy context. Detection always runs inside the gate (so recheck
+     * / Fix All match article-v2). Pass now/title/meta when known so stale-year
+     * checks align with publish metadata.
+     */
+    datedPolicy?: {
+      now?: Date
+      title?: string
+      metaDescription?: string
+    }
   }
 ): Promise<QualityGateResult> {
 
@@ -752,6 +899,7 @@ export async function runQualityGate(
     keywordDensityScore,
     factSourcingScore,
     humanScore,
+    datedPolicy,
   } = {
     expectOrganizationLogo: false,
     ...options,
@@ -775,11 +923,22 @@ export async function runQualityGate(
     keywordDensityScore?: number
     factSourcingScore?: number
     humanScore?: number
+    datedPolicy?: {
+      now?: Date
+      title?: string
+      metaDescription?: string
+    }
   }
 
   let issues: QualityIssue[] = extraIssues ? [...extraIssues] : []
   let articleAfterAutoFix = articleContent
   let autoFixedCount = 0
+
+  // Dated-policy is owned by the gate (same severity on every pass). Drop any
+  // caller-supplied dated-policy extras so article-v2 cannot diverge from
+  // recheck / Fix All.
+  issues = issues.filter(i => i.category !== 'dated-policy')
+  issues.push(...buildDatedPolicyIssues(articleContent, datedPolicy))
 
   // ---- RULE 0: Topic must match the requested keyword (blocks crypto-for-ev-charger disasters) ----
   const topicCheck = checkTopicAlignment(articleContent, keyword)

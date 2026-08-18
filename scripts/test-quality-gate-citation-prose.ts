@@ -38,9 +38,15 @@ async function main() {
 
   const datedPolicy = result.issues.filter(i => i.category === 'dated-policy')
   if (datedPolicy.length > 0) {
-    console.log('NOTE: dated-policy findings (info-only):', datedPolicy.length)
+    console.log('NOTE: dated-policy findings:', datedPolicy.length)
+    for (const issue of datedPolicy) {
+      if (issue.severity !== 'warning') {
+        console.error('FAIL: dated-policy severity must be warning, got', issue.severity)
+        process.exit(1)
+      }
+    }
   }
-  console.log('PASS: dated-policy would be info-only when present')
+  console.log('PASS: dated-policy severity is warning when present')
 
   const blocking = result.issues.filter(
     i => i.category === 'broken-citation-link' || i.id === 'prose-quote-style' || i.id === 'prose-apostrophe-style'

@@ -65,8 +65,20 @@ export function expectOrganizationLogoFromPolicy(policy: LogoPolicy): boolean {
 }
 
 /**
- * Dated-policy severity constant for Phase 0 documentation.
- * Phase 1 does not change dated-policy severity (that is Phase 5).
- * Exported so callers can converge later without inventing a second policy.
+ * Single severity for every dated-policy finding across article-v2,
+ * runQualityGate, recheck, and Fix All.
+ *
+ * warning (not critical): surfaces in Fix All "needs human review", affects
+ * readyToPublish / score, but does not hard-stop the generation pipeline.
+ * Never use a different severity in a caller — import this constant.
  */
-export const DATED_POLICY_SEVERITY = 'info' as const
+export const DATED_POLICY_SEVERITY = 'warning' as const
+
+/**
+ * Repeated uncited grant/financial figures (e.g. "up to £350" twice):
+ * one document-level GOV.UK citation (or one verify hedge that satisfies
+ * binding) clears the figure for the whole article. Each restatement does
+ * not need its own nearby citation. Autofix may still hedge every instance
+ * for visible consistency; scoring emits one issue per unique figure.
+ */
+export const GRANT_FIGURE_CITATION_POLICY = 'document-level-once' as const
