@@ -753,7 +753,7 @@ export async function runQualityGate(
     factSourcingScore,
     humanScore,
   } = {
-    expectOrganizationLogo: true,
+    expectOrganizationLogo: false,
     ...options,
   } as {
     brand: string

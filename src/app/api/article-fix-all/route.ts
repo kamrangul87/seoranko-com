@@ -3,6 +3,11 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { fixAllArticleIssues } from '@/lib/article-fix-all'
 import { checkContentIdentity } from '@/lib/content-identity-guard'
+import { getBrandSettings } from '@/lib/brand-settings'
+import {
+  resolveLogoPolicy,
+  expectOrganizationLogoFromPolicy,
+} from '@/lib/quality-gate-policy'
 
 export const maxDuration = 120
 
@@ -46,6 +51,18 @@ export async function POST(req: NextRequest) {
       ? [String(domain).replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase()]
       : []
 
+    let brandSettings = { configured: false, logoUrl: null as string | null }
+    try {
+      brandSettings = brand
+        ? await getBrandSettings(user.id, brand)
+        : { configured: false, logoUrl: null }
+    } catch (err) {
+      console.warn('[article-fix-all] getBrandSettings failed:', err)
+    }
+    const expectOrganizationLogo = expectOrganizationLogoFromPolicy(
+      resolveLogoPolicy({ brandSettings }),
+    )
+
     const result = await fixAllArticleIssues({
       html: articleHtml,
       keyword,
@@ -54,6 +71,7 @@ export async function POST(req: NextRequest) {
       targetWordCount: Number(targetWordCount) || 2000,
       userId: user.id,
       articleId,
+      expectOrganizationLogo,
     })
 
     const identity = checkContentIdentity(articleHtml, null, result.html, null)
