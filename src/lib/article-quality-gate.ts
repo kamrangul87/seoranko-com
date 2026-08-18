@@ -545,6 +545,49 @@ export function qualityGateStageStatus(gate: Pick<QualityGateResult, 'autoFixedC
   return { status: 'pass', detailSuffix: 'no open issues' }
 }
 
+/**
+ * Schema + FAQ-parity issues for a given HTML snapshot.
+ * Used for the initial RULE 6 pass AND the post-autofix refresh so the
+ * returned Quality Gate issues always describe articleAfterAutoFix.
+ */
+export function collectSchemaQualityIssues(
+  html: string,
+  expectOrganizationLogo?: boolean,
+): QualityIssue[] {
+  const schemaResult = validateSchema(html, { expectOrganizationLogo })
+  const out: QualityIssue[] = []
+
+  for (const schemaIssue of schemaResult.issues) {
+    out.push({
+      id: `schema-${schemaIssue.schemaType}-${schemaIssue.property}`,
+      severity: schemaIssue.severity === 'error' ? 'critical' : 'warning',
+      category: 'schema',
+      title: `${schemaIssue.schemaType}: ${schemaIssue.property}`,
+      description: schemaIssue.message,
+      autoFixable: false,
+    })
+  }
+
+  const parsedFaqsForParity = parseFAQsFromArticle(html).faqs
+  const hasVisibleFAQ =
+    parsedFaqsForParity.length >= 2 ||
+    /class=["'][^"']*faq-item/i.test(html) ||
+    /<h2[^>]*>\s*(?:Frequently Asked Questions|FAQ|FAQs)\s*<\/h2>/i.test(html)
+  if (hasVisibleFAQ && !schemaResult.schemasFound.includes('FAQPage')) {
+    out.push({
+      id: 'schema-faq-parity',
+      severity: 'critical',
+      category: 'schema',
+      title: 'FAQPage schema missing but FAQ content exists',
+      description: 'Visible FAQ section found but no FAQPage JSON-LD schema. Schema must match visible content.',
+      autoFixable: true,
+      autoFixDescription: 'Auto-fix injects FAQPage JSON-LD from the visible FAQ pairs',
+    })
+  }
+
+  return out
+}
+
 // Every image is meant to be validated (uploaded + resolvable) before
 // injection — this catches the case where the whole provider chain
 // (Gemini → Pexels → pollinations.ai → Replicate) failed for a slot, which
@@ -1099,36 +1142,9 @@ export async function runQualityGate(
   }
 
   // ---- RULE 6: Schema validation (full schema.org property-level check) ----
-  const schemaResult = validateSchema(articleContent, { expectOrganizationLogo })
-
-  for (const schemaIssue of schemaResult.issues) {
-    issues.push({
-      id: `schema-${schemaIssue.schemaType}-${schemaIssue.property}`,
-      severity: schemaIssue.severity === 'error' ? 'critical' : 'warning',
-      category: 'schema',
-      title: `${schemaIssue.schemaType}: ${schemaIssue.property}`,
-      description: schemaIssue.message,
-      autoFixable: false
-    })
-  }
-
-  // Schema/content parity — visible FAQ Q&A pairs with no FAQPage block.
-  const parsedFaqsForParity = parseFAQsFromArticle(articleContent).faqs
-  const hasVisibleFAQ =
-    parsedFaqsForParity.length >= 2 ||
-    /class=["'][^"']*faq-item/i.test(articleContent) ||
-    /<h2[^>]*>\s*(?:Frequently Asked Questions|FAQ|FAQs)\s*<\/h2>/i.test(articleContent)
-  if (hasVisibleFAQ && !schemaResult.schemasFound.includes('FAQPage')) {
-    issues.push({
-      id: 'schema-faq-parity',
-      severity: 'critical',
-      category: 'schema',
-      title: 'FAQPage schema missing but FAQ content exists',
-      description: 'Visible FAQ section found but no FAQPage JSON-LD schema. Schema must match visible content.',
-      autoFixable: true,
-      autoFixDescription: 'Auto-fix injects FAQPage JSON-LD from the visible FAQ pairs',
-    })
-  }
+  // Collected via shared helper so the post-autofix refresh below uses the
+  // exact same rules (including FAQ parity).
+  issues.push(...collectSchemaQualityIssues(articleContent, expectOrganizationLogo))
 
   // ---- RULE 7: Author byline ----
   if (!articleContent.includes(authorName)) {
@@ -1407,6 +1423,15 @@ export async function runQualityGate(
       }
     }
   }
+
+  // Schema issues must describe articleAfterAutoFix — FAQPage inject (and any
+  // future schema-touching autofix) mutates JSON-LD after the initial RULE 6
+  // pass. Refresh so score / issues / readyToPublish match the returned HTML
+  // (final-artifact invariant for the gate itself).
+  issues = [
+    ...issues.filter(i => i.category !== 'schema'),
+    ...collectSchemaQualityIssues(articleAfterAutoFix, expectOrganizationLogo),
+  ]
 
   // The same fact (e.g. a grant figure) can legitimately be restated several
   // times across an article — each restatement earns its own issue from the
