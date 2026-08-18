@@ -37,6 +37,65 @@ export interface TopicalMapResult {
 
 const client = new Anthropic()
 
+// The model occasionally wraps its JSON in explanatory prose despite being
+// told "Respond ONLY with JSON" — extract the first balanced {...} block
+// instead of assuming the whole trimmed response is valid JSON on its own.
+// Bracket-counting (not regex) so it isn't fooled by braces inside string
+// values (e.g. a subtopic title that itself contains "{" or "}").
+export function extractJsonObject(text: string): string | null {
+  const start = text.indexOf('{')
+  if (start === -1) return null
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') inString = true
+    else if (ch === '{') depth++
+    else if (ch === '}') {
+      depth--
+      if (depth === 0) return text.slice(start, i + 1)
+    }
+  }
+  return null // unterminated — truncated output, no balanced object to recover
+}
+
+// Deterministic, non-AI grouping used ONLY when the clustering call's
+// response can't be parsed at all (after the retry below). Groups articles
+// by their own exact keyword — real, already-known data, never fabricated
+// text. missingSubtopics is deliberately empty rather than padded with
+// placeholder strings: per the "never let a placeholder be clickable" rule,
+// dropping the gap-analysis feature entirely for this run is correct: a
+// FALSE gap suggestion is worse than none, since it flows straight into
+// RANKO's Research/winnability tool as if it were a real keyword.
+export function groupArticlesByKeywordFallback(
+  articles: Array<{ id: string; title: string; keyword: string }>
+): { clusters: any[] } {
+  const byKeyword = new Map<string, typeof articles>()
+  for (const article of articles) {
+    const key = article.keyword || 'Uncategorised'
+    if (!byKeyword.has(key)) byKeyword.set(key, [])
+    byKeyword.get(key)!.push(article)
+  }
+
+  const clusters = Array.from(byKeyword.entries()).map(([keyword, group]) => ({
+    pillarTopic: keyword,
+    pillarKeyword: keyword,
+    pillarArticleId: group[0].id,
+    clusterArticleIds: group.slice(1).map(a => a.id),
+    missingSubtopics: [],
+    subtopicMap: {},
+  }))
+
+  return { clusters }
+}
+
 export async function buildTopicalMap(
   articles: Array<{
     id: string
@@ -62,19 +121,17 @@ export async function buildTopicalMap(
     `${i + 1}. ID: ${a.id} | Keyword: "${a.keyword}" | Title: "${a.title}"`
   ).join('\n')
 
-  const clusterResponse = await client.messages.create({
-    model: MODEL_FOR.topicalMapCluster,
-    max_tokens: 2000,
-    messages: [{
-      role: 'user',
-      content: `You are an SEO expert building a topical authority map.
+  const clusteringPrompt = `You are an SEO expert building a topical authority map.
 
 Analyse these articles and group them into topic clusters. Each cluster needs:
 - One pillar topic (the broad subject)
 - A primary keyword for the pillar
 - Which article ID best serves as the pillar page (most comprehensive)
 - Which article IDs are cluster/supporting pages
-- 3-5 missing subtopics that would complete this cluster
+- 3-5 missing subtopics that would complete this cluster — real, specific
+  suggestions only. If you cannot think of genuine gaps for a cluster,
+  return an empty array for missingSubtopics rather than inventing
+  generic placeholder text like "Related subtopic".
 
 Articles:
 ${articleList}
@@ -92,24 +149,48 @@ Respond ONLY with JSON in this exact format:
     }
   ]
 }`
-    }]
-  })
 
-  let clusterData: any = { clusters: [] }
-  try {
-    const text = clusterResponse.content[0].type === 'text' ? clusterResponse.content[0].text : '{}'
-    clusterData = JSON.parse(text.replace(/```json|```/g, '').trim())
-  } catch {
-    clusterData = {
-      clusters: [{
-        pillarTopic: articles[0]?.keyword || 'General',
-        pillarKeyword: articles[0]?.keyword || '',
-        pillarArticleId: articles[0]?.id || null,
-        clusterArticleIds: articles.slice(1).map(a => a.id),
-        missingSubtopics: ['Related subtopic 1', 'Related subtopic 2'],
-        subtopicMap: {}
-      }]
+  // Bumped from 2000 — that was tight enough for a real 19-article library
+  // (one pillarTopic + subtopicMap entry per article + 3-5 subtopics per
+  // cluster) to truncate output mid-object, which is the confirmed root
+  // cause of the "Related subtopic 1/2" placeholder bug: a truncated
+  // response fails JSON.parse, and the old catch block fabricated that
+  // exact placeholder text as a fallback instead of surfacing the failure.
+  async function callClusteringModel(): Promise<{ clusters: any[] } | null> {
+    const response = await client.messages.create({
+      model: MODEL_FOR.topicalMapCluster,
+      max_tokens: 4000,
+      messages: [{ role: 'user', content: clusteringPrompt }],
+    })
+    const text = response.content[0].type === 'text' ? response.content[0].text : ''
+    const stripped = text.replace(/```json|```/g, '').trim()
+    // The model occasionally wraps JSON in explanatory prose despite being
+    // told not to — try the raw stripped text first, then a bracket-matched
+    // extraction of just the {...} object before giving up on this attempt.
+    for (const candidate of [stripped, extractJsonObject(stripped)]) {
+      if (!candidate) continue
+      try {
+        const parsed = JSON.parse(candidate)
+        if (Array.isArray(parsed.clusters)) return parsed
+      } catch { /* try the next candidate, or the caller retries */ }
     }
+    return null
+  }
+
+  let clusterData = await callClusteringModel()
+  if (!clusterData) {
+    console.warn('[topical-map] clustering response failed to parse — retrying once')
+    clusterData = await callClusteringModel()
+  }
+  if (!clusterData) {
+    // Never fabricate placeholder gap-analysis text (e.g. "Related
+    // subtopic 1") — a fake suggestion is worse than none, since it's
+    // clickable in the UI and flows straight into RANKO's Research/
+    // winnability tool as if it were a real keyword. Fall back to a
+    // deterministic, non-AI grouping with an honestly-empty gap list
+    // instead of a second AI attempt that could fail the same way.
+    console.error('[topical-map] clustering failed twice — using deterministic keyword grouping, no fabricated subtopics')
+    clusterData = groupArticlesByKeywordFallback(articles)
   }
 
   // Real internal links in this pipeline only ever get placed as a direct
