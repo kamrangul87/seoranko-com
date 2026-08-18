@@ -664,7 +664,7 @@ export async function POST(req: NextRequest) {
               send(finalHtml);
               abortCritical(
                 'text-integrity',
-                'Residual merge/insertion corruption remains after repair (e.g. ".350." or truncated splices). Generation stopped — regenerate or edit manually.',
+                'Residual merge/insertion corruption remains after repair (e.g. ".350.", truncated splices, or overlapping duplicated phrases). Generation stopped — regenerate or edit manually.',
               );
               return;
             }

@@ -4,8 +4,8 @@
  * Domain-like tokens (gov.uk, energynetworks.org) must be masked before
  * counting or splitting on "." — otherwise TLDs inflate sentence counts.
  *
- * Phase 0 creates the module; Phase 1 does not yet switch structure-validator
- * (Phase 4). paragraph-splitter may re-export from here in a follow-up.
+ * Phase 0 creates the module; Phase 3 wires it into structure-validator
+ * scannability counting. paragraph-splitter may re-export from here later.
  */
 
 const DOMAIN_TOKEN_RE = /\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\b/gi
