@@ -7,13 +7,19 @@ import { WRITE_MARKET_STORAGE_KEY, locationCodeFor } from '@/lib/markets'
 import type { RANKODiagnosis, RANKOIssue } from '@/lib/ranko-diagnosis'
 import { resolveArticle, isWritable, EXTERNAL_NOT_WRITABLE_MESSAGE } from '@/lib/article-resolver'
 import { anonymizeCompetitorHint, anonymizeDomain } from '@/lib/competitor-privacy'
+import { isWarmingUp } from '@/lib/rank-warming-up'
 
 interface TrackedArticle {
   id: string
+  article_id?: string | null
   title: string
   keyword: string
   article_url: string
   current_position: number | null
+  // Merged in from publications (hosted destination only) after the main
+  // load — null/undefined for CMS-tracked or unpublished-hosted articles,
+  // which keeps the existing "—" display exactly as before for them.
+  publication_published_at?: string | null
   previous_position: number | null
   position_change: number | null
   top_competitor: string | null
@@ -229,6 +235,33 @@ export function RankingAgentDashboard() {
     setDiagnoses(prev => ({ ...cached, ...prev }))
 
     setLoading(false)
+
+    // Merge in hosted publications.published_at for the "warming up"
+    // state (Step 5) — additive, best-effort: a lookup failure here must
+    // never break the article list that already rendered above.
+    const linkedIds = Array.from(new Set((data || []).map((a: TrackedArticle) => a.article_id).filter(Boolean))) as string[]
+    if (linkedIds.length > 0) {
+      const { data: pubs } = await supabase
+        .from('publications')
+        .select('article_id, published_at')
+        .eq('user_id', uid)
+        .eq('destination', 'hosted')
+        .in('article_id', linkedIds)
+        .order('published_at', { ascending: false })
+      if (pubs?.length) {
+        const publishedAtByArticleId = new Map<string, string>()
+        for (const p of pubs) {
+          if (p.article_id && !publishedAtByArticleId.has(p.article_id) && p.published_at) {
+            publishedAtByArticleId.set(p.article_id, p.published_at)
+          }
+        }
+        setArticles(prev => prev.map(a =>
+          a.article_id && publishedAtByArticleId.has(a.article_id)
+            ? { ...a, publication_published_at: publishedAtByArticleId.get(a.article_id) }
+            : a
+        ))
+      }
+    }
   }
 
   async function addArticleWithRetry(retries = 20): Promise<void> {
@@ -635,9 +668,18 @@ export function RankingAgentDashboard() {
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
                 <div className="text-right">
-                  <div className={`text-2xl font-bold leading-none ${positionColor(article.current_position)}`}>
-                    {article.current_position ? `#${article.current_position}` : '—'}
-                  </div>
+                  {!article.current_position && isWarmingUp(article.publication_published_at) ? (
+                    <div
+                      className="text-xs font-medium leading-none text-amber-600 bg-amber-50 px-2 py-1 rounded-full"
+                      title="Only ~1.7% of new pages reach the top 10 within a year — this page hasn't been live 90 days yet."
+                    >
+                      Warming up
+                    </div>
+                  ) : (
+                    <div className={`text-2xl font-bold leading-none ${positionColor(article.current_position)}`}>
+                      {article.current_position ? `#${article.current_position}` : '—'}
+                    </div>
+                  )}
                   {/* §10 item 10 / §6.4: negative position_change = improved (moved up the SERP) */}
                   <div className="flex items-center justify-end gap-0.5 mt-0.5">
                     {article.position_change === null ? (

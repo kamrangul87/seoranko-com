@@ -3,6 +3,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { improveArticle } from './article-improver'
+import { decayMonitoringEligible } from './rank-warming-up'
 
 export interface FreshnessRefreshResult {
   articleId: string
@@ -80,6 +81,23 @@ export async function runWeeklyFreshnessJobs() {
       .single()
 
     if (!article) continue
+
+    // Content-decay monitoring only begins once a hosted publication is
+    // LIVE_VERIFIED (Step 5). Only applies when this article actually has
+    // a hosted publications row — CMS-tracked or manually-tracked articles
+    // (no hosted row at all) are unaffected, matching existing behavior.
+    const { data: hostedPub } = await supabase
+      .from('publications')
+      .select('state')
+      .eq('article_id', tracked.article_id)
+      .eq('destination', 'hosted')
+      .order('published_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (hostedPub && !decayMonitoringEligible(hostedPub.state)) {
+      console.log(`[freshness] skipping ${tracked.article_id} — hosted publication not yet LIVE_VERIFIED (${hostedPub.state})`)
+      continue
+    }
 
     try {
       const refreshResult = await runFreshnessRefreshPass(

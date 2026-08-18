@@ -33,12 +33,31 @@ export async function POST(req: NextRequest) {
 
     const linkedArticleId = await findLinkedArticleId(supabase, user.id, articleUrl)
 
+    // Rank tracking must target the real hosted URL, not a placeholder —
+    // if this article has a live (or verified) hosted publication, its
+    // publications.public_url wins over whatever URL was passed in
+    // (e.g. a stale articles.article_url slug path with no domain).
+    let trackedUrl = articleUrl
+    if (linkedArticleId) {
+      const { data: pub } = await supabase
+        .from('publications')
+        .select('public_url, state')
+        .eq('article_id', linkedArticleId)
+        .eq('user_id', user.id)
+        .eq('destination', 'hosted')
+        .in('state', ['LIVE_UNVERIFIED', 'LIVE_VERIFIED'])
+        .order('published_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (pub?.public_url) trackedUrl = pub.public_url
+    }
+
     const { data: row, error } = await supabase
       .from('ranking_agent_articles')
       .insert({
         user_id: user.id,
         keyword,
-        article_url: articleUrl,
+        article_url: trackedUrl,
         title: keyword,
         location_code: locationCode ?? 2840,
         article_id: linkedArticleId,
@@ -59,7 +78,7 @@ export async function POST(req: NextRequest) {
     enterAtPublish(supabase, {
       userId: user.id,
       keyword,
-      url: articleUrl,
+      url: trackedUrl,
     }).catch(() => {})
 
     return NextResponse.json({
