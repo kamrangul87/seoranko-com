@@ -355,12 +355,11 @@ export function buildDatedPolicyIssues(
 // sentence's capital letter. This is confirmed to false-positive on
 // perfectly well-formed sentences (e.g. after the citation-link validator
 // strips a dead link's <a> tag and leaves the bare domain as plain text).
-// Mask domain-like tokens before matching; masking preserves string length
-// so match indices used for the "Near:" context snippet still line up.
-const DOMAIN_TOKEN_RE = /\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\b/gi
-export function maskDomainLikeTokens(text: string): string {
-  return text.replace(DOMAIN_TOKEN_RE, (m) => 'x'.repeat(m.length))
-}
+// Domain-like tokens must be masked before COPY_ERROR_PATTERNS match —
+// shared helper (case-preserving, length-preserving) lives in
+// sentence-boundaries.ts so scannability / integrity / QG never diverge.
+export { maskDomainLikeTokens } from './sentence-boundaries'
+import { maskDomainLikeTokens } from './sentence-boundaries'
 
 const COPY_ERROR_PATTERNS = [
   {
