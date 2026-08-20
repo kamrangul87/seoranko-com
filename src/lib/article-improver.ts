@@ -28,6 +28,11 @@ export interface ImproveRequest {
   brand?: string
   /** Shared logo policy input — same as generate / recheck / Fix All. */
   brandSettings?: BrandSettingsLike
+  /**
+   * Optional direct override. Prefer brandSettings so Improve matches
+   * resolveLogoPolicy used by generation / recheck / Fix All.
+   */
+  expectOrganizationLogo?: boolean
 }
 
 export interface ImproveResult {
@@ -236,6 +241,7 @@ ${request.articleContent}`
       minWordCount: 800,
       maxTypically: 5,
       brandSettings: request.brandSettings,
+      expectOrganizationLogo: request.expectOrganizationLogo,
       caller: 'improve',
     })
     const qr = await runQualityGate(cleanedContent, {

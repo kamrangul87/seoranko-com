@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import {
   getTopCompetitorUrls,
   fetchCompetitorContent,
@@ -19,8 +21,6 @@ import { checkContentIdentity } from '@/lib/content-identity-guard';
 import { buildQualityGateRunOptions } from '@/lib/quality-gate-run-options';
 import type { BrandSettingsLike } from '@/lib/quality-gate-policy';
 import { getBrandSettings } from '@/lib/brand-settings';
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
 
 // Fluid compute (default on Vercel) allows up to 300s on Hobby. The full
 // pipeline (audit + scraping + NLP + angle + 6000-token generation) needs
@@ -286,6 +286,8 @@ Return ONLY valid JSON no markdown:
           // even accept it from the request body, so every Improve run
           // was scored as if it belonged to Autodun regardless of whose
           // article it actually was.
+          // Logo policy must match article-v2 / recheck / Fix All (shared
+          // resolveLogoPolicy) — never invent a stricter logo requirement.
           try {
             // Resolve logo policy the same way as generate / recheck / Fix All.
             let brandSettings: BrandSettingsLike =
@@ -314,7 +316,7 @@ Return ONLY valid JSON no markdown:
               brand,
               keyword: targetKeyword,
               authorName: 'Kamran Gul',
-              registeredLinkDomains: brandDomains[brand] || [],
+              registeredLinkDomains: brandDomains[brand] || (citationDomain ? [citationDomain] : []),
               minWordCount: 800,
               maxTypically: 5,
               brandSettings,

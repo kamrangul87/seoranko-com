@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 import { improveArticle, ImproveTarget } from '@/lib/article-improver'
 import { checkContentIdentity } from '@/lib/content-identity-guard'
+import { getBrandSettings } from '@/lib/brand-settings'
+import {
+  resolveLogoPolicy,
+  expectOrganizationLogoFromPolicy,
+} from '@/lib/quality-gate-policy'
 
 export const maxDuration = 120
 
@@ -30,11 +37,25 @@ export async function POST(req: NextRequest) {
     let resolvedKeyword = keyword
     let resolvedTitle = title
     let resolvedBrand = rawBrand
+    let userId: string | undefined
+
+    try {
+      const cookieStore = cookies()
+      const authClient = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { cookies: { get(name: string) { return cookieStore.get(name)?.value } } },
+      )
+      const { data: { user } } = await authClient.auth.getUser()
+      userId = user?.id
+    } catch (authErr) {
+      console.warn('[improve-article] auth lookup failed, continuing with omit logo policy:', authErr)
+    }
 
     if (!content && articleId) {
       const { data: article, error } = await supabase
         .from('articles')
-        .select('content, keyword, title, brand')
+        .select('content, keyword, title, brand, user_id')
         .eq('id', articleId)
         .single()
 
@@ -49,6 +70,7 @@ export async function POST(req: NextRequest) {
       resolvedKeyword = resolvedKeyword || article.keyword
       resolvedTitle = resolvedTitle || article.title
       resolvedBrand = resolvedBrand || article.brand
+      if (!userId && article.user_id) userId = article.user_id
     }
 
     // A free-text instruction supplies its own direction, so `target` is only
@@ -60,6 +82,18 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    let brandSettings = { configured: false, logoUrl: null as string | null }
+    try {
+      brandSettings = (userId && resolvedBrand)
+        ? await getBrandSettings(userId, resolvedBrand)
+        : { configured: false, logoUrl: null }
+    } catch (err) {
+      console.warn('[improve-article] getBrandSettings failed:', err)
+    }
+    const expectOrganizationLogo = expectOrganizationLogoFromPolicy(
+      resolveLogoPolicy({ brandSettings }),
+    )
+
     const result = await improveArticle({
       articleContent: content,
       target: (target || 'all') as ImproveTarget,
@@ -67,7 +101,8 @@ export async function POST(req: NextRequest) {
       keyword: resolvedKeyword || '',
       title: resolvedTitle || '',
       instruction,
-      brand: resolvedBrand || undefined
+      brand: resolvedBrand || undefined,
+      expectOrganizationLogo,
     })
 
     // Content identity guard — an "edit" that comes back as a different

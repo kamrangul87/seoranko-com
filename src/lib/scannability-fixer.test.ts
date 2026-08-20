@@ -1,11 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { autoSplitDenseParagraphs } from './scannability-fixer'
 import { countSentences } from './sentence-boundaries'
+import { SCANNABILITY_POLICY } from './scannability-policy'
 
-describe('autoSplitDenseParagraphs (domain-safe Phase 4)', () => {
-  it('splits a genuinely dense 6+ sentence paragraph', () => {
+const { denseSentenceThreshold } = SCANNABILITY_POLICY
+
+describe('autoSplitDenseParagraphs (shared policy)', () => {
+  it(`splits a genuinely dense ${denseSentenceThreshold}+ sentence paragraph`, () => {
     const sentences = Array.from(
-      { length: 6 },
+      { length: denseSentenceThreshold },
       (_, i) => `Sentence number ${i + 1} covers a distinct point about charging.`,
     )
     const html = `<p>${sentences.join(' ')}</p>`
@@ -13,16 +16,14 @@ describe('autoSplitDenseParagraphs (domain-safe Phase 4)', () => {
     const paras = Array.from(result.matchAll(/<p>([\s\S]*?)<\/p>/g)).map(m => m[1])
     expect(paras.length).toBeGreaterThanOrEqual(2)
     for (const p of paras) {
-      expect(countSentences(p)).toBeLessThan(6)
+      expect(countSentences(p)).toBeLessThan(denseSentenceThreshold)
     }
     for (const s of sentences) {
       expect(result).toContain(s.replace(/\.$/, ''))
     }
   })
 
-  it('does not treat gov.uk / energynetworks.org as extra sentences (Matrix E)', () => {
-    // Five real sentences + domain tokens. Naive /[.!?]+/ would count the
-    // TLDs and falsely trip the 6+ threshold; domain-safe counting must not.
+  it('does not treat gov.uk / energynetworks.org as extra sentences', () => {
     const html =
       `<p>` +
       `Check the latest rules at gov.uk before you book. ` +
@@ -55,7 +56,7 @@ describe('autoSplitDenseParagraphs (domain-safe Phase 4)', () => {
   })
 
   it('leaves meta / byline paragraphs untouched', () => {
-    const dense = Array.from({ length: 6 }, (_, i) => `Meta sentence ${i + 1}.`).join(' ')
+    const dense = Array.from({ length: denseSentenceThreshold }, (_, i) => `Meta sentence ${i + 1}.`).join(' ')
     const html = `<p class="article-last-verified">${dense}</p>`
     expect(autoSplitDenseParagraphs(html)).toBe(html)
   })

@@ -38,6 +38,15 @@ describe('resolveLogoPolicy', () => {
     })
     expect(policy.mode).toBe('omit')
   })
+
+  it('forceRequire overrides omit even without logo_url', () => {
+    const policy = resolveLogoPolicy({
+      brandSettings: { configured: false, logoUrl: null },
+      forceRequire: true,
+    })
+    expect(policy.mode).toBe('require')
+    expect(policy.reason).toMatch(/forceRequire/)
+  })
 })
 
 describe('DATED_POLICY_SEVERITY', () => {
