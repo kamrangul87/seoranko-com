@@ -107,8 +107,8 @@ describe('grant-figure document-level-once policy', () => {
     const issues = evaluateGrantFigureClaims(html)
     expect(issues).toHaveLength(1)
     expect(issues[0].severity).toBe('critical')
-    expect(issues[0].description).toMatch(/appears 2 times/)
-    expect(issues[0].description).toMatch(/single document-level citation|One document-level/i)
+    expect(issues[0].description).toMatch(/appears 2 times|Occurrences: 2/i)
+    expect(issues[0].description).toMatch(/restatement|one citation|Claim status/i)
   })
 
   it('one GOV.UK citation clears every restatement of the same figure', () => {

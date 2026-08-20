@@ -47,6 +47,12 @@ import {
   freshnessFindingsRequiringIssues,
   freshnessIssueTitle,
 } from '@/lib/freshness-evaluator'
+import {
+  evaluateClaimEvidence,
+  formatClaimEvidenceDescription,
+  severityForClaimEvidence,
+  type ClaimEvidence,
+} from '@/lib/claim-evidence'
 
 // AI slop patterns — expanded from anti-slop GitHub repo
 const AI_SLOP_PATTERNS = [
@@ -185,85 +191,158 @@ function claimHasInlineVerification(articleContent: string, claim: Claim): boole
     Math.max(0, claim.position - 150),
     Math.min(articleContent.length, claim.position + 150),
   )
-  return INLINE_VERIFY_RE.test(localContext)
+  // Strip tags so href="https://www.gov.uk/..." cannot satisfy "see … GOV.UK"
+  // when the visible text is only "See also vehicle tax".
+  const plain = localContext.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
+  return INLINE_VERIFY_RE.test(plain)
 }
 
 /**
- * Grant/financial figures — document-level claim-citation binding.
+ * Grant/financial figures via claim-level evidence (Phase 5).
  *
- * Policy (GRANT_FIGURE_CITATION_POLICY = document-level-once):
- * one GOV.UK citation (or one verify hedge near any restatement) clears the
- * figure for the whole article. Repeated "up to £350" lines do not each need
- * their own nearby cite. Emit one issue per unique figure text.
+ * Policy (GRANT_FIGURE_CITATION_POLICY = claim-level-once):
+ * - One supporting citation covers every restatement of the SAME figure
+ *   (do not require the link after every sentence).
+ * - A citation that supports claim A does NOT automatically support claim B
+ *   (different figures / unsupported topics stay flagged).
  *
- * When `freshnessCoveredFigures` is provided (from the freshness scan), skip
- * any figure already represented as a dated-policy / freshness issue so the
- * same claim cannot emit contradictory severities on two paths.
+ * When `freshnessCoveredFigures` is provided, skip figures already represented
+ * as dated-policy / freshness issues.
  */
 export function evaluateGrantFigureClaims(
   articleContent: string,
   freshnessCoveredFigures?: Set<string>,
 ): QualityIssue[] {
   const issues: QualityIssue[] = []
-  const citations = extractCitations(articleContent)
-  const claims = extractFinancialClaims(articleContent)
+  const evidence = evaluateClaimEvidence(articleContent).filter((ev) => {
+    if (!ev.figureText) return false
+    // Financial / grant-style figures only for this legacy category
+    return /[£$€]|\d+\s?%|up to/i.test(ev.figureText)
+  })
 
-  const byFigure = new Map<string, Claim[]>()
-  for (const claim of claims) {
-    const key = claim.text.toLowerCase().replace(/\s+/g, ' ').trim()
-    if (!byFigure.has(key)) byFigure.set(key, [])
-    byFigure.get(key)!.push(claim)
-  }
-
-  for (const group of Array.from(byFigure.values())) {
-    const figureKey = group[0].text.toLowerCase().replace(/\s+/g, ' ').trim()
+  for (const ev of evidence) {
+    const figureKey = (ev.figureText || '').toLowerCase().replace(/\s+/g, ' ').trim()
     if (freshnessCoveredFigures?.has(figureKey)) continue
 
-    const unionTopics = new Set<string>()
-    for (const c of group) {
-      for (const t of Array.from(c.topicTerms)) unionTopics.add(t)
+    // Inline verify hedge still counts as a soft citation for autofix UX
+    const hedgeClaim: Claim = {
+      text: ev.figureText || ev.claimText.slice(0, 40),
+      position: 0,
+      topicTerms: new Set(),
     }
-    const representative: Claim = {
-      text: group[0].text,
-      position: group[0].position,
-      topicTerms: unionTopics,
+    // Find first occurrence position for location / autofix id
+    const claims = extractFinancialClaims(articleContent).filter(
+      (c) => c.text.toLowerCase().replace(/\s+/g, ' ').trim() === figureKey,
+    )
+    if (claims.length === 0 && !ev.figureText) continue
+    const representative = claims[0] || {
+      text: ev.figureText || '',
+      position: 0,
+      topicTerms: new Set(),
+    }
+    hedgeClaim.position = representative.position
+    hedgeClaim.topicTerms = representative.topicTerms
+
+    const anyInlineVerification =
+      claims.some((c) => claimHasInlineVerification(articleContent, c)) ||
+      claimHasInlineVerification(articleContent, hedgeClaim)
+
+    let status = ev.status
+    if (anyInlineVerification && (status === 'UNSUPPORTED' || status === 'NEEDS_REVIEW')) {
+      status = 'PARTIALLY_SUPPORTED'
     }
 
-    const anyInlineVerification = group.some(c =>
-      claimHasInlineVerification(articleContent, c),
-    )
-    const boundCitation = findBoundCitation(representative, citations)
-    const isBoundToCitation = !!boundCitation
-    const isCited = anyInlineVerification || isBoundToCitation
-    const count = group.length
-    const countNote = count > 1 ? ` (appears ${count} times)` : ''
+    const sev = severityForClaimEvidence(status)
+    // Uncited financial figures remain critical (material harm risk); cited /
+    // partial stay warning so auto-verify can confirm currency.
+    const severity: 'critical' | 'warning' | 'info' =
+      status === 'CONTRADICTED' || status === 'OUTDATED'
+        ? 'critical'
+        : status === 'UNSUPPORTED' && !anyInlineVerification
+          ? 'critical'
+          : status === 'SUPPORTED' || status === 'HISTORICAL' || status === 'PARTIALLY_SUPPORTED'
+            ? 'warning'
+            : sev === 'critical'
+              ? 'critical'
+              : 'warning'
+
+    const countNote =
+      ev.occurrenceCount > 1 ? ` (appears ${ev.occurrenceCount} times)` : ''
     const location = stripHtmlSnippet(
       articleContent.slice(
-        Math.max(0, group[0].position - 40),
-        Math.min(articleContent.length, group[0].position + 80),
+        Math.max(0, representative.position - 40),
+        Math.min(articleContent.length, representative.position + 80),
       ),
     )
 
+    const isUnsupported = status === 'UNSUPPORTED' || status === 'NEEDS_REVIEW'
+    const title =
+      status === 'CONTRADICTED' || status === 'OUTDATED'
+        ? `Claim may be outdated: "${ev.figureText}"`
+        : isUnsupported && !anyInlineVerification
+          ? 'Specific monetary cap stated — verify this figure is current (grant amounts change frequently)'
+          : 'Financial figure detected — properly sourced, just double-check it\'s current'
+
     issues.push({
-      id: `fact-grant-figure-${group[0].position}`,
-      severity: isCited ? 'warning' : 'critical',
+      id: `fact-grant-figure-${representative.position}`,
+      severity,
       category: 'grant-figure',
-      title: isCited
-        ? 'Financial figure detected — properly sourced, just double-check it\'s current'
-        : 'Specific monetary cap stated — verify this figure is current (grant amounts change frequently)',
-      description: isCited
-        ? `Found: "${group[0].text}"${countNote} — a citation to an official source exists in this article covering the same topic. One document-level citation covers every restatement; each instance does not need its own nearby cite. Confirm the figure is still accurate.`
-        : `Found: "${group[0].text}"${countNote} — no citation to an official source found anywhere in the article on this topic. Add one GOV.UK link or "(verify at GOV.UK)" — a single document-level citation covers every restatement of this figure.`,
+      title,
+      description: formatClaimEvidenceDescription({
+        ...ev,
+        status,
+        rationale:
+          anyInlineVerification && isUnsupported
+            ? `Inline verify hedge present.${ev.occurrenceCount > 1 ? ` Claim appears ${ev.occurrenceCount} times — one citation/hedge covers every restatement.` : ''}`
+            : ev.rationale,
+      }) + (countNote ? `\nFound: "${ev.figureText}"${countNote}` : `\nFound: "${ev.figureText}"`),
       location,
-      citationUrl: boundCitation?.url,
-      figureText: group[0].text,
-      autoFixable: !isCited,
-      autoFixDescription: !isCited
-        ? 'Auto-fix adds "(verify at GOV.UK)" after each instance of this figure'
-        : undefined,
+      citationUrl: ev.source?.url || (anyInlineVerification ? undefined : undefined),
+      figureText: ev.figureText,
+      autoFixable: isUnsupported && !anyInlineVerification && !ev.source,
+      autoFixDescription:
+        isUnsupported && !anyInlineVerification && !ev.source
+          ? 'Auto-fix adds "(verify at GOV.UK)" after each instance of this figure'
+          : undefined,
     })
   }
   return issues
+}
+
+/**
+ * Important factual claims that are not grant-figure autofix targets —
+ * surfaces claim-level evidence gaps without requiring a cite after every sentence.
+ */
+export function evaluateClaimEvidenceIssues(articleContent: string): QualityIssue[] {
+  const issues: QualityIssue[] = []
+  const evidence = evaluateClaimEvidence(articleContent)
+  let idx = 0
+  for (const ev of evidence) {
+    // Grant/financial figures are handled by evaluateGrantFigureClaims
+    if (ev.figureText && /[£$€]|up to/i.test(ev.figureText)) continue
+    const sev = severityForClaimEvidence(ev.status)
+    if (sev === null) continue
+    issues.push({
+      id: `claim-evidence-${idx++}`,
+      severity: sev,
+      category: 'claim-evidence',
+      title:
+        ev.status === 'UNSUPPORTED'
+          ? `Important claim lacks supporting evidence`
+          : `Claim evidence: ${ev.status}`,
+      description: formatClaimEvidenceDescription(ev),
+      location: ev.claimText.slice(0, 100),
+      citationUrl: ev.source?.url,
+      figureText: ev.figureText,
+      autoFixable: false,
+    })
+  }
+  return issues
+}
+
+/** @deprecated Use evaluateClaimEvidence — exported for tests/debug. */
+export function getClaimEvidenceForArticle(articleContent: string): ClaimEvidence[] {
+  return evaluateClaimEvidence(articleContent)
 }
 
 function stripHtmlSnippet(html: string): string {
@@ -629,6 +708,7 @@ export type IssueCategory =
   | 'typo'
   | 'merge-artifact'
   | 'grant-figure'
+  | 'claim-evidence'
   | 'dated-policy'
   | 'ai-slop'
   | 'hedging'
@@ -1246,9 +1326,12 @@ export async function runQualityGate(
   // ---- RULE 2: Dated-policy / freshness is owned by buildDatedPolicyIssues
   // (evaluateFreshnessSync). No parallel DANGEROUS_FACT_PATTERNS pass.
 
-  // ---- RULE 2b: Grant-figure claims — document-level claim-citation binding.
+  // ---- RULE 2b: Grant-figure claims — claim-level evidence binding.
   // Skip figures already covered by freshness so severities cannot conflict.
   issues.push(...evaluateGrantFigureClaims(articleContent, freshnessFigures))
+
+  // ---- RULE 2c: Other important factual claims (non-grant) — claim evidence
+  issues.push(...evaluateClaimEvidenceIssues(articleContent))
 
   // ---- RULE 3: AI slop patterns ----
   for (const pattern of AI_SLOP_PATTERNS) {
@@ -1662,7 +1745,9 @@ export async function autoVerifyCitedPolicyIssues(
   const out: QualityIssue[] = []
   for (const issue of issues) {
     const eligible =
-      (issue.category === 'grant-figure' || issue.category === 'dated-policy') &&
+      (issue.category === 'grant-figure' ||
+        issue.category === 'dated-policy' ||
+        issue.category === 'claim-evidence') &&
       issue.severity !== 'info' &&
       !issue.autoFixable
 

@@ -20,6 +20,12 @@ import {
   severityForFreshnessFinding,
   QUANTITATIVE_FACT_RE,
 } from '@/lib/freshness-policy'
+import {
+  bindSourceToClaim,
+  classifyClaimKind,
+  extractArticleCitations,
+  extractTopicTerms,
+} from '@/lib/claim-evidence'
 
 export type FreshnessAuthoritativeEvidence = {
   sourceUrl: string
@@ -86,12 +92,28 @@ export function isOfficialFreshnessUrl(url: string): boolean {
 }
 
 /**
- * Document-level topical citation binding (same idea as grant-figure binding).
+ * Bind a citation URL to a sentence using claim-level evidence rules:
+ * figure-in-context > topical official — never "any official URL".
  */
 export function bindCitationForSentence(
   sentence: string,
   allUrls: string[],
+  articleHtml?: string,
 ): string | undefined {
+  if (articleHtml) {
+    const citations = extractArticleCitations(articleHtml)
+    const claim = {
+      text: sentence.slice(0, 80),
+      position: 0,
+      figureText: extractFigure(sentence),
+      claimKind: classifyClaimKind(sentence),
+      topicTerms: extractTopicTerms(sentence),
+      claimText: sentence,
+    }
+    const { source } = bindSourceToClaim(claim, citations)
+    if (source?.url) return source.url
+  }
+
   const tokens = sentence
     .toLowerCase()
     .split(/[^a-z0-9]+/)
@@ -102,8 +124,6 @@ export function bindCitationForSentence(
     const hay = url.toLowerCase()
     if (tokens.some((t) => hay.includes(t))) return url
   }
-  // Soft-bind only when the URL itself looks topically related to the claim —
-  // never treat an unrelated official page (e.g. vehicle-tax) as proof of a grant figure.
   if (/\b(grant|scheme|fund|subsid|ozev|policy|eligib|charg)\b/i.test(sentence)) {
     const topical = officialAll.find((u) =>
       /grant|scheme|charg(?:e|ing|epoint)?|eligib|subsid|emission|ozev|low-emission|fund(?:ing)?/i.test(
@@ -120,6 +140,7 @@ function baseFinding(
   detector: string,
   citationUrl: string | undefined,
   now: Date,
+  supportTier?: 'figure-in-context' | 'topical-official' | 'topical-secondary' | 'none',
 ): FreshnessFinding | null {
   const trimmed = sentence.trim()
   if (!trimmed) return null
@@ -131,10 +152,18 @@ function baseFinding(
   const timeStatus = classifyTimeStatus(trimmed, now)
 
   let evidenceStatus: FreshnessEvidenceStatus
-  if (!citationUrl) {
+  if (!citationUrl || supportTier === 'none') {
     evidenceStatus = 'UNSUPPORTED'
+  } else if (supportTier === 'figure-in-context') {
+    evidenceStatus = 'SUPPORTED'
+  } else if (supportTier === 'topical-official') {
+    // Topical official source for this claim kind — treated as supported for
+    // freshness (live verify may still contradict). Claim-evidence issues use
+    // PARTIALLY_SUPPORTED separately when the figure is not in citation context.
+    evidenceStatus = 'SUPPORTED'
+  } else if (supportTier === 'topical-secondary') {
+    evidenceStatus = 'PARTIALLY_SUPPORTED'
   } else if (isOfficialFreshnessUrl(citationUrl)) {
-    // Official cite present — supported pending live contradiction via evidenceProvider.
     evidenceStatus = 'SUPPORTED'
   } else {
     evidenceStatus =
@@ -149,12 +178,31 @@ function baseFinding(
     timeStatus,
     evidenceStatus,
     figureText: extractFigure(trimmed),
-    citationUrl,
+    citationUrl: evidenceStatus === 'UNSUPPORTED' ? undefined : citationUrl,
     recommendedAction: '',
     detector,
   }
   finding.recommendedAction = buildFreshnessRecommendedAction(finding)
   return finding
+}
+
+function bindForHtml(sentence: string, html: string, _allUrls: string[]): {
+  url?: string
+  tier: 'figure-in-context' | 'topical-official' | 'topical-secondary' | 'none'
+} {
+  const citations = extractArticleCitations(html)
+  const claim = {
+    text: sentence.slice(0, 80),
+    position: 0,
+    figureText: extractFigure(sentence),
+    claimKind: classifyClaimKind(sentence),
+    topicTerms: extractTopicTerms(sentence),
+    claimText: sentence,
+  }
+  const { source, supportTier } = bindSourceToClaim(claim, citations)
+  if (source?.url) return { url: source.url, tier: supportTier }
+  // No soft fallback to unrelated official URLs — claim-level binding only.
+  return { tier: 'none' }
 }
 
 function findingKey(f: FreshnessFinding): string {
@@ -214,11 +262,8 @@ export function evaluateFreshnessSync(
   try {
     for (const claim of detectDatedClaims(html, now)) {
       if (isInstructionalNonFactual(claim.sentence)) continue
-      // Only bind a citation that topically supports the claim — a bare href
-      // elsewhere in the paragraph (or any official URL) is not enough.
-      const bound = bindCitationForSentence(claim.sentence, allUrls)
-      const citation = bound && isOfficialFreshnessUrl(bound) ? bound : undefined
-      push(baseFinding(claim.sentence, 'chrono', citation, now))
+      const bound = bindForHtml(claim.sentence, html, allUrls)
+      push(baseFinding(claim.sentence, 'chrono', bound.url, now, bound.tier))
     }
   } catch {
     /* ignore */
@@ -228,9 +273,8 @@ export function evaluateFreshnessSync(
     for (const claim of detectTimeAnchoredClaims(html, now)) {
       if (isInstructionalNonFactual(claim.sentence)) continue
       if (!QUANTITATIVE_FACT_RE.test(claim.sentence) && !claim.extractedNumericValue) continue
-      const bound = bindCitationForSentence(claim.sentence, allUrls)
-      const officialBound = bound && isOfficialFreshnessUrl(bound) ? bound : undefined
-      push(baseFinding(claim.sentence, 'time-anchored', officialBound, now))
+      const bound = bindForHtml(claim.sentence, html, allUrls)
+      push(baseFinding(claim.sentence, 'time-anchored', bound.url, now, bound.tier))
     }
   } catch {
     /* ignore */
@@ -248,17 +292,15 @@ export function evaluateFreshnessSync(
       const sentence = sentenceFromPlain(plain, rm.index, rm[0].length)
       if (isInstructionalNonFactual(sentence)) continue
       if (!QUANTITATIVE_FACT_RE.test(sentence)) continue
-      const bound = bindCitationForSentence(sentence, allUrls)
-      const officialBound = bound && isOfficialFreshnessUrl(bound) ? bound : undefined
-      push(baseFinding(sentence, 'relative-factual', officialBound, now))
+      const bound = bindForHtml(sentence, html, allUrls)
+      push(baseFinding(sentence, 'relative-factual', bound.url, now, bound.tier))
     }
 
     futureRe.lastIndex = 0
     while ((rm = futureRe.exec(plain)) !== null) {
       const sentence = sentenceFromPlain(plain, rm.index, rm[0].length)
-      const bound = bindCitationForSentence(sentence, allUrls)
-      const officialBound = bound && isOfficialFreshnessUrl(bound) ? bound : undefined
-      const f = baseFinding(sentence, 'future', officialBound, now)
+      const bound = bindForHtml(sentence, html, allUrls)
+      const f = baseFinding(sentence, 'future', bound.url, now, bound.tier)
       if (f) {
         f.timeStatus = 'FUTURE'
         f.recommendedAction = buildFreshnessRecommendedAction(f)

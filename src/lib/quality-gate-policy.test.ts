@@ -47,7 +47,7 @@ describe('DATED_POLICY_SEVERITY', () => {
 })
 
 describe('GRANT_FIGURE_CITATION_POLICY', () => {
-  it('documents document-level-once citation for repeated figures', () => {
-    expect(GRANT_FIGURE_CITATION_POLICY).toBe('document-level-once')
+  it('documents claim-level-once citation for repeated figures', () => {
+    expect(GRANT_FIGURE_CITATION_POLICY).toBe('claim-level-once')
   })
 })
