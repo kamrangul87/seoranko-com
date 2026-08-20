@@ -6,12 +6,16 @@
  * use the same canonical finalized HTML. Intermediate snapshots must not
  * determine the persisted quality result or schema score.
  *
- * Logo requirement (product rule, single source):
- * - require: brand_settings row exists AND logo_url is set
- * - omit: otherwise (Clearbit may still be emitted by the generator as a
- *   candidate URL, but QG must not treat logo as required)
+ * Logo requirement (product rule, single source — use everywhere):
+ * - require: brand_settings.logo_url is set, OR forceRequire audit mode
+ * - omit: otherwise
  *
- * Wired into article-v2, article-quality-recheck, and article-fix-all.
+ * Domain / organization URL existence alone must NEVER flip the gate into
+ * logo-required mode. Clearbit may still be emitted by the generator as a
+ * candidate URL; under omit, QG must not warn on missing logo.
+ *
+ * Wired into: article-v2, article-quality-recheck, article-fix-all,
+ * article-improve, improve-article (via article-improver).
  * runQualityGate / validateSchema default to omit (false) when the flag is
  * not passed — never silently require a logo the brand never configured.
  */
@@ -32,13 +36,27 @@ export interface LogoPolicy {
 
 export interface ResolveLogoPolicyInput {
   brandSettings: BrandSettingsLike
+  /**
+   * Explicit audit / force-require mode — when true, require logo even if
+   * brand_settings.logo_url is empty. Never inferred from domain/URL alone.
+   */
+  forceRequire?: boolean
 }
 
 /**
  * Whether the Quality Gate / schema-validator should require Organization
- * and publisher.logo. Mirrors today's article-v2 `!!brandSettings.logoUrl`.
+ * and publisher.logo. Single resolver for every runQualityGate caller.
  */
 export function resolveLogoPolicy(input: ResolveLogoPolicyInput): LogoPolicy {
+  if (input.forceRequire) {
+    const url = input.brandSettings.logoUrl?.trim() || undefined
+    return {
+      mode: 'require',
+      logoUrl: url,
+      reason: 'forceRequire audit mode — Organization/publisher logo required',
+    }
+  }
+
   const url = input.brandSettings.logoUrl?.trim() || ''
   if (url) {
     return {
@@ -62,6 +80,11 @@ export function resolveLogoPolicy(input: ResolveLogoPolicyInput): LogoPolicy {
 /** Maps policy → validateSchema / runQualityGate expectOrganizationLogo flag. */
 export function expectOrganizationLogoFromPolicy(policy: LogoPolicy): boolean {
   return policy.mode === 'require'
+}
+
+/** Convenience for spreading into runQualityGate / validateSchema options. */
+export function logoGateOptions(policy: LogoPolicy): { expectOrganizationLogo: boolean } {
+  return { expectOrganizationLogo: expectOrganizationLogoFromPolicy(policy) }
 }
 
 /**

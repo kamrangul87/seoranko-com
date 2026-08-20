@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import {
   getTopCompetitorUrls,
   fetchCompetitorContent,
@@ -16,6 +18,11 @@ import { calculateEEATScore, calculateReadabilityScore, calculateKeywordDensity 
 import { MODEL_FOR } from '@/lib/model-router';
 import { runQualityGate } from '@/lib/article-quality-gate';
 import { checkContentIdentity } from '@/lib/content-identity-guard';
+import { getBrandSettings } from '@/lib/brand-settings';
+import {
+  resolveLogoPolicy,
+  expectOrganizationLogoFromPolicy,
+} from '@/lib/quality-gate-policy';
 
 // Fluid compute (default on Vercel) allows up to 300s on Hobby. The full
 // pipeline (audit + scraping + NLP + angle + 6000-token generation) needs
@@ -272,17 +279,38 @@ Return ONLY valid JSON no markdown:
           // even accept it from the request body, so every Improve run
           // was scored as if it belonged to Autodun regardless of whose
           // article it actually was.
+          // Logo policy must match article-v2 / recheck / Fix All (shared
+          // resolveLogoPolicy) — never invent a stricter logo requirement.
           try {
             const brandDomains: Record<string, string[]> = {
               autodun: ['autodun.com'], seoranko: ['seoranko.com'], fitford: ['fitford.com'],
             }
+            let brandSettings = { configured: false, logoUrl: null as string | null }
+            try {
+              const cookieStore = cookies()
+              const authClient = createServerClient(
+                process.env.NEXT_PUBLIC_SUPABASE_URL!,
+                process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+                { cookies: { get(name: string) { return cookieStore.get(name)?.value } } },
+              )
+              const { data: { user } } = await authClient.auth.getUser()
+              if (user?.id && brand) {
+                brandSettings = await getBrandSettings(user.id, brand)
+              }
+            } catch (brandErr) {
+              console.warn('[article-improve] getBrandSettings failed, using omit logo policy:', brandErr)
+            }
+            const expectOrganizationLogo = expectOrganizationLogoFromPolicy(
+              resolveLogoPolicy({ brandSettings }),
+            )
             const qr = await runQualityGate(finalHtml, {
               brand,
               keyword: targetKeyword,
               authorName: 'Kamran Gul',
-              registeredLinkDomains: brandDomains[brand] || [],
+              registeredLinkDomains: brandDomains[brand] || (citationDomain ? [citationDomain] : []),
               minWordCount: 800,
               maxTypically: 5,
+              expectOrganizationLogo,
             })
             finalHtml = qr.articleAfterAutoFix
             improveQualityGate = {

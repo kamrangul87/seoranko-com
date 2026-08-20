@@ -24,6 +24,13 @@ export interface ImproveRequest {
    * absent the Quality Gate below gets no brand rather than a fabricated one.
    */
   brand?: string
+  /**
+   * Shared logo policy flag from resolveLogoPolicy /
+   * expectOrganizationLogoFromPolicy. When omitted, defaults to false (omit)
+   * — same as runQualityGate — so Improve never invents a stricter logo
+   * requirement than generation.
+   */
+  expectOrganizationLogo?: boolean
 }
 
 export interface ImproveResult {
@@ -231,6 +238,8 @@ ${request.articleContent}`
       registeredLinkDomains: brandDomains[brand] || [],
       minWordCount: 800,
       maxTypically: 5,
+      // Shared LogoPolicy — omit unless caller resolved require from brand_settings.
+      expectOrganizationLogo: request.expectOrganizationLogo ?? false,
     })
     qualityGate = {
       passed: qr.passed, score: qr.score, criticalCount: qr.criticalCount,

@@ -11,9 +11,9 @@ import { scrubInsertionCorruption, hasInsertionCorruption } from '@/lib/sentence
 import { assertImageUrlsPreserved } from '@/lib/html-text-transform'
 import { wordCountBand } from '@/lib/word-count'
 import { improveArticle } from '@/lib/article-improver'
-import { computePanelScores, type PanelScores } from '@/lib/panel-scores'
 import { calculateEEATScore, analyzeKeywordDensity } from '@/lib/content-scorer'
 import { primaryTopicPhrase } from '@/lib/topic-alignment'
+import { computePanelScores, type PanelScores } from '@/lib/panel-scores'
 
 export interface FixAllOptions {
   html: string
@@ -140,6 +140,7 @@ export async function fixAllArticleIssues(opts: FixAllOptions): Promise<FixAllRe
         keyword,
         title: keyword,
         brand,
+        expectOrganizationLogo,
       })
       html = improved.improvedContent || html
       if (html !== before) {
@@ -165,6 +166,7 @@ export async function fixAllArticleIssues(opts: FixAllOptions): Promise<FixAllRe
         keyword,
         title: keyword,
         brand,
+        expectOrganizationLogo,
       })
       html = improved.improvedContent || html
       if (html !== before) {
@@ -189,6 +191,7 @@ export async function fixAllArticleIssues(opts: FixAllOptions): Promise<FixAllRe
         keyword,
         title: keyword,
         brand,
+        expectOrganizationLogo,
       })
       html = improved.improvedContent || html
       if (html !== before) {
