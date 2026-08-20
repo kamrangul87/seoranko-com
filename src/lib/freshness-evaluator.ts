@@ -71,14 +71,6 @@ function amountsConflict(claimAmounts: string[], evidenceAmounts: string[]): boo
   return claimAmounts.some((a) => !ev.has(normalizeAmount(a)))
 }
 
-function extractHrefUrls(html: string): string[] {
-  const urls: string[] = []
-  const re = /href=["'](https?:\/\/[^"']+)["']/gi
-  let m: RegExpExecArray | null
-  while ((m = re.exec(html)) !== null) urls.push(m[1])
-  return urls
-}
-
 function extractFigure(sentence: string): string | undefined {
   return extractAmounts(sentence)[0]
 }
@@ -186,7 +178,7 @@ function baseFinding(
   return finding
 }
 
-function bindForHtml(sentence: string, html: string, _allUrls: string[]): {
+function bindForHtml(sentence: string, html: string): {
   url?: string
   tier: 'figure-in-context' | 'topical-official' | 'topical-secondary' | 'none'
 } {
@@ -247,7 +239,6 @@ export function evaluateFreshnessSync(
   opts: { now?: Date } = {},
 ): FreshnessFinding[] {
   const now = opts.now ?? new Date()
-  const allUrls = extractHrefUrls(html)
   const findings: FreshnessFinding[] = []
   const seen = new Set<string>()
 
@@ -262,7 +253,7 @@ export function evaluateFreshnessSync(
   try {
     for (const claim of detectDatedClaims(html, now)) {
       if (isInstructionalNonFactual(claim.sentence)) continue
-      const bound = bindForHtml(claim.sentence, html, allUrls)
+      const bound = bindForHtml(claim.sentence, html)
       push(baseFinding(claim.sentence, 'chrono', bound.url, now, bound.tier))
     }
   } catch {
@@ -273,7 +264,7 @@ export function evaluateFreshnessSync(
     for (const claim of detectTimeAnchoredClaims(html, now)) {
       if (isInstructionalNonFactual(claim.sentence)) continue
       if (!QUANTITATIVE_FACT_RE.test(claim.sentence) && !claim.extractedNumericValue) continue
-      const bound = bindForHtml(claim.sentence, html, allUrls)
+      const bound = bindForHtml(claim.sentence, html)
       push(baseFinding(claim.sentence, 'time-anchored', bound.url, now, bound.tier))
     }
   } catch {
@@ -292,14 +283,14 @@ export function evaluateFreshnessSync(
       const sentence = sentenceFromPlain(plain, rm.index, rm[0].length)
       if (isInstructionalNonFactual(sentence)) continue
       if (!QUANTITATIVE_FACT_RE.test(sentence)) continue
-      const bound = bindForHtml(sentence, html, allUrls)
+      const bound = bindForHtml(sentence, html)
       push(baseFinding(sentence, 'relative-factual', bound.url, now, bound.tier))
     }
 
     futureRe.lastIndex = 0
     while ((rm = futureRe.exec(plain)) !== null) {
       const sentence = sentenceFromPlain(plain, rm.index, rm[0].length)
-      const bound = bindForHtml(sentence, html, allUrls)
+      const bound = bindForHtml(sentence, html)
       const f = baseFinding(sentence, 'future', bound.url, now, bound.tier)
       if (f) {
         f.timeStatus = 'FUTURE'
