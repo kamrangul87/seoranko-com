@@ -7,6 +7,7 @@ import {
 } from './final-article-artifact'
 import { assertSchemaCompleteness } from './schema-validate'
 import { runQualityGate } from './article-quality-gate'
+import { pickPrimaryShippedImageUrlFromHtml } from './shipped-image-url'
 import type { ArticleImageSet, GeneratedImage } from './image-generator'
 
 function img(partial: Partial<GeneratedImage> & { id: string; url: string }): GeneratedImage {
@@ -98,8 +99,8 @@ describe('applyGeneratedSchemaToHtml (idempotent sync)', () => {
   })
 })
 
-describe('buildFinalArticleArtifact', () => {
-  it('sets Article.image to the shipped hero URL after injection', () => {
+describe('Phase 1 regression — Article.image + schema + final QG', () => {
+  it('1. hero image exists → Article.image is the shipped hero URL', () => {
     const set = imageSet({ heroUrl: 'https://cdn.example.com/hero.webp' })
     const result = buildFinalArticleArtifact({
       proseHtml: baseProse,
@@ -110,15 +111,15 @@ describe('buildFinalArticleArtifact', () => {
     expect(result.schemaResult.imageUrl).toBe('https://cdn.example.com/hero.webp')
     expect(result.html).toContain('https://cdn.example.com/hero.webp')
     expect(result.html).toMatch(/<figure[\s>]/i)
-    expect(countSchemaType(result.html, 'Article')).toBe(1)
+    expect(result.html).toContain('"image": [')
+    expect(result.html).toContain('"https://cdn.example.com/hero.webp"')
   })
 
-  it('uses first content image for Article.image when hero URL is empty', () => {
+  it('2. hero image fails but content image exists → Article.image uses content image', () => {
     const set = imageSet({
       heroUrl: '',
       contentUrls: ['https://cdn.example.com/content-only.webp'],
     })
-    // Empty hero skips hero figure; content images still inject when H2s exist.
     const result = buildFinalArticleArtifact({
       proseHtml: baseProse,
       imageSet: set,
@@ -126,51 +127,23 @@ describe('buildFinalArticleArtifact', () => {
     })
     expect(result.primaryImageUrl).toBe('https://cdn.example.com/content-only.webp')
     expect(result.schemaResult.imageUrl).toBe('https://cdn.example.com/content-only.webp')
-    // Article.image is emitted as an array (Google's reference examples use
-    // the array form even for a single image) rather than a bare string.
     expect(result.html).toContain('"image": [')
     expect(result.html).toContain('"https://cdn.example.com/content-only.webp"')
+    expect(result.html).not.toContain('hero.webp')
   })
 
-  it('hard-completeness on synced artifact: image present → not blocked for image', () => {
-    const result = buildFinalArticleArtifact({
-      proseHtml: baseProse,
-      imageSet: imageSet(),
-      schemaInput: schemaFields,
+  it('2b. hero URL claimed by image-set but not present in HTML → no Article.image from that URL', () => {
+    // Simulate hand-off failure path: prose has no figures; image-set still
+    // lists a hero. Article.image must not invent a URL that never shipped.
+    const proseOnly = baseProse
+    const primary = pickPrimaryShippedImageUrlFromHtml(proseOnly, {
+      heroUrl: 'https://cdn.example.com/never-injected.webp',
+      contentUrls: [],
     })
-    const hard = assertSchemaCompleteness({
-      imageUrl: result.schemaResult.imageUrl,
-      organizationLogoUrl: result.schemaResult.organizationLogoUrl,
-      logoOmittedReason: result.schemaResult.logoOmittedReason,
-      hasBrandSettingsConfigured: true,
-    })
-    expect(hard.blocked).toBe(false)
-    expect(hard.reasons).toHaveLength(0)
+    expect(primary).toBeUndefined()
   })
 
-  it('does not use an intermediate pre-image snapshot for schema image', () => {
-    const staleSchema = generateArticleSchema({
-      ...schemaFields,
-      imageUrl: undefined,
-      wordCount: 80,
-    })
-    const proseWithStaleSchema = applyGeneratedSchemaToHtml(baseProse, staleSchema.combinedScriptTag)
-    expect(proseWithStaleSchema).not.toContain('"image":')
-
-    const result = buildFinalArticleArtifact({
-      proseHtml: proseWithStaleSchema,
-      imageSet: imageSet({ heroUrl: 'https://cdn.example.com/real-hero.webp' }),
-      schemaInput: schemaFields,
-    })
-    expect(stripReplaceableJsonLd(result.html) === result.html).toBe(false)
-    expect(result.schemaResult.imageUrl).toBe('https://cdn.example.com/real-hero.webp')
-    expect(countSchemaType(result.html, 'Article')).toBe(1)
-    expect(result.html.match(/"@type": "Article"/g)?.length).toBe(1)
-  })
-})
-
-describe('final Quality Gate on synchronized artifact (Phase 1)', () => {
-  it('scores schema against the same HTML that carries injected images + JSON-LD', async () => {
+  it('3. final HTML contains image → Quality Gate does not report missing Article.image', async () => {
     const artifact = buildFinalArticleArtifact({
       proseHtml: baseProse,
       imageSet: imageSet(),
@@ -189,9 +162,69 @@ describe('final Quality Gate on synchronized artifact (Phase 1)', () => {
       (i) => i.category === 'schema' && /Article:\s*image/i.test(i.title),
     )
     expect(schemaImageWarnings).toHaveLength(0)
-    // Same artifact string identity for QG input — invariant for callers:
-    expect(qr.articleAfterAutoFix).toContain('https://cdn.example.com/hero.webp')
+  })
+
+  it('4. duplicate Article JSON-LD does not remain after schema sync', () => {
+    const stale = `${baseProse}
+<script type="application/ld+json">{"@type":"Article","headline":"Wrong"}</script>
+<script type="application/ld+json">{"@type":"Article","headline":"Also Wrong"}</script>
+<script type="application/ld+json">{"@type":"Organization","name":"Wrong Org"}</script>`
+    const result = buildFinalArticleArtifact({
+      proseHtml: stale,
+      imageSet: imageSet({ heroUrl: 'https://cdn.example.com/hero.webp' }),
+      schemaInput: schemaFields,
+    })
+    expect(countSchemaType(result.html, 'Article')).toBe(1)
+    expect(countSchemaType(result.html, 'Organization')).toBe(1)
+    expect(result.html).not.toContain('"headline":"Wrong"')
+    expect(result.html).not.toContain('"headline":"Also Wrong"')
+    // Idempotent second sync
+    const again = applyGeneratedSchemaToHtml(result.html, result.schemaResult.combinedScriptTag)
+    expect(countSchemaType(again, 'Article')).toBe(1)
+  })
+
+  it('5. final Quality Gate validates the final HTML after image injection', async () => {
+    const artifact = buildFinalArticleArtifact({
+      proseHtml: baseProse,
+      imageSet: imageSet({ heroUrl: 'https://cdn.example.com/post-inject-hero.webp' }),
+      schemaInput: schemaFields,
+    })
+    // Gate must see injected figures + synced Article.image — never a
+    // pre-image intermediate snapshot.
+    expect(artifact.html).toMatch(/<figure[\s>]/i)
+    expect(artifact.html).toContain('https://cdn.example.com/post-inject-hero.webp')
+
+    const qr = await runQualityGate(artifact.html, {
+      brand: 'Example Brand',
+      keyword: 'home EV charger installation',
+      authorName: 'Kamran Gul',
+      registeredLinkDomains: ['example.com'],
+      minWordCount: 40,
+      maxWordCount: 500,
+      expectOrganizationLogo: true,
+    })
+    expect(qr.articleAfterAutoFix).toContain('https://cdn.example.com/post-inject-hero.webp')
     expect(countSchemaType(qr.articleAfterAutoFix, 'Article')).toBe(1)
+    const missingImage = qr.issues.filter(
+      (i) => i.category === 'schema' && /Article:\s*image/i.test(i.title),
+    )
+    expect(missingImage).toHaveLength(0)
+  })
+
+  it('hard-completeness on synced artifact: image present → not blocked for image', () => {
+    const result = buildFinalArticleArtifact({
+      proseHtml: baseProse,
+      imageSet: imageSet(),
+      schemaInput: schemaFields,
+    })
+    const hard = assertSchemaCompleteness({
+      imageUrl: result.schemaResult.imageUrl,
+      organizationLogoUrl: result.schemaResult.organizationLogoUrl,
+      logoOmittedReason: result.schemaResult.logoOmittedReason,
+      hasBrandSettingsConfigured: true,
+    })
+    expect(hard.blocked).toBe(false)
+    expect(hard.reasons).toHaveLength(0)
   })
 
   it('still surfaces schema logo warnings when logo is required but absent (no score gaming)', async () => {
@@ -200,10 +233,6 @@ describe('final Quality Gate on synchronized artifact (Phase 1)', () => {
       imageSet: imageSet(),
       schemaInput: schemaFields,
     })
-    // Simulate final HTML that lost Organization/publisher.logo — QG must
-    // still warn when expectOrganizationLogo is true (no score gaming).
-    // logo is now emitted as an ImageObject ({"@type":"ImageObject","url":"..."}),
-    // not a bare string, so strip the whole nested object.
     const htmlMissingLogo = artifact.html.replace(/,?\s*"logo"\s*:\s*\{[^}]*\}/g, '')
     const qr = await runQualityGate(htmlMissingLogo, {
       brand: 'Example Brand',
@@ -219,4 +248,24 @@ describe('final Quality Gate on synchronized artifact (Phase 1)', () => {
     )
     expect(logoIssues.length).toBeGreaterThan(0)
   })
+
+  it('replaces stale pre-image schema so Article.image matches injected hero', () => {
+    const staleSchema = generateArticleSchema({
+      ...schemaFields,
+      imageUrl: undefined,
+      wordCount: 80,
+    })
+    const proseWithStaleSchema = applyGeneratedSchemaToHtml(baseProse, staleSchema.combinedScriptTag)
+    expect(proseWithStaleSchema).not.toContain('"image":')
+
+    const result = buildFinalArticleArtifact({
+      proseHtml: proseWithStaleSchema,
+      imageSet: imageSet({ heroUrl: 'https://cdn.example.com/real-hero.webp' }),
+      schemaInput: schemaFields,
+    })
+    expect(stripReplaceableJsonLd(result.html) === result.html).toBe(false)
+    expect(result.schemaResult.imageUrl).toBe('https://cdn.example.com/real-hero.webp')
+    expect(countSchemaType(result.html, 'Article')).toBe(1)
+  })
 })
+

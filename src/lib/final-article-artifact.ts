@@ -94,6 +94,8 @@ export function buildFinalArticleArtifact(
   html = splitDenseParagraphs(html)
 
   // ── 3. Primary shipped image (hero → content → first figure src) ───────
+  // Only URLs that actually appear in `html` after injection qualify —
+  // never invent Article.image from an image-set URL that failed to ship.
   const primaryImageUrl = pickPrimaryShippedImageUrlFromHtml(html, {
     heroUrl: input.imageSet?.hero?.url,
     contentUrls: input.imageSet?.content?.map((c) => c.url) ?? [],
