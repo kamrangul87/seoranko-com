@@ -40,6 +40,9 @@ export interface FixAllResult {
   summary: string
   /** Same HTML the gate scored — keep Write-page rings in sync. */
   panelScores: PanelScores
+  /** Phase 9 — when true, UI must not imply a clean "Fixed automatically". */
+  revalidationFoundAdditionalIssues?: boolean
+  autoFixConfirmationSummary?: string
 }
 
 function issueKey(i: QualityIssue): string {
@@ -248,18 +251,53 @@ export async function fixAllArticleIssues(opts: FixAllOptions): Promise<FixAllRe
   }
   void beforeIds
 
-  const summary =
-    stillNeedsManualReview.length === 0
-      ? `Fixed ${fixed.length} item(s). Quality Gate score ${qualityGateBefore.score} → ${qualityGateAfter.score}. Ready for a final human skim.`
-      : `Fixed ${fixed.length} item(s). Score ${qualityGateBefore.score} → ${qualityGateAfter.score}. ${stillNeedsManualReview.length} still need manual review — Fix All does not claim 100% when a human must confirm.`
+  const confirmation = qualityGateAfter.autoFixConfirmation
+  const revalidationFoundAdditionalIssues =
+    !!confirmation?.revalidationFoundAdditionalIssues ||
+    qualityGateAfter.score < qualityGateBefore.score
+
+  const confirmedFixed =
+    confirmation?.confirmedResolved.map((i) => ({
+      id: i.id,
+      title: i.title,
+      how: 'Confirmed resolved after final revalidation',
+    })) || fixed.filter((f) => f.id !== 'quality-gate-autofix' && f.id !== 'quality-gate-second-pass')
+
+  // Only list as "fixed" what revalidation confirmed — drop speculative mutation claims
+  const honestFixed =
+    confirmation && confirmation.confirmedResolved.length > 0
+      ? [
+          ...confirmedFixed,
+          ...fixed.filter(
+            (f) =>
+              f.id === 'merge-artifacts' ||
+              f.id === 'insertion-scrub' ||
+              f.id === 'scannability' ||
+              f.id.startsWith('score-floor'),
+          ),
+        ]
+      : fixed.filter((f) => f.id !== 'quality-gate-autofix' && f.id !== 'quality-gate-second-pass')
+
+  let summary: string
+  if (revalidationFoundAdditionalIssues) {
+    summary =
+      confirmation?.summary ||
+      `Auto-fix changed the article and revalidation found additional issues. Score ${qualityGateBefore.score} → ${qualityGateAfter.score}.`
+  } else if (stillNeedsManualReview.length === 0) {
+    summary = `Confirmed ${honestFixed.length} fix(es) after revalidation. Score ${qualityGateBefore.score} → ${qualityGateAfter.score}. Ready for a final human skim.`
+  } else {
+    summary = `Confirmed ${honestFixed.length} fix(es). Score ${qualityGateBefore.score} → ${qualityGateAfter.score}. ${stillNeedsManualReview.length} still need manual review.`
+  }
 
   return {
     html,
     qualityGateBefore,
     qualityGateAfter,
-    fixed,
+    fixed: honestFixed,
     stillNeedsManualReview,
     summary,
     panelScores: computePanelScores(html, keyword),
+    revalidationFoundAdditionalIssues,
+    autoFixConfirmationSummary: confirmation?.summary,
   }
 }

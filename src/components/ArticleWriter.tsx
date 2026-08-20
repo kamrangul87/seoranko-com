@@ -268,6 +268,7 @@ export function ArticleWriter() {
         summary: data.summary || '',
         scoreBefore: data.qualityGateBefore?.score,
         scoreAfter: data.qualityGate?.score,
+        revalidationFoundAdditionalIssues: !!data.revalidationFoundAdditionalIssues,
       })
       setEditing(false)
     } catch (err) {

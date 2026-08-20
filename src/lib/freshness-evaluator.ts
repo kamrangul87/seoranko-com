@@ -26,6 +26,7 @@ import {
   extractArticleCitations,
   extractTopicTerms,
 } from '@/lib/claim-evidence'
+import { assessTimeSensitivity } from '@/lib/time-sensitivity-policy'
 
 export type FreshnessAuthoritativeEvidence = {
   sourceUrl: string
@@ -137,11 +138,19 @@ function baseFinding(
   const trimmed = sentence.trim()
   if (!trimmed) return null
   if (isInstructionalNonFactual(trimmed)) return null
+  // Phase 6: "now"/"today" alone are not factual freshness errors
+  const sensitivity = assessTimeSensitivity(trimmed, now)
+  if (!sensitivity.requiresVerification) return null
 
   const claimType = classifyClaimType(trimmed)
   if (claimType === 'instructional' || claimType === 'non-factual') return null
 
-  const timeStatus = classifyTimeStatus(trimmed, now)
+  const timeStatus =
+    sensitivity.verdict === 'HISTORICAL_TRANSITION'
+      ? 'HISTORICAL'
+      : sensitivity.verdict === 'FUTURE_POLICY'
+        ? 'FUTURE'
+        : classifyTimeStatus(trimmed, now)
 
   let evidenceStatus: FreshnessEvidenceStatus
   if (!citationUrl || supportTier === 'none') {

@@ -34,6 +34,8 @@ export interface FixAllReport {
   summary: string
   scoreBefore?: number
   scoreAfter?: number
+  /** Phase 9: autofix ran but revalidation found new problems. */
+  revalidationFoundAdditionalIssues?: boolean
 }
 
 interface QualityGatePanelProps {
@@ -182,12 +184,29 @@ export function QualityGatePanel({
                   Score: {fixAllReport.scoreBefore} → {fixAllReport.scoreAfter}
                 </p>
               )}
-              {fixAllReport.fixed.length > 0 && (
+              {fixAllReport.fixed.length > 0 && !fixAllReport.revalidationFoundAdditionalIssues && (
                 <div>
-                  <p className="text-[11px] font-semibold text-green-800 mb-1">Fixed automatically</p>
+                  <p className="text-[11px] font-semibold text-green-800 mb-1">Confirmed fixed after revalidation</p>
                   {fixAllReport.fixed.map(f => (
                     <p key={f.id} className="text-[11px] text-green-700">✓ {f.title} — {f.how}</p>
                   ))}
+                </div>
+              )}
+              {fixAllReport.revalidationFoundAdditionalIssues && (
+                <div>
+                  <p className="text-[11px] font-semibold text-amber-900 mb-1">
+                    Auto-fix changed the article and revalidation found additional issues
+                  </p>
+                  <p className="text-[11px] text-amber-800">
+                    Do not treat the article as simply &quot;fixed&quot; — review the open issues below. Score reflects the final article state.
+                  </p>
+                  {fixAllReport.fixed.length > 0 && (
+                    <div className="mt-1">
+                      {fixAllReport.fixed.map(f => (
+                        <p key={f.id} className="text-[11px] text-amber-700">• Attempted: {f.title}</p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
               {fixAllReport.stillNeedsManualReview.length > 0 && (

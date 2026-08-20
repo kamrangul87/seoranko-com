@@ -37,9 +37,15 @@ describe('cross-brand-link auto-fix must never touch the self-referencing canoni
       authorName: 'Kamran Gul',
       registeredLinkDomains: [],
     })
-    // The genuinely unrelated cross-brand <a> link should still be caught...
-    expect(result.issues.some(i => i.category === 'cross-brand-link')).toBe(true)
-    // ...but the canonical tag must survive the auto-fix pass intact.
+    // Autofix may strip the bad <a> link — Phase 9 revalidation then confirms
+    // the issue resolved. Canonical <link> must never be touched.
     expect(result.articleAfterAutoFix).toContain('rel="canonical" href="https://autodun.com/ev-charger"')
+    expect(result.articleAfterAutoFix).not.toContain('href="https://fitford.com/unrelated"')
+    // Either still flagged (if strip failed) or confirmed resolved after revalidation
+    const stillOpen = result.issues.some(i => i.category === 'cross-brand-link')
+    const confirmed = result.autoFixConfirmation?.confirmedResolved.some(
+      (i) => i.category === 'cross-brand-link',
+    )
+    expect(stillOpen || confirmed).toBe(true)
   })
 })

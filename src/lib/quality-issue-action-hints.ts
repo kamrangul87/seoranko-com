@@ -76,7 +76,7 @@ export function buildActionHint(issue: ActionHintIssue): string {
     case 'score-floor':
       return 'Run Fix All, then strengthen the weak area (E-E-A-T: add author/sources; keyword density: use the primary phrase naturally in 2–3 more places; fact sourcing: cite official sources).'
     case 'hedging':
-      return 'Reduce repeated "typically" / soft hedges — keep at most a few, or use Fix All to trim them.'
+      return 'Review hedge classes: keep appropriate may/can/approximately for variable facts; trim only repetitive boilerplate "typically/generally".'
     case 'word-count':
       return 'Expand thin sections with concrete steps and examples, or trim fluff until the article is inside the target word band.'
     case 'missing-brand':

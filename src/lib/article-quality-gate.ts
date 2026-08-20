@@ -53,6 +53,13 @@ import {
   severityForClaimEvidence,
   type ClaimEvidence,
 } from '@/lib/claim-evidence'
+import { evaluateHedging, isExtremeHedgeDensity } from '@/lib/hedging-policy'
+import { assessEditorialWordCount } from '@/lib/editorial-word-count'
+import {
+  confirmAutoFixOutcomes,
+  scoreFromIssues,
+  type AutoFixConfirmation,
+} from '@/lib/autofix-confirmation'
 
 // AI slop patterns — expanded from anti-slop GitHub repo
 const AI_SLOP_PATTERNS = [
@@ -689,16 +696,6 @@ function countTypically(content: string): number {
   return (content.match(/\btypically\b/gi) || []).length
 }
 
-function countHedgeWords(content: string): Record<string, number> {
-  const hedges = ['typically', 'generally', 'usually', 'often', 'sometimes', 'may', 'might', 'could', 'tend to']
-  const counts: Record<string, number> = {}
-  for (const hedge of hedges) {
-    const matches = content.match(new RegExp(`\\b${hedge}\\b`, 'gi')) || []
-    if (matches.length > 0) counts[hedge] = matches.length
-  }
-  return counts
-}
-
 // ============================================================
 // QUALITY ISSUE TYPES
 // ============================================================
@@ -756,10 +753,16 @@ export interface QualityGateResult {
   issues: QualityIssue[]
   criticalCount: number
   warningCount: number
+  /**
+   * Confirmed resolved issues after revalidation — NOT raw mutation attempts.
+   * Phase 9: only increments when the original issue is gone on final HTML.
+   */
   autoFixedCount: number
   articleAfterAutoFix: string
   readyToPublish: boolean
   blockers: string[]
+  /** Phase 9 honest autofix report (optional for older callers). */
+  autoFixConfirmation?: AutoFixConfirmation
 }
 
 /** Recompute score/counts/ready from the current issues list (single source of truth). */
@@ -1255,7 +1258,6 @@ export async function runQualityGate(
 
   let issues: QualityIssue[] = extraIssues ? [...extraIssues] : []
   let articleAfterAutoFix = articleContent
-  let autoFixedCount = 0
 
   // Dated-policy is owned by the gate (same severity on every pass). Drop any
   // caller-supplied dated-policy extras so article-v2 cannot diverge from
@@ -1350,32 +1352,45 @@ export async function runQualityGate(
     }
   }
 
-  // ---- RULE 4: "Typically" overuse ----
-  const typicallyCount = countTypically(articleContent)
-  if (typicallyCount > maxTypically) {
+  // ---- RULE 4: Semantic hedging (Phase 7) — not an arbitrary "typically" quota ----
+  const hedging = evaluateHedging(articleContent)
+  const wordCount = countArticleWords(articleContent)
+
+  const realRep = hedging.actionable.filter((a) => a.classification === 'REAL_REPETITION')
+  const overHedge = hedging.actionable.filter((a) => a.classification === 'OVER_HEDGING')
+  const unsupportedHedge = hedging.actionable.filter((a) => a.classification === 'UNSUPPORTED_CLAIM')
+
+  if (realRep.length >= 3 || (hedging.autoFixableTokens.includes('typically') && (hedging.byToken.typically || 0) >= 6)) {
     issues.push({
-      id: 'hedging-typically',
-      severity: typicallyCount > 10 ? 'critical' : 'warning',
+      id: 'hedging-real-repetition',
+      severity: 'warning',
       category: 'hedging',
-      title: `"Typically" used ${typicallyCount} times — target is ${maxTypically} or fewer`,
-      description: `High frequency hedging (${typicallyCount}×) is a primary AI-detection signal. The humaniser should reduce this but ${typicallyCount} instances remain.`,
-      autoFixable: true,
-      autoFixDescription: `Auto-fix reduces "typically" count to ${maxTypically} by replacing excess instances`
+      title: `Repetitive hedge boilerplate detected (${realRep.length || hedging.byToken.typically || 0}×)`,
+      description: `${hedging.summary} Class: REAL_REPETITION. Appropriate qualifications (may/can/approximately with variability) are not flagged.`,
+      autoFixable: hedging.autoFixableTokens.length > 0,
+      autoFixDescription: 'Auto-fix removes only obvious repetitive "typically" boilerplate — keeps valid uncertainty language',
     })
   }
 
-  const hedgeCounts = countHedgeWords(articleContent)
-  const totalHedges = Object.values(hedgeCounts).reduce((a, b) => a + b, 0)
-  const wordCount = countArticleWords(articleContent)
-
-  if (totalHedges > wordCount / 50) {
+  if (overHedge.length >= 4 || isExtremeHedgeDensity(hedging)) {
     issues.push({
-      id: 'hedging-total',
+      id: 'hedging-over',
       severity: 'warning',
       category: 'hedging',
-      title: `High hedge word density: ${totalHedges} hedge words in ${wordCount} words`,
-      description: `Top offenders: ${Object.entries(hedgeCounts).sort((a,b) => b[1]-a[1]).slice(0,3).map(([w,c]) => `"${w}" ×${c}`).join(', ')}`,
-      autoFixable: false
+      title: `Over-hedging — density ${hedging.densityPer100.toFixed(1)} per 100 words`,
+      description: `${hedging.summary} Class: OVER_HEDGING. Reduce stacked hedges for clarity; this is not a Google keyword penalty.`,
+      autoFixable: false,
+    })
+  }
+
+  if (unsupportedHedge.length >= 2) {
+    issues.push({
+      id: 'hedging-unsupported',
+      severity: 'info',
+      category: 'hedging',
+      title: `Hedge softens precise claims without variability context (${unsupportedHedge.length})`,
+      description: `Class: UNSUPPORTED_CLAIM. Example: "${unsupportedHedge[0].sentence.slice(0, 120)}". Cite a source or state the range explicitly.`,
+      autoFixable: false,
     })
   }
 
@@ -1456,27 +1471,9 @@ export async function runQualityGate(
     keyword,
   }))
 
-  // ---- RULE 8: Word count ----
-  if (wordCount < minWordCount) {
-    issues.push({
-      id: 'word-count-low',
-      severity: 'warning',
-      category: 'word-count',
-      title: `Article is ${wordCount} words — below target minimum of ${minWordCount}`,
-      description: 'Article is shorter than the soft minimum for the selected length target (±12% band).',
-      autoFixable: false
-    })
-  }
-  if (maxWordCount != null && wordCount > maxWordCount) {
-    issues.push({
-      id: 'word-count-high',
-      severity: 'warning',
-      category: 'word-count',
-      title: `Article is ${wordCount} words — exceeds target maximum of ${maxWordCount}`,
-      description: 'Article is longer than the soft maximum for the selected length target (±12% band).',
-      autoFixable: false
-    })
-  }
+  // ---- RULE 8: Editorial word count (Phase 8) — USER_TARGET, not Google SEO ----
+  // Deferred until after brief/secondary coverage so short+incomplete → CONTENT_COVERAGE.
+  // Placeholder removed; see RULE 8b after brief coverage.
 
   // ---- RULE 9: Image completeness — every provider in the image chain failed for at least one slot ----
   if (expectedImageCount != null) {
@@ -1506,6 +1503,50 @@ export async function runQualityGate(
     issues.push(...checkSecondaryKeywordCoverage(articleContent, secondaryKeywords))
   }
 
+  // ---- RULE 8b: Editorial word count (after coverage signals) ----
+  {
+    const preferred =
+      maxWordCount != null
+        ? Math.round((minWordCount + maxWordCount) / 2)
+        : Math.round(minWordCount / 0.88)
+    const coverageIncomplete = issues.some(
+      (i) =>
+        i.category === 'brief-coverage' ||
+        i.category === 'secondary-keyword-coverage' ||
+        i.category === 'topic-alignment',
+    )
+    const wcAssess = assessEditorialWordCount(wordCount, preferred, {
+      absoluteMax: maxWordCount ?? null,
+      coverageIncomplete,
+      kind: 'USER_TARGET',
+    })
+    if (wcAssess.severity) {
+      issues.push({
+        id:
+          wcAssess.classification === 'CONTENT_COVERAGE'
+            ? 'word-count-coverage'
+            : wcAssess.classification === 'OVER_MAXIMUM'
+              ? 'word-count-high'
+              : 'word-count-advisory',
+        severity: wcAssess.severity,
+        category: 'word-count',
+        title: wcAssess.title,
+        description: wcAssess.description,
+        autoFixable: false,
+      })
+    }
+  }
+
+  // Snapshot pre-autofix issues for Phase 9 confirmation
+  const issuesBeforeAutoFix = issues.map((i) => ({
+    id: i.id,
+    category: i.category,
+    severity: i.severity,
+    title: i.title,
+  }))
+  const scoreBeforeAutoFix = scoreFromIssues(issues)
+  let mutationAttempts = 0
+
   // ---- AUTO-FIX PASS ----
   // Fix 0: Wrong brand in body → replace with configured brand
   if (brand && issues.some(i => i.id === 'brand-mismatch' && i.autoFixable)) {
@@ -1521,7 +1562,7 @@ export async function runQualityGate(
       )
       if (fixed.appliedCount > 0) {
         articleAfterAutoFix = fixed.html
-        autoFixedCount += fixed.appliedCount
+        mutationAttempts += fixed.appliedCount
       }
     }
     const introFix = applyGuardedRegexReplace(
@@ -1537,11 +1578,7 @@ export async function runQualityGate(
     )
     if (introFix.appliedCount > 0) {
       articleAfterAutoFix = introFix.html
-      autoFixedCount += introFix.appliedCount
-    }
-    // Re-check — clear brand-mismatch if resolved
-    if (!detectWrongBrandInBody(articleAfterAutoFix, brand)) {
-      issues = issues.filter(i => i.id !== 'brand-mismatch')
+      mutationAttempts += introFix.appliedCount
     }
   }
 
@@ -1563,25 +1600,26 @@ export async function runQualityGate(
       'cross-brand-link-strip',
     )
     articleAfterAutoFix = linkFix.html
-    autoFixedCount += linkFix.appliedCount
+    mutationAttempts += linkFix.appliedCount
   }
 
-  // Fix 2: Reduce "typically" overuse — text nodes only (never attributes/JSON-LD)
-  const typIssue = issues.find(i => i.id === 'hedging-typically' && i.autoFixable)
-  if (typIssue) {
-    let count = 0
+  // Fix 2: Only remove REAL_REPETITION "typically" boilerplate (Phase 7)
+  const hedgeRepIssue = issues.find(i => i.id === 'hedging-real-repetition' && i.autoFixable)
+  if (hedgeRepIssue) {
+    let kept = 0
+    const keepLimit = Math.max(2, maxTypically)
     articleAfterAutoFix = transformHtmlTextNodes(articleAfterAutoFix, (text) => {
       const typFix = applyGuardedRegexReplace(
         text,
         /\btypically\b/gi,
         (match) => {
-          count++
-          if (count > maxTypically) return ''
+          kept++
+          if (kept > keepLimit) return ''
           return match
         },
-        'typically-reduce',
+        'typically-real-repetition',
       )
-      autoFixedCount += typFix.appliedCount
+      mutationAttempts += typFix.appliedCount
       return typFix.html.replace(/[^\S\n]{2,}/g, ' ')
     })
   }
@@ -1600,14 +1638,13 @@ export async function runQualityGate(
           () => '',
           'ai-slop-remove',
         )
-        autoFixedCount += slopFix.appliedCount
+        mutationAttempts += slopFix.appliedCount
         return slopFix.html
       })
     }
   }
 
   // Fix 4: Grant-figure hedges — add "(verify at GOV.UK)" next to unsourced caps
-  // Guarded: never accept a splice that leaves ".350." or splits the sentence.
   if (issues.some(i => i.category === 'grant-figure' && i.autoFixable)) {
     articleAfterAutoFix = transformHtmlTextNodes(articleAfterAutoFix, (text) => {
       const grantFix = applyGuardedRegexReplace(
@@ -1616,30 +1653,9 @@ export async function runQualityGate(
         (match) => `${match} (verify at GOV.UK)`,
         'grant-figure-verify',
       )
-      autoFixedCount += grantFix.appliedCount
+      mutationAttempts += grantFix.appliedCount
       return grantFix.html
     })
-    // Re-evaluate — clear criticals that are now hedged
-    const remainingGrant = evaluateGrantFigureClaims(
-      articleAfterAutoFix,
-      freshnessCoveredFigureKeys(articleAfterAutoFix, datedPolicy?.now),
-    )
-    const stillCritical = new Set(
-      remainingGrant.filter(i => i.severity === 'critical').map(i => i.id)
-    )
-    issues = issues.filter(i => {
-      if (i.category !== 'grant-figure') return true
-      return stillCritical.has(i.id)
-    })
-    const clearedGrant = !remainingGrant.some(i => i.severity === 'critical')
-    if (clearedGrant) {
-      issues = issues.filter(i => i.category !== 'grant-figure')
-    } else {
-      issues = [
-        ...issues.filter(i => i.category !== 'grant-figure'),
-        ...remainingGrant.filter(i => i.severity === 'critical'),
-      ]
-    }
   }
 
   // Fix 5: Inject FAQPage schema when FAQ content exists but schema is missing
@@ -1660,75 +1676,149 @@ export async function runQualityGate(
       }
       articleAfterAutoFix =
         `${articleAfterAutoFix}\n<script type="application/ld+json">${JSON.stringify(faqSchema)}</script>`
-      autoFixedCount++
-      issues = issues.filter(i => i.id !== 'schema-faq-parity')
+      mutationAttempts++
     }
   }
 
-  // Do NOT collapse whitespace across the whole HTML document — that would
-  // rewrite attribute values and JSON-LD. Prose double-spaces are already
-  // normalised inside the text-node autofixes above.
-
-  // Final corruption scrub — catches any residual ".350." / similar shapes
-  // (text-node scoped; asserts image URLs unchanged)
+  // Final corruption scrub
   const beforeScrub = articleAfterAutoFix
   const scrubbed = scrubInsertionCorruption(articleAfterAutoFix)
   articleAfterAutoFix = scrubbed.html
-  if (scrubbed.fixes > 0) autoFixedCount += scrubbed.fixes
+  if (scrubbed.fixes > 0) mutationAttempts += scrubbed.fixes
   assertImageUrlsPreserved(beforeScrub, articleAfterAutoFix)
   assertImageUrlsPreserved(articleContent, articleAfterAutoFix)
 
-  // The "typically" auto-fix above already runs automatically and silently
-  // reduces the count in articleAfterAutoFix — but issues/score were computed
-  // against the PRE-fix article and never recomputed, so the returned result
-  // still showed "7 instances, unresolved" even when the published text had
-  // already been corrected to 5. Re-check against the actual fixed text.
-  if (typIssue) {
-    const remainingCount = countTypically(articleAfterAutoFix)
-    if (remainingCount <= maxTypically) {
-      issues = issues.filter(i => i.id !== 'hedging-typically')
-    } else {
-      const stillFlagged = issues.find(i => i.id === 'hedging-typically')
-      if (stillFlagged) {
-        stillFlagged.title = `"Typically" auto-fixed to ${remainingCount} (target ${maxTypically}) — still above target`
-        stillFlagged.description = `Auto-fix already ran and reduced this from the original count, but ${remainingCount} instances remain above the ${maxTypically} target.`
+  // ---- FINAL REVALIDATION on articleAfterAutoFix (Phase 9) ----
+  // Rebuild issue list from the FINAL HTML for categories autofix can affect,
+  // then confirm which pre-fix issues actually resolved.
+  {
+    let finalIssues: QualityIssue[] = []
+    finalIssues = finalIssues.filter(() => false) // start clean from revalidation slices
+
+    // Keep non-autofix-mutated categories from earlier scan when HTML body unchanged
+    // for those rules — but always refresh autofix-touched categories from final HTML.
+    const preserved = issues.filter(
+      (i) =>
+        i.category !== 'schema' &&
+        i.category !== 'grant-figure' &&
+        i.category !== 'hedging' &&
+        i.category !== 'ai-slop' &&
+        i.category !== 'cross-brand-link' &&
+        i.id !== 'brand-mismatch' &&
+        i.id !== 'schema-faq-parity',
+    )
+
+    finalIssues = [...preserved]
+    finalIssues.push(...collectSchemaQualityIssues(articleAfterAutoFix, expectOrganizationLogo))
+    finalIssues.push(
+      ...evaluateGrantFigureClaims(
+        articleAfterAutoFix,
+        freshnessCoveredFigureKeys(articleAfterAutoFix, datedPolicy?.now),
+      ),
+    )
+
+    // Re-scan cross-brand <a> links on final HTML (canonical <link> never matched)
+    {
+      const linkPattern = /<a\s[^>]*href=["']https?:\/\/([^/"']+)/gi
+      let linkMatch
+      while ((linkMatch = linkPattern.exec(articleAfterAutoFix)) !== null) {
+        const linkedDomain = linkMatch[1].replace('www.', '')
+        const isBrandSite = ['autodun.com', 'seoranko.com', 'fitford.com', 'minso', 'minsofurniture'].some(
+          (d) => linkedDomain.includes(d),
+        )
+        if (!isBrandSite) continue
+        const isRegistered = registeredLinkDomains.some((d) => linkedDomain.includes(d))
+        if (!isRegistered) {
+          const context = articleAfterAutoFix.slice(
+            Math.max(0, linkMatch.index - 30),
+            linkMatch.index + 80,
+          )
+          finalIssues.push({
+            id: `cross-brand-link-${finalIssues.length}`,
+            severity: 'critical',
+            category: 'cross-brand-link',
+            title: `Cross-brand link detected: ${linkedDomain}`,
+            description: `Article brand is "${brand}" but this links to "${linkedDomain}" which is not in the registry for this brand.`,
+            location: context.slice(0, 100),
+            autoFixable: false,
+          })
+        }
       }
     }
+
+    // Re-scan AI slop on final HTML
+    for (const pattern of AI_SLOP_PATTERNS) {
+      const match = articleAfterAutoFix.match(pattern)
+      if (match) {
+        finalIssues.push({
+          id: `slop-${finalIssues.length}`,
+          severity: 'warning',
+          category: 'ai-slop',
+          title: `AI pattern detected: "${match[0]}"`,
+          description: 'This phrase is a common AI-generated signal that reduces human score. Consider removing or rewriting.',
+          location: match[0],
+          autoFixable: false,
+        })
+      }
+    }
+
+    // Re-evaluate hedging on final HTML
+    const hedgeFinal = evaluateHedging(articleAfterAutoFix)
+    const realRepFinal = hedgeFinal.actionable.filter((a) => a.classification === 'REAL_REPETITION')
+    if (realRepFinal.length >= 3 || ((hedgeFinal.byToken.typically || 0) >= 6 && hedgeFinal.autoFixableTokens.includes('typically'))) {
+      finalIssues.push({
+        id: 'hedging-real-repetition',
+        severity: 'warning',
+        category: 'hedging',
+        title: `Repetitive hedge boilerplate detected (${realRepFinal.length || hedgeFinal.byToken.typically || 0}×)`,
+        description: hedgeFinal.summary,
+        autoFixable: false,
+      })
+    }
+    if (isExtremeHedgeDensity(hedgeFinal)) {
+      finalIssues.push({
+        id: 'hedging-over',
+        severity: 'warning',
+        category: 'hedging',
+        title: `Over-hedging — density ${hedgeFinal.densityPer100.toFixed(1)} per 100 words`,
+        description: hedgeFinal.summary,
+        autoFixable: false,
+      })
+    }
+    const bm = detectWrongBrandInBody(articleAfterAutoFix, brand)
+    if (bm) finalIssues.push(bm)
+
+    finalIssues = consolidateDuplicateIssues(finalIssues)
+    finalIssues = await autoVerifyCitedPolicyIssues(finalIssues, datedPolicy?.now)
+    finalIssues = withActionHints(finalIssues)
+
+    const confirmation = confirmAutoFixOutcomes({
+      beforeIssues: issuesBeforeAutoFix,
+      afterIssues: finalIssues.map((i) => ({
+        id: i.id,
+        category: i.category,
+        severity: i.severity,
+        title: i.title,
+      })),
+      mutationAttempts,
+      scoreBefore: scoreBeforeAutoFix,
+      scoreAfter: scoreFromIssues(finalIssues),
+    })
+
+    const totals = recomputeQualityGateTotals({
+      issues: finalIssues,
+      autoFixedCount: confirmation.confirmedResolved.length,
+      articleAfterAutoFix,
+    })
+
+    void logQualityGateRun(userId, articleId, finalIssues)
+    void countTypically
+
+    return {
+      ...totals,
+      autoFixConfirmation: confirmation,
+    }
   }
-
-  // Schema issues must describe articleAfterAutoFix — FAQPage inject (and any
-  // future schema-touching autofix) mutates JSON-LD after the initial RULE 6
-  // pass. Refresh so score / issues / readyToPublish match the returned HTML
-  // (final-artifact invariant for the gate itself).
-  issues = [
-    ...issues.filter(i => i.category !== 'schema'),
-    ...collectSchemaQualityIssues(articleAfterAutoFix, expectOrganizationLogo),
-  ]
-
-  // The same fact (e.g. a grant figure) can legitimately be restated several
-  // times across an article — each restatement earns its own issue from the
-  // rules above, but showing 5 identical cards is a display problem, not 5
-  // separate defects. Consolidate before scoring so one real issue doesn't
-  // cost 5x the score penalty or produce 5 rows in the recurring-issue log.
-  issues = consolidateDuplicateIssues(issues)
-
-  // Auto-verify cited grant/dated-policy figures against the live official page.
-  // Matching → info ("auto-verified as of …"); failures stay flagged with a
-  // specific reason (missing figure / unreachable / no citation).
-  issues = await autoVerifyCitedPolicyIssues(issues, datedPolicy?.now)
-
-  issues = withActionHints(issues)
-
-  // ---- COMPUTE FINAL SCORE (single source of truth) ----
-  const totals = recomputeQualityGateTotals({
-    issues,
-    autoFixedCount,
-    articleAfterAutoFix,
-  })
-
-  void logQualityGateRun(userId, articleId, issues)
-
-  return totals
 }
 
 /**
