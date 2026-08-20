@@ -11,7 +11,8 @@
  * - omit: otherwise (Clearbit may still be emitted by the generator as a
  *   candidate URL, but QG must not treat logo as required)
  *
- * Wired into article-v2, article-quality-recheck, and article-fix-all.
+ * Wired into article-v2, article-quality-recheck, article-fix-all, and
+ * article-improve via buildQualityGateRunOptions / resolveLogoPolicy.
  * runQualityGate / validateSchema default to omit (false) when the flag is
  * not passed — never silently require a logo the brand never configured.
  */

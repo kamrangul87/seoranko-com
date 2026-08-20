@@ -10,6 +10,7 @@ import {
   detectDatedClaims,
   detectTimeAnchoredClaims,
 } from '@/lib/dated-claim-detector'
+import { assessTimeSensitivity } from '@/lib/time-sensitivity-policy'
 import {
   type FreshnessEvidenceStatus,
   type FreshnessFinding,
@@ -26,7 +27,7 @@ import {
   extractArticleCitations,
   extractTopicTerms,
 } from '@/lib/claim-evidence'
-import { assessTimeSensitivity } from '@/lib/time-sensitivity-policy'
+import { stripArticleDatelineEvidence } from '@/lib/freshness-research'
 
 export type FreshnessAuthoritativeEvidence = {
   sourceUrl: string
@@ -248,6 +249,8 @@ export function evaluateFreshnessSync(
   opts: { now?: Date } = {},
 ): FreshnessFinding[] {
   const now = opts.now ?? new Date()
+  // Never treat the article's own "Last updated" dateline as claim evidence.
+  const scannedHtml = stripArticleDatelineEvidence(html)
   const findings: FreshnessFinding[] = []
   const seen = new Set<string>()
 
@@ -260,9 +263,9 @@ export function evaluateFreshnessSync(
   }
 
   try {
-    for (const claim of detectDatedClaims(html, now)) {
+    for (const claim of detectDatedClaims(scannedHtml, now)) {
       if (isInstructionalNonFactual(claim.sentence)) continue
-      const bound = bindForHtml(claim.sentence, html)
+      const bound = bindForHtml(claim.sentence, scannedHtml)
       push(baseFinding(claim.sentence, 'chrono', bound.url, now, bound.tier))
     }
   } catch {
@@ -270,10 +273,10 @@ export function evaluateFreshnessSync(
   }
 
   try {
-    for (const claim of detectTimeAnchoredClaims(html, now)) {
+    for (const claim of detectTimeAnchoredClaims(scannedHtml, now)) {
       if (isInstructionalNonFactual(claim.sentence)) continue
       if (!QUANTITATIVE_FACT_RE.test(claim.sentence) && !claim.extractedNumericValue) continue
-      const bound = bindForHtml(claim.sentence, html)
+      const bound = bindForHtml(claim.sentence, scannedHtml)
       push(baseFinding(claim.sentence, 'time-anchored', bound.url, now, bound.tier))
     }
   } catch {
@@ -285,21 +288,21 @@ export function evaluateFreshnessSync(
   const futureRe =
     /\b(?:from|starting|beginning)\s+\d{1,2}\s+(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+20\d{2}\b[^.!?]{0,120}?(?:£\s*[\d,]+|\b\d+(?:\.\d+)?%|\bgrant\b|\bpolicy\b)/gi
 
-  for (const plain of paragraphsPlain(html)) {
+  for (const plain of paragraphsPlain(scannedHtml)) {
     let rm: RegExpExecArray | null
     relativeRe.lastIndex = 0
     while ((rm = relativeRe.exec(plain)) !== null) {
       const sentence = sentenceFromPlain(plain, rm.index, rm[0].length)
       if (isInstructionalNonFactual(sentence)) continue
       if (!QUANTITATIVE_FACT_RE.test(sentence)) continue
-      const bound = bindForHtml(sentence, html)
+      const bound = bindForHtml(sentence, scannedHtml)
       push(baseFinding(sentence, 'relative-factual', bound.url, now, bound.tier))
     }
 
     futureRe.lastIndex = 0
     while ((rm = futureRe.exec(plain)) !== null) {
       const sentence = sentenceFromPlain(plain, rm.index, rm[0].length)
-      const bound = bindForHtml(sentence, html)
+      const bound = bindForHtml(sentence, scannedHtml)
       const f = baseFinding(sentence, 'future', bound.url, now, bound.tier)
       if (f) {
         f.timeStatus = 'FUTURE'
@@ -356,9 +359,29 @@ export async function applyAuthoritativeEvidence(
     next.evidenceSummary =
       'Future-dated policy statement — verify closer to the effective date. Not automatically outdated.'
   } else {
+    // Compare figures first — supportsCurrent alone must not mark a conflicting
+    // claim as SUPPORTED (Phase 13: compare claim vs authoritative amounts).
     if (
-      evidence.supportsCurrent === true ||
-      (evidenceAmounts.length > 0 && amountsMatch(claimAmounts, evidenceAmounts))
+      evidenceAmounts.length > 0 &&
+      claimAmounts.length > 0 &&
+      amountsConflict(claimAmounts, evidenceAmounts)
+    ) {
+      next.evidenceStatus = 'CONTRADICTED'
+      next.timeStatus = 'OUTDATED'
+      const current = evidence.currentValueText ?? evidenceAmounts[0] ?? null
+      next.evidenceSummary = [
+        evidence.sourceUpdatedAt
+          ? `Official source updated ${evidence.sourceUpdatedAt}`
+          : 'Official source',
+        current ? `Current value: ${current}` : null,
+        `Article claim: ${claimAmounts[0] ?? finding.figureText ?? finding.sentence.slice(0, 80)}`,
+      ]
+        .filter(Boolean)
+        .join('. ')
+    } else if (
+      (evidenceAmounts.length > 0 && amountsMatch(claimAmounts, evidenceAmounts)) ||
+      (evidence.supportsCurrent === true &&
+        (evidenceAmounts.length === 0 || amountsMatch(claimAmounts, evidenceAmounts)))
     ) {
       next.evidenceStatus = 'SUPPORTED'
       next.timeStatus = 'CURRENT'
@@ -369,10 +392,7 @@ export async function applyAuthoritativeEvidence(
         : `Authoritative source supports the current claim${
             evidence.currentValueText ? ` (${evidence.currentValueText})` : ''
           }.`
-    } else if (
-      evidence.supportsCurrent === false ||
-      (evidenceAmounts.length > 0 && amountsConflict(claimAmounts, evidenceAmounts))
-    ) {
+    } else if (evidence.supportsCurrent === false) {
       next.evidenceStatus = 'CONTRADICTED'
       next.timeStatus = 'OUTDATED'
       const current = evidence.currentValueText ?? evidenceAmounts[0] ?? null
