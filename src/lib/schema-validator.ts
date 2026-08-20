@@ -37,9 +37,10 @@ export interface SchemaValidationResult {
 /** Aligns validation with schema-generator.ts conditional omission. */
 export interface SchemaValidationOptions {
   /**
-   * When false, skip logo checks on Organization blocks and nested
-   * publisher.logo — matches generateArticleSchema() omitting logo when
-   * organizationLogoUrl is unavailable. Defaults to true (strict audit).
+   * When true, require Organization.logo and publisher.logo (shared
+   * LogoPolicy mode === 'require'). Defaults to false (omit) — never
+   * silently require a logo because an organization URL exists.
+   * Resolve via resolveLogoPolicy / expectOrganizationLogoFromPolicy.
    */
   expectOrganizationLogo?: boolean
 }
@@ -133,7 +134,7 @@ function validateNestedEntity(
         message: `"${property}" is missing a name.`
       })
     }
-    if (property === 'publisher' && options.expectOrganizationLogo !== false) {
+    if (property === 'publisher' && options.expectOrganizationLogo === true) {
       const logo = entity.logo
       const logoUrl = typeof logo === 'string' ? logo : logo?.url
       if (!isPlausibleUrl(logoUrl)) {
@@ -209,10 +210,12 @@ function validateBlock(block: any, issues: SchemaIssue[], options: SchemaValidat
   }
 
   for (const rec of rules.recommended) {
+    // Logo is only recommended→warned when the shared logo policy requires it.
+    // Domain / organization URL alone must not create schema-Organization-logo.
     if (
       rec === 'logo' &&
       type === 'Organization' &&
-      options.expectOrganizationLogo === false
+      options.expectOrganizationLogo !== true
     ) {
       continue
     }

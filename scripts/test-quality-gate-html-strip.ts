@@ -20,6 +20,8 @@ async function main() {
     authorName: 'Kamran Gul',
     registeredLinkDomains: ['seoranko.com'],
     minWordCount: 10,
+    // Script / regression harness — explicitly omit logo (no brand_settings).
+    expectOrganizationLogo: false,
   })
 
   const falsePositive = result.issues.find(
