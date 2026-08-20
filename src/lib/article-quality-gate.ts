@@ -28,6 +28,8 @@ import {
   detectDatedClaims,
   detectStaleYearReferences,
   extractHeadingTexts,
+  detectTimeAnchoredClaims,
+  type TimeAnchoredClaim,
 } from '@/lib/dated-claim-detector'
 
 // AI slop patterns — expanded from anti-slop GitHub repo
@@ -166,15 +168,19 @@ function extractFinancialClaims(articleContent: string): Claim[] {
 // The core binding check: does ANY citation in the whole document share
 // meaningful topic overlap with this claim? This is the fix — document-wide
 // entity matching, not character-distance proximity.
-function isClaimBoundToCitation(claim: Claim, allCitations: Citation[]): boolean {
+function findBoundCitation(claim: Claim, allCitations: Citation[]): Citation | undefined {
   for (const citation of allCitations) {
     const sharedTerms = Array.from(claim.topicTerms).filter(t => citation.topicTerms.has(t))
     // Require at least 2 shared meaningful topic words (e.g. "ozev", "grant",
     // "charger") between the claim's context and a citation's context anywhere
     // in the document — this is the claim-to-citation binding
-    if (sharedTerms.length >= 2) return true
+    if (sharedTerms.length >= 2) return citation
   }
-  return false
+  return undefined
+}
+
+function isClaimBoundToCitation(claim: Claim, allCitations: Citation[]): boolean {
+  return !!findBoundCitation(claim, allCitations)
 }
 
 const INLINE_VERIFY_RE =
@@ -246,6 +252,127 @@ export function evaluateGrantFigureClaims(articleContent: string): QualityIssue[
   return issues
 }
 
+export interface TimeAnchoredClaimFailure {
+  claim: TimeAnchoredClaim
+  severity: 'FAIL'
+  reasons: string[]
+}
+
+// Shared by validateTimeAnchoredClaims and buildTimeAnchoredClaimRecords: a
+// TimeAnchoredClaim only carries a sentence + a character offset, not the
+// Claim shape isClaimBoundToCitation/findBoundCitation expect — this builds
+// that shape from the same local-window context extractFinancialClaims uses.
+function pseudoClaimFor(articleContent: string, claim: TimeAnchoredClaim): Claim {
+  const contextStart = Math.max(0, claim.charOffset - 200)
+  const contextEnd = Math.min(articleContent.length, claim.charOffset + 200)
+  const context = articleContent.slice(contextStart, contextEnd) || claim.sentence
+  return {
+    text: claim.extractedNumericValue || claim.sentence.slice(0, 60),
+    position: claim.charOffset,
+    topicTerms: extractTopicTerms(context),
+  }
+}
+
+/**
+ * C04 — time-anchored claims. A claim passes only when BOTH: (1) it's
+ * bound to an outbound citation somewhere in the document — reusing the
+ * SAME document-wide claim-citation binding used for grant figures above
+ * (isClaimBoundToCitation / claimHasInlineVerification), not a new nearby-
+ * proximity check — and (2) it carries a reviewBy date. Every claim from
+ * detectTimeAnchoredClaims always carries a reviewBy (assertedOn + 180
+ * days, computed at detection time), so condition (2) is a structural
+ * guarantee in practice; it's still checked so a future caller that
+ * hand-builds a TimeAnchoredClaim without one is caught rather than
+ * silently passed.
+ */
+export function validateTimeAnchoredClaims(
+  articleContent: string,
+  claims: TimeAnchoredClaim[],
+): TimeAnchoredClaimFailure[] {
+  const citations = extractCitations(articleContent)
+  const failures: TimeAnchoredClaimFailure[] = []
+
+  for (const claim of claims) {
+    const reasons: string[] = []
+    const pseudoClaim = pseudoClaimFor(articleContent, claim)
+
+    const boundToCitation =
+      isClaimBoundToCitation(pseudoClaim, citations) ||
+      claimHasInlineVerification(articleContent, pseudoClaim)
+    if (!boundToCitation) {
+      reasons.push('no outbound source link bound to this figure anywhere in the article')
+    }
+    if (!claim.reviewBy) {
+      reasons.push('no review_by date set')
+    }
+
+    if (reasons.length > 0) {
+      failures.push({ claim, severity: 'FAIL', reasons })
+    }
+  }
+
+  return failures
+}
+
+/**
+ * Shared by buildDatedPolicyIssues (generation-time) and the article-v2
+ * route's post-repair re-issue step (time-anchored-claim-repair.ts) —
+ * one place decides what a FAIL-tier time-anchored claim looks like as a
+ * QualityIssue, so the two call sites can never drift out of sync.
+ */
+export function timeAnchoredClaimFailureToIssue(
+  failure: TimeAnchoredClaimFailure,
+  index: number,
+): QualityIssue {
+  const { claim, reasons } = failure
+  return {
+    id: `time-anchored-claim-${index}`,
+    // FAIL-tier per the C04 spec — this codebase's 'critical' severity
+    // (blocks quality_passed), matching evaluateGrantFigureClaims'
+    // treatment of an uncited financial figure.
+    severity: 'critical',
+    category: 'dated-policy',
+    title: `Time-anchored claim — confirm still current: "${claim.extractedNumericValue || claim.matchedPattern}"`,
+    description: `"${claim.sentence}" — ${reasons.join('; ')}. Re-check by ${claim.reviewBy}.`,
+    location: claim.sentence.slice(0, 100),
+    autoFixable: false,
+  }
+}
+
+export interface TimeAnchoredClaimRecord {
+  claim: string
+  sourceUrl: string | null
+  assertedOn: string
+  reviewBy: string
+}
+
+/**
+ * Persistence shape for articles.time_anchored_claims — every claim
+ * detectTimeAnchoredClaims finds (deduped by sentence), whether or not it
+ * ended up bound to a citation, so a future background job can re-verify
+ * each one by its reviewBy date rather than re-scanning the whole article.
+ * sourceUrl is the citation URL actually bound to the claim, or null.
+ */
+export function buildTimeAnchoredClaimRecords(
+  articleContent: string,
+  now: Date = new Date(),
+): TimeAnchoredClaimRecord[] {
+  const claims = detectTimeAnchoredClaims(articleContent, now)
+  const uniqueClaims = Array.from(new Map(claims.map(c => [c.sentence.trim(), c])).values())
+  const citations = extractCitations(articleContent)
+
+  return uniqueClaims.map(claim => {
+    const pseudoClaim = pseudoClaimFor(articleContent, claim)
+    const boundCitation = findBoundCitation(pseudoClaim, citations)
+    return {
+      claim: claim.sentence,
+      sourceUrl: boundCitation?.url ?? null,
+      assertedOn: claim.assertedOn,
+      reviewBy: claim.reviewBy,
+    }
+  })
+}
+
 function extractTitleFromHtml(html: string): string | undefined {
   const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
   if (!m) return undefined
@@ -279,6 +406,11 @@ export function buildDatedPolicyIssues(
 ): QualityIssue[] {
   const now = opts?.now ?? new Date()
   const issues: QualityIssue[] = []
+  // Populated by the chrono dated-claims pass below, read by the
+  // time-anchored-claims pass further down so the two detectors (which
+  // overlap on date-bearing sentences like "as of August 2026") don't both
+  // emit an issue for the exact same sentence.
+  const sentencesAlreadyFlagged = new Set<string>()
 
   try {
     const datedClaims = detectDatedClaims(articleContent, now)
@@ -286,6 +418,7 @@ export function buildDatedPolicyIssues(
     const uniqueUnsourced = Array.from(
       new Map(unsourced.map(c => [c.sentence.trim(), c])).values(),
     )
+    for (const claim of uniqueUnsourced) sentencesAlreadyFlagged.add(claim.sentence.trim())
     for (let i = 0; i < uniqueUnsourced.length; i++) {
       const claim = uniqueUnsourced[i]
       issues.push({
@@ -332,6 +465,26 @@ export function buildDatedPolicyIssues(
     }
   } catch (err) {
     console.warn('[article-quality-gate] stale-year detection failed:', err)
+  }
+
+  try {
+    // Broader than detectDatedClaims: catches relative claims with no
+    // parseable date token at all ("currently, the grant covers 75%").
+    // Skip any sentence the chrono pass above already flagged — both
+    // detectors legitimately fire on genuine date-token sentences like
+    // "as of August 2026", and a sentence shouldn't get two issues for the
+    // same underlying defect.
+    const timeAnchoredClaims = detectTimeAnchoredClaims(articleContent, now)
+      .filter(c => !sentencesAlreadyFlagged.has(c.sentence.trim()))
+    const uniqueTimeAnchoredClaims = Array.from(
+      new Map(timeAnchoredClaims.map(c => [c.sentence.trim(), c])).values(),
+    )
+    const failures = validateTimeAnchoredClaims(articleContent, uniqueTimeAnchoredClaims)
+    for (let i = 0; i < failures.length; i++) {
+      issues.push(timeAnchoredClaimFailureToIssue(failures[i], i))
+    }
+  } catch (err) {
+    console.warn('[article-quality-gate] time-anchored-claim detection failed:', err)
   }
 
   return issues

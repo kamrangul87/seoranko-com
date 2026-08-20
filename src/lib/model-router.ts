@@ -28,4 +28,5 @@ export const MODEL_FOR = {
   mergeArtifactRepair: MODELS.HAIKU,
   cannibalizationJudge: MODELS.HAIKU,
   topicalMapCluster: MODELS.HAIKU,
+  timeAnchoredClaimRepair: MODELS.HAIKU,
 } as const

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { detectDatedClaims, detectStaleYearReferences, extractHeadingTexts, buildLastVerifiedLine } from './dated-claim-detector'
+import {
+  detectDatedClaims,
+  detectStaleYearReferences,
+  extractHeadingTexts,
+  buildLastVerifiedLine,
+  detectTimeAnchoredClaims,
+} from './dated-claim-detector'
 
 describe('detectDatedClaims', () => {
   const now = new Date('2026-08-13T00:00:00Z')
@@ -62,6 +68,82 @@ describe('detectDatedClaims', () => {
     const claims = detectDatedClaims(html, now)
     expect(claims.length).toBeGreaterThan(0)
     expect(new Date(claims[0].reviewBy).getTime()).toBeGreaterThan(now.getTime())
+  })
+})
+
+describe('detectTimeAnchoredClaims', () => {
+  const now = new Date('2026-08-13T00:00:00Z')
+
+  it('flags "currently, <figure>" with no parseable date token at all', () => {
+    const html = '<p>Currently, the grant covers 75% of installation costs for eligible applicants.</p>'
+    const claims = detectTimeAnchoredClaims(html, now)
+    expect(claims.some(c => c.matchedPattern === 'currently-quantitative')).toBe(true)
+  })
+
+  it('flags "the current rate is <figure>"', () => {
+    const html = '<p>The current rate is £350 per household.</p>'
+    const claims = detectTimeAnchoredClaims(html, now)
+    const claim = claims.find(c => c.matchedPattern === 'current-rate-is')
+    expect(claim).toBeTruthy()
+    expect(claim!.extractedNumericValue).toBe('£350')
+  })
+
+  it('flags "as of <Month> <Year>"', () => {
+    const html = '<p>As of August 2026, the scheme is still open to new applicants.</p>'
+    const claims = detectTimeAnchoredClaims(html, now)
+    expect(claims.some(c => c.matchedPattern === 'as-of-date')).toBe(true)
+  })
+
+  it('flags "in <Year>, ... <figure>"', () => {
+    const html = '<p>In 2026, the fund distributed £2,000,000 to eligible households.</p>'
+    const claims = detectTimeAnchoredClaims(html, now)
+    expect(claims.some(c => c.matchedPattern === 'year-quantitative')).toBe(true)
+  })
+
+  it('flags "<Month> <Year> update/figures/rates/data"', () => {
+    const html = '<p>See the August 2026 figures for a full regional breakdown.</p>'
+    const claims = detectTimeAnchoredClaims(html, now)
+    expect(claims.some(c => c.matchedPattern === 'month-year-update')).toBe(true)
+  })
+
+  it('flags "will rise/fall/increase/change (in|by) <Year>"', () => {
+    const html = '<p>The threshold will rise in 2027 following a scheduled review.</p>'
+    const claims = detectTimeAnchoredClaims(html, now)
+    expect(claims.some(c => c.matchedPattern === 'will-change-by-year')).toBe(true)
+  })
+
+  it('does not flag a bare year with no quantitative figure or relative-date phrasing', () => {
+    const html = '<p>The charger was installed in 2026 at a residential property.</p>'
+    const claims = detectTimeAnchoredClaims(html, now)
+    expect(claims).toHaveLength(0)
+  })
+
+  it('marks hasOutboundCitationInSentence true when the sentence itself has a link', () => {
+    const html = '<p>Currently, the grant covers <a href="https://gov.uk/grants">75% of installation costs</a>.</p>'
+    const claims = detectTimeAnchoredClaims(html, now)
+    expect(claims.length).toBeGreaterThan(0)
+    expect(claims.every(c => c.hasOutboundCitationInSentence)).toBe(true)
+  })
+
+  it('marks hasOutboundCitationInSentence false with no link or named source', () => {
+    const html = '<p>Currently, the grant covers 75% of installation costs.</p>'
+    const claims = detectTimeAnchoredClaims(html, now)
+    expect(claims.length).toBeGreaterThan(0)
+    expect(claims.every(c => !c.hasOutboundCitationInSentence)).toBe(true)
+  })
+
+  it('sets assertedOn to the given now and reviewBy 180 days later', () => {
+    const html = '<p>Currently, the grant covers 75% of installation costs.</p>'
+    const claims = detectTimeAnchoredClaims(html, now)
+    expect(claims[0].assertedOn).toBe('2026-08-13')
+    expect(claims[0].reviewBy).toBe('2027-02-09')
+  })
+
+  it('extracts a percent or currency figure over a bare number when both are present', () => {
+    const html = '<p>The current rate is £350, based on around 1,200 applications this year.</p>'
+    const claims = detectTimeAnchoredClaims(html, now)
+    const claim = claims.find(c => c.matchedPattern === 'current-rate-is')
+    expect(claim!.extractedNumericValue).toBe('£350')
   })
 })
 
