@@ -482,7 +482,7 @@ export async function POST(req: NextRequest) {
           let eeatScore = calculateEEATScore(fullArticle);
           let readabilityScore = calculateReadabilityScore(fullArticle);
           const densityTarget = primaryTopicPhrase(keyword) || coreKeywordPhrase(keyword) || keyword;
-          let keywordDensityDetail = analyzeKeywordDensity(fullArticle, densityTarget);
+          const keywordDensityDetail = analyzeKeywordDensity(fullArticle, densityTarget);
           let keywordDensity = keywordDensityDetail.density;
           let keywordDensityScore = keywordDensityDetail.score;
           if (keywordDensityDetail.possibleScoringBug) {

@@ -48,6 +48,7 @@ describe('manual-review auto-verify master verification', () => {
       keyword,
       brand: 'TestBrand',
       authorName: 'Kamran Gul',
+      registeredLinkDomains: ['gov.uk'],
       eeatScore: panel.eeatScore,
       keywordDensityPct: panel.keywordDensity,
       keywordDensityScore: panel.keywordDensityScore,

@@ -12,6 +12,8 @@ import { assertImageUrlsPreserved } from '@/lib/html-text-transform'
 import { wordCountBand } from '@/lib/word-count'
 import { improveArticle } from '@/lib/article-improver'
 import { computePanelScores, type PanelScores } from '@/lib/panel-scores'
+import { calculateEEATScore, analyzeKeywordDensity } from '@/lib/content-scorer'
+import { primaryTopicPhrase } from '@/lib/topic-alignment'
 
 export interface FixAllOptions {
   html: string

@@ -102,7 +102,7 @@ function extractFigureHint(issue: Pick<ActionHintIssue, 'title' | 'description'>
 }
 
 /** Attach actionHint to every issue that still needs a human (or verified note). */
-export function withActionHints<T extends ActionHintIssue>(issues: T[]): T[] {
+export function withActionHints<T extends ActionHintIssue>(issues: T[]): Array<T & { actionHint: string }> {
   return issues.map(issue => ({
     ...issue,
     actionHint: issue.actionHint || buildActionHint(issue),
