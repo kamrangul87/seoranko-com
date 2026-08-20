@@ -173,14 +173,18 @@ describe('critical pipeline stop rules', () => {
     expect(isCriticalPipelineStopIssue(issue!)).toBe(true)
   })
 
-  it('stops on E-E-A-T / density score floors', () => {
+  it('stops on E-E-A-T score floors (keyword presence is review-only, not a pipeline stop)', () => {
     const floors = scoreFloorIssues({
       eeatScore: 30,
       keywordDensityPct: 0.05,
       keywordDensityScore: 5,
       keyword: 'home EV charger',
     })
-    expect(floors.length).toBeGreaterThanOrEqual(2)
-    expect(floors.every(i => isCriticalPipelineStopIssue(i))).toBe(true)
+    const eeat = floors.find(i => i.id === 'score-floor-eeat')
+    const density = floors.find(i => i.id === 'score-floor-keyword-density')
+    expect(eeat?.severity).toBe('critical')
+    expect(isCriticalPipelineStopIssue(eeat!)).toBe(true)
+    expect(density?.severity).toBe('warning')
+    expect(isCriticalPipelineStopIssue(density!)).toBe(false)
   })
 })
