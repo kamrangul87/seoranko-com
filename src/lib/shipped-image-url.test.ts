@@ -3,6 +3,7 @@ import {
   isAbsoluteHttpsUrl,
   pickPrimaryShippedImageUrl,
   pickPrimaryShippedImageUrlFromHtml,
+  htmlContainsShippedImageUrl,
 } from './shipped-image-url'
 
 describe('isAbsoluteHttpsUrl', () => {
@@ -41,12 +42,38 @@ describe('pickPrimaryShippedImageUrlFromHtml', () => {
     expect(pickPrimaryShippedImageUrlFromHtml(html)).toBe('https://cdn.example.com/from-html.webp')
   })
 
-  it('prefers image-set URLs over HTML scrape', () => {
-    const html = `<img src="https://cdn.example.com/from-html.webp" alt="x" />`
+  it('uses image-set hero only when that URL actually appears in the HTML', () => {
+    const html = `<img src="https://cdn.example.com/hero.webp" alt="x" />`
     expect(
       pickPrimaryShippedImageUrlFromHtml(html, {
         heroUrl: 'https://cdn.example.com/hero.webp',
+        contentUrls: ['https://cdn.example.com/c1.webp'],
       }),
     ).toBe('https://cdn.example.com/hero.webp')
+  })
+
+  it('does not invent Article.image from an image-set URL absent from the HTML', () => {
+    const html = `<p>No figures</p>`
+    expect(
+      pickPrimaryShippedImageUrlFromHtml(html, {
+        heroUrl: 'https://cdn.example.com/hero-not-injected.webp',
+        contentUrls: ['https://cdn.example.com/c-not-injected.webp'],
+      }),
+    ).toBeUndefined()
+  })
+
+  it('falls back to content image in HTML when hero URL is not shipped', () => {
+    const html = `<figure><img src="https://cdn.example.com/c1.webp" alt="c" /></figure>`
+    expect(
+      pickPrimaryShippedImageUrlFromHtml(html, {
+        heroUrl: 'https://cdn.example.com/hero-missing.webp',
+        contentUrls: ['https://cdn.example.com/c1.webp'],
+      }),
+    ).toBe('https://cdn.example.com/c1.webp')
+  })
+
+  it('htmlContainsShippedImageUrl matches exact CDN URLs', () => {
+    expect(htmlContainsShippedImageUrl('<img src="https://a.com/x.webp">', 'https://a.com/x.webp')).toBe(true)
+    expect(htmlContainsShippedImageUrl('<p>nope</p>', 'https://a.com/x.webp')).toBe(false)
   })
 })
