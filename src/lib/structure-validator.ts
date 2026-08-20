@@ -5,6 +5,10 @@
 // missing schema fields.
 
 import { countSentences } from './sentence-boundaries'
+import {
+  SCANNABILITY_POLICY,
+  SCANNABILITY_META_PARAGRAPH_RE,
+} from './scannability-policy'
 
 export interface StructureIssue {
   severity: 'critical' | 'warning'
@@ -46,24 +50,26 @@ export function validateArticleStructure(articleHtml: string): StructureIssue[] 
     })
   }
 
-  // --- Scannability: count body paragraphs over ~6 sentences ---
-  // Phase 3: use domain-masked sentence counting (gov.uk / energynetworks.org
-  // must not inflate counts — same bug class as paragraph-splitter).
-  const META_PARAGRAPH_RE =
-    /\bclass=["'][^"']*(?:article-meta|article-byline|article-dateline|article-last-verified)[^"']*["']/i
+  // --- Scannability: shared policy (same counter + threshold as fixer) ---
+  const {
+    denseSentenceThreshold,
+    minDenseParagraphsForWarning,
+  } = SCANNABILITY_POLICY
   const paragraphs = articleHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/gi) || []
   let denseParagraphCount = 0
   for (const p of paragraphs) {
-    if (META_PARAGRAPH_RE.test(p)) continue
+    if (SCANNABILITY_META_PARAGRAPH_RE.test(p)) continue
+    // Skip list-adjacent / empty-ish captions: figure captions often live in
+    // <figcaption>, not <p>. Plain short <p> under threshold are fine.
     const plainText = p.replace(/<[^>]+>/g, '')
     const sentenceCount = countSentences(plainText)
-    if (sentenceCount >= 6) denseParagraphCount++
+    if (sentenceCount >= denseSentenceThreshold) denseParagraphCount++
   }
-  if (denseParagraphCount >= 4) {
+  if (denseParagraphCount >= minDenseParagraphsForWarning) {
     issues.push({
       severity: 'warning',
       category: 'scannability',
-      message: `${denseParagraphCount} paragraphs are 6+ sentences with no breaks — reduces scannability. Consider shorter paragraphs, bullet lists, or bolded key terms.`
+      message: `${denseParagraphCount} paragraphs are ${denseSentenceThreshold}+ sentences with no breaks — reduces scannability. Consider shorter paragraphs, bullet lists, or bolded key terms.`
     })
   }
 

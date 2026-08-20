@@ -1,28 +1,17 @@
 // src/lib/paragraph-splitter.ts
-// Mechanical scannability safety net: splits any <p> that's grown too long
-// (too many sentences or too many words) into multiple <p> tags at the
-// nearest sentence boundary. Deterministic, no model call — the write
-// prompt's own scannability rule is a request, not a guarantee (same lesson
-// as scannability-fixer.ts's autoSplitDenseParagraphs, which this
-// complements: that one reacts to sentence COUNT only and runs earlier in
-// the pipeline; this one also considers word count and runs after image
-// injection, right before save, so it's the last mechanical pass on the
-// final HTML shape).
+// Mechanical scannability safety net on the final artifact: splits body <p>
+// tags that meet SCANNABILITY_POLICY.denseSentenceThreshold (or the word
+// budget) into chunks of at most targetMaxSentencesPerParagraph.
+//
+// Same sentence-boundary implementation as structure-validator /
+// scannability-fixer — never a local /[.!?]/ counter.
 
 import { parse } from 'node-html-parser'
-import { sentenceBoundaryOffsets } from './sentence-boundaries'
-
-const MAX_SENTENCES_PER_PARAGRAPH = 4
-const MAX_WORDS_PER_PARAGRAPH = 90
-
-// Splits on sentence-ending punctuation followed by whitespace + a capital
-// letter/quote — shared with scannability-fixer / structure-validator via
-// sentence-boundaries.ts. Domain-like tokens are masked first (not stripped
-// — length-preserving) so a TLD never becomes a false boundary; splitting
-// always happens against the ORIGINAL text at those offsets.
-function sentenceBoundaries(text: string): number[] {
-  return sentenceBoundaryOffsets(text)
-}
+import { countSentences, sentenceBoundaryOffsets } from './sentence-boundaries'
+import {
+  SCANNABILITY_POLICY,
+  SCANNABILITY_META_PARAGRAPH_RE,
+} from './scannability-policy'
 
 function countWords(text: string): number {
   return text.split(/\s+/).filter(Boolean).length
@@ -35,37 +24,39 @@ function countWords(text: string): number {
 // boundary detector used — safe here because paragraphs in this pipeline
 // don't nest block-level markup, only inline formatting/links.
 function splitParagraphHtml(innerHtml: string): string[] {
-  const boundaries = sentenceBoundaries(innerHtml)
-  // sentenceBoundaries() only reports the N-1 punctuation marks BETWEEN
-  // sentences (the final sentence in a paragraph has no trailing
-  // punctuation-then-capital-letter after it to match against, since
-  // there's nothing left in the string). Appending innerHtml.length turns
-  // that into one END POSITION PER SENTENCE — sentenceEnds.length is the
-  // true sentence count. A prior version compared boundaries.length
-  // directly against MAX_SENTENCES_PER_PARAGRAPH, silently tolerating one
-  // extra sentence per paragraph (a 5-sentence paragraph read as only 4)
-  // and, when the boundary count landed on an exact multiple of MAX, an
-  // "is this the last boundary" special case swallowed the intended split
-  // point entirely — the two compounding off-by-one bugs meant paragraphs
-  // never actually split in practice.
+  const {
+    denseSentenceThreshold,
+    targetMaxSentencesPerParagraph,
+    maxWordsPerParagraph,
+  } = SCANNABILITY_POLICY
+
+  const boundaries = sentenceBoundaryOffsets(innerHtml)
+  // sentenceBoundaryOffsets() only reports the N-1 punctuation marks BETWEEN
+  // sentences. Appending innerHtml.length turns that into one END POSITION
+  // PER SENTENCE — sentenceEnds.length === countSentences for the same text.
   const sentenceEnds = [...boundaries, innerHtml.length]
   const sentenceCount = sentenceEnds.length
+  // Prefer the shared counter so validator/fixer/splitter never diverge.
+  const counted = countSentences(innerHtml)
+  const effectiveCount = Math.max(sentenceCount, counted)
 
   const wordCount = countWords(innerHtml.replace(/<[^>]+>/g, ' '))
-  if (sentenceCount <= MAX_SENTENCES_PER_PARAGRAPH && wordCount <= MAX_WORDS_PER_PARAGRAPH) {
+  const needsSplit =
+    effectiveCount >= denseSentenceThreshold || wordCount > maxWordsPerParagraph
+
+  if (!needsSplit) {
     return [innerHtml]
   }
-  // Only one detectable sentence (or none at all — a run-on with no
-  // punctuation boundary) — nothing safe to split at.
-  if (sentenceCount <= 1) return [innerHtml]
+  // Only one detectable sentence (or none) — nothing safe to split at.
+  if (effectiveCount <= 1 || sentenceEnds.length <= 1) return [innerHtml]
 
-  // Group sentences into chunks of at most MAX_SENTENCES_PER_PARAGRAPH each
-  // — a simple, deterministic split; word-count overflow on an individual
-  // sentence-heavy chunk is accepted rather than breaking mid-sentence.
+  // Group into chunks of at most targetMaxSentencesPerParagraph.
   const chunks: string[] = []
   let chunkStart = 0
   for (let i = 0; i < sentenceEnds.length; i++) {
-    const isGroupEnd = (i + 1) % MAX_SENTENCES_PER_PARAGRAPH === 0 || i === sentenceEnds.length - 1
+    const isGroupEnd =
+      (i + 1) % targetMaxSentencesPerParagraph === 0 ||
+      i === sentenceEnds.length - 1
     if (!isGroupEnd) continue
     const end = sentenceEnds[i]
     const chunk = innerHtml.slice(chunkStart, end).trim()
@@ -82,6 +73,8 @@ export function splitDenseParagraphs(html: string): string {
   const paragraphs = root.querySelectorAll('p')
 
   for (const p of paragraphs) {
+    const outer = p.toString()
+    if (SCANNABILITY_META_PARAGRAPH_RE.test(outer)) continue
     const parts = splitParagraphHtml(p.innerHTML)
     if (parts.length <= 1) continue
     const replacementHtml = parts.map(part => `<p>${part}</p>`).join('\n')
