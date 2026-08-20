@@ -68,6 +68,20 @@ function getAuthorityGuidance(market: string): AuthorityGuidance {
   return AUTHORITY_GUIDANCE[key] || AUTHORITY_GUIDANCE.global
 }
 
+// Single source of "today" for this module — buildMasterPrompt,
+// validateAndCorrect, and fetchVerifiedFacts each used to call `new Date()`
+// independently. The model must never infer today's date from training
+// data, so every date-derived value injected into a prompt or used to
+// correct dated schema fields comes from this one real Date() call.
+function todayContext(): { todayISO: string; currentYear: number; currentMonthName: string } {
+  const now = new Date()
+  return {
+    todayISO: now.toISOString().slice(0, 10),
+    currentYear: now.getFullYear(),
+    currentMonthName: now.toLocaleString('en-GB', { month: 'long' }),
+  }
+}
+
 export interface InternalLink {
   url: string
   anchorText: string
@@ -246,8 +260,7 @@ export function buildMasterPrompt(params: ArticleMasterParams): string {
   const questionsList = questionsAnswered.slice(0, 5).join(' | ');
   const links = internalLinks || '';
 
-  const currentYear = new Date().getFullYear();
-  const currentMonth = new Date().toLocaleString('en-GB', { month: 'long' });
+  const { todayISO, currentYear, currentMonthName: currentMonth } = todayContext();
 
   // ── MODE-SPECIFIC CONTEXT BLOCK ──────────────────────────────────────────
 
@@ -342,7 +355,8 @@ just targeting the keyword phrase itself: ${gapsList}` : ''}${gapAnalysisNote}
 TONE: ${tone}
 MARKET: ${market}
 TARGET WORD COUNT: ${safeWordCount} words
-CURRENT DATE: ${currentMonth} ${currentYear}
+CURRENT DATE: ${currentMonth} ${currentYear} (${todayISO})
+DATED FIGURES: any policy, pricing, grant, or regulatory figure must be written without an absolute date anchor (no "as of ${currentMonth} ${currentYear}", no "the current rate is X") and must carry a source link — write the figure with a citation instead, e.g. "grants of up to £350 (see [official source])".
 ${uniqueAngle ? `\nUNIQUE ANGLE (your competitive edge): ${uniqueAngle}` : ''}${uniqueContent ? `\nUNIQUE CONTENT TO INCLUDE: ${uniqueContent}` : ''}
 
 ${links}
@@ -782,9 +796,7 @@ export async function validateAndCorrect(
   brandDomain = '',
 ): Promise<{ article: string; corrections: string[] }> {
   const corrections: string[] = [];
-  const currentYear = new Date().getFullYear();
-  const currentMonth = new Date().toLocaleString('en-GB', { month: 'long' });
-  const isoDate = new Date().toISOString().split('T')[0];
+  const { todayISO: isoDate, currentYear, currentMonthName: currentMonth } = todayContext();
   const displayBrand = brandName.trim() || 'the publisher'
   const siteUrl = brandDomain.trim()
     ? (brandDomain.startsWith('http') ? brandDomain.replace(/\/$/, '') : `https://${brandDomain.replace(/^https?:\/\//, '').replace(/\/$/, '')}`)
@@ -987,7 +999,7 @@ export async function fetchVerifiedFacts(
   market: string,
   competitors: string[] = [],
 ): Promise<{ facts: string; sources: string[] }> {
-  const currentYear = new Date().getFullYear();
+  const { currentYear } = todayContext();
 
   try {
     // Determine what kind of facts need verification for this exact topic/market

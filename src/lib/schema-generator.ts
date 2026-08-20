@@ -14,6 +14,7 @@ import type {
   FAQPage as FAQPageSchema,
   HowTo as HowToSchema,
   BreadcrumbList as BreadcrumbListSchema,
+  ImageObject as ImageObjectSchema,
   Person,
   WithContext,
 } from 'schema-dts'
@@ -119,12 +120,24 @@ export function generateArticleSchema(input: ArticleSchemaInput): GeneratedSchem
     console.warn(`[schema-generator] ${logoOmittedReason}`)
   }
 
-  // Article.image: bare absolute https URL — no 16:9/4:3/1:1 crop set exists
-  // yet (image-generator.ts produces one hero size), so the array form isn't
-  // populated with fabricated aspect ratios; this is upgraded automatically
-  // once distinct crops are generated. Google's structured-data guidelines
-  // accept a bare URL string here as well as an ImageObject/array.
+  // Article.image: absolute https URL, array form — no 16:9/4:3/1:1 crop set
+  // exists yet (image-generator.ts produces one hero size), so this is a
+  // single-element array rather than fabricated aspect-ratio variants; this
+  // upgrades automatically once distinct crops are generated. Google's own
+  // reference examples use the array form even for a single image.
   const articleImageUrl = isAbsoluteHttpsUrl(imageUrl) ? imageUrl : undefined
+
+  // Organization.logo MUST be an ImageObject, not a bare URL string — the
+  // single most common way this field is emitted wrong per Google's
+  // structured-data guidance, and confirmed as this codebase's actual prior
+  // behavior (a plain `logo: "https://..."` string). No width/height: this
+  // pipeline doesn't inspect the actual logo image's pixel dimensions (no
+  // stored value, and fetching one during schema generation is its own
+  // failure mode) — Google's ≥112x112px requirement on the real asset is
+  // not independently re-verified here, only that a usable URL exists.
+  const logoImageObject: ImageObjectSchema | undefined = organizationLogoUrl
+    ? { '@type': 'ImageObject', url: organizationLogoUrl }
+    : undefined
 
   const author: Person = {
     '@type': 'Person',
@@ -136,7 +149,7 @@ export function generateArticleSchema(input: ArticleSchemaInput): GeneratedSchem
     '@type': 'Organization',
     name: organizationName,
     url: organizationUrl,
-    ...(organizationLogoUrl ? { logo: organizationLogoUrl } : {}),
+    ...(logoImageObject ? { logo: logoImageObject } : {}),
   }
 
   const articleSchema: WithContext<ArticleSchema> = {
@@ -152,7 +165,7 @@ export function generateArticleSchema(input: ArticleSchemaInput): GeneratedSchem
     inLanguage: languageTagForMarket(market),
     author,
     publisher,
-    ...(articleImageUrl ? { image: articleImageUrl } : {}),
+    ...(articleImageUrl ? { image: [articleImageUrl] } : {}),
     mainEntityOfPage: { '@type': 'WebPage', '@id': articleUrl },
   }
 
@@ -194,7 +207,7 @@ export function generateArticleSchema(input: ArticleSchemaInput): GeneratedSchem
     '@type': 'Organization',
     name: organizationName,
     url: organizationUrl,
-    ...(organizationLogoUrl ? { logo: organizationLogoUrl } : {}),
+    ...(logoImageObject ? { logo: logoImageObject } : {}),
     sameAs: [`${organizationUrl}/about`],
   }
 

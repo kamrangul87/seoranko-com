@@ -102,7 +102,9 @@ describe('E2E final-artifact sample (mechanical pipeline)', () => {
     // Must still contain full Supabase hostnames after QG autofix + scrub
     expect(finalHtml.match(/supabase\.co/g)?.length).toBeGreaterThanOrEqual(2)
     expect(finalHtml).toContain(HERO)
-    expect(finalHtml).toContain('"image": "https://ddfboapzwclecbdjoqex.supabase.co')
+    // Article.image is emitted as an array, not a bare string.
+    expect(finalHtml).toContain('"image": [')
+    expect(finalHtml).toContain('"https://ddfboapzwclecbdjoqex.supabase.co')
 
     const outDir = process.env.CURSOR_ARTIFACTS_DIR || '/tmp'
     mkdirSync(outDir, { recursive: true })

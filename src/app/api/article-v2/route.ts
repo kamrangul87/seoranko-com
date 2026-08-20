@@ -28,7 +28,8 @@ import {
   scoreHtmlLocally,
 } from '@/lib/content-scorer';
 import { MODEL_FOR } from '@/lib/model-router';
-import { runQualityGate, detectWrongBrandInBody, recomputeQualityGateTotals, qualityGateStageStatus, type QualityIssue } from '@/lib/article-quality-gate';
+import { runQualityGate, detectWrongBrandInBody, recomputeQualityGateTotals, qualityGateStageStatus, buildTimeAnchoredClaimRecords, timeAnchoredClaimFailureToIssue, type QualityIssue } from '@/lib/article-quality-gate';
+import { repairTimeAnchoredClaims } from '@/lib/time-anchored-claim-repair';
 import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
 import { enforceWordCountLimit, countArticleWords, deterministicTrimToTarget, wordCountBand, snapWordCount } from '@/lib/word-count-enforcer';
 import { injectMissingInternalLinks } from '@/lib/inject-internal-links';
@@ -941,6 +942,21 @@ export async function POST(req: NextRequest) {
                 primaryTopicPhrase(keyword) || coreKeywordPhrase(keyword) || keyword,
               )
               const imageExtraIssues: QualityIssue[] = []
+              // Soft case only: assertSchemaCompleteness already hard-blocks
+              // the save when a *configured* brand has no resolvable logo.
+              // This is the non-blocking case — brand has no brand_settings
+              // row at all yet — surfaced as a UI nudge rather than silently
+              // shipping an Organization with no logo.
+              if (schemaResult.logoOmittedReason && !brandSettings.configured) {
+                imageExtraIssues.push({
+                  id: 'schema-logo-not-configured',
+                  severity: 'info',
+                  category: 'schema',
+                  title: 'Organization logo not configured — publisher.logo omitted',
+                  description: `${schemaResult.logoOmittedReason} Add a logo in Brand Settings to include Organization.logo in this article's schema.`,
+                  autoFixable: false,
+                })
+              }
               if (imageSet && imageSet.imageStats.failures.length > 0) {
                 imageExtraIssues.push({
                   id: 'image-count-mismatch',
@@ -1001,6 +1017,33 @@ export async function POST(req: NextRequest) {
               publishedHtml = scrubInsertionCorruption(publishedHtml).html
               assertImageUrlsPreserved(beforePostGateScrub, publishedHtml)
               finalHtml = publishedHtml
+
+              // C04 Step 1.4 — mechanical single-sentence repair loop. Only
+              // runs when the gate found unresolved time-anchored claims;
+              // touches only the flagged sentences, never a whole-article
+              // rewrite (banned by rule A02).
+              if (qr.issues.some(i => i.id.startsWith('time-anchored-claim-'))) {
+                try {
+                  const repair = await repairTimeAnchoredClaims(publishedHtml, new Date(generatedAt))
+                  if (repair.repairedCount > 0) {
+                    publishedHtml = repair.article
+                    finalHtml = publishedHtml
+                  }
+                  console.log(`[article-v2] time-anchored-claim repair: fixed ${repair.repairedCount}, ${repair.stillFailing.length} still failing`)
+                  if (articleQualityGate) {
+                    const keptIssues = articleQualityGate.issues.filter(i => !i.id.startsWith('time-anchored-claim-'))
+                    const rebuiltIssues = repair.stillFailing.map((f, i) => timeAnchoredClaimFailureToIssue(f, i))
+                    articleQualityGate = recomputeQualityGateTotals({
+                      ...articleQualityGate,
+                      issues: [...keptIssues, ...rebuiltIssues],
+                      articleAfterAutoFix: publishedHtml,
+                      autoFixedCount: (articleQualityGate.autoFixedCount || 0) + repair.repairedCount,
+                    })
+                  }
+                } catch (repairErr) {
+                  console.warn('[article-v2] time-anchored-claim repair failed, continuing with original issues:', repairErr)
+                }
+              }
 
               const criticalStops = qr.issues.filter(i => isCriticalPipelineStopIssue(i))
               if (criticalStops.length > 0) {
@@ -1075,6 +1118,16 @@ export async function POST(req: NextRequest) {
                 })
                 .filter(Boolean)
             : null;
+
+          // C04: every time-anchored figure detected on the final canonical
+          // HTML, for later re-verification by reviewBy — empty array is a
+          // genuine "none found", not a failure.
+          let timeAnchoredClaimsForDb: ReturnType<typeof buildTimeAnchoredClaimRecords> = [];
+          try {
+            timeAnchoredClaimsForDb = buildTimeAnchoredClaimRecords(publishedHtml, new Date(generatedAt));
+          } catch (timeAnchoredErr) {
+            console.warn('[article-v2] time-anchored-claims extraction failed, continuing:', timeAnchoredErr);
+          }
 
           // ── Persist to Supabase ──────────────────────────────────────────
           // This is the entire reason the `articles` table had 0 rows in
@@ -1178,6 +1231,7 @@ export async function POST(req: NextRequest) {
                   schema_json: schemaJsonForDb,
                   hero_image_url: heroImageUrl || null,
                   faqs: faqs.length > 0 ? faqs : [],
+                  time_anchored_claims: timeAnchoredClaimsForDb,
                   rank_score: rankScore,
                   fact_density_score: factDensityResult.score,
                   human_score: humanScore ?? null,

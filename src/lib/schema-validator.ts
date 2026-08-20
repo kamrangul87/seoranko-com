@@ -44,8 +44,13 @@ export interface SchemaValidationOptions {
   expectOrganizationLogo?: boolean
 }
 
+// inLanguage moved from recommended to required: schema-generator.ts always
+// sets it (defaults to generic 'en' via languageTagForMarket when market is
+// unset), so in practice this never fires — but it's a real requirement per
+// the C04/schema hardening spec, not just a nice-to-have, so it's scored
+// the same way (error, not warning) when something genuinely omits it.
 const SCHEMA_RULES: Record<string, { required: string[]; recommended: string[] }> = {
-  Article:        { required: ['headline', 'author', 'datePublished'], recommended: ['image', 'publisher', 'dateModified', 'inLanguage'] },
+  Article:        { required: ['headline', 'author', 'datePublished', 'inLanguage'], recommended: ['image', 'publisher', 'dateModified'] },
   BlogPosting:    { required: ['headline', 'author', 'datePublished'], recommended: ['image', 'publisher', 'dateModified'] },
   Person:         { required: ['name'],                                recommended: ['jobTitle', 'worksFor', 'url'] },
   Organization:   { required: ['name'],                                recommended: ['url', 'logo', 'sameAs'] },
@@ -137,6 +142,17 @@ function validateNestedEntity(
           severity: 'warning',
           property: 'publisher.logo',
           message: "publisher is missing a logo (or it isn't a usable URL) — Google's structured data guidelines list this as a recommended property for full Article rich-result eligibility."
+        })
+      } else if (typeof logo === 'string') {
+        // schema-generator.ts always emits logo as an ImageObject now — a
+        // bare string here means some other code path (or a future
+        // regression) shaped it wrong. This is the single most common way
+        // Organization.logo is emitted incorrectly per Google's guidance.
+        issues.push({
+          schemaType: entityType || 'Organization',
+          severity: 'error',
+          property: 'publisher.logo',
+          message: 'publisher.logo is a bare URL string, not an ImageObject — Google expects { "@type": "ImageObject", "url": "..." } for a logo, not plain text.'
         })
       }
     }
@@ -230,9 +246,43 @@ function validateBlock(block: any, issues: SchemaIssue[], options: SchemaValidat
       }
     }
 
+    // dateModified must never predate datePublished — a stale/incorrect
+    // modification date undermines the freshness signal it exists for.
+    if (
+      isValidDateString(block.datePublished) &&
+      isValidDateString(block.dateModified) &&
+      Date.parse(block.dateModified) < Date.parse(block.datePublished)
+    ) {
+      issues.push({
+        schemaType: type,
+        severity: 'error',
+        property: 'dateModified',
+        message: `dateModified ("${block.dateModified}") is earlier than datePublished ("${block.datePublished}") — dateModified must always be >= datePublished.`
+      })
+    }
+
+    // Google's Article guidance treats a very long headline as a signal the
+    // title will be truncated in search results. The write prompt already
+    // targets 50-60 chars, so this should be a rare, exceptional trigger —
+    // 'error' (not 'warning') to match this being a real failure to fix,
+    // not a style nit, when it does fire.
+    if (typeof block.headline === 'string' && block.headline.length > 110) {
+      issues.push({
+        schemaType: type,
+        severity: 'error',
+        property: 'headline',
+        message: `headline is ${block.headline.length} characters — Google recommends keeping it under 110 to avoid truncation in search results.`
+      })
+    }
+
     if (block.image) {
-      const imageUrl = typeof block.image === 'string' ? block.image : block.image?.url
-      if (!isPlausibleUrl(imageUrl)) {
+      // Article.image accepts a bare URL, an ImageObject, or an array of
+      // either — check whichever shape is actually present.
+      const images = Array.isArray(block.image) ? block.image : [block.image]
+      const hasUsableImage = images.some((img: unknown) =>
+        isPlausibleUrl(typeof img === 'string' ? img : (img as { url?: unknown })?.url)
+      )
+      if (!hasUsableImage) {
         issues.push({
           schemaType: type,
           severity: 'error',
