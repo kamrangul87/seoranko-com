@@ -65,12 +65,12 @@ export function expectOrganizationLogoFromPolicy(policy: LogoPolicy): boolean {
 }
 
 /**
- * Single severity for every dated-policy finding across article-v2,
- * runQualityGate, recheck, and Fix All.
+ * Default severity for dated-policy findings that need verification
+ * (UNSUPPORTED / NEEDS_REVIEW / PARTIALLY_SUPPORTED).
  *
- * warning (not critical): surfaces in Fix All "needs human review", affects
- * readyToPublish / score, but does not hard-stop the generation pipeline.
- * Never use a different severity in a caller — import this constant.
+ * Contradicted / outdated current claims use critical via
+ * `severityForFreshnessFinding` in freshness-policy.ts — never invent a
+ * different severity in a caller for the same claim.
  */
 export const DATED_POLICY_SEVERITY = 'warning' as const
 

@@ -41,14 +41,14 @@ describe('validateTimeAnchoredClaims', () => {
 })
 
 describe('buildDatedPolicyIssues + time-anchored claims', () => {
-  it('surfaces a critical issue for a relative claim with no date token that chrono cannot catch', () => {
+  it('surfaces a warning for a relative claim with no date token that chrono cannot catch', () => {
     const html = `
       <h1>EV Charger Grants</h1>
       <p>Currently, the grant covers 75% of installation costs for eligible applicants.</p>
     `
     const issues = buildDatedPolicyIssues(html, { now })
-    const critical = issues.filter(i => i.category === 'dated-policy' && i.severity === 'critical')
-    expect(critical.length).toBeGreaterThan(0)
+    const dated = issues.filter(i => i.category === 'dated-policy' && i.severity === 'warning')
+    expect(dated.length).toBeGreaterThan(0)
   })
 
   it('does not double-flag a sentence both detectDatedClaims and detectTimeAnchoredClaims would independently catch', () => {
@@ -71,7 +71,7 @@ describe('buildDatedPolicyIssues + time-anchored claims', () => {
       <p>Currently, the OZEV installation grant scheme covers 75% of costs.</p>
     `
     const issues = buildDatedPolicyIssues(html, { now })
-    const dated = issues.filter(i => i.category === 'dated-policy')
+    const dated = issues.filter(i => i.category === 'dated-policy' && i.severity !== 'info')
     expect(dated).toHaveLength(0)
   })
 })

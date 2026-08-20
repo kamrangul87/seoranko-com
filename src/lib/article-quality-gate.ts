@@ -25,7 +25,6 @@ import {
   DATED_POLICY_SEVERITY,
 } from '@/lib/quality-gate-policy'
 import {
-  detectDatedClaims,
   detectStaleYearReferences,
   extractHeadingTexts,
   detectTimeAnchoredClaims,
@@ -37,6 +36,17 @@ import {
   type CitationVerifyStatus,
 } from '@/lib/citation-auto-verify'
 import { withActionHints } from '@/lib/quality-issue-action-hints'
+import {
+  FRESHNESS_REVIEW_SEVERITY,
+  severityForFreshnessFinding,
+  type FreshnessFinding,
+} from '@/lib/freshness-policy'
+import {
+  buildFreshnessIssueDescription,
+  evaluateFreshnessSync,
+  freshnessFindingsRequiringIssues,
+  freshnessIssueTitle,
+} from '@/lib/freshness-evaluator'
 
 // AI slop patterns — expanded from anti-slop GitHub repo
 const AI_SLOP_PATTERNS = [
@@ -61,32 +71,10 @@ const AI_SLOP_PATTERNS = [
   /\bto conclude,/i,
 ]
 
-// Grant-figure claims are evaluated separately by evaluateGrantFigureClaims()
-// below — document-level claim-citation binding, not proximity matching.
-// A fixed character window ("nearby") misses citations that appear earlier
-// in the article, and matching only the word "verify" misses "confirm at
-// GOV.UK" / "see GOV.UK" / etc. DANGEROUS_FACT_PATTERNS now only covers
-// dated-policy claims, which don't need citation binding.
-const DANGEROUS_FACT_PATTERNS = [
-  {
-    pattern: /\b(as of|from) (january|february|march|april|may|june|july|august|september|october|november|december) 20\d{2}\b.*?(grant|scheme|fund|subsid)/i,
-    message: 'Dated grant/scheme claim — confirm this is still current policy',
-    // Severity must match DATED_POLICY_SEVERITY — never diverge per pass.
-    severity: DATED_POLICY_SEVERITY,
-    category: 'dated-policy' as const,
-  },
-]
-
-// A regulation's effective date ("enforced from June 2022") is a fixed
-// historical fact — it doesn't go stale. What genuinely goes stale is a
-// changeable FIGURE (a grant amount, rate, or cap) stated alongside a date.
-// The pattern above matches on the word "grant"/"scheme" appearing anywhere
-// in the sentence, which false-positives on claims that just reference
-// eligibility for a grant without stating any amount that could change —
-// e.g. "...doesn't qualify for the OZEV grant" has no £/% figure at all.
-function hasChangeableFigureNearby(matchContext: string): boolean {
-  return /[£$€]\s?\d|\d+\s?%/.test(matchContext)
-}
+// Dated-policy / freshness detection is owned exclusively by
+// evaluateFreshnessSync → buildDatedPolicyIssues (shared severity via
+// freshness-policy). Do not re-introduce a parallel DANGEROUS_FACT_PATTERNS
+// loop — it previously duplicated chrono findings at a divergent severity.
 
 // ============================================================
 // CLAIM-CITATION BINDING (grant-figure claims)
@@ -207,8 +195,15 @@ function claimHasInlineVerification(articleContent: string, claim: Claim): boole
  * one GOV.UK citation (or one verify hedge near any restatement) clears the
  * figure for the whole article. Repeated "up to £350" lines do not each need
  * their own nearby cite. Emit one issue per unique figure text.
+ *
+ * When `freshnessCoveredFigures` is provided (from the freshness scan), skip
+ * any figure already represented as a dated-policy / freshness issue so the
+ * same claim cannot emit contradictory severities on two paths.
  */
-export function evaluateGrantFigureClaims(articleContent: string): QualityIssue[] {
+export function evaluateGrantFigureClaims(
+  articleContent: string,
+  freshnessCoveredFigures?: Set<string>,
+): QualityIssue[] {
   const issues: QualityIssue[] = []
   const citations = extractCitations(articleContent)
   const claims = extractFinancialClaims(articleContent)
@@ -221,6 +216,9 @@ export function evaluateGrantFigureClaims(articleContent: string): QualityIssue[
   }
 
   for (const group of Array.from(byFigure.values())) {
+    const figureKey = group[0].text.toLowerCase().replace(/\s+/g, ' ').trim()
+    if (freshnessCoveredFigures?.has(figureKey)) continue
+
     const unionTopics = new Set<string>()
     for (const c of group) {
       for (const t of Array.from(c.topicTerms)) unionTopics.add(t)
@@ -352,15 +350,19 @@ export function timeAnchoredClaimFailureToIssue(
     const bound = findBoundCitation(pseudoClaimFor(articleContent, claim), citations)
     citationUrl = bound?.url
   }
+  // Shared freshness severity — unsourced / needs-review is WARNING, never a
+  // divergent critical from a second detector path.
   return {
     id: `time-anchored-claim-${index}`,
-    // FAIL-tier per the C04 spec — this codebase's 'critical' severity
-    // (blocks quality_passed), matching evaluateGrantFigureClaims'
-    // treatment of an uncited financial figure.
-    severity: 'critical',
+    severity: FRESHNESS_REVIEW_SEVERITY,
     category: 'dated-policy',
-    title: `Time-anchored claim — confirm still current: "${claim.extractedNumericValue || claim.matchedPattern}"`,
-    description: `"${claim.sentence}" — ${reasons.join('; ')}. Re-check by ${claim.reviewBy}.`,
+    title: `Time-sensitive claim — confirm still current: "${claim.extractedNumericValue || claim.matchedPattern}"`,
+    description: [
+      `Claim: "${claim.sentence}"`,
+      `Evidence: ${reasons.join('; ')}.`,
+      `Recommended action: Add an official source link that states this figure, or label the claim as historical if it no longer applies.`,
+      `Re-check by ${claim.reviewBy}.`,
+    ].join('\n'),
     location: claim.sentence.slice(0, 100),
     figureText: claim.extractedNumericValue || undefined,
     citationUrl,
@@ -421,9 +423,31 @@ function extractMetaDescriptionFromHtml(html: string): string | undefined {
 }
 
 /**
- * Chrono dated-claims + stale-year findings, always at DATED_POLICY_SEVERITY.
- * Shared by article-v2 / recheck / Fix All via runQualityGate — never build
- * these issues in a caller with a different severity.
+ * Map a freshness finding → QualityIssue using the shared severity policy.
+ */
+export function freshnessFindingToIssue(
+  finding: FreshnessFinding,
+  index: number,
+): QualityIssue | null {
+  const severity = severityForFreshnessFinding(finding)
+  if (severity === null) return null
+  return {
+    id: `freshness-${finding.detector}-${index}`,
+    severity,
+    category: 'dated-policy',
+    title: freshnessIssueTitle(finding),
+    description: buildFreshnessIssueDescription(finding),
+    location: finding.sentence.slice(0, 100),
+    figureText: finding.figureText,
+    citationUrl: finding.citationUrl,
+    autoFixable: false,
+  }
+}
+
+/**
+ * Authoritative dated-policy / freshness issues + stale-year findings.
+ * Chrono, time-anchored, and relative factual claims all flow through
+ * evaluateFreshnessSync so they cannot disagree on severity.
  */
 export function buildDatedPolicyIssues(
   articleContent: string,
@@ -431,37 +455,24 @@ export function buildDatedPolicyIssues(
     now?: Date
     title?: string
     metaDescription?: string
+    /** Optional live/fixture evidence — never hard-coded figures in production. */
+    evidenceFindings?: FreshnessFinding[]
   },
 ): QualityIssue[] {
   const now = opts?.now ?? new Date()
   const issues: QualityIssue[] = []
-  // Populated by the chrono dated-claims pass below, read by the
-  // time-anchored-claims pass further down so the two detectors (which
-  // overlap on date-bearing sentences like "as of August 2026") don't both
-  // emit an issue for the exact same sentence.
-  const sentencesAlreadyFlagged = new Set<string>()
 
   try {
-    const datedClaims = detectDatedClaims(articleContent, now)
-    const unsourced = datedClaims.filter(c => !c.hasSource)
-    const uniqueUnsourced = Array.from(
-      new Map(unsourced.map(c => [c.sentence.trim(), c])).values(),
-    )
-    for (const claim of uniqueUnsourced) sentencesAlreadyFlagged.add(claim.sentence.trim())
-    for (let i = 0; i < uniqueUnsourced.length; i++) {
-      const claim = uniqueUnsourced[i]
-      issues.push({
-        id: `dated-claim-${i}`,
-        severity: DATED_POLICY_SEVERITY,
-        category: 'dated-policy',
-        title: `Dated claim — confirm still current: "${claim.text}"`,
-        description: `"${claim.sentence}" — tied to a date but no named source or link found nearby. Add a GOV.UK citation or verify the figure is still accurate. Re-check by ${claim.reviewBy.slice(0, 10)}.`,
-        location: claim.sentence.slice(0, 100),
-        autoFixable: false,
-      })
+    const findings =
+      opts?.evidenceFindings ??
+      evaluateFreshnessSync(articleContent, { now })
+    const forIssues = freshnessFindingsRequiringIssues(findings)
+    for (let i = 0; i < forIssues.length; i++) {
+      const issue = freshnessFindingToIssue(forIssues[i], i)
+      if (issue) issues.push(issue)
     }
   } catch (err) {
-    console.warn('[article-quality-gate] dated-claim detection failed:', err)
+    console.warn('[article-quality-gate] freshness evaluation failed:', err)
   }
 
   try {
@@ -496,27 +507,25 @@ export function buildDatedPolicyIssues(
     console.warn('[article-quality-gate] stale-year detection failed:', err)
   }
 
-  try {
-    // Broader than detectDatedClaims: catches relative claims with no
-    // parseable date token at all ("currently, the grant covers 75%").
-    // Skip any sentence the chrono pass above already flagged — both
-    // detectors legitimately fire on genuine date-token sentences like
-    // "as of August 2026", and a sentence shouldn't get two issues for the
-    // same underlying defect.
-    const timeAnchoredClaims = detectTimeAnchoredClaims(articleContent, now)
-      .filter(c => !sentencesAlreadyFlagged.has(c.sentence.trim()))
-    const uniqueTimeAnchoredClaims = Array.from(
-      new Map(timeAnchoredClaims.map(c => [c.sentence.trim(), c])).values(),
-    )
-    const failures = validateTimeAnchoredClaims(articleContent, uniqueTimeAnchoredClaims)
-    for (let i = 0; i < failures.length; i++) {
-      issues.push(timeAnchoredClaimFailureToIssue(failures[i], i, articleContent))
-    }
-  } catch (err) {
-    console.warn('[article-quality-gate] time-anchored-claim detection failed:', err)
-  }
-
   return issues
+}
+
+/** Figures already represented by freshness dated-policy issues. */
+export function freshnessCoveredFigureKeys(html: string, now?: Date): Set<string> {
+  const findings = evaluateFreshnessSync(html, { now })
+  const keys = new Set<string>()
+  for (const f of freshnessFindingsRequiringIssues(findings)) {
+    if (f.figureText) {
+      keys.add(f.figureText.toLowerCase().replace(/\s+/g, ' ').trim())
+    }
+  }
+  // Also cover CURRENT+SUPPORTED so grant-figure does not re-warn a verified claim
+  for (const f of findings) {
+    if (f.evidenceStatus === 'SUPPORTED' && f.figureText) {
+      keys.add(f.figureText.toLowerCase().replace(/\s+/g, ' ').trim())
+    }
+  }
+  return keys
 }
 
 // Duplicate-word and repeated-character checks used to live here as regexes
@@ -1107,6 +1116,7 @@ export async function runQualityGate(
       now?: Date
       title?: string
       metaDescription?: string
+      evidenceFindings?: FreshnessFinding[]
     }
   }
 ): Promise<QualityGateResult> {
@@ -1159,6 +1169,7 @@ export async function runQualityGate(
       now?: Date
       title?: string
       metaDescription?: string
+      evidenceFindings?: FreshnessFinding[]
     }
   }
 
@@ -1171,6 +1182,7 @@ export async function runQualityGate(
   // recheck / Fix All.
   issues = issues.filter(i => i.category !== 'dated-policy')
   issues.push(...buildDatedPolicyIssues(articleContent, datedPolicy))
+  const freshnessFigures = freshnessCoveredFigureKeys(articleContent, datedPolicy?.now)
 
   // ---- RULE 0: Topic must match the requested keyword (blocks crypto-for-ev-charger disasters) ----
   const topicCheck = checkTopicAlignment(articleContent, keyword)
@@ -1231,37 +1243,12 @@ export async function runQualityGate(
     console.warn('[article-quality-gate] prose lint failed, continuing:', proseErr)
   }
 
-  // ---- RULE 2: Dangerous fact patterns (dated-policy only — grant figures
-  // are evaluated separately below via document-level claim-citation binding) ----
-  for (const rule of DANGEROUS_FACT_PATTERNS) {
-    const match = articleContent.match(rule.pattern)
-    if (match) {
-      const idx = articleContent.search(rule.pattern)
-      const context = articleContent.slice(Math.max(0, idx - 20), idx + 80)
-      if (!hasChangeableFigureNearby(context)) continue // fixed regulatory date, not a changeable claim
-      const figureMatch = context.match(/[£$€]\s?\d[\d,]*(?:\.\d+)?|\d+\s?%/)
-      const claimLike: Claim = {
-        text: figureMatch?.[0] || match[0],
-        position: idx,
-        topicTerms: extractTopicTerms(context),
-      }
-      const bound = findBoundCitation(claimLike, extractCitations(articleContent))
-      issues.push({
-        id: `fact-${rule.category}-${issues.length}`,
-        severity: rule.severity,
-        category: rule.category,
-        title: rule.message,
-        description: `Found: "${match[0]}" — Double-check this claim.`,
-        location: context.trim().slice(0, 100),
-        figureText: figureMatch?.[0],
-        citationUrl: bound?.url,
-        autoFixable: false,
-      })
-    }
-  }
+  // ---- RULE 2: Dated-policy / freshness is owned by buildDatedPolicyIssues
+  // (evaluateFreshnessSync). No parallel DANGEROUS_FACT_PATTERNS pass.
 
-  // ---- RULE 2b: Grant-figure claims — document-level claim-citation binding ----
-  issues.push(...evaluateGrantFigureClaims(articleContent))
+  // ---- RULE 2b: Grant-figure claims — document-level claim-citation binding.
+  // Skip figures already covered by freshness so severities cannot conflict.
+  issues.push(...evaluateGrantFigureClaims(articleContent, freshnessFigures))
 
   // ---- RULE 3: AI slop patterns ----
   for (const pattern of AI_SLOP_PATTERNS) {
@@ -1550,7 +1537,10 @@ export async function runQualityGate(
       return grantFix.html
     })
     // Re-evaluate — clear criticals that are now hedged
-    const remainingGrant = evaluateGrantFigureClaims(articleAfterAutoFix)
+    const remainingGrant = evaluateGrantFigureClaims(
+      articleAfterAutoFix,
+      freshnessCoveredFigureKeys(articleAfterAutoFix, datedPolicy?.now),
+    )
     const stillCritical = new Set(
       remainingGrant.filter(i => i.severity === 'critical').map(i => i.id)
     )
