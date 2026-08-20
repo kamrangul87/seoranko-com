@@ -210,6 +210,11 @@ export interface ArticleOutput {
       location?: string
       autoFixable: boolean
       autoFixDescription?: string
+      actionHint?: string
+      citationUrl?: string
+      figureText?: string
+      verificationStatus?: 'auto-verified' | 'figure-missing' | 'unreachable' | 'no-citation'
+      verificationDetail?: string
     }>
     blockers: string[]
     readyToPublish: boolean

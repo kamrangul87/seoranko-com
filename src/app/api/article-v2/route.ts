@@ -27,6 +27,7 @@ import {
   analyzeKeywordDensity,
   scoreHtmlLocally,
 } from '@/lib/content-scorer';
+import { computePanelScores } from '@/lib/panel-scores';
 import { MODEL_FOR } from '@/lib/model-router';
 import { runQualityGate, detectWrongBrandInBody, recomputeQualityGateTotals, qualityGateStageStatus, buildTimeAnchoredClaimRecords, timeAnchoredClaimFailureToIssue, type QualityIssue } from '@/lib/article-quality-gate';
 import { repairTimeAnchoredClaims } from '@/lib/time-anchored-claim-repair';
@@ -475,13 +476,15 @@ export async function POST(req: NextRequest) {
           const answerFirst = checkAnswerFirst(fullArticle);
 
           // Score the article and generate llms.txt entry
+          // Early draft scores — overwritten from publishedHtml before SEORANKO_SCORES
+          // so the Write-page rings always match the same HTML Quality Gate scored.
           const { searchScore, aiScore } = scoreHtmlLocally(fullArticle, keyword);
-          const eeatScore = calculateEEATScore(fullArticle);
-          const readabilityScore = calculateReadabilityScore(fullArticle);
+          let eeatScore = calculateEEATScore(fullArticle);
+          let readabilityScore = calculateReadabilityScore(fullArticle);
           const densityTarget = primaryTopicPhrase(keyword) || coreKeywordPhrase(keyword) || keyword;
-          const keywordDensityDetail = analyzeKeywordDensity(fullArticle, densityTarget);
-          const keywordDensity = keywordDensityDetail.density;
-          const keywordDensityScore = keywordDensityDetail.score;
+          let keywordDensityDetail = analyzeKeywordDensity(fullArticle, densityTarget);
+          let keywordDensity = keywordDensityDetail.density;
+          let keywordDensityScore = keywordDensityDetail.score;
           if (keywordDensityDetail.possibleScoringBug) {
             console.warn(
               `[article-v2] keyword density score (${keywordDensityScore}/100) looks too low given ` +
@@ -1049,11 +1052,18 @@ export async function POST(req: NextRequest) {
               if (criticalStops.length > 0) {
                 const reason = criticalStops.map(i => i.title).join(' | ')
                 send(`\n<!--SEORANKO_HUMANIZED_START-->\n${publishedHtml}\n<!--SEORANKO_HUMANIZED_END-->`)
+                // Rings + Quality Gate must describe the SAME published HTML
+                const panel = computePanelScores(publishedHtml, keyword)
+                eeatScore = panel.eeatScore
+                readabilityScore = panel.readabilityScore
+                keywordDensity = panel.keywordDensity
+                keywordDensityScore = panel.keywordDensityScore
                 const partialMeta = JSON.stringify({
                   qualityGate: articleQualityGate,
-                  eeatScore: gateEeat,
-                  keywordDensity: gateDensity.density,
-                  keywordDensityScore: gateDensity.score,
+                  eeatScore,
+                  readabilityScore,
+                  keywordDensity,
+                  keywordDensityScore,
                   factSourcingScore,
                   humanScore,
                   pipelineStopped: true,
@@ -1294,6 +1304,16 @@ export async function POST(req: NextRequest) {
           }
 
           // Append score metadata as a parseable HTML comment — client strips this
+          // Panel rings MUST be scored from the final published HTML (same artifact
+          // as Quality Gate), never the pre-humanize draft — otherwise the Write
+          // page shows contradictory zeros / stale rings vs the gate panel.
+          {
+            const panel = computePanelScores(publishedHtml || finalHtml, keyword)
+            eeatScore = panel.eeatScore
+            readabilityScore = panel.readabilityScore
+            keywordDensity = panel.keywordDensity
+            keywordDensityScore = panel.keywordDensityScore
+          }
           const scoreMeta = JSON.stringify({
             searchScore, aiScore, eeatScore, readabilityScore, keywordDensity, keywordDensityScore,
             factSourcingScore, factPatchedCount, llmsTxtEntry, humanScore, bannedWordsRemoved, passesDetection,

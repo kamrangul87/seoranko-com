@@ -10,6 +10,11 @@ interface QualityIssue {
   location?: string
   autoFixable: boolean
   autoFixDescription?: string
+  actionHint?: string
+  citationUrl?: string
+  figureText?: string
+  verificationStatus?: 'auto-verified' | 'figure-missing' | 'unreachable' | 'no-citation'
+  verificationDetail?: string
 }
 
 interface QualityGateResult {
@@ -223,9 +228,35 @@ export function QualityGatePanel({
                     {issue.autoFixable && issue.autoFixDescription && (
                       <p className="text-xs text-blue-600 mt-1">✦ {issue.autoFixDescription}</p>
                     )}
-                    {!issue.autoFixable && (
-                      <p className="text-xs text-gray-500 mt-1">Manual review required</p>
-                    )}
+                    {issue.verificationStatus === 'auto-verified' ? (
+                      <div className="mt-2 p-2 rounded-md border border-green-200 bg-green-50">
+                        <p className="text-[11px] font-semibold text-green-800 uppercase tracking-wide">
+                          Auto-verified
+                        </p>
+                        <p className="text-xs text-green-700 mt-0.5 leading-relaxed">
+                          {issue.verificationDetail || issue.actionHint}
+                        </p>
+                      </div>
+                    ) : !issue.autoFixable ? (
+                      <div className="mt-2 p-2 rounded-md border border-amber-200 bg-amber-50/80">
+                        <p className="text-[11px] font-semibold text-amber-900 uppercase tracking-wide">
+                          What to do next
+                        </p>
+                        <p className="text-xs text-amber-900 mt-0.5 leading-relaxed">
+                          <span className="font-medium">What&apos;s wrong: </span>
+                          {issue.description}
+                        </p>
+                        {issue.location && (
+                          <p className="text-xs text-amber-800 mt-1 font-mono truncate">
+                            Near: &quot;{issue.location}&quot;
+                          </p>
+                        )}
+                        <p className="text-xs text-amber-950 mt-1.5 leading-relaxed">
+                          <span className="font-medium">Next step: </span>
+                          {issue.actionHint || 'Edit the flagged sentence, then re-run Quality Gate.'}
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
                   <div className="flex-shrink-0">
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${

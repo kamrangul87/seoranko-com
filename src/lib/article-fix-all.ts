@@ -11,8 +11,7 @@ import { scrubInsertionCorruption, hasInsertionCorruption } from '@/lib/sentence
 import { assertImageUrlsPreserved } from '@/lib/html-text-transform'
 import { wordCountBand } from '@/lib/word-count'
 import { improveArticle } from '@/lib/article-improver'
-import { calculateEEATScore, analyzeKeywordDensity } from '@/lib/content-scorer'
-import { primaryTopicPhrase, coreKeywordPhrase } from '@/lib/topic-alignment'
+import { computePanelScores, type PanelScores } from '@/lib/panel-scores'
 
 export interface FixAllOptions {
   html: string
@@ -37,6 +36,8 @@ export interface FixAllResult {
   fixed: Array<{ id: string; title: string; how: string }>
   stillNeedsManualReview: Array<{ id: string; title: string; reason: string }>
   summary: string
+  /** Same HTML the gate scored — keep Write-page rings in sync. */
+  panelScores: PanelScores
 }
 
 function issueKey(i: QualityIssue): string {
@@ -44,12 +45,11 @@ function issueKey(i: QualityIssue): string {
 }
 
 function scoreOpts(html: string, keyword: string) {
-  const densityTarget = primaryTopicPhrase(keyword) || coreKeywordPhrase(keyword) || keyword
-  const dens = analyzeKeywordDensity(html, densityTarget)
+  const panel = computePanelScores(html, keyword)
   return {
-    eeatScore: calculateEEATScore(html),
-    keywordDensityPct: dens.density,
-    keywordDensityScore: dens.score,
+    eeatScore: panel.eeatScore,
+    keywordDensityPct: panel.keywordDensity,
+    keywordDensityScore: panel.keywordDensityScore,
   }
 }
 
@@ -219,13 +219,19 @@ export async function fixAllArticleIssues(opts: FixAllOptions): Promise<FixAllRe
   }
 
   const stillNeedsManualReview = qualityGateAfter.issues
-    .filter(i => i.severity === 'critical' || i.severity === 'warning')
+    .filter(i =>
+      (i.severity === 'critical' || i.severity === 'warning') &&
+      i.verificationStatus !== 'auto-verified'
+    )
     .map(i => ({
       id: i.id,
       title: i.title,
-      reason: i.autoFixable
-        ? 'Auto-fixable but still present after Fix All — needs another pass or manual edit'
-        : (i.description || 'Requires human confirmation or a brand/context setting'),
+      reason: i.actionHint ||
+        (i.verificationDetail
+          ? i.verificationDetail
+          : i.autoFixable
+            ? 'Auto-fixable but still present after Fix All — needs another pass or manual edit'
+            : (i.description || 'Requires human confirmation or a brand/context setting')),
     }))
 
   const afterIds = new Set(qualityGateAfter.issues.map(issueKey))
@@ -252,5 +258,6 @@ export async function fixAllArticleIssues(opts: FixAllOptions): Promise<FixAllRe
     fixed,
     stillNeedsManualReview,
     summary,
+    panelScores: computePanelScores(html, keyword),
   }
 }

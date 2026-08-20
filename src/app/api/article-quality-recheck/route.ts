@@ -8,6 +8,7 @@ import {
   resolveLogoPolicy,
   expectOrganizationLogoFromPolicy,
 } from '@/lib/quality-gate-policy'
+import { computePanelScores } from '@/lib/panel-scores'
 
 export const maxDuration = 60
 
@@ -68,6 +69,7 @@ export async function POST(req: NextRequest) {
     })
 
     const html = applyAutoFixes ? (qr.articleAfterAutoFix || articleHtml) : articleHtml
+    const panelScores = computePanelScores(html, keyword)
 
     return NextResponse.json({
       html,
@@ -81,6 +83,11 @@ export async function POST(req: NextRequest) {
         blockers: qr.blockers,
         readyToPublish: qr.readyToPublish,
       },
+      panelScores,
+      eeatScore: panelScores.eeatScore,
+      readabilityScore: panelScores.readabilityScore,
+      keywordDensity: panelScores.keywordDensity,
+      keywordDensityScore: panelScores.keywordDensityScore,
     })
   } catch (err) {
     console.error('[article-quality-recheck]', err)
