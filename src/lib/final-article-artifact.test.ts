@@ -126,7 +126,10 @@ describe('buildFinalArticleArtifact', () => {
     })
     expect(result.primaryImageUrl).toBe('https://cdn.example.com/content-only.webp')
     expect(result.schemaResult.imageUrl).toBe('https://cdn.example.com/content-only.webp')
-    expect(result.html).toContain('"image": "https://cdn.example.com/content-only.webp"')
+    // Article.image is emitted as an array (Google's reference examples use
+    // the array form even for a single image) rather than a bare string.
+    expect(result.html).toContain('"image": [')
+    expect(result.html).toContain('"https://cdn.example.com/content-only.webp"')
   })
 
   it('hard-completeness on synced artifact: image present → not blocked for image', () => {
@@ -199,7 +202,9 @@ describe('final Quality Gate on synchronized artifact (Phase 1)', () => {
     })
     // Simulate final HTML that lost Organization/publisher.logo — QG must
     // still warn when expectOrganizationLogo is true (no score gaming).
-    const htmlMissingLogo = artifact.html.replace(/,?\s*"logo"\s*:\s*"[^"]*"/g, '')
+    // logo is now emitted as an ImageObject ({"@type":"ImageObject","url":"..."}),
+    // not a bare string, so strip the whole nested object.
+    const htmlMissingLogo = artifact.html.replace(/,?\s*"logo"\s*:\s*\{[^}]*\}/g, '')
     const qr = await runQualityGate(htmlMissingLogo, {
       brand: 'Example Brand',
       keyword: 'home EV charger installation',

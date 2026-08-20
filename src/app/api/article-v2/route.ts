@@ -941,6 +941,21 @@ export async function POST(req: NextRequest) {
                 primaryTopicPhrase(keyword) || coreKeywordPhrase(keyword) || keyword,
               )
               const imageExtraIssues: QualityIssue[] = []
+              // Soft case only: assertSchemaCompleteness already hard-blocks
+              // the save when a *configured* brand has no resolvable logo.
+              // This is the non-blocking case — brand has no brand_settings
+              // row at all yet — surfaced as a UI nudge rather than silently
+              // shipping an Organization with no logo.
+              if (schemaResult.logoOmittedReason && !brandSettings.configured) {
+                imageExtraIssues.push({
+                  id: 'schema-logo-not-configured',
+                  severity: 'info',
+                  category: 'schema',
+                  title: 'Organization logo not configured — publisher.logo omitted',
+                  description: `${schemaResult.logoOmittedReason} Add a logo in Brand Settings to include Organization.logo in this article's schema.`,
+                  autoFixable: false,
+                })
+              }
               if (imageSet && imageSet.imageStats.failures.length > 0) {
                 imageExtraIssues.push({
                   id: 'image-count-mismatch',
