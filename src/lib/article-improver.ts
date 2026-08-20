@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { runQualityGate } from './article-quality-gate'
 import { repairAllMergeArtifacts } from './merge-artifact-repair'
+import { buildQualityGateRunOptions } from './quality-gate-run-options'
+import type { BrandSettingsLike } from './quality-gate-policy'
 
 export type ImproveTarget = 'eeat' | 'readability' | 'human_score' | 'fact_sourcing' | 'keyword_density' | 'heading_structure' | 'authority_links' | 'all'
 
@@ -24,11 +26,11 @@ export interface ImproveRequest {
    * absent the Quality Gate below gets no brand rather than a fabricated one.
    */
   brand?: string
+  /** Shared logo policy input — same as generate / recheck / Fix All. */
+  brandSettings?: BrandSettingsLike
   /**
-   * Shared logo policy flag from resolveLogoPolicy /
-   * expectOrganizationLogoFromPolicy. When omitted, defaults to false (omit)
-   * — same as runQualityGate — so Improve never invents a stricter logo
-   * requirement than generation.
+   * Optional direct override. Prefer brandSettings so Improve matches
+   * resolveLogoPolicy used by generation / recheck / Fix All.
    */
   expectOrganizationLogo?: boolean
 }
@@ -231,15 +233,25 @@ ${request.articleContent}`
       autodun: ['autodun.com'], seoranko: ['seoranko.com'], fitford: ['fitford.com'],
     }
     const brand = request.brand || ''
-    const qr = await runQualityGate(cleanedContent, {
+    const qgOpts = buildQualityGateRunOptions({
       brand,
       keyword: request.keyword,
       authorName: 'Kamran Gul',
       registeredLinkDomains: brandDomains[brand] || [],
       minWordCount: 800,
       maxTypically: 5,
-      // Shared LogoPolicy — omit unless caller resolved require from brand_settings.
-      expectOrganizationLogo: request.expectOrganizationLogo ?? false,
+      brandSettings: request.brandSettings,
+      expectOrganizationLogo: request.expectOrganizationLogo,
+      caller: 'improve',
+    })
+    const qr = await runQualityGate(cleanedContent, {
+      brand: qgOpts.brand,
+      keyword: qgOpts.keyword,
+      authorName: qgOpts.authorName || 'Kamran Gul',
+      registeredLinkDomains: qgOpts.registeredLinkDomains,
+      minWordCount: qgOpts.minWordCount,
+      maxTypically: qgOpts.maxTypically,
+      expectOrganizationLogo: qgOpts.expectOrganizationLogo,
     })
     qualityGate = {
       passed: qr.passed, score: qr.score, criticalCount: qr.criticalCount,

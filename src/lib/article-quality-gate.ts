@@ -43,10 +43,15 @@ import {
 } from '@/lib/freshness-policy'
 import {
   buildFreshnessIssueDescription,
+  evaluateFreshness,
   evaluateFreshnessSync,
   freshnessFindingsRequiringIssues,
   freshnessIssueTitle,
 } from '@/lib/freshness-evaluator'
+import {
+  evidenceProviderFromResearch,
+  type FreshnessResearchProvider,
+} from '@/lib/freshness-research'
 import {
   evaluateClaimEvidence,
   formatClaimEvidenceDescription,
@@ -599,6 +604,34 @@ export function buildDatedPolicyIssues(
   }
 
   return issues
+}
+
+/**
+ * Async dated-policy build with optional Phase 13 research provider.
+ * Article "Last updated" is never used as evidence (stripped in evaluator).
+ */
+export async function buildDatedPolicyIssuesAsync(
+  articleContent: string,
+  opts?: {
+    now?: Date
+    title?: string
+    metaDescription?: string
+    freshnessResearchProvider?: FreshnessResearchProvider
+  },
+): Promise<QualityIssue[]> {
+  if (!opts?.freshnessResearchProvider) {
+    return buildDatedPolicyIssues(articleContent, opts)
+  }
+  const findings = await evaluateFreshness(articleContent, {
+    now: opts.now,
+    evidenceProvider: evidenceProviderFromResearch(opts.freshnessResearchProvider),
+  })
+  return buildDatedPolicyIssues(articleContent, {
+    now: opts.now,
+    title: opts.title,
+    metaDescription: opts.metaDescription,
+    evidenceFindings: findings,
+  })
 }
 
 /** Figures already represented by freshness dated-policy issues. */
@@ -1202,6 +1235,11 @@ export async function runQualityGate(
       metaDescription?: string
       evidenceFindings?: FreshnessFinding[]
     }
+    /**
+     * Phase 13 — optional research provider for time-sensitive claims.
+     * When absent, gate uses article-local citations only (never article datelines).
+     */
+    freshnessResearchProvider?: FreshnessResearchProvider
   }
 ): Promise<QualityGateResult> {
 
@@ -1226,6 +1264,7 @@ export async function runQualityGate(
     factSourcingScore,
     humanScore,
     datedPolicy,
+    freshnessResearchProvider,
   } = {
     expectOrganizationLogo: false,
     ...options,
@@ -1255,6 +1294,7 @@ export async function runQualityGate(
       metaDescription?: string
       evidenceFindings?: FreshnessFinding[]
     }
+    freshnessResearchProvider?: FreshnessResearchProvider
   }
 
   let issues: QualityIssue[] = extraIssues ? [...extraIssues] : []
@@ -1264,7 +1304,16 @@ export async function runQualityGate(
   // caller-supplied dated-policy extras so article-v2 cannot diverge from
   // recheck / Fix All.
   issues = issues.filter(i => i.category !== 'dated-policy')
-  issues.push(...buildDatedPolicyIssues(articleContent, datedPolicy))
+  if (datedPolicy?.evidenceFindings) {
+    issues.push(...buildDatedPolicyIssues(articleContent, datedPolicy))
+  } else {
+    issues.push(
+      ...(await buildDatedPolicyIssuesAsync(articleContent, {
+        ...datedPolicy,
+        freshnessResearchProvider,
+      })),
+    )
+  }
   const freshnessFigures = freshnessCoveredFigureKeys(articleContent, datedPolicy?.now)
 
   // ---- RULE 0: Topic must match the requested keyword (blocks crypto-for-ev-charger disasters) ----

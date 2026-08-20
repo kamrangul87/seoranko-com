@@ -478,7 +478,7 @@ export async function POST(req: NextRequest) {
           // Score the article and generate llms.txt entry
           // Early draft scores — overwritten from publishedHtml before SEORANKO_SCORES
           // so the Write-page rings always match the same HTML Quality Gate scored.
-          const { searchScore, aiScore } = scoreHtmlLocally(fullArticle, keyword);
+          let { searchScore, aiScore } = scoreHtmlLocally(fullArticle, keyword);
           let eeatScore = calculateEEATScore(fullArticle);
           let readabilityScore = calculateReadabilityScore(fullArticle);
           const densityTarget = primaryTopicPhrase(keyword) || coreKeywordPhrase(keyword) || keyword;
@@ -1303,16 +1303,21 @@ export async function POST(req: NextRequest) {
             console.warn('[article-v2] skipped save: no userId on request');
           }
 
-          // Append score metadata as a parseable HTML comment — client strips this
-          // Panel rings MUST be scored from the final published HTML (same artifact
-          // as Quality Gate), never the pre-humanize draft — otherwise the Write
-          // page shows contradictory zeros / stale rings vs the gate panel.
+          // Panel rings + search/ai scores MUST be scored from the final
+          // published HTML (same artifact as Quality Gate), never the
+          // pre-humanize draft — otherwise streamed SEORANKO_SCORES diverge
+          // from the persisted quality_score / final gate.
           {
             const panel = computePanelScores(publishedHtml || finalHtml, keyword)
             eeatScore = panel.eeatScore
             readabilityScore = panel.readabilityScore
             keywordDensity = panel.keywordDensity
             keywordDensityScore = panel.keywordDensityScore
+          }
+          {
+            const finalScores = scoreHtmlLocally(publishedHtml || finalHtml, keyword)
+            searchScore = finalScores.searchScore
+            aiScore = finalScores.aiScore
           }
           const scoreMeta = JSON.stringify({
             searchScore, aiScore, eeatScore, readabilityScore, keywordDensity, keywordDensityScore,

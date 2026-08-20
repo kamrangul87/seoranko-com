@@ -18,11 +18,9 @@ import { calculateEEATScore, calculateReadabilityScore, calculateKeywordDensity 
 import { MODEL_FOR } from '@/lib/model-router';
 import { runQualityGate } from '@/lib/article-quality-gate';
 import { checkContentIdentity } from '@/lib/content-identity-guard';
+import { buildQualityGateRunOptions } from '@/lib/quality-gate-run-options';
+import type { BrandSettingsLike } from '@/lib/quality-gate-policy';
 import { getBrandSettings } from '@/lib/brand-settings';
-import {
-  resolveLogoPolicy,
-  expectOrganizationLogoFromPolicy,
-} from '@/lib/quality-gate-policy';
 
 // Fluid compute (default on Vercel) allows up to 300s on Hobby. The full
 // pipeline (audit + scraping + NLP + angle + 6000-token generation) needs
@@ -69,7 +67,16 @@ export async function POST(req: NextRequest) {
     tone = 'professional',
     domain: rawDomain = '',
     brand = '',
-  } = body as { article?: string; keyword?: string; market?: string; tone?: string; domain?: string; brand?: string };
+    brandSettings: bodyBrandSettings,
+  } = body as {
+    article?: string
+    keyword?: string
+    market?: string
+    tone?: string
+    domain?: string
+    brand?: string
+    brandSettings?: BrandSettingsLike
+  };
   if (!rawMarket) {
     console.warn('[article-improve] market missing from request — defaulting to Global.');
   }
@@ -282,35 +289,47 @@ Return ONLY valid JSON no markdown:
           // Logo policy must match article-v2 / recheck / Fix All (shared
           // resolveLogoPolicy) — never invent a stricter logo requirement.
           try {
+            // Resolve logo policy the same way as generate / recheck / Fix All.
+            let brandSettings: BrandSettingsLike =
+              bodyBrandSettings ?? { configured: false, logoUrl: null }
+            if (!bodyBrandSettings) {
+              try {
+                const cookieStore = cookies()
+                const supabaseAuth = createServerClient(
+                  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+                  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+                  { cookies: { get(name: string) { return cookieStore.get(name)?.value } } },
+                )
+                const { data: { user } } = await supabaseAuth.auth.getUser()
+                if (user && brand) {
+                  brandSettings = await getBrandSettings(user.id, brand)
+                }
+              } catch {
+                /* omit logo when lookup fails — same as unconfigured brand */
+              }
+            }
+
             const brandDomains: Record<string, string[]> = {
               autodun: ['autodun.com'], seoranko: ['seoranko.com'], fitford: ['fitford.com'],
             }
-            let brandSettings = { configured: false, logoUrl: null as string | null }
-            try {
-              const cookieStore = cookies()
-              const authClient = createServerClient(
-                process.env.NEXT_PUBLIC_SUPABASE_URL!,
-                process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-                { cookies: { get(name: string) { return cookieStore.get(name)?.value } } },
-              )
-              const { data: { user } } = await authClient.auth.getUser()
-              if (user?.id && brand) {
-                brandSettings = await getBrandSettings(user.id, brand)
-              }
-            } catch (brandErr) {
-              console.warn('[article-improve] getBrandSettings failed, using omit logo policy:', brandErr)
-            }
-            const expectOrganizationLogo = expectOrganizationLogoFromPolicy(
-              resolveLogoPolicy({ brandSettings }),
-            )
-            const qr = await runQualityGate(finalHtml, {
+            const qgOpts = buildQualityGateRunOptions({
               brand,
               keyword: targetKeyword,
               authorName: 'Kamran Gul',
               registeredLinkDomains: brandDomains[brand] || (citationDomain ? [citationDomain] : []),
               minWordCount: 800,
               maxTypically: 5,
-              expectOrganizationLogo,
+              brandSettings,
+              caller: 'improve',
+            })
+            const qr = await runQualityGate(finalHtml, {
+              brand: qgOpts.brand,
+              keyword: qgOpts.keyword,
+              authorName: qgOpts.authorName || 'Kamran Gul',
+              registeredLinkDomains: qgOpts.registeredLinkDomains,
+              minWordCount: qgOpts.minWordCount,
+              maxTypically: qgOpts.maxTypically,
+              expectOrganizationLogo: qgOpts.expectOrganizationLogo,
             })
             finalHtml = qr.articleAfterAutoFix
             improveQualityGate = {
