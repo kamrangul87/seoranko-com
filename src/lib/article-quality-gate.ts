@@ -60,6 +60,11 @@ import {
   scoreFromIssues,
   type AutoFixConfirmation,
 } from '@/lib/autofix-confirmation'
+import {
+  buildExplainableScore,
+  type ExplainableScoreResult,
+} from '@/lib/quality-score-dimensions'
+import { keywordPresenceHeuristic } from '@/lib/google-seo-policy'
 
 // AI slop patterns — expanded from anti-slop GitHub repo
 const AI_SLOP_PATTERNS = [
@@ -763,33 +768,28 @@ export interface QualityGateResult {
   blockers: string[]
   /** Phase 9 honest autofix report (optional for older callers). */
   autoFixConfirmation?: AutoFixConfirmation
+  /** Phase 10 — dimension board + explainable aggregation (info never reduces score). */
+  explainable: ExplainableScoreResult
 }
 
 /** Recompute score/counts/ready from the current issues list (single source of truth). */
 export function recomputeQualityGateTotals(
   gate: Pick<QualityGateResult, 'issues' | 'autoFixedCount' | 'articleAfterAutoFix'> &
-    Partial<Pick<QualityGateResult, 'passed' | 'score' | 'criticalCount' | 'warningCount' | 'readyToPublish' | 'blockers'>>,
+    Partial<Pick<QualityGateResult, 'passed' | 'score' | 'criticalCount' | 'warningCount' | 'readyToPublish' | 'blockers' | 'explainable'>>,
 ): QualityGateResult {
   const issues = gate.issues
   const criticalCount = issues.filter(i => i.severity === 'critical').length
   const warningCount = issues.filter(i => i.severity === 'warning').length
-  const score = Math.max(0, 100 - (criticalCount * 20) - (warningCount * 5))
+  const explainable = buildExplainableScore(issues)
+  // Score is always the deterministic severity aggregation — never a blended mystery.
+  const score = explainable.score
   const passed = criticalCount === 0
-  const missingBrand = issues.some(i => i.id === 'missing-brand')
-  const brandMismatch = issues.some(i => i.id === 'brand-mismatch')
-  const scoreFloorFail = issues.some(i => i.category === 'score-floor' && i.severity === 'critical')
-  const readyToPublish =
-    criticalCount === 0 &&
-    warningCount <= 2 &&
-    !missingBrand &&
-    !brandMismatch &&
-    !scoreFloorFail
+  const readyToPublish = explainable.publishDecision === 'READY'
   const blockers = issues
     .filter(i =>
       i.severity === 'critical' ||
       i.id === 'missing-brand' ||
-      i.id === 'brand-mismatch' ||
-      i.category === 'score-floor'
+      i.id === 'brand-mismatch'
     )
     .map(i => `[${i.category.toUpperCase()}] ${i.title}`)
 
@@ -803,6 +803,7 @@ export function recomputeQualityGateTotals(
     articleAfterAutoFix: gate.articleAfterAutoFix,
     readyToPublish,
     blockers,
+    explainable,
   }
 }
 
@@ -1087,19 +1088,19 @@ export function scoreFloorIssues(opts: {
     })
   }
 
-  // Keyword density / presence floor
-  const densityMissing =
-    (typeof keywordDensityPct === 'number' && keywordDensityPct < 0.15) ||
-    (typeof keywordDensityScore === 'number' && keywordDensityScore < 20)
-  if (densityMissing) {
+  // Keyword presence heuristic (Phase 12) — NOT a magic Google density rule.
+  // Near-zero presence may indicate thin/off-topic coverage → REVIEW (warning),
+  // never a critical "Google ranking floor."
+  if (keywordPresenceHeuristic({ keywordDensityPct, keywordDensityScore }) === 'review') {
     out.push({
       id: 'score-floor-keyword-density',
-      severity: 'critical',
+      severity: 'warning',
       category: 'score-floor',
-      title: `Keyword density too low for "${keyword}" (${keywordDensityPct?.toFixed(1) ?? '0.0'}% / score ${keywordDensityScore ?? 0})`,
-      description: 'The primary keyword barely appears in the body. An article must not show Ready to publish with near-zero keyword presence.',
+      title: `Primary phrase barely appears: "${keyword}" (${keywordDensityPct?.toFixed(1) ?? '0.0'}% / score ${keywordDensityScore ?? 0})`,
+      description:
+        'Heuristic coverage smell — the primary phrase rarely appears. This is not a Google ranking density target. Use the phrase naturally where it helps readers, or confirm the page is on-topic.',
       autoFixable: true,
-      autoFixDescription: 'Run Fix All / Improve keyword density',
+      autoFixDescription: 'Run Fix All / strengthen natural primary-phrase coverage',
     })
   }
 

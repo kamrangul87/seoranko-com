@@ -102,7 +102,7 @@ describe('Quality Gate score single source of truth', () => {
     expect(gate.score).toBe(85)
     expect(gate.warningCount).toBe(3)
     expect(gate.criticalCount).toBe(0)
-    expect(gate.readyToPublish).toBe(false) // warnings > 2
+    expect(gate.readyToPublish).toBe(false) // any warning → NEEDS_REVIEW (Phase 10)
   })
 
   it('qualityGateStageStatus reports partial when autofix left open issues', () => {

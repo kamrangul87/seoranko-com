@@ -68,7 +68,7 @@ describe('brand mismatch + score floors', () => {
     expect(detectWrongBrandInBody(html, 'Autodun')).toBeNull()
   })
 
-  it('score floors block ready when E-E-A-T or density is critically low', () => {
+  it('score floors: E-E-A-T critical; keyword presence is review heuristic not critical', () => {
     const floors = scoreFloorIssues({
       eeatScore: 40,
       keywordDensityPct: 0,
@@ -77,8 +77,9 @@ describe('brand mismatch + score floors', () => {
       keyword: 'ev charger',
     })
     expect(floors.some(i => i.id === 'score-floor-eeat')).toBe(true)
+    expect(floors.find(i => i.id === 'score-floor-eeat')?.severity).toBe('critical')
     expect(floors.some(i => i.id === 'score-floor-keyword-density')).toBe(true)
-    expect(floors.every(i => i.severity === 'critical')).toBe(true)
+    expect(floors.find(i => i.id === 'score-floor-keyword-density')?.severity).toBe('warning')
   })
 
   // Confirmed live: an article scored Human Score 60/100 with an explicit

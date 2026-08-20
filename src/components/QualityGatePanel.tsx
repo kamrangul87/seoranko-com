@@ -17,6 +17,21 @@ interface QualityIssue {
   verificationDetail?: string
 }
 
+interface DimensionBoardItem {
+  id: string
+  label: string
+  status: 'PASS' | 'REVIEW' | 'FAIL' | 'ADVISORY'
+  summary: string
+}
+
+interface ExplainableScore {
+  dimensions: DimensionBoardItem[]
+  score: number
+  scoreExplanation: string
+  publishDecision: 'READY' | 'NEEDS_REVIEW' | 'BLOCKED'
+  publishDecisionReason: string
+}
+
 interface QualityGateResult {
   passed: boolean
   score: number
@@ -26,6 +41,8 @@ interface QualityGateResult {
   issues: QualityIssue[]
   blockers: string[]
   readyToPublish: boolean
+  /** Phase 10 — structured dimension board + explainable score. */
+  explainable?: ExplainableScore
 }
 
 export interface FixAllReport {
@@ -105,17 +122,20 @@ export function QualityGatePanel({
   const fixing = fixAllRunning || autoFixing
   const hasIssues = result.issues.length > 0 || result.criticalCount > 0 || result.warningCount > 0
 
-  const statusColor = result.readyToPublish
-    ? '#1D9E75'
-    : result.criticalCount > 0
-      ? '#E24B4A'
-      : '#BA7517'
+  const decision = result.explainable?.publishDecision
+  const statusColor =
+    decision === 'READY' || (!decision && result.readyToPublish)
+      ? '#1D9E75'
+      : decision === 'BLOCKED' || result.criticalCount > 0
+        ? '#E24B4A'
+        : '#BA7517'
 
-  const statusLabel = result.readyToPublish
-    ? 'Ready to publish'
-    : result.criticalCount > 0
-      ? `${result.criticalCount} critical issue${result.criticalCount > 1 ? 's' : ''} — fix before publishing`
-      : `${result.warningCount} warning${result.warningCount > 1 ? 's' : ''} — review before publishing`
+  const statusLabel =
+    decision === 'READY' || (!decision && result.readyToPublish)
+      ? 'Ready to publish'
+      : decision === 'BLOCKED' || result.criticalCount > 0
+        ? `${result.criticalCount} critical issue${result.criticalCount !== 1 ? 's' : ''} — blocked`
+        : `${result.warningCount} warning${result.warningCount !== 1 ? 's' : ''} — needs review`
 
   const severityIcon = (severity: string) => {
     if (severity === 'critical') return <IconX className="w-4 h-4 text-red-500 flex-shrink-0" />
@@ -152,6 +172,7 @@ export function QualityGatePanel({
             </p>
             <p className="text-xs text-gray-500 mt-0.5">
               Score: {result.score}/100
+              {result.explainable?.publishDecision && ` · ${result.explainable.publishDecision.replace('_', ' ')}`}
               {result.autoFixedCount > 0 && ` · ${result.autoFixedCount} issue${result.autoFixedCount > 1 ? 's' : ''} auto-fixed`}
             </p>
           </div>
@@ -176,6 +197,44 @@ export function QualityGatePanel({
 
       {expanded && (
         <div className="p-4 space-y-2 bg-white">
+          {result.explainable && (
+            <div className="mb-3 p-3 rounded-lg border border-[#E8E8E4] bg-[#FAFAF8] space-y-2">
+              <p className="text-[11px] font-semibold text-[#0F0F0F] uppercase tracking-wide">
+                Quality dimensions
+              </p>
+              <ul className="space-y-1">
+                {result.explainable.dimensions.map((d) => (
+                  <li key={d.id} className="flex items-baseline gap-2 text-xs">
+                    <span className="w-[9.5rem] shrink-0 text-[#6B6B6B]">{d.label}</span>
+                    <span
+                      className={`font-semibold ${
+                        d.status === 'PASS'
+                          ? 'text-green-700'
+                          : d.status === 'FAIL'
+                            ? 'text-red-700'
+                            : d.status === 'ADVISORY'
+                              ? 'text-blue-700'
+                              : 'text-amber-800'
+                      }`}
+                    >
+                      {d.status}
+                    </span>
+                    {d.status !== 'PASS' && d.summary && (
+                      <span className="text-[#6B6B6B] truncate">{d.summary}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[11px] text-[#6B6B6B] leading-relaxed pt-1 border-t border-[#E8E8E4]">
+                {result.explainable.scoreExplanation}
+              </p>
+              <p className="text-[11px] text-[#0F0F0F] leading-relaxed">
+                Publish decision: {result.explainable.publishDecision.replace('_', ' ')} —{' '}
+                {result.explainable.publishDecisionReason}
+              </p>
+            </div>
+          )}
+
           {fixAllReport && (
             <div className="mb-3 p-3 rounded-lg border border-[#E8E8E4] bg-[#FAFAF8] space-y-2">
               <p className="text-xs font-semibold text-[#0F0F0F]">{fixAllReport.summary}</p>
