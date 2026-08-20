@@ -1,32 +1,27 @@
 // src/lib/scannability-fixer.ts
-// A prompt instruction alone isn't a guarantee the model follows it — same
-// lesson as merge-artifact-repair.ts. This mechanically splits any
-// paragraph over 6 sentences at its midpoint sentence boundary, so
-// structure-validator.ts's scannability check (and readers) never see a
-// dense block regardless of whether the write prompt's SCANNABILITY RULE
-// was actually followed.
-//
-// Sentence counting/splitting MUST go through sentence-boundaries.ts so
-// domain-like tokens (gov.uk, energynetworks.org) never inflate counts or
-// create false split points — same contract as structure-validator.
+// Mechanically splits any paragraph at/above SCANNABILITY_POLICY.denseSentenceThreshold
+// so structure-validator and readers never see a dense block. Sentence counting
+// MUST go through sentence-boundaries.ts (same as the validator).
 
 import { countSentences, sentenceBoundaryOffsets } from './sentence-boundaries'
-
-const META_PARAGRAPH_RE =
-  /\bclass=["'][^"']*(?:article-meta|article-byline|article-dateline|article-last-verified)[^"']*["']/i
+import {
+  SCANNABILITY_POLICY,
+  SCANNABILITY_META_PARAGRAPH_RE,
+} from './scannability-policy'
 
 function splitDenseParagraphOnce(articleHtml: string): string {
+  const { denseSentenceThreshold } = SCANNABILITY_POLICY
   return articleHtml.replace(/<p([^>]*)>([\s\S]*?)<\/p>/gi, (match, attrs, innerHtml) => {
-    if (META_PARAGRAPH_RE.test(match)) return match
+    if (SCANNABILITY_META_PARAGRAPH_RE.test(match)) return match
 
     const plainText = innerHtml.replace(/<[^>]+>/g, ' ')
     const sentenceCount = countSentences(plainText)
-    if (sentenceCount < 6) return match
+    if (sentenceCount < denseSentenceThreshold) return match
 
     // Domain-safe end offsets (same helper as paragraph-splitter). Append
     // string length so the final sentence is included in the midpoint split.
     const sentenceEnds = [...sentenceBoundaryOffsets(innerHtml), innerHtml.length]
-    if (sentenceEnds.length < 6) return match
+    if (sentenceEnds.length < denseSentenceThreshold) return match
 
     const midpoint = Math.ceil(sentenceEnds.length / 2)
     const splitAt = sentenceEnds[midpoint - 1]
