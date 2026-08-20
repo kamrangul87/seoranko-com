@@ -31,6 +31,12 @@ import {
   detectTimeAnchoredClaims,
   type TimeAnchoredClaim,
 } from '@/lib/dated-claim-detector'
+import {
+  verifyFigureAgainstCitation,
+  sourceLabelForUrl,
+  type CitationVerifyStatus,
+} from '@/lib/citation-auto-verify'
+import { withActionHints } from '@/lib/quality-issue-action-hints'
 
 // AI slop patterns — expanded from anti-slop GitHub repo
 const AI_SLOP_PATTERNS = [
@@ -228,10 +234,17 @@ export function evaluateGrantFigureClaims(articleContent: string): QualityIssue[
     const anyInlineVerification = group.some(c =>
       claimHasInlineVerification(articleContent, c),
     )
-    const isBoundToCitation = isClaimBoundToCitation(representative, citations)
+    const boundCitation = findBoundCitation(representative, citations)
+    const isBoundToCitation = !!boundCitation
     const isCited = anyInlineVerification || isBoundToCitation
     const count = group.length
     const countNote = count > 1 ? ` (appears ${count} times)` : ''
+    const location = stripHtmlSnippet(
+      articleContent.slice(
+        Math.max(0, group[0].position - 40),
+        Math.min(articleContent.length, group[0].position + 80),
+      ),
+    )
 
     issues.push({
       id: `fact-grant-figure-${group[0].position}`,
@@ -243,6 +256,9 @@ export function evaluateGrantFigureClaims(articleContent: string): QualityIssue[
       description: isCited
         ? `Found: "${group[0].text}"${countNote} — a citation to an official source exists in this article covering the same topic. One document-level citation covers every restatement; each instance does not need its own nearby cite. Confirm the figure is still accurate.`
         : `Found: "${group[0].text}"${countNote} — no citation to an official source found anywhere in the article on this topic. Add one GOV.UK link or "(verify at GOV.UK)" — a single document-level citation covers every restatement of this figure.`,
+      location,
+      citationUrl: boundCitation?.url,
+      figureText: group[0].text,
       autoFixable: !isCited,
       autoFixDescription: !isCited
         ? 'Auto-fix adds "(verify at GOV.UK)" after each instance of this figure'
@@ -250,6 +266,10 @@ export function evaluateGrantFigureClaims(articleContent: string): QualityIssue[
     })
   }
   return issues
+}
+
+function stripHtmlSnippet(html: string): string {
+  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100)
 }
 
 export interface TimeAnchoredClaimFailure {
@@ -323,8 +343,15 @@ export function validateTimeAnchoredClaims(
 export function timeAnchoredClaimFailureToIssue(
   failure: TimeAnchoredClaimFailure,
   index: number,
+  articleContent?: string,
 ): QualityIssue {
   const { claim, reasons } = failure
+  let citationUrl: string | undefined
+  if (articleContent) {
+    const citations = extractCitations(articleContent)
+    const bound = findBoundCitation(pseudoClaimFor(articleContent, claim), citations)
+    citationUrl = bound?.url
+  }
   return {
     id: `time-anchored-claim-${index}`,
     // FAIL-tier per the C04 spec — this codebase's 'critical' severity
@@ -335,6 +362,8 @@ export function timeAnchoredClaimFailureToIssue(
     title: `Time-anchored claim — confirm still current: "${claim.extractedNumericValue || claim.matchedPattern}"`,
     description: `"${claim.sentence}" — ${reasons.join('; ')}. Re-check by ${claim.reviewBy}.`,
     location: claim.sentence.slice(0, 100),
+    figureText: claim.extractedNumericValue || undefined,
+    citationUrl,
     autoFixable: false,
   }
 }
@@ -481,7 +510,7 @@ export function buildDatedPolicyIssues(
     )
     const failures = validateTimeAnchoredClaims(articleContent, uniqueTimeAnchoredClaims)
     for (let i = 0; i < failures.length; i++) {
-      issues.push(timeAnchoredClaimFailureToIssue(failures[i], i))
+      issues.push(timeAnchoredClaimFailureToIssue(failures[i], i, articleContent))
     }
   } catch (err) {
     console.warn('[article-quality-gate] time-anchored-claim detection failed:', err)
@@ -622,6 +651,14 @@ export interface QualityIssue {
   location?: string
   autoFixable: boolean
   autoFixDescription?: string
+  /** One concrete next step for the writer — never just "manual review". */
+  actionHint?: string
+  /** Bound official citation URL when one exists for this claim. */
+  citationUrl?: string
+  /** Extracted figure text (e.g. "up to £350") for citation auto-verify. */
+  figureText?: string
+  verificationStatus?: CitationVerifyStatus
+  verificationDetail?: string
 }
 
 export interface QualityGateResult {
@@ -1202,6 +1239,13 @@ export async function runQualityGate(
       const idx = articleContent.search(rule.pattern)
       const context = articleContent.slice(Math.max(0, idx - 20), idx + 80)
       if (!hasChangeableFigureNearby(context)) continue // fixed regulatory date, not a changeable claim
+      const figureMatch = context.match(/[£$€]\s?\d[\d,]*(?:\.\d+)?|\d+\s?%/)
+      const claimLike: Claim = {
+        text: figureMatch?.[0] || match[0],
+        position: idx,
+        topicTerms: extractTopicTerms(context),
+      }
+      const bound = findBoundCitation(claimLike, extractCitations(articleContent))
       issues.push({
         id: `fact-${rule.category}-${issues.length}`,
         severity: rule.severity,
@@ -1209,6 +1253,8 @@ export async function runQualityGate(
         title: rule.message,
         description: `Found: "${match[0]}" — Double-check this claim.`,
         location: context.trim().slice(0, 100),
+        figureText: figureMatch?.[0],
+        citationUrl: bound?.url,
         autoFixable: false,
       })
     }
@@ -1593,6 +1639,13 @@ export async function runQualityGate(
   // cost 5x the score penalty or produce 5 rows in the recurring-issue log.
   issues = consolidateDuplicateIssues(issues)
 
+  // Auto-verify cited grant/dated-policy figures against the live official page.
+  // Matching → info ("auto-verified as of …"); failures stay flagged with a
+  // specific reason (missing figure / unreachable / no citation).
+  issues = await autoVerifyCitedPolicyIssues(issues, datedPolicy?.now)
+
+  issues = withActionHints(issues)
+
   // ---- COMPUTE FINAL SCORE (single source of truth) ----
   const totals = recomputeQualityGateTotals({
     issues,
@@ -1603,4 +1656,90 @@ export async function runQualityGate(
   void logQualityGateRun(userId, articleId, issues)
 
   return totals
+}
+
+/**
+ * For grant-figure / dated-policy issues that already cite an official URL,
+ * re-fetch the page and confirm the figure still appears. Auto-verified
+ * items become severity `info` so they no longer block publish or inflate
+ * the Quality Gate warning count.
+ */
+export async function autoVerifyCitedPolicyIssues(
+  issues: QualityIssue[],
+  now: Date = new Date(),
+  fetchImpl?: typeof fetch,
+): Promise<QualityIssue[]> {
+  const out: QualityIssue[] = []
+  for (const issue of issues) {
+    const eligible =
+      (issue.category === 'grant-figure' || issue.category === 'dated-policy') &&
+      issue.severity !== 'info' &&
+      !issue.autoFixable
+
+    if (!eligible) {
+      out.push(issue)
+      continue
+    }
+
+    // Critical uncited grant figures have no URL to check — keep them, but
+    // still record the explicit no-citation reason for the action box.
+    const figure =
+      issue.figureText ||
+      issue.description?.match(/Found:\s*"([^"]+)"/)?.[1] ||
+      issue.title?.match(/"([^"]+)"/)?.[0]?.replace(/^"|"$/g, '') ||
+      ''
+
+    if (!issue.citationUrl) {
+      // Only attach no-citation status when there is a concrete figure we
+      // would have checked — stale-year / generic dated claims without a
+      // figure stay as plain manual-review with an action hint.
+      if (figure && /[£$€]\d|\d+%|up to/i.test(figure)) {
+        out.push({
+          ...issue,
+          verificationStatus: 'no-citation',
+          verificationDetail: 'no citation present to check',
+        })
+      } else {
+        out.push(issue)
+      }
+      continue
+    }
+
+    if (!figure) {
+      out.push({
+        ...issue,
+        citationUrl: issue.citationUrl,
+        verificationStatus: 'no-citation',
+        verificationDetail: 'no citation present to check',
+      })
+      continue
+    }
+
+    const label = sourceLabelForUrl(issue.citationUrl)
+    const result = await verifyFigureAgainstCitation(figure, issue.citationUrl, {
+      now,
+      fetchImpl,
+      sourceLabel: label,
+    })
+
+    if (result.status === 'auto-verified') {
+      out.push({
+        ...issue,
+        severity: 'info',
+        title: `Auto-verified as of ${result.verifiedAsOf}: "${figure}"`,
+        description: result.detail,
+        verificationStatus: 'auto-verified',
+        verificationDetail: result.detail,
+        autoFixable: false,
+      })
+    } else {
+      out.push({
+        ...issue,
+        verificationStatus: result.status,
+        verificationDetail: result.detail,
+        description: `${issue.description} — ${result.detail}.`,
+      })
+    }
+  }
+  return out
 }

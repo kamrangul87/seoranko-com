@@ -25,6 +25,7 @@ import {
   parsePipelineStageMarkers,
   parsePipelineStoppedMarker,
 } from '@/lib/quality-pipeline-stages'
+import { panelScoresFromMeta } from '@/lib/panel-scores'
 
 const ALL_COUNTRIES = MARKETS.map(m => ({ value: m.value as Country, label: m.label }))
 
@@ -255,6 +256,10 @@ export function ArticleWriter() {
         article: data.html,
         wordCount: countArticleWords(data.html),
         qualityGate: data.qualityGate,
+        eeaScore: data.eeatScore ?? data.panelScores?.eeatScore ?? article.eeaScore,
+        readabilityScore: data.readabilityScore ?? data.panelScores?.readabilityScore ?? article.readabilityScore,
+        keywordDensity: data.keywordDensity ?? data.panelScores?.keywordDensity ?? article.keywordDensity,
+        keywordDensityScore: data.keywordDensityScore ?? data.panelScores?.keywordDensityScore ?? article.keywordDensityScore,
       })
       setDraftHtml(data.html)
       setFixAllReport({
@@ -299,6 +304,10 @@ export function ArticleWriter() {
         article: html,
         wordCount: countArticleWords(html),
         qualityGate: data.qualityGate,
+        eeaScore: data.eeatScore ?? data.panelScores?.eeatScore ?? article.eeaScore,
+        readabilityScore: data.readabilityScore ?? data.panelScores?.readabilityScore ?? article.readabilityScore,
+        keywordDensity: data.keywordDensity ?? data.panelScores?.keywordDensity ?? article.keywordDensity,
+        keywordDensityScore: data.keywordDensityScore ?? data.panelScores?.keywordDensityScore ?? article.keywordDensityScore,
       })
       setFixAllReport(null)
     } catch (err) {
@@ -461,11 +470,22 @@ export function ArticleWriter() {
             : ''
         if (partialHtml.length > 200) {
           let qualityGate: ArticleOutput['qualityGate']
+          let panel = {
+            eeatScore: 0,
+            readabilityScore: 0,
+            keywordDensity: 0,
+            keywordDensityScore: 0,
+          }
           const scoresMatch = full.match(/\n<!-- SEORANKO_SCORES:(\{[\s\S]*?\}) -->/)
           if (scoresMatch) {
             try {
               const p = JSON.parse(scoresMatch[1])
               if (p.qualityGate) qualityGate = p.qualityGate
+              // Never hardcode rings to 0 when the stream already sent real
+              // scores for this same article — that produced the contradictory
+              // "0/100 rings vs real Quality Gate" bug on pipeline stop.
+              const fromMeta = panelScoresFromMeta(p)
+              if (fromMeta) panel = fromMeta
             } catch { /* ignore */ }
           }
           setArticle({
@@ -473,10 +493,10 @@ export function ArticleWriter() {
             metaDescription: '',
             article: partialHtml,
             wordCount: countArticleWords(partialHtml),
-            eeaScore: 0,
-            readabilityScore: 0,
-            keywordDensity: 0,
-            keywordDensityScore: 0,
+            eeaScore: panel.eeatScore,
+            readabilityScore: panel.readabilityScore,
+            keywordDensity: panel.keywordDensity,
+            keywordDensityScore: panel.keywordDensityScore,
             improvements: [],
             qualityGate,
             saveError: 'Generation stopped by Quality Pipeline — article was not saved.',
@@ -821,6 +841,9 @@ export function ArticleWriter() {
                 <ScoreRing score={article.keywordDensityScore ?? 0} raw label="Keyword Density" color="#16a34a" />
                 <span className="text-[9px] text-[#9B9B9B] -mt-1">{Number(article.keywordDensity).toFixed(1)}% actual</span>
               </div>
+              {article.qualityGate && (
+                <ScoreRing score={article.qualityGate.score} raw label="Quality Gate" color="#0F0F0F" />
+              )}
               {article.humanScore != null && (
                 <ScoreRing score={article.humanScore}    label="Human Score"   color="#0ea5e9" />
               )}
@@ -965,6 +988,10 @@ export function ArticleWriter() {
                               article: draftHtml,
                               wordCount: countArticleWords(draftHtml),
                               qualityGate: data.qualityGate,
+                              eeaScore: data.eeatScore ?? data.panelScores?.eeatScore ?? article.eeaScore,
+                              readabilityScore: data.readabilityScore ?? data.panelScores?.readabilityScore ?? article.readabilityScore,
+                              keywordDensity: data.keywordDensity ?? data.panelScores?.keywordDensity ?? article.keywordDensity,
+                              keywordDensityScore: data.keywordDensityScore ?? data.panelScores?.keywordDensityScore ?? article.keywordDensityScore,
                             })
                             setEditing(false)
                             setFixAllReport(null)

@@ -76,6 +76,27 @@ describe('sentence-integrity', () => {
     expect(hasInsertionCorruption(corrupted)).toBe(true)
   })
 
+  // Confirmed live: "...smart grid rules, V2G requirements, and communication
+  // standards evolve.ds outpace current hardware capabilities." — truncated
+  // fragment glued mid-sentence. The preposition-scoped rule does not catch
+  // this because "outpace" is not a closed-class word.
+  it('detects the exact "evolve.ds outpace" truncated-fragment splice', () => {
+    const corrupted =
+      'smart grid rules, V2G requirements, and communication standards evolve.ds outpace current hardware capabilities.'
+    expect(hasInsertionCorruption(corrupted)).toBe(true)
+  })
+
+  it('scrubs "evolve.ds outpace" without destroying domain names', () => {
+    const bad =
+      '<p>smart grid rules, V2G requirements, and communication standards evolve.ds outpace current hardware capabilities. See gov.uk for updates.</p>'
+    const { html, fixes } = scrubInsertionCorruption(bad)
+    expect(fixes).toBeGreaterThan(0)
+    expect(html).not.toMatch(/evolve\.ds/)
+    expect(html).toContain('evolve outpace')
+    expect(html).toContain('gov.uk')
+    expect(hasInsertionCorruption(html)).toBe(false)
+  })
+
   it('rejects the exact fact-checker hedge patch that produced the live bug', () => {
     const original = 'though most UK EVs currently accept between 50 kW and 150 kW.'
     const patched = 'though most UK EVs currently accept between 50 kW and lower speeds. and 150 kW.'

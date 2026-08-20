@@ -15,6 +15,16 @@ describe('production corruption shapes', () => {
     expect(hasInsertionCorruption(html)).toBe(false)
   })
 
+  it('detects and scrubs evolve.ds outpace truncated-fragment corruption', () => {
+    const bad =
+      `<p>smart grid rules, V2G requirements, and communication standards evolve.ds outpace current hardware capabilities.</p>`
+    expect(hasInsertionCorruption(bad)).toBe(true)
+    const { html, fixes } = scrubInsertionCorruption(bad)
+    expect(fixes).toBeGreaterThan(0)
+    expect(html).not.toMatch(/evolve\.ds/)
+    expect(hasInsertionCorruption(html)).toBe(false)
+  })
+
   it('detects require.ehicles as a merge artifact', () => {
     const bad = `<p>That is something newer electric vehicles require.ehicles need a dedicated circuit.</p>`
     expect(hasInsertionCorruption(bad)).toBe(true)

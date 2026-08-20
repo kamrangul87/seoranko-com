@@ -39,6 +39,13 @@ export const INSERTION_CORRUPTION_PATTERNS: RegExp[] = [
   /\b[A-Za-z]+\s+[A-Z]\.t\s+[A-Z]\b/,
   // "installations.ce of" — truncated suffix before a preposition
   /\b[a-z]{5,}\.[a-z]{1,3}\s+(?:of|the|a|and|for|in|to|on)\b/,
+  // "evolve.ds outpace" — truncated 1–3 letter fragment after a period,
+  // then a continuing lowercase word (confirmed live: "...standards
+  // evolve.ds outpace current hardware capabilities."). Distinct from the
+  // preposition-scoped rule above: the next word is ordinary prose, not a
+  // closed-class preposition. TLD lookbehind keeps gov.uk / energynetworks.org
+  // from matching.
+  /\b[a-z]{4,}\.(?!uk\b|com\b|org\b|net\b|gov\b|edu\b|co\b|io\b|ai\b)[a-z]{1,3}\s+[a-z]{3,}\b/,
   // "50 kW and lower speeds. and 150 kW." — a period immediately followed
   // by a lowercase coordinating conjunction/preposition is the residue of
   // a fragment spliced mid-clause (confirmed live: a fact-sourcing hedge
@@ -360,6 +367,15 @@ export function scrubInsertionCorruption(html: string): { html: string; fixes: n
       (_m, word: string, _frag: string, prep: string) => {
         fixes++
         return `${word} ${prep}`
+      },
+    )
+
+    // "evolve.ds outpace" → "evolve outpace" (drop truncated mid-sentence fragment)
+    content = content.replace(
+      /\b([a-z]{4,})\.(?!uk\b|com\b|org\b|net\b|gov\b|edu\b|co\b|io\b|ai\b)([a-z]{1,3})\s+([a-z]{3,})\b/g,
+      (_m, word: string, _frag: string, next: string) => {
+        fixes++
+        return `${word} ${next}`
       },
     )
 

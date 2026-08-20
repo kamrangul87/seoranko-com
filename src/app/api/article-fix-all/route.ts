@@ -114,6 +114,11 @@ export async function POST(req: NextRequest) {
       fixed: result.fixed,
       stillNeedsManualReview: result.stillNeedsManualReview,
       summary: result.summary,
+      panelScores: result.panelScores,
+      eeatScore: result.panelScores.eeatScore,
+      readabilityScore: result.panelScores.readabilityScore,
+      keywordDensity: result.panelScores.keywordDensity,
+      keywordDensityScore: result.panelScores.keywordDensityScore,
     })
   } catch (err) {
     console.error('[article-fix-all]', err)
