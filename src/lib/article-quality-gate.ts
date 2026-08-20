@@ -25,7 +25,6 @@ import {
   DATED_POLICY_SEVERITY,
 } from '@/lib/quality-gate-policy'
 import {
-  detectDatedClaims,
   detectStaleYearReferences,
   extractHeadingTexts,
   detectTimeAnchoredClaims,
@@ -37,6 +36,30 @@ import {
   type CitationVerifyStatus,
 } from '@/lib/citation-auto-verify'
 import { withActionHints } from '@/lib/quality-issue-action-hints'
+import {
+  FRESHNESS_REVIEW_SEVERITY,
+  severityForFreshnessFinding,
+  type FreshnessFinding,
+} from '@/lib/freshness-policy'
+import {
+  buildFreshnessIssueDescription,
+  evaluateFreshnessSync,
+  freshnessFindingsRequiringIssues,
+  freshnessIssueTitle,
+} from '@/lib/freshness-evaluator'
+import {
+  evaluateClaimEvidence,
+  formatClaimEvidenceDescription,
+  severityForClaimEvidence,
+  type ClaimEvidence,
+} from '@/lib/claim-evidence'
+import { evaluateHedging, isExtremeHedgeDensity } from '@/lib/hedging-policy'
+import { assessEditorialWordCount } from '@/lib/editorial-word-count'
+import {
+  confirmAutoFixOutcomes,
+  scoreFromIssues,
+  type AutoFixConfirmation,
+} from '@/lib/autofix-confirmation'
 
 // AI slop patterns — expanded from anti-slop GitHub repo
 const AI_SLOP_PATTERNS = [
@@ -61,32 +84,10 @@ const AI_SLOP_PATTERNS = [
   /\bto conclude,/i,
 ]
 
-// Grant-figure claims are evaluated separately by evaluateGrantFigureClaims()
-// below — document-level claim-citation binding, not proximity matching.
-// A fixed character window ("nearby") misses citations that appear earlier
-// in the article, and matching only the word "verify" misses "confirm at
-// GOV.UK" / "see GOV.UK" / etc. DANGEROUS_FACT_PATTERNS now only covers
-// dated-policy claims, which don't need citation binding.
-const DANGEROUS_FACT_PATTERNS = [
-  {
-    pattern: /\b(as of|from) (january|february|march|april|may|june|july|august|september|october|november|december) 20\d{2}\b.*?(grant|scheme|fund|subsid)/i,
-    message: 'Dated grant/scheme claim — confirm this is still current policy',
-    // Severity must match DATED_POLICY_SEVERITY — never diverge per pass.
-    severity: DATED_POLICY_SEVERITY,
-    category: 'dated-policy' as const,
-  },
-]
-
-// A regulation's effective date ("enforced from June 2022") is a fixed
-// historical fact — it doesn't go stale. What genuinely goes stale is a
-// changeable FIGURE (a grant amount, rate, or cap) stated alongside a date.
-// The pattern above matches on the word "grant"/"scheme" appearing anywhere
-// in the sentence, which false-positives on claims that just reference
-// eligibility for a grant without stating any amount that could change —
-// e.g. "...doesn't qualify for the OZEV grant" has no £/% figure at all.
-function hasChangeableFigureNearby(matchContext: string): boolean {
-  return /[£$€]\s?\d|\d+\s?%/.test(matchContext)
-}
+// Dated-policy / freshness detection is owned exclusively by
+// evaluateFreshnessSync → buildDatedPolicyIssues (shared severity via
+// freshness-policy). Do not re-introduce a parallel DANGEROUS_FACT_PATTERNS
+// loop — it previously duplicated chrono findings at a divergent severity.
 
 // ============================================================
 // CLAIM-CITATION BINDING (grant-figure claims)
@@ -197,75 +198,158 @@ function claimHasInlineVerification(articleContent: string, claim: Claim): boole
     Math.max(0, claim.position - 150),
     Math.min(articleContent.length, claim.position + 150),
   )
-  return INLINE_VERIFY_RE.test(localContext)
+  // Strip tags so href="https://www.gov.uk/..." cannot satisfy "see … GOV.UK"
+  // when the visible text is only "See also vehicle tax".
+  const plain = localContext.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
+  return INLINE_VERIFY_RE.test(plain)
 }
 
 /**
- * Grant/financial figures — document-level claim-citation binding.
+ * Grant/financial figures via claim-level evidence (Phase 5).
  *
- * Policy (GRANT_FIGURE_CITATION_POLICY = document-level-once):
- * one GOV.UK citation (or one verify hedge near any restatement) clears the
- * figure for the whole article. Repeated "up to £350" lines do not each need
- * their own nearby cite. Emit one issue per unique figure text.
+ * Policy (GRANT_FIGURE_CITATION_POLICY = claim-level-once):
+ * - One supporting citation covers every restatement of the SAME figure
+ *   (do not require the link after every sentence).
+ * - A citation that supports claim A does NOT automatically support claim B
+ *   (different figures / unsupported topics stay flagged).
+ *
+ * When `freshnessCoveredFigures` is provided, skip figures already represented
+ * as dated-policy / freshness issues.
  */
-export function evaluateGrantFigureClaims(articleContent: string): QualityIssue[] {
+export function evaluateGrantFigureClaims(
+  articleContent: string,
+  freshnessCoveredFigures?: Set<string>,
+): QualityIssue[] {
   const issues: QualityIssue[] = []
-  const citations = extractCitations(articleContent)
-  const claims = extractFinancialClaims(articleContent)
+  const evidence = evaluateClaimEvidence(articleContent).filter((ev) => {
+    if (!ev.figureText) return false
+    // Financial / grant-style figures only for this legacy category
+    return /[£$€]|\d+\s?%|up to/i.test(ev.figureText)
+  })
 
-  const byFigure = new Map<string, Claim[]>()
-  for (const claim of claims) {
-    const key = claim.text.toLowerCase().replace(/\s+/g, ' ').trim()
-    if (!byFigure.has(key)) byFigure.set(key, [])
-    byFigure.get(key)!.push(claim)
-  }
+  for (const ev of evidence) {
+    const figureKey = (ev.figureText || '').toLowerCase().replace(/\s+/g, ' ').trim()
+    if (freshnessCoveredFigures?.has(figureKey)) continue
 
-  for (const group of Array.from(byFigure.values())) {
-    const unionTopics = new Set<string>()
-    for (const c of group) {
-      for (const t of Array.from(c.topicTerms)) unionTopics.add(t)
+    // Inline verify hedge still counts as a soft citation for autofix UX
+    const hedgeClaim: Claim = {
+      text: ev.figureText || ev.claimText.slice(0, 40),
+      position: 0,
+      topicTerms: new Set(),
     }
-    const representative: Claim = {
-      text: group[0].text,
-      position: group[0].position,
-      topicTerms: unionTopics,
-    }
-
-    const anyInlineVerification = group.some(c =>
-      claimHasInlineVerification(articleContent, c),
+    // Find first occurrence position for location / autofix id
+    const claims = extractFinancialClaims(articleContent).filter(
+      (c) => c.text.toLowerCase().replace(/\s+/g, ' ').trim() === figureKey,
     )
-    const boundCitation = findBoundCitation(representative, citations)
-    const isBoundToCitation = !!boundCitation
-    const isCited = anyInlineVerification || isBoundToCitation
-    const count = group.length
-    const countNote = count > 1 ? ` (appears ${count} times)` : ''
+    if (claims.length === 0 && !ev.figureText) continue
+    const representative = claims[0] || {
+      text: ev.figureText || '',
+      position: 0,
+      topicTerms: new Set(),
+    }
+    hedgeClaim.position = representative.position
+    hedgeClaim.topicTerms = representative.topicTerms
+
+    const anyInlineVerification =
+      claims.some((c) => claimHasInlineVerification(articleContent, c)) ||
+      claimHasInlineVerification(articleContent, hedgeClaim)
+
+    let status = ev.status
+    if (anyInlineVerification && (status === 'UNSUPPORTED' || status === 'NEEDS_REVIEW')) {
+      status = 'PARTIALLY_SUPPORTED'
+    }
+
+    const sev = severityForClaimEvidence(status)
+    // Uncited financial figures remain critical (material harm risk); cited /
+    // partial stay warning so auto-verify can confirm currency.
+    const severity: 'critical' | 'warning' | 'info' =
+      status === 'CONTRADICTED' || status === 'OUTDATED'
+        ? 'critical'
+        : status === 'UNSUPPORTED' && !anyInlineVerification
+          ? 'critical'
+          : status === 'SUPPORTED' || status === 'HISTORICAL' || status === 'PARTIALLY_SUPPORTED'
+            ? 'warning'
+            : sev === 'critical'
+              ? 'critical'
+              : 'warning'
+
+    const countNote =
+      ev.occurrenceCount > 1 ? ` (appears ${ev.occurrenceCount} times)` : ''
     const location = stripHtmlSnippet(
       articleContent.slice(
-        Math.max(0, group[0].position - 40),
-        Math.min(articleContent.length, group[0].position + 80),
+        Math.max(0, representative.position - 40),
+        Math.min(articleContent.length, representative.position + 80),
       ),
     )
 
+    const isUnsupported = status === 'UNSUPPORTED' || status === 'NEEDS_REVIEW'
+    const title =
+      status === 'CONTRADICTED' || status === 'OUTDATED'
+        ? `Claim may be outdated: "${ev.figureText}"`
+        : isUnsupported && !anyInlineVerification
+          ? 'Specific monetary cap stated — verify this figure is current (grant amounts change frequently)'
+          : 'Financial figure detected — properly sourced, just double-check it\'s current'
+
     issues.push({
-      id: `fact-grant-figure-${group[0].position}`,
-      severity: isCited ? 'warning' : 'critical',
+      id: `fact-grant-figure-${representative.position}`,
+      severity,
       category: 'grant-figure',
-      title: isCited
-        ? 'Financial figure detected — properly sourced, just double-check it\'s current'
-        : 'Specific monetary cap stated — verify this figure is current (grant amounts change frequently)',
-      description: isCited
-        ? `Found: "${group[0].text}"${countNote} — a citation to an official source exists in this article covering the same topic. One document-level citation covers every restatement; each instance does not need its own nearby cite. Confirm the figure is still accurate.`
-        : `Found: "${group[0].text}"${countNote} — no citation to an official source found anywhere in the article on this topic. Add one GOV.UK link or "(verify at GOV.UK)" — a single document-level citation covers every restatement of this figure.`,
+      title,
+      description: formatClaimEvidenceDescription({
+        ...ev,
+        status,
+        rationale:
+          anyInlineVerification && isUnsupported
+            ? `Inline verify hedge present.${ev.occurrenceCount > 1 ? ` Claim appears ${ev.occurrenceCount} times — one citation/hedge covers every restatement.` : ''}`
+            : ev.rationale,
+      }) + (countNote ? `\nFound: "${ev.figureText}"${countNote}` : `\nFound: "${ev.figureText}"`),
       location,
-      citationUrl: boundCitation?.url,
-      figureText: group[0].text,
-      autoFixable: !isCited,
-      autoFixDescription: !isCited
-        ? 'Auto-fix adds "(verify at GOV.UK)" after each instance of this figure'
-        : undefined,
+      citationUrl: ev.source?.url || (anyInlineVerification ? undefined : undefined),
+      figureText: ev.figureText,
+      autoFixable: isUnsupported && !anyInlineVerification && !ev.source,
+      autoFixDescription:
+        isUnsupported && !anyInlineVerification && !ev.source
+          ? 'Auto-fix adds "(verify at GOV.UK)" after each instance of this figure'
+          : undefined,
     })
   }
   return issues
+}
+
+/**
+ * Important factual claims that are not grant-figure autofix targets —
+ * surfaces claim-level evidence gaps without requiring a cite after every sentence.
+ */
+export function evaluateClaimEvidenceIssues(articleContent: string): QualityIssue[] {
+  const issues: QualityIssue[] = []
+  const evidence = evaluateClaimEvidence(articleContent)
+  let idx = 0
+  for (const ev of evidence) {
+    // Grant/financial figures are handled by evaluateGrantFigureClaims
+    if (ev.figureText && /[£$€]|up to/i.test(ev.figureText)) continue
+    const sev = severityForClaimEvidence(ev.status)
+    if (sev === null) continue
+    issues.push({
+      id: `claim-evidence-${idx++}`,
+      severity: sev,
+      category: 'claim-evidence',
+      title:
+        ev.status === 'UNSUPPORTED'
+          ? `Important claim lacks supporting evidence`
+          : `Claim evidence: ${ev.status}`,
+      description: formatClaimEvidenceDescription(ev),
+      location: ev.claimText.slice(0, 100),
+      citationUrl: ev.source?.url,
+      figureText: ev.figureText,
+      autoFixable: false,
+    })
+  }
+  return issues
+}
+
+/** @deprecated Use evaluateClaimEvidence — exported for tests/debug. */
+export function getClaimEvidenceForArticle(articleContent: string): ClaimEvidence[] {
+  return evaluateClaimEvidence(articleContent)
 }
 
 function stripHtmlSnippet(html: string): string {
@@ -352,15 +436,19 @@ export function timeAnchoredClaimFailureToIssue(
     const bound = findBoundCitation(pseudoClaimFor(articleContent, claim), citations)
     citationUrl = bound?.url
   }
+  // Shared freshness severity — unsourced / needs-review is WARNING, never a
+  // divergent critical from a second detector path.
   return {
     id: `time-anchored-claim-${index}`,
-    // FAIL-tier per the C04 spec — this codebase's 'critical' severity
-    // (blocks quality_passed), matching evaluateGrantFigureClaims'
-    // treatment of an uncited financial figure.
-    severity: 'critical',
+    severity: FRESHNESS_REVIEW_SEVERITY,
     category: 'dated-policy',
-    title: `Time-anchored claim — confirm still current: "${claim.extractedNumericValue || claim.matchedPattern}"`,
-    description: `"${claim.sentence}" — ${reasons.join('; ')}. Re-check by ${claim.reviewBy}.`,
+    title: `Time-sensitive claim — confirm still current: "${claim.extractedNumericValue || claim.matchedPattern}"`,
+    description: [
+      `Claim: "${claim.sentence}"`,
+      `Evidence: ${reasons.join('; ')}.`,
+      `Recommended action: Add an official source link that states this figure, or label the claim as historical if it no longer applies.`,
+      `Re-check by ${claim.reviewBy}.`,
+    ].join('\n'),
     location: claim.sentence.slice(0, 100),
     figureText: claim.extractedNumericValue || undefined,
     citationUrl,
@@ -421,9 +509,31 @@ function extractMetaDescriptionFromHtml(html: string): string | undefined {
 }
 
 /**
- * Chrono dated-claims + stale-year findings, always at DATED_POLICY_SEVERITY.
- * Shared by article-v2 / recheck / Fix All via runQualityGate — never build
- * these issues in a caller with a different severity.
+ * Map a freshness finding → QualityIssue using the shared severity policy.
+ */
+export function freshnessFindingToIssue(
+  finding: FreshnessFinding,
+  index: number,
+): QualityIssue | null {
+  const severity = severityForFreshnessFinding(finding)
+  if (severity === null) return null
+  return {
+    id: `freshness-${finding.detector}-${index}`,
+    severity,
+    category: 'dated-policy',
+    title: freshnessIssueTitle(finding),
+    description: buildFreshnessIssueDescription(finding),
+    location: finding.sentence.slice(0, 100),
+    figureText: finding.figureText,
+    citationUrl: finding.citationUrl,
+    autoFixable: false,
+  }
+}
+
+/**
+ * Authoritative dated-policy / freshness issues + stale-year findings.
+ * Chrono, time-anchored, and relative factual claims all flow through
+ * evaluateFreshnessSync so they cannot disagree on severity.
  */
 export function buildDatedPolicyIssues(
   articleContent: string,
@@ -431,37 +541,24 @@ export function buildDatedPolicyIssues(
     now?: Date
     title?: string
     metaDescription?: string
+    /** Optional live/fixture evidence — never hard-coded figures in production. */
+    evidenceFindings?: FreshnessFinding[]
   },
 ): QualityIssue[] {
   const now = opts?.now ?? new Date()
   const issues: QualityIssue[] = []
-  // Populated by the chrono dated-claims pass below, read by the
-  // time-anchored-claims pass further down so the two detectors (which
-  // overlap on date-bearing sentences like "as of August 2026") don't both
-  // emit an issue for the exact same sentence.
-  const sentencesAlreadyFlagged = new Set<string>()
 
   try {
-    const datedClaims = detectDatedClaims(articleContent, now)
-    const unsourced = datedClaims.filter(c => !c.hasSource)
-    const uniqueUnsourced = Array.from(
-      new Map(unsourced.map(c => [c.sentence.trim(), c])).values(),
-    )
-    for (const claim of uniqueUnsourced) sentencesAlreadyFlagged.add(claim.sentence.trim())
-    for (let i = 0; i < uniqueUnsourced.length; i++) {
-      const claim = uniqueUnsourced[i]
-      issues.push({
-        id: `dated-claim-${i}`,
-        severity: DATED_POLICY_SEVERITY,
-        category: 'dated-policy',
-        title: `Dated claim — confirm still current: "${claim.text}"`,
-        description: `"${claim.sentence}" — tied to a date but no named source or link found nearby. Add a GOV.UK citation or verify the figure is still accurate. Re-check by ${claim.reviewBy.slice(0, 10)}.`,
-        location: claim.sentence.slice(0, 100),
-        autoFixable: false,
-      })
+    const findings =
+      opts?.evidenceFindings ??
+      evaluateFreshnessSync(articleContent, { now })
+    const forIssues = freshnessFindingsRequiringIssues(findings)
+    for (let i = 0; i < forIssues.length; i++) {
+      const issue = freshnessFindingToIssue(forIssues[i], i)
+      if (issue) issues.push(issue)
     }
   } catch (err) {
-    console.warn('[article-quality-gate] dated-claim detection failed:', err)
+    console.warn('[article-quality-gate] freshness evaluation failed:', err)
   }
 
   try {
@@ -496,27 +593,25 @@ export function buildDatedPolicyIssues(
     console.warn('[article-quality-gate] stale-year detection failed:', err)
   }
 
-  try {
-    // Broader than detectDatedClaims: catches relative claims with no
-    // parseable date token at all ("currently, the grant covers 75%").
-    // Skip any sentence the chrono pass above already flagged — both
-    // detectors legitimately fire on genuine date-token sentences like
-    // "as of August 2026", and a sentence shouldn't get two issues for the
-    // same underlying defect.
-    const timeAnchoredClaims = detectTimeAnchoredClaims(articleContent, now)
-      .filter(c => !sentencesAlreadyFlagged.has(c.sentence.trim()))
-    const uniqueTimeAnchoredClaims = Array.from(
-      new Map(timeAnchoredClaims.map(c => [c.sentence.trim(), c])).values(),
-    )
-    const failures = validateTimeAnchoredClaims(articleContent, uniqueTimeAnchoredClaims)
-    for (let i = 0; i < failures.length; i++) {
-      issues.push(timeAnchoredClaimFailureToIssue(failures[i], i, articleContent))
-    }
-  } catch (err) {
-    console.warn('[article-quality-gate] time-anchored-claim detection failed:', err)
-  }
-
   return issues
+}
+
+/** Figures already represented by freshness dated-policy issues. */
+export function freshnessCoveredFigureKeys(html: string, now?: Date): Set<string> {
+  const findings = evaluateFreshnessSync(html, { now })
+  const keys = new Set<string>()
+  for (const f of freshnessFindingsRequiringIssues(findings)) {
+    if (f.figureText) {
+      keys.add(f.figureText.toLowerCase().replace(/\s+/g, ' ').trim())
+    }
+  }
+  // Also cover CURRENT+SUPPORTED so grant-figure does not re-warn a verified claim
+  for (const f of findings) {
+    if (f.evidenceStatus === 'SUPPORTED' && f.figureText) {
+      keys.add(f.figureText.toLowerCase().replace(/\s+/g, ' ').trim())
+    }
+  }
+  return keys
 }
 
 // Duplicate-word and repeated-character checks used to live here as regexes
@@ -601,16 +696,6 @@ function countTypically(content: string): number {
   return (content.match(/\btypically\b/gi) || []).length
 }
 
-function countHedgeWords(content: string): Record<string, number> {
-  const hedges = ['typically', 'generally', 'usually', 'often', 'sometimes', 'may', 'might', 'could', 'tend to']
-  const counts: Record<string, number> = {}
-  for (const hedge of hedges) {
-    const matches = content.match(new RegExp(`\\b${hedge}\\b`, 'gi')) || []
-    if (matches.length > 0) counts[hedge] = matches.length
-  }
-  return counts
-}
-
 // ============================================================
 // QUALITY ISSUE TYPES
 // ============================================================
@@ -620,6 +705,7 @@ export type IssueCategory =
   | 'typo'
   | 'merge-artifact'
   | 'grant-figure'
+  | 'claim-evidence'
   | 'dated-policy'
   | 'ai-slop'
   | 'hedging'
@@ -667,10 +753,16 @@ export interface QualityGateResult {
   issues: QualityIssue[]
   criticalCount: number
   warningCount: number
+  /**
+   * Confirmed resolved issues after revalidation — NOT raw mutation attempts.
+   * Phase 9: only increments when the original issue is gone on final HTML.
+   */
   autoFixedCount: number
   articleAfterAutoFix: string
   readyToPublish: boolean
   blockers: string[]
+  /** Phase 9 honest autofix report (optional for older callers). */
+  autoFixConfirmation?: AutoFixConfirmation
 }
 
 /** Recompute score/counts/ready from the current issues list (single source of truth). */
@@ -1107,6 +1199,7 @@ export async function runQualityGate(
       now?: Date
       title?: string
       metaDescription?: string
+      evidenceFindings?: FreshnessFinding[]
     }
   }
 ): Promise<QualityGateResult> {
@@ -1159,18 +1252,19 @@ export async function runQualityGate(
       now?: Date
       title?: string
       metaDescription?: string
+      evidenceFindings?: FreshnessFinding[]
     }
   }
 
   let issues: QualityIssue[] = extraIssues ? [...extraIssues] : []
   let articleAfterAutoFix = articleContent
-  let autoFixedCount = 0
 
   // Dated-policy is owned by the gate (same severity on every pass). Drop any
   // caller-supplied dated-policy extras so article-v2 cannot diverge from
   // recheck / Fix All.
   issues = issues.filter(i => i.category !== 'dated-policy')
   issues.push(...buildDatedPolicyIssues(articleContent, datedPolicy))
+  const freshnessFigures = freshnessCoveredFigureKeys(articleContent, datedPolicy?.now)
 
   // ---- RULE 0: Topic must match the requested keyword (blocks crypto-for-ev-charger disasters) ----
   const topicCheck = checkTopicAlignment(articleContent, keyword)
@@ -1231,37 +1325,15 @@ export async function runQualityGate(
     console.warn('[article-quality-gate] prose lint failed, continuing:', proseErr)
   }
 
-  // ---- RULE 2: Dangerous fact patterns (dated-policy only — grant figures
-  // are evaluated separately below via document-level claim-citation binding) ----
-  for (const rule of DANGEROUS_FACT_PATTERNS) {
-    const match = articleContent.match(rule.pattern)
-    if (match) {
-      const idx = articleContent.search(rule.pattern)
-      const context = articleContent.slice(Math.max(0, idx - 20), idx + 80)
-      if (!hasChangeableFigureNearby(context)) continue // fixed regulatory date, not a changeable claim
-      const figureMatch = context.match(/[£$€]\s?\d[\d,]*(?:\.\d+)?|\d+\s?%/)
-      const claimLike: Claim = {
-        text: figureMatch?.[0] || match[0],
-        position: idx,
-        topicTerms: extractTopicTerms(context),
-      }
-      const bound = findBoundCitation(claimLike, extractCitations(articleContent))
-      issues.push({
-        id: `fact-${rule.category}-${issues.length}`,
-        severity: rule.severity,
-        category: rule.category,
-        title: rule.message,
-        description: `Found: "${match[0]}" — Double-check this claim.`,
-        location: context.trim().slice(0, 100),
-        figureText: figureMatch?.[0],
-        citationUrl: bound?.url,
-        autoFixable: false,
-      })
-    }
-  }
+  // ---- RULE 2: Dated-policy / freshness is owned by buildDatedPolicyIssues
+  // (evaluateFreshnessSync). No parallel DANGEROUS_FACT_PATTERNS pass.
 
-  // ---- RULE 2b: Grant-figure claims — document-level claim-citation binding ----
-  issues.push(...evaluateGrantFigureClaims(articleContent))
+  // ---- RULE 2b: Grant-figure claims — claim-level evidence binding.
+  // Skip figures already covered by freshness so severities cannot conflict.
+  issues.push(...evaluateGrantFigureClaims(articleContent, freshnessFigures))
+
+  // ---- RULE 2c: Other important factual claims (non-grant) — claim evidence
+  issues.push(...evaluateClaimEvidenceIssues(articleContent))
 
   // ---- RULE 3: AI slop patterns ----
   for (const pattern of AI_SLOP_PATTERNS) {
@@ -1280,32 +1352,45 @@ export async function runQualityGate(
     }
   }
 
-  // ---- RULE 4: "Typically" overuse ----
-  const typicallyCount = countTypically(articleContent)
-  if (typicallyCount > maxTypically) {
+  // ---- RULE 4: Semantic hedging (Phase 7) — not an arbitrary "typically" quota ----
+  const hedging = evaluateHedging(articleContent)
+  const wordCount = countArticleWords(articleContent)
+
+  const realRep = hedging.actionable.filter((a) => a.classification === 'REAL_REPETITION')
+  const overHedge = hedging.actionable.filter((a) => a.classification === 'OVER_HEDGING')
+  const unsupportedHedge = hedging.actionable.filter((a) => a.classification === 'UNSUPPORTED_CLAIM')
+
+  if (realRep.length >= 3 || (hedging.autoFixableTokens.includes('typically') && (hedging.byToken.typically || 0) >= 6)) {
     issues.push({
-      id: 'hedging-typically',
-      severity: typicallyCount > 10 ? 'critical' : 'warning',
+      id: 'hedging-real-repetition',
+      severity: 'warning',
       category: 'hedging',
-      title: `"Typically" used ${typicallyCount} times — target is ${maxTypically} or fewer`,
-      description: `High frequency hedging (${typicallyCount}×) is a primary AI-detection signal. The humaniser should reduce this but ${typicallyCount} instances remain.`,
-      autoFixable: true,
-      autoFixDescription: `Auto-fix reduces "typically" count to ${maxTypically} by replacing excess instances`
+      title: `Repetitive hedge boilerplate detected (${realRep.length || hedging.byToken.typically || 0}×)`,
+      description: `${hedging.summary} Class: REAL_REPETITION. Appropriate qualifications (may/can/approximately with variability) are not flagged.`,
+      autoFixable: hedging.autoFixableTokens.length > 0,
+      autoFixDescription: 'Auto-fix removes only obvious repetitive "typically" boilerplate — keeps valid uncertainty language',
     })
   }
 
-  const hedgeCounts = countHedgeWords(articleContent)
-  const totalHedges = Object.values(hedgeCounts).reduce((a, b) => a + b, 0)
-  const wordCount = countArticleWords(articleContent)
-
-  if (totalHedges > wordCount / 50) {
+  if (overHedge.length >= 4 || isExtremeHedgeDensity(hedging)) {
     issues.push({
-      id: 'hedging-total',
+      id: 'hedging-over',
       severity: 'warning',
       category: 'hedging',
-      title: `High hedge word density: ${totalHedges} hedge words in ${wordCount} words`,
-      description: `Top offenders: ${Object.entries(hedgeCounts).sort((a,b) => b[1]-a[1]).slice(0,3).map(([w,c]) => `"${w}" ×${c}`).join(', ')}`,
-      autoFixable: false
+      title: `Over-hedging — density ${hedging.densityPer100.toFixed(1)} per 100 words`,
+      description: `${hedging.summary} Class: OVER_HEDGING. Reduce stacked hedges for clarity; this is not a Google keyword penalty.`,
+      autoFixable: false,
+    })
+  }
+
+  if (unsupportedHedge.length >= 2) {
+    issues.push({
+      id: 'hedging-unsupported',
+      severity: 'info',
+      category: 'hedging',
+      title: `Hedge softens precise claims without variability context (${unsupportedHedge.length})`,
+      description: `Class: UNSUPPORTED_CLAIM. Example: "${unsupportedHedge[0].sentence.slice(0, 120)}". Cite a source or state the range explicitly.`,
+      autoFixable: false,
     })
   }
 
@@ -1386,27 +1471,9 @@ export async function runQualityGate(
     keyword,
   }))
 
-  // ---- RULE 8: Word count ----
-  if (wordCount < minWordCount) {
-    issues.push({
-      id: 'word-count-low',
-      severity: 'warning',
-      category: 'word-count',
-      title: `Article is ${wordCount} words — below target minimum of ${minWordCount}`,
-      description: 'Article is shorter than the soft minimum for the selected length target (±12% band).',
-      autoFixable: false
-    })
-  }
-  if (maxWordCount != null && wordCount > maxWordCount) {
-    issues.push({
-      id: 'word-count-high',
-      severity: 'warning',
-      category: 'word-count',
-      title: `Article is ${wordCount} words — exceeds target maximum of ${maxWordCount}`,
-      description: 'Article is longer than the soft maximum for the selected length target (±12% band).',
-      autoFixable: false
-    })
-  }
+  // ---- RULE 8: Editorial word count (Phase 8) — USER_TARGET, not Google SEO ----
+  // Deferred until after brief/secondary coverage so short+incomplete → CONTENT_COVERAGE.
+  // Placeholder removed; see RULE 8b after brief coverage.
 
   // ---- RULE 9: Image completeness — every provider in the image chain failed for at least one slot ----
   if (expectedImageCount != null) {
@@ -1436,6 +1503,50 @@ export async function runQualityGate(
     issues.push(...checkSecondaryKeywordCoverage(articleContent, secondaryKeywords))
   }
 
+  // ---- RULE 8b: Editorial word count (after coverage signals) ----
+  {
+    const preferred =
+      maxWordCount != null
+        ? Math.round((minWordCount + maxWordCount) / 2)
+        : Math.round(minWordCount / 0.88)
+    const coverageIncomplete = issues.some(
+      (i) =>
+        i.category === 'brief-coverage' ||
+        i.category === 'secondary-keyword-coverage' ||
+        i.category === 'topic-alignment',
+    )
+    const wcAssess = assessEditorialWordCount(wordCount, preferred, {
+      absoluteMax: maxWordCount ?? null,
+      coverageIncomplete,
+      kind: 'USER_TARGET',
+    })
+    if (wcAssess.severity) {
+      issues.push({
+        id:
+          wcAssess.classification === 'CONTENT_COVERAGE'
+            ? 'word-count-coverage'
+            : wcAssess.classification === 'OVER_MAXIMUM'
+              ? 'word-count-high'
+              : 'word-count-advisory',
+        severity: wcAssess.severity,
+        category: 'word-count',
+        title: wcAssess.title,
+        description: wcAssess.description,
+        autoFixable: false,
+      })
+    }
+  }
+
+  // Snapshot pre-autofix issues for Phase 9 confirmation
+  const issuesBeforeAutoFix = issues.map((i) => ({
+    id: i.id,
+    category: i.category,
+    severity: i.severity,
+    title: i.title,
+  }))
+  const scoreBeforeAutoFix = scoreFromIssues(issues)
+  let mutationAttempts = 0
+
   // ---- AUTO-FIX PASS ----
   // Fix 0: Wrong brand in body → replace with configured brand
   if (brand && issues.some(i => i.id === 'brand-mismatch' && i.autoFixable)) {
@@ -1451,7 +1562,7 @@ export async function runQualityGate(
       )
       if (fixed.appliedCount > 0) {
         articleAfterAutoFix = fixed.html
-        autoFixedCount += fixed.appliedCount
+        mutationAttempts += fixed.appliedCount
       }
     }
     const introFix = applyGuardedRegexReplace(
@@ -1467,11 +1578,7 @@ export async function runQualityGate(
     )
     if (introFix.appliedCount > 0) {
       articleAfterAutoFix = introFix.html
-      autoFixedCount += introFix.appliedCount
-    }
-    // Re-check — clear brand-mismatch if resolved
-    if (!detectWrongBrandInBody(articleAfterAutoFix, brand)) {
-      issues = issues.filter(i => i.id !== 'brand-mismatch')
+      mutationAttempts += introFix.appliedCount
     }
   }
 
@@ -1493,25 +1600,26 @@ export async function runQualityGate(
       'cross-brand-link-strip',
     )
     articleAfterAutoFix = linkFix.html
-    autoFixedCount += linkFix.appliedCount
+    mutationAttempts += linkFix.appliedCount
   }
 
-  // Fix 2: Reduce "typically" overuse — text nodes only (never attributes/JSON-LD)
-  const typIssue = issues.find(i => i.id === 'hedging-typically' && i.autoFixable)
-  if (typIssue) {
-    let count = 0
+  // Fix 2: Only remove REAL_REPETITION "typically" boilerplate (Phase 7)
+  const hedgeRepIssue = issues.find(i => i.id === 'hedging-real-repetition' && i.autoFixable)
+  if (hedgeRepIssue) {
+    let kept = 0
+    const keepLimit = Math.max(2, maxTypically)
     articleAfterAutoFix = transformHtmlTextNodes(articleAfterAutoFix, (text) => {
       const typFix = applyGuardedRegexReplace(
         text,
         /\btypically\b/gi,
         (match) => {
-          count++
-          if (count > maxTypically) return ''
+          kept++
+          if (kept > keepLimit) return ''
           return match
         },
-        'typically-reduce',
+        'typically-real-repetition',
       )
-      autoFixedCount += typFix.appliedCount
+      mutationAttempts += typFix.appliedCount
       return typFix.html.replace(/[^\S\n]{2,}/g, ' ')
     })
   }
@@ -1530,14 +1638,13 @@ export async function runQualityGate(
           () => '',
           'ai-slop-remove',
         )
-        autoFixedCount += slopFix.appliedCount
+        mutationAttempts += slopFix.appliedCount
         return slopFix.html
       })
     }
   }
 
   // Fix 4: Grant-figure hedges — add "(verify at GOV.UK)" next to unsourced caps
-  // Guarded: never accept a splice that leaves ".350." or splits the sentence.
   if (issues.some(i => i.category === 'grant-figure' && i.autoFixable)) {
     articleAfterAutoFix = transformHtmlTextNodes(articleAfterAutoFix, (text) => {
       const grantFix = applyGuardedRegexReplace(
@@ -1546,27 +1653,9 @@ export async function runQualityGate(
         (match) => `${match} (verify at GOV.UK)`,
         'grant-figure-verify',
       )
-      autoFixedCount += grantFix.appliedCount
+      mutationAttempts += grantFix.appliedCount
       return grantFix.html
     })
-    // Re-evaluate — clear criticals that are now hedged
-    const remainingGrant = evaluateGrantFigureClaims(articleAfterAutoFix)
-    const stillCritical = new Set(
-      remainingGrant.filter(i => i.severity === 'critical').map(i => i.id)
-    )
-    issues = issues.filter(i => {
-      if (i.category !== 'grant-figure') return true
-      return stillCritical.has(i.id)
-    })
-    const clearedGrant = !remainingGrant.some(i => i.severity === 'critical')
-    if (clearedGrant) {
-      issues = issues.filter(i => i.category !== 'grant-figure')
-    } else {
-      issues = [
-        ...issues.filter(i => i.category !== 'grant-figure'),
-        ...remainingGrant.filter(i => i.severity === 'critical'),
-      ]
-    }
   }
 
   // Fix 5: Inject FAQPage schema when FAQ content exists but schema is missing
@@ -1587,75 +1676,149 @@ export async function runQualityGate(
       }
       articleAfterAutoFix =
         `${articleAfterAutoFix}\n<script type="application/ld+json">${JSON.stringify(faqSchema)}</script>`
-      autoFixedCount++
-      issues = issues.filter(i => i.id !== 'schema-faq-parity')
+      mutationAttempts++
     }
   }
 
-  // Do NOT collapse whitespace across the whole HTML document — that would
-  // rewrite attribute values and JSON-LD. Prose double-spaces are already
-  // normalised inside the text-node autofixes above.
-
-  // Final corruption scrub — catches any residual ".350." / similar shapes
-  // (text-node scoped; asserts image URLs unchanged)
+  // Final corruption scrub
   const beforeScrub = articleAfterAutoFix
   const scrubbed = scrubInsertionCorruption(articleAfterAutoFix)
   articleAfterAutoFix = scrubbed.html
-  if (scrubbed.fixes > 0) autoFixedCount += scrubbed.fixes
+  if (scrubbed.fixes > 0) mutationAttempts += scrubbed.fixes
   assertImageUrlsPreserved(beforeScrub, articleAfterAutoFix)
   assertImageUrlsPreserved(articleContent, articleAfterAutoFix)
 
-  // The "typically" auto-fix above already runs automatically and silently
-  // reduces the count in articleAfterAutoFix — but issues/score were computed
-  // against the PRE-fix article and never recomputed, so the returned result
-  // still showed "7 instances, unresolved" even when the published text had
-  // already been corrected to 5. Re-check against the actual fixed text.
-  if (typIssue) {
-    const remainingCount = countTypically(articleAfterAutoFix)
-    if (remainingCount <= maxTypically) {
-      issues = issues.filter(i => i.id !== 'hedging-typically')
-    } else {
-      const stillFlagged = issues.find(i => i.id === 'hedging-typically')
-      if (stillFlagged) {
-        stillFlagged.title = `"Typically" auto-fixed to ${remainingCount} (target ${maxTypically}) — still above target`
-        stillFlagged.description = `Auto-fix already ran and reduced this from the original count, but ${remainingCount} instances remain above the ${maxTypically} target.`
+  // ---- FINAL REVALIDATION on articleAfterAutoFix (Phase 9) ----
+  // Rebuild issue list from the FINAL HTML for categories autofix can affect,
+  // then confirm which pre-fix issues actually resolved.
+  {
+    let finalIssues: QualityIssue[] = []
+    finalIssues = finalIssues.filter(() => false) // start clean from revalidation slices
+
+    // Keep non-autofix-mutated categories from earlier scan when HTML body unchanged
+    // for those rules — but always refresh autofix-touched categories from final HTML.
+    const preserved = issues.filter(
+      (i) =>
+        i.category !== 'schema' &&
+        i.category !== 'grant-figure' &&
+        i.category !== 'hedging' &&
+        i.category !== 'ai-slop' &&
+        i.category !== 'cross-brand-link' &&
+        i.id !== 'brand-mismatch' &&
+        i.id !== 'schema-faq-parity',
+    )
+
+    finalIssues = [...preserved]
+    finalIssues.push(...collectSchemaQualityIssues(articleAfterAutoFix, expectOrganizationLogo))
+    finalIssues.push(
+      ...evaluateGrantFigureClaims(
+        articleAfterAutoFix,
+        freshnessCoveredFigureKeys(articleAfterAutoFix, datedPolicy?.now),
+      ),
+    )
+
+    // Re-scan cross-brand <a> links on final HTML (canonical <link> never matched)
+    {
+      const linkPattern = /<a\s[^>]*href=["']https?:\/\/([^/"']+)/gi
+      let linkMatch
+      while ((linkMatch = linkPattern.exec(articleAfterAutoFix)) !== null) {
+        const linkedDomain = linkMatch[1].replace('www.', '')
+        const isBrandSite = ['autodun.com', 'seoranko.com', 'fitford.com', 'minso', 'minsofurniture'].some(
+          (d) => linkedDomain.includes(d),
+        )
+        if (!isBrandSite) continue
+        const isRegistered = registeredLinkDomains.some((d) => linkedDomain.includes(d))
+        if (!isRegistered) {
+          const context = articleAfterAutoFix.slice(
+            Math.max(0, linkMatch.index - 30),
+            linkMatch.index + 80,
+          )
+          finalIssues.push({
+            id: `cross-brand-link-${finalIssues.length}`,
+            severity: 'critical',
+            category: 'cross-brand-link',
+            title: `Cross-brand link detected: ${linkedDomain}`,
+            description: `Article brand is "${brand}" but this links to "${linkedDomain}" which is not in the registry for this brand.`,
+            location: context.slice(0, 100),
+            autoFixable: false,
+          })
+        }
       }
     }
+
+    // Re-scan AI slop on final HTML
+    for (const pattern of AI_SLOP_PATTERNS) {
+      const match = articleAfterAutoFix.match(pattern)
+      if (match) {
+        finalIssues.push({
+          id: `slop-${finalIssues.length}`,
+          severity: 'warning',
+          category: 'ai-slop',
+          title: `AI pattern detected: "${match[0]}"`,
+          description: 'This phrase is a common AI-generated signal that reduces human score. Consider removing or rewriting.',
+          location: match[0],
+          autoFixable: false,
+        })
+      }
+    }
+
+    // Re-evaluate hedging on final HTML
+    const hedgeFinal = evaluateHedging(articleAfterAutoFix)
+    const realRepFinal = hedgeFinal.actionable.filter((a) => a.classification === 'REAL_REPETITION')
+    if (realRepFinal.length >= 3 || ((hedgeFinal.byToken.typically || 0) >= 6 && hedgeFinal.autoFixableTokens.includes('typically'))) {
+      finalIssues.push({
+        id: 'hedging-real-repetition',
+        severity: 'warning',
+        category: 'hedging',
+        title: `Repetitive hedge boilerplate detected (${realRepFinal.length || hedgeFinal.byToken.typically || 0}×)`,
+        description: hedgeFinal.summary,
+        autoFixable: false,
+      })
+    }
+    if (isExtremeHedgeDensity(hedgeFinal)) {
+      finalIssues.push({
+        id: 'hedging-over',
+        severity: 'warning',
+        category: 'hedging',
+        title: `Over-hedging — density ${hedgeFinal.densityPer100.toFixed(1)} per 100 words`,
+        description: hedgeFinal.summary,
+        autoFixable: false,
+      })
+    }
+    const bm = detectWrongBrandInBody(articleAfterAutoFix, brand)
+    if (bm) finalIssues.push(bm)
+
+    finalIssues = consolidateDuplicateIssues(finalIssues)
+    finalIssues = await autoVerifyCitedPolicyIssues(finalIssues, datedPolicy?.now)
+    finalIssues = withActionHints(finalIssues)
+
+    const confirmation = confirmAutoFixOutcomes({
+      beforeIssues: issuesBeforeAutoFix,
+      afterIssues: finalIssues.map((i) => ({
+        id: i.id,
+        category: i.category,
+        severity: i.severity,
+        title: i.title,
+      })),
+      mutationAttempts,
+      scoreBefore: scoreBeforeAutoFix,
+      scoreAfter: scoreFromIssues(finalIssues),
+    })
+
+    const totals = recomputeQualityGateTotals({
+      issues: finalIssues,
+      autoFixedCount: confirmation.confirmedResolved.length,
+      articleAfterAutoFix,
+    })
+
+    void logQualityGateRun(userId, articleId, finalIssues)
+    void countTypically
+
+    return {
+      ...totals,
+      autoFixConfirmation: confirmation,
+    }
   }
-
-  // Schema issues must describe articleAfterAutoFix — FAQPage inject (and any
-  // future schema-touching autofix) mutates JSON-LD after the initial RULE 6
-  // pass. Refresh so score / issues / readyToPublish match the returned HTML
-  // (final-artifact invariant for the gate itself).
-  issues = [
-    ...issues.filter(i => i.category !== 'schema'),
-    ...collectSchemaQualityIssues(articleAfterAutoFix, expectOrganizationLogo),
-  ]
-
-  // The same fact (e.g. a grant figure) can legitimately be restated several
-  // times across an article — each restatement earns its own issue from the
-  // rules above, but showing 5 identical cards is a display problem, not 5
-  // separate defects. Consolidate before scoring so one real issue doesn't
-  // cost 5x the score penalty or produce 5 rows in the recurring-issue log.
-  issues = consolidateDuplicateIssues(issues)
-
-  // Auto-verify cited grant/dated-policy figures against the live official page.
-  // Matching → info ("auto-verified as of …"); failures stay flagged with a
-  // specific reason (missing figure / unreachable / no citation).
-  issues = await autoVerifyCitedPolicyIssues(issues, datedPolicy?.now)
-
-  issues = withActionHints(issues)
-
-  // ---- COMPUTE FINAL SCORE (single source of truth) ----
-  const totals = recomputeQualityGateTotals({
-    issues,
-    autoFixedCount,
-    articleAfterAutoFix,
-  })
-
-  void logQualityGateRun(userId, articleId, issues)
-
-  return totals
 }
 
 /**
@@ -1672,7 +1835,9 @@ export async function autoVerifyCitedPolicyIssues(
   const out: QualityIssue[] = []
   for (const issue of issues) {
     const eligible =
-      (issue.category === 'grant-figure' || issue.category === 'dated-policy') &&
+      (issue.category === 'grant-figure' ||
+        issue.category === 'dated-policy' ||
+        issue.category === 'claim-evidence') &&
       issue.severity !== 'info' &&
       !issue.autoFixable
 

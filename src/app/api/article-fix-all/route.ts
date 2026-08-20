@@ -114,6 +114,8 @@ export async function POST(req: NextRequest) {
       fixed: result.fixed,
       stillNeedsManualReview: result.stillNeedsManualReview,
       summary: result.summary,
+      revalidationFoundAdditionalIssues: result.revalidationFoundAdditionalIssues,
+      autoFixConfirmationSummary: result.autoFixConfirmationSummary,
       panelScores: result.panelScores,
       eeatScore: result.panelScores.eeatScore,
       readabilityScore: result.panelScores.readabilityScore,

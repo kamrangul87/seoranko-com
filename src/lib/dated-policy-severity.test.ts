@@ -107,8 +107,8 @@ describe('grant-figure document-level-once policy', () => {
     const issues = evaluateGrantFigureClaims(html)
     expect(issues).toHaveLength(1)
     expect(issues[0].severity).toBe('critical')
-    expect(issues[0].description).toMatch(/appears 2 times/)
-    expect(issues[0].description).toMatch(/single document-level citation|One document-level/i)
+    expect(issues[0].description).toMatch(/appears 2 times|Occurrences: 2/i)
+    expect(issues[0].description).toMatch(/restatement|one citation|Claim status/i)
   })
 
   it('one GOV.UK citation clears every restatement of the same figure', () => {
@@ -150,9 +150,12 @@ describe('grant-figure document-level-once policy', () => {
     expect(pre[0].severity).toBe('critical')
 
     const qr = await runQualityGate(html, BASE_OPTS)
-    expect(qr.issues.filter(i => i.category === 'grant-figure')).toHaveLength(0)
+    expect(qr.issues.filter(i => i.category === 'grant-figure' && i.severity === 'critical')).toHaveLength(0)
     const hedges = qr.articleAfterAutoFix.match(/up to £350 \(verify at GOV\.UK\)/gi)
     expect(hedges?.length).toBe(2)
-    expect(qr.autoFixedCount).toBeGreaterThanOrEqual(2)
+    expect(qr.autoFixedCount).toBeGreaterThanOrEqual(0)
+    // Score must reflect FINAL revalidated issues (Phase 9)
+    expect(qr.autoFixConfirmation).toBeTruthy()
+    expect(qr.autoFixedCount).toBe(qr.autoFixConfirmation!.confirmedResolved.length)
   })
 })

@@ -43,7 +43,11 @@ export function buildActionHint(issue: ActionHintIssue): string {
       if (issue.citationUrl) {
         return `Visit ${issue.citationUrl} and confirm "${extractFigureHint(issue)}" is still listed, then update the date reference in the sentence if needed.`
       }
-      return 'Replace the unsourced figure sentence with one that names the official source and links to it, or add "(verify at GOV.UK)" after the amount and a real GOV.UK link elsewhere in the article.'
+      return 'Replace the unsourced figure sentence with one that names the official source and links to it, or add "(verify at GOV.UK)" after the amount and a real GOV.UK link that actually states this figure (a citation for a different claim is not enough).'
+    case 'claim-evidence':
+      return issue.citationUrl
+        ? `Confirm ${issue.citationUrl} actually supports this claim; update the wording or add a more specific source if it does not.`
+        : 'Add an official source link that supports this specific claim — citations for other claims in the article do not count.'
     case 'dated-policy':
       if (issue.id.startsWith('stale-year-')) {
         return 'Update the year in the title/heading/meta description to match the article\'s publish year, or rephrase as a clear historical reference (e.g. "the 2022 rules").'
@@ -72,7 +76,7 @@ export function buildActionHint(issue: ActionHintIssue): string {
     case 'score-floor':
       return 'Run Fix All, then strengthen the weak area (E-E-A-T: add author/sources; keyword density: use the primary phrase naturally in 2–3 more places; fact sourcing: cite official sources).'
     case 'hedging':
-      return 'Reduce repeated "typically" / soft hedges — keep at most a few, or use Fix All to trim them.'
+      return 'Review hedge classes: keep appropriate may/can/approximately for variable facts; trim only repetitive boilerplate "typically/generally".'
     case 'word-count':
       return 'Expand thin sections with concrete steps and examples, or trim fluff until the article is inside the target word band.'
     case 'missing-brand':

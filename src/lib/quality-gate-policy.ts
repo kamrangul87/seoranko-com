@@ -88,20 +88,22 @@ export function logoGateOptions(policy: LogoPolicy): { expectOrganizationLogo: b
 }
 
 /**
- * Single severity for every dated-policy finding across article-v2,
- * runQualityGate, recheck, and Fix All.
+ * Default severity for dated-policy findings that need verification
+ * (UNSUPPORTED / NEEDS_REVIEW / PARTIALLY_SUPPORTED).
  *
- * warning (not critical): surfaces in Fix All "needs human review", affects
- * readyToPublish / score, but does not hard-stop the generation pipeline.
- * Never use a different severity in a caller — import this constant.
+ * Contradicted / outdated current claims use critical via
+ * `severityForFreshnessFinding` in freshness-policy.ts — never invent a
+ * different severity in a caller for the same claim.
  */
 export const DATED_POLICY_SEVERITY = 'warning' as const
 
 /**
  * Repeated uncited grant/financial figures (e.g. "up to £350" twice):
- * one document-level GOV.UK citation (or one verify hedge that satisfies
- * binding) clears the figure for the whole article. Each restatement does
- * not need its own nearby citation. Autofix may still hedge every instance
- * for visible consistency; scoring emits one issue per unique figure.
+ * one supporting citation (or verify hedge) covers every restatement of the
+ * SAME figure — the link need not be repeated after each sentence.
+ *
+ * A citation that supports figure A does NOT clear figure B. Binding is
+ * claim-level (see `src/lib/claim-evidence.ts`), not "any official URL in
+ * the document proves every claim."
  */
-export const GRANT_FIGURE_CITATION_POLICY = 'document-level-once' as const
+export const GRANT_FIGURE_CITATION_POLICY = 'claim-level-once' as const
