@@ -55,6 +55,8 @@ import {
 import {
   evaluateClaimEvidence,
   formatClaimEvidenceDescription,
+  isGrantFigureOwnedClaim,
+  normalizeClaimFigureIdentity,
   type ClaimEvidence,
   type ClaimEvidenceStatus,
 } from '@/lib/claim-evidence'
@@ -235,27 +237,30 @@ export function evaluateGrantFigureClaims(
   freshnessCoveredFigures?: Set<string>,
 ): QualityIssue[] {
   const issues: QualityIssue[] = []
-  const evidence = evaluateClaimEvidence(articleContent).filter((ev) => {
-    if (!ev.figureText) return false
-    // Financial / grant-style figures only for this legacy category
-    return /[£$€]|\d+\s?%|up to/i.test(ev.figureText)
-  })
+  const evidence = evaluateClaimEvidence(articleContent).filter((ev) =>
+    isGrantFigureOwnedClaim(ev),
+  )
 
   for (const ev of evidence) {
     const figureKey = (ev.figureText || '').toLowerCase().replace(/\s+/g, ' ').trim()
-    if (freshnessCoveredFigures?.has(figureKey)) continue
+    const identity = ev.figureText ? normalizeClaimFigureIdentity(ev.figureText) : ''
+    if (
+      (figureKey && freshnessCoveredFigures?.has(figureKey)) ||
+      (identity && freshnessCoveredFigures?.has(identity))
+    ) {
+      continue
+    }
 
-    // Inline verify hedge still counts as a soft citation for autofix UX
     const hedgeClaim: Claim = {
       text: ev.figureText || ev.claimText.slice(0, 40),
       position: 0,
       topicTerms: new Set(),
     }
-    // Find first occurrence position for location / autofix id
-    const claims = extractFinancialClaims(articleContent).filter(
-      (c) => c.text.toLowerCase().replace(/\s+/g, ' ').trim() === figureKey,
-    )
-    if (claims.length === 0 && !ev.figureText) continue
+    const claims = extractFinancialClaims(articleContent).filter((c) => {
+      const a = normalizeClaimFigureIdentity(c.text)
+      const b = identity || normalizeClaimFigureIdentity(ev.figureText || '')
+      return a === b
+    })
     const representative = claims[0] || {
       text: ev.figureText || '',
       position: 0,
@@ -273,27 +278,21 @@ export function evaluateGrantFigureClaims(
       status = 'PARTIALLY_SUPPORTED'
     }
 
-    // Authoritative decision — do NOT invent a second severity mapping here.
     const decision = decideClaimIssue({
       evidenceStatus: status,
       freshnessStatus: defaultFreshnessForEvidence(status),
       material: true,
       figureText: ev.figureText,
+      claimKind: ev.claimKind,
     })
     if (decision.severity === null) continue
 
     const countNote =
       ev.occurrenceCount > 1 ? ` (appears ${ev.occurrenceCount} times)` : ''
-    const location = stripHtmlSnippet(
-      articleContent.slice(
-        Math.max(0, representative.position - 40),
-        Math.min(articleContent.length, representative.position + 80),
-      ),
-    )
+    // Location is visible claim text — never a raw-HTML prefix at position 0.
+    const location = stripHtmlSnippet(ev.claimText).slice(0, 120)
 
     const isUnsupported = status === 'UNSUPPORTED' || status === 'NEEDS_REVIEW'
-    // Keep category as grant-figure (dated-policy is reserved for the dated-claim
-    // detector). Freshness ownership is expressed via affectsDimensions.
     const category: IssueCategory = 'grant-figure'
 
     const evidenceBlock = formatClaimEvidenceDescription({
@@ -306,7 +305,7 @@ export function evaluateGrantFigureClaims(
     })
 
     issues.push({
-      id: `fact-grant-figure-${representative.position}`,
+      id: `fact-grant-figure-${ev.claimId}`,
       severity: decision.severity,
       category,
       title: decision.title,
@@ -351,21 +350,20 @@ export function evaluateGrantFigureClaims(
 export function evaluateClaimEvidenceIssues(articleContent: string): QualityIssue[] {
   const issues: QualityIssue[] = []
   const evidence = evaluateClaimEvidence(articleContent)
-  let idx = 0
   for (const ev of evidence) {
-    // Grant/financial figures are handled by evaluateGrantFigureClaims
-    if (ev.figureText && /[£$€]|up to/i.test(ev.figureText)) continue
+    // Complementary skip: grant-figure owns material policy/grant figures.
+    if (isGrantFigureOwnedClaim(ev)) continue
     const decision = decideClaimIssue({
       evidenceStatus: ev.status,
       freshnessStatus: defaultFreshnessForEvidence(ev.status),
       material: false,
       figureText: ev.figureText,
+      claimKind: ev.claimKind,
     })
     if (decision.severity === null) continue
-    // Keep claim-evidence category; freshness ownership via affectsDimensions.
     const category: IssueCategory = 'claim-evidence'
     issues.push({
-      id: `claim-evidence-${idx++}`,
+      id: `claim-evidence-${ev.claimId}`,
       severity: decision.severity,
       category,
       title: decision.title,
@@ -377,7 +375,7 @@ export function evaluateClaimEvidenceIssues(articleContent: string): QualityIssu
       fixStatus: decision.fixStatus,
       dimension: decision.dimension,
       description: [decision.explanation, formatClaimEvidenceDescription(ev)].join('\n'),
-      location: ev.claimText.slice(0, 100),
+      location: stripHtmlSnippet(ev.claimText).slice(0, 120),
       citationUrl: ev.source?.url,
       figureText: ev.figureText,
       evidenceStatus: decision.evidenceStatus,
@@ -388,6 +386,40 @@ export function evaluateClaimEvidenceIssues(articleContent: string): QualityIssu
     })
   }
   return issues
+}
+
+/** One issue per figure identity — grant-figure wins over claim-evidence if both fire. */
+export function dedupeFactualClaimIssues(issues: QualityIssue[]): QualityIssue[] {
+  const byKey = new Map<string, QualityIssue>()
+  const passthrough: QualityIssue[] = []
+  for (const i of issues) {
+    if (i.category !== 'grant-figure' && i.category !== 'claim-evidence') {
+      passthrough.push(i)
+      continue
+    }
+    const key = i.figureText
+      ? `fig:${normalizeClaimFigureIdentity(i.figureText)}`
+      : i.id
+    const existing = byKey.get(key)
+    if (!existing) {
+      byKey.set(key, i)
+      continue
+    }
+    if (existing.category === 'claim-evidence' && i.category === 'grant-figure') {
+      byKey.set(key, i)
+    }
+  }
+  return [...passthrough, ...Array.from(byKey.values())]
+}
+
+export function collectFactualClaimIssues(
+  articleContent: string,
+  freshnessCoveredFigures?: Set<string>,
+): QualityIssue[] {
+  return dedupeFactualClaimIssues([
+    ...evaluateGrantFigureClaims(articleContent, freshnessCoveredFigures),
+    ...evaluateClaimEvidenceIssues(articleContent),
+  ])
 }
 
 /** @deprecated Use evaluateClaimEvidence — exported for tests/debug. */
@@ -671,15 +703,17 @@ export async function buildDatedPolicyIssuesAsync(
 export function freshnessCoveredFigureKeys(html: string, now?: Date): Set<string> {
   const findings = evaluateFreshnessSync(html, { now })
   const keys = new Set<string>()
-  for (const f of freshnessFindingsRequiringIssues(findings)) {
-    if (f.figureText) {
-      keys.add(f.figureText.toLowerCase().replace(/\s+/g, ' ').trim())
-    }
+  const add = (figure?: string) => {
+    if (!figure) return
+    keys.add(figure.toLowerCase().replace(/\s+/g, ' ').trim())
+    keys.add(normalizeClaimFigureIdentity(figure))
   }
-  // Also cover CURRENT+SUPPORTED so grant-figure does not re-warn a verified claim
+  for (const f of freshnessFindingsRequiringIssues(findings)) {
+    add(f.figureText)
+  }
   for (const f of findings) {
     if (f.evidenceStatus === 'SUPPORTED' && f.figureText) {
-      keys.add(f.figureText.toLowerCase().replace(/\s+/g, ' ').trim())
+      add(f.figureText)
     }
   }
   return keys
@@ -1450,12 +1484,8 @@ export async function runQualityGate(
   // ---- RULE 2: Dated-policy / freshness is owned by buildDatedPolicyIssues
   // (evaluateFreshnessSync). No parallel DANGEROUS_FACT_PATTERNS pass.
 
-  // ---- RULE 2b: Grant-figure claims — claim-level evidence binding.
-  // Skip figures already covered by freshness so severities cannot conflict.
-  issues.push(...evaluateGrantFigureClaims(articleContent, freshnessFigures))
-
-  // ---- RULE 2c: Other important factual claims (non-grant) — claim evidence
-  issues.push(...evaluateClaimEvidenceIssues(articleContent))
+  // ---- RULE 2b/2c: One canonical issue per claim identity.
+  issues.push(...collectFactualClaimIssues(articleContent, freshnessFigures))
 
   // ---- RULE 3: AI slop patterns ----
   for (const pattern of AI_SLOP_PATTERNS) {
@@ -1823,6 +1853,7 @@ export async function runQualityGate(
       (i) =>
         i.category !== 'schema' &&
         i.category !== 'grant-figure' &&
+        i.category !== 'claim-evidence' &&
         i.category !== 'hedging' &&
         i.category !== 'ai-slop' &&
         i.category !== 'cross-brand-link' &&
@@ -1833,7 +1864,7 @@ export async function runQualityGate(
     finalIssues = [...preserved]
     finalIssues.push(...collectSchemaQualityIssues(articleAfterAutoFix, expectOrganizationLogo))
     finalIssues.push(
-      ...evaluateGrantFigureClaims(
+      ...collectFactualClaimIssues(
         articleAfterAutoFix,
         freshnessCoveredFigureKeys(articleAfterAutoFix, datedPolicy?.now),
       ),

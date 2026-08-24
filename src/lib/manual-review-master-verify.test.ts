@@ -61,16 +61,24 @@ describe('manual-review auto-verify master verification', () => {
     expect(qr.score).toBeGreaterThanOrEqual(0)
     expect(panel.eeatScore).not.toBe(0)
 
-    const grant = qr.issues.find(i => i.category === 'grant-figure')
-    expect(grant).toBeTruthy()
-    expect(grant!.verificationStatus).toBeTruthy()
-    // Prefer auto-verified when GOV.UK still lists £500; otherwise a specific stop reason
-    if (grant!.verificationStatus === 'auto-verified') {
-      expect(grant!.severity).toBe('info')
-      expect(grant!.title).toMatch(/Auto-verified as of \d{4}-\d{2}-\d{2}/)
-    } else {
-      expect(['figure-missing', 'unreachable', 'no-citation']).toContain(grant!.verificationStatus)
-      expect(grant!.verificationDetail).toBeTruthy()
+    // One canonical £500 row (grant-figure XOR dated-policy), or none when
+    // freshness already treats the cited figure as SUPPORTED.
+    const fiveHundred = qr.issues.filter(i =>
+      /£500/.test(`${i.figureText || ''} ${i.title} ${i.location || ''} ${i.description || ''}`),
+    )
+    expect(fiveHundred.filter(i => i.severity === 'critical')).toHaveLength(0)
+    expect(fiveHundred.length).toBeLessThanOrEqual(1)
+    const grant = fiveHundred[0]
+    if (grant) {
+      if (grant.verificationStatus === 'auto-verified') {
+        expect(grant.severity).toBe('info')
+        expect(grant.title).toMatch(/Auto-verified as of \d{4}-\d{2}-\d{2}/)
+      } else if (grant.verificationStatus) {
+        expect(['figure-missing', 'unreachable', 'no-citation']).toContain(grant.verificationStatus)
+        expect(grant.verificationDetail).toBeTruthy()
+      } else {
+        expect(['grant-figure', 'dated-policy', 'claim-evidence']).toContain(grant.category)
+      }
     }
 
     const manual = qr.issues.filter(

@@ -91,9 +91,14 @@ describe('Phase 5 claim evidence model', () => {
     expect(['SUPPORTED', 'PARTIALLY_SUPPORTED']).toContain(five!.status)
     expect(pct!.status).toBe('UNSUPPORTED')
 
-    const issues = evaluateGrantFigureClaims(html)
-    const unsupported = issues.filter((i) => i.severity === 'critical')
-    expect(unsupported.some((i) => /75%/.test(i.figureText || ''))).toBe(true)
+    const grantIssues = evaluateGrantFigureClaims(html)
+    const otherIssues = evaluateClaimEvidenceIssues(html)
+    const all = [...grantIssues, ...otherIssues]
+    // £500 is grant-owned; 75% still surfaces (never silently cleared by the £500 cite).
+    expect(all.some((i) => /75%/.test(i.figureText || '') || /75%/.test(i.title))).toBe(true)
+    expect(
+      grantIssues.some((i) => /£500/.test(i.figureText || '') && i.severity === 'critical'),
+    ).toBe(false)
   })
 
   it('formats claim → source → date → authority → passage → status', () => {

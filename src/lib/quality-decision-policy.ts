@@ -27,7 +27,7 @@
  * CONTRADICTED / OUTDATED      → critical / blocking
  */
 
-import type { ClaimEvidenceStatus } from '@/lib/claim-evidence'
+import type { ClaimEvidenceStatus, ClaimEvidenceKind } from '@/lib/claim-evidence'
 import type { FreshnessTimeStatus } from '@/lib/freshness-policy'
 import type { IssueSeverity } from '@/lib/article-quality-gate'
 
@@ -54,6 +54,8 @@ export type ClaimDecisionInput = {
   /** Material grant / regulatory / financial figure. */
   material: boolean
   figureText?: string
+  /** When set, PARTIAL titles distinguish time-sensitive policy vs survey/price stats. */
+  claimKind?: ClaimEvidenceKind
   /** Live auto-verify confirmed the figure on the source page. */
   liveCurrentConfirmed?: boolean
 }
@@ -81,7 +83,7 @@ function figureLabel(figureText?: string): string {
  * Single mapping: evidence × freshness → severity, title, dimensions, blocking.
  */
 export function decideClaimIssue(input: ClaimDecisionInput): ClaimDecision {
-  const { evidenceStatus, material, figureText, liveCurrentConfirmed } = input
+  const { evidenceStatus, material, figureText, liveCurrentConfirmed, claimKind } = input
   let freshnessStatus = input.freshnessStatus
 
   // Live confirmation upgrades unknown currency to CURRENT for decisioning.
@@ -171,14 +173,35 @@ export function decideClaimIssue(input: ClaimDecisionInput): ClaimDecision {
 
   // PARTIALLY_SUPPORTED — official/topical but figure not confirmed in context
   if (evidenceStatus === 'PARTIALLY_SUPPORTED') {
+    const timeSensitive =
+      material ||
+      claimKind === 'grant' ||
+      claimKind === 'government-policy' ||
+      claimKind === 'eligibility' ||
+      claimKind === 'regulation' ||
+      claimKind === 'tax-legal'
+    if (timeSensitive) {
+      return {
+        severity: 'warning',
+        blocking: false,
+        dimension: 'factual_verification',
+        alsoAffects: ['freshness'],
+        title: `Currentness verification required${figureLabel(figureText)}`,
+        explanation:
+          'A related official source is bound, but the figure was not confirmed in that source’s article context. Confirm the page states this value before treating the claim as fully supported.',
+        evidenceStatus,
+        freshnessStatus: freshnessStatus === 'UNKNOWN' ? 'NEEDS_REVIEW' : freshnessStatus,
+        fixStatus: 'MANUAL_REVIEW_REQUIRED',
+      }
+    }
     return {
       severity: 'warning',
       blocking: false,
       dimension: 'factual_verification',
-      alsoAffects: ['freshness'],
-      title: `Currentness verification required${figureLabel(figureText)}`,
+      alsoAffects: [],
+      title: `Figure not confirmed in cited context${figureLabel(figureText)}`,
       explanation:
-        'A related official source is bound, but the figure was not confirmed in that source’s article context. Confirm the page states this value before treating the claim as fully supported.',
+        'A related source is bound, but this figure was not confirmed in that source’s article context. This is not a currentness/grant check — confirm the statistic or price against the cited page, or add a source that states this value.',
       evidenceStatus,
       freshnessStatus: freshnessStatus === 'UNKNOWN' ? 'NEEDS_REVIEW' : freshnessStatus,
       fixStatus: 'MANUAL_REVIEW_REQUIRED',
