@@ -127,6 +127,60 @@ function normalizeFigure(figure: string): string {
   return figure.replace(/\s+/g, ' ').trim().toLowerCase()
 }
 
+/**
+ * Canonical figure identity: "up to £1,200" === "£1200".
+ * Used for grouping restatements and complementary grant/claim-evidence skip.
+ */
+export function normalizeClaimFigureIdentity(figure: string): string {
+  return normalizeFigure(figure)
+    .replace(/^up to\s+/i, '')
+    .replace(/,/g, '')
+    .replace(/\s+/g, '')
+}
+
+const MATERIAL_POLICY_KINDS = new Set<ClaimEvidenceKind>([
+  'grant',
+  'eligibility',
+  'government-policy',
+  'regulation',
+  'tax-legal',
+])
+
+export function isMaterialPolicyClaimKind(kind: ClaimEvidenceKind): boolean {
+  return MATERIAL_POLICY_KINDS.has(kind)
+}
+
+/**
+ * Grant-figure Quality Gate path owns material policy/grant figures only.
+ * Survey percentages and hardware price bands belong to claim-evidence.
+ */
+export function isGrantFigureOwnedClaim(ev: {
+  figureText?: string
+  claimKind: ClaimEvidenceKind
+}): boolean {
+  if (!ev.figureText) return false
+  if (!/[£$€%]/.test(ev.figureText) && !/up to/i.test(ev.figureText)) return false
+  return isMaterialPolicyClaimKind(ev.claimKind)
+}
+
+/**
+ * Visible article body only — never <head>, JSON-LD, scripts, styles, or attributes.
+ */
+export function articleVisibleHtml(html: string): string {
+  const withoutChrome = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<head[\s\S]*?<\/head>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+  const article = withoutChrome.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i)
+  if (article) return article[1]
+  const main = withoutChrome.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)
+  if (main) return main[1]
+  const body = withoutChrome.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i)
+  if (body) return body[1]
+  return withoutChrome
+}
+
 function stripHtml(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
@@ -134,6 +188,13 @@ function stripHtml(html: string): string {
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function sentencesFromPlain(plain: string): string[] {
+  return plain
+    .split(/(?<=[.!?])\s+(?=[A-Z"'£$€(0-9])/)
+    .map((s) => s.trim())
+    .filter(Boolean)
 }
 
 export function classifyClaimKind(text: string): ClaimEvidenceKind {
@@ -154,10 +215,7 @@ export function claimIdentityKey(claim: Pick<ExtractedFactualClaim, 'figureText'
   // Same figure = same claim identity regardless of grant vs eligibility wording.
   // Do not require a repeated citation after every restatement.
   if (claim.figureText) {
-    const fig = normalizeFigure(claim.figureText)
-      .replace(/^up to\s+/i, '')
-      .replace(/\s+/g, '')
-    return `figure::${fig}`
+    return `figure::${normalizeClaimFigureIdentity(claim.figureText)}`
   }
   const core = claim.claimText
     .toLowerCase()
@@ -210,28 +268,30 @@ export function extractArticleCitations(articleHtml: string): ArticleCitation[] 
  */
 export function extractImportantFactualClaims(articleHtml: string): ExtractedFactualClaim[] {
   const claims: ExtractedFactualClaim[] = []
+  const scoped = articleVisibleHtml(articleHtml)
   const pRe = /<p[^>]*>([\s\S]*?)<\/p>/gi
   let pm: RegExpExecArray | null
-  while ((pm = pRe.exec(articleHtml)) !== null) {
+  while ((pm = pRe.exec(scoped)) !== null) {
     const inner = pm[1]
     const plain = stripHtml(inner)
     if (!QUANT_CLAIM_RE.test(plain)) continue
 
-    // Prefer explicit figures ("up to £350", "75%")
+    const sentences = sentencesFromPlain(plain)
     FIGURE_RE.lastIndex = 0
     let fm: RegExpExecArray | null
     let foundFigure = false
     while ((fm = FIGURE_RE.exec(plain)) !== null) {
       foundFigure = true
       const absPos = (pm.index ?? 0) + (fm.index ?? 0)
-      const claimText = plain
+      const sentence =
+        sentences.find((s) => s.includes(fm![0].trim())) || plain
       claims.push({
         text: fm[0].trim(),
         position: absPos,
         figureText: fm[0].trim(),
-        claimKind: classifyClaimKind(claimText),
-        topicTerms: extractTopicTerms(claimText),
-        claimText,
+        claimKind: classifyClaimKind(sentence),
+        topicTerms: extractTopicTerms(sentence),
+        claimText: sentence,
       })
     }
 
@@ -450,7 +510,8 @@ function rationaleFor(
  * Dedupes by claim identity so restatements are not punished.
  */
 export function evaluateClaimEvidence(articleHtml: string): ClaimEvidence[] {
-  const citations = extractArticleCitations(articleHtml)
+  const scoped = articleVisibleHtml(articleHtml)
+  const citations = extractArticleCitations(scoped)
   const extracted = extractImportantFactualClaims(articleHtml)
 
   const groups = new Map<string, ExtractedFactualClaim[]>()
