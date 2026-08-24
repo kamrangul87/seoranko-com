@@ -11,7 +11,7 @@ import { detectHowTo, type GeneratedSchema } from '@/lib/schema-generator';
 import { getBrandSettings } from '@/lib/brand-settings';
 import { appendSocialMetaTags } from '@/lib/social-meta-tags';
 import { extractArticleDescription, dedupeMetaDescriptionTags } from '@/lib/extract-meta-description';
-import { scrubInsertionCorruption, hasInsertionCorruption } from '@/lib/sentence-integrity';
+import { scrubInsertionCorruption, findInsertionCorruptionEvidence } from '@/lib/sentence-integrity';
 import { assertImageUrlsPreserved } from '@/lib/html-text-transform';
 import { buildCanonicalTag } from '@/lib/canonical-builder';
 import { pingIndexNow } from '@/lib/indexnow';
@@ -664,11 +664,12 @@ export async function POST(req: NextRequest) {
             const scrubPass = scrubInsertionCorruption(finalHtml);
             finalHtml = scrubPass.html;
             integrityFixed += scrubPass.fixes;
-            if (hasInsertionCorruption(finalHtml)) {
+            const residual = findInsertionCorruptionEvidence(finalHtml)
+            if (residual) {
               send(finalHtml);
               abortCritical(
                 'text-integrity',
-                'Residual merge/insertion corruption remains after repair (e.g. ".350.", truncated splices, or overlapping duplicated phrases). Generation stopped — regenerate or edit manually.',
+                `Residual merge/insertion corruption remains after repair: "${residual}". Generation stopped — regenerate or edit manually.`,
               );
               return;
             }

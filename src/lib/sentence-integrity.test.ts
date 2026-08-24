@@ -7,6 +7,7 @@ import {
   applyGuardedReplace,
   applyGuardedRegexReplace,
   scrubInsertionCorruption,
+  findInsertionCorruptionEvidence,
 } from './sentence-integrity'
 
 describe('sentence-integrity', () => {
@@ -143,6 +144,24 @@ describe('sentence-integrity', () => {
     expect(out).toMatch(/home charger installation,\s*adding £300/)
     expect(out).not.toMatch(/installation\.\s*EV charger installation/)
     expect(hasInsertionCorruption(out)).toBe(false)
+  })
+
+  it('does not treat topical "EV charger installation" repetition as a splice', () => {
+    const topical = `<p>Home EV charger installation needs a dedicated circuit. EV charger installation also depends on your fuse rating.</p>`
+    expect(hasOverlappingPhraseCorruption(topical.replace(/<[^>]+>/g, ' '))).toBe(false)
+    expect(hasInsertionCorruption(topical)).toBe(false)
+    const { html, fixes } = scrubInsertionCorruption(topical)
+    expect(html).toContain('Home EV charger installation needs a dedicated circuit.')
+    expect(html).toContain('EV charger installation also depends')
+    expect(fixes).toBe(0)
+  })
+
+  it('findInsertionCorruptionEvidence names the leftover snippet', () => {
+    const bad = '<p>grants of up to £350 (verify at GOV.UK).350. Apply online.</p>'
+    const evidence = findInsertionCorruptionEvidence(bad)
+    expect(evidence).toBeTruthy()
+    expect(evidence).toMatch(/\)\.\d+\.|350/)
+    expect(findInsertionCorruptionEvidence('<p>A clean sentence about chargers.</p>')).toBeNull()
   })
 
   it('does not false-positive on legitimate reduplication (more and more / time after time)', () => {
