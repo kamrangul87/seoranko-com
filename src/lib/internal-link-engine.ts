@@ -6,6 +6,7 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
+import { describeInternalLinkRegistryGap } from '@/lib/bare-domain-url'
 
 const aiClient = new Anthropic()
 
@@ -103,6 +104,10 @@ function scoreAnchorNaturalness(anchorText: string, articleTerms: Set<string>): 
 export interface EligibleLinksResult {
   links: RegisteredLink[]
   registryRowCount: number
+  /** All brand-matched registry page URLs (before relevance scoring). */
+  registeredUrls: string[]
+  /** User-facing gap when only a homepage is available for this brand/article. */
+  homepageGapNote?: string
 }
 
 export async function getEligibleLinks(
@@ -113,7 +118,7 @@ export async function getEligibleLinks(
   maxLinks = 5,
   clusterTopicTerms?: string[]   // optional: from Topical Map, when it's been run for this brand
 ): Promise<EligibleLinksResult> {
-  if (!userId || !articleBrand) return { links: [], registryRowCount: 0 }
+  if (!userId || !articleBrand) return { links: [], registryRowCount: 0, registeredUrls: [] }
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -133,7 +138,7 @@ export async function getEligibleLinks(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = (userRows || []).filter((row: any) => normalizeBrandKey(row.brand) === targetBrandKey)
 
-  if (!data.length) return { links: [], registryRowCount: 0 }
+  if (!data.length) return { links: [], registryRowCount: 0, registeredUrls: [] }
 
   const articleTerms = extractEntityTerms(`${articleKeyword} ${articleTitle}`)
 
@@ -179,18 +184,42 @@ export async function getEligibleLinks(
     console.log(`[internal-link-engine] ${data.length} brand-matched link(s) in registry, none scored relevant enough for "${articleKeyword}"`);
   }
 
+  const registeredUrls: string[] = data
+    .map((row: { page_url?: string }) => row.page_url)
+    .filter((u: string | undefined): u is string => Boolean(u))
+
+  const rankedLinks: RegisteredLink[] = ranked.map((s: { link: {
+    id: string
+    brand: string
+    site_url: string
+    page_url: string
+    page_title: string
+    page_description: string | null
+    topic_tags?: string[]
+    anchor_text: string
+  } }) => ({
+    id: s.link.id,
+    brand: s.link.brand,
+    siteUrl: s.link.site_url,
+    pageUrl: s.link.page_url,
+    pageTitle: s.link.page_title,
+    pageDescription: s.link.page_description,
+    topicTags: s.link.topic_tags || [],
+    anchorText: s.link.anchor_text,
+  }))
+
+  const homepageGapNote = describeInternalLinkRegistryGap({
+    brand: articleBrand,
+    keyword: articleKeyword,
+    registeredUrls,
+    eligibleUrls: rankedLinks.map((l) => l.pageUrl),
+  })
+
   return {
-    links: ranked.map((s: any) => ({
-      id: s.link.id,
-      brand: s.link.brand,
-      siteUrl: s.link.site_url,
-      pageUrl: s.link.page_url,
-      pageTitle: s.link.page_title,
-      pageDescription: s.link.page_description,
-      topicTags: s.link.topic_tags || [],
-      anchorText: s.link.anchor_text
-    })),
+    links: rankedLinks,
     registryRowCount: data.length,
+    registeredUrls,
+    homepageGapNote,
   }
 }
 
@@ -231,6 +260,10 @@ HARD RULES — violating any of these will cause article rejection:
 6. DO NOT create new sentences just to fit a link
 7. DO NOT link to any site not on this list — not even to gov.uk or official sources
    (those are external authority links, handled separately)
+8. Do NOT place a site-homepage URL (origin with no path, e.g. https://example.com)
+   in any paragraph that states a money amount, grant figure, or percentage.
+   Homepage links are not sources for financial claims. If the approved list is
+   only a homepage, skip placing it next to figures.
 
 APPROVED LINKS FOR THIS ARTICLE:
 ${linkList}

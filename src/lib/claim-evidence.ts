@@ -9,6 +9,8 @@
  * quality both feed into `status` via `deriveClaimEvidenceStatus`.
  */
 
+import { isBareDomainRootUrl } from '@/lib/bare-domain-url'
+
 export type ClaimEvidenceStatus =
   | 'SUPPORTED'
   | 'PARTIALLY_SUPPORTED'
@@ -360,9 +362,13 @@ export function bindSourceToClaim(
   claim: ExtractedFactualClaim,
   citations: ArticleCitation[],
 ): BindClaimSourceResult {
+  // Bare domain roots (https://example.com) are not specific pages — never
+  // treat them as support for a financial/policy figure.
+  const citable = citations.filter((c) => !isBareDomainRootUrl(c.url))
+
   // Tier 1: topical official citation whose tight context mentions this figure
   if (claim.figureText) {
-    for (const c of citations) {
+    for (const c of citable) {
       if (!isOfficialClaimUrl(c.url)) continue
       if (!urlLooksTopicalForClaim(c.url, claim)) continue
       if (contextContainsFigure(c.contextText, claim.figureText)) {
@@ -390,7 +396,7 @@ export function bindSourceToClaim(
     'labor', 'flats', 'separately', 'offers', 'available', 'claim', 'claims',
   ])
   let best: { c: ArticleCitation; shared: number } | null = null
-  for (const c of citations) {
+  for (const c of citable) {
     if (!isOfficialClaimUrl(c.url)) continue
     if (!urlLooksTopicalForClaim(c.url, claim)) continue
     const shared = topicOverlap(claim.topicTerms, c.topicTerms).filter((t) => !WEAK_OVERLAP.has(t))
@@ -410,7 +416,7 @@ export function bindSourceToClaim(
   }
 
   // Tier 3: secondary source with strong topic overlap (partial only)
-  for (const c of citations) {
+  for (const c of citable) {
     if (isOfficialClaimUrl(c.url)) continue
     const shared = topicOverlap(claim.topicTerms, c.topicTerms)
     if (shared.length >= 2 || (claim.figureText && contextContainsFigure(c.contextText, claim.figureText))) {

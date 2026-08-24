@@ -902,13 +902,18 @@ export function ArticleWriter() {
           {/* Internal links — always visible, success or not, so a zero-link
               article is never silent about why */}
           {article.linkAudit && (
-            <div className={`text-xs px-3 py-2 rounded-lg ${
-              article.linkAudit.totalPlaced > 0 ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'
+            <div className={`text-xs px-3 py-2 rounded-lg space-y-1 ${
+              article.linkAudit.totalPlaced > 0 && !article.linkAudit.note
+                ? 'bg-green-50 text-green-700'
+                : 'bg-amber-50 text-amber-700'
             }`}>
               {article.linkAudit.totalPlaced > 0
                 ? `✓ ${article.linkAudit.totalPlaced} internal link${article.linkAudit.totalPlaced > 1 ? 's' : ''} added`
                 : `⚠ No internal links added — ${article.linkAudit.note || 'reason unknown, check logs'}`
               }
+              {article.linkAudit.note && article.linkAudit.totalPlaced > 0 && (
+                <p className="text-amber-800">⚠ {article.linkAudit.note}</p>
+              )}
             </div>
           )}
 

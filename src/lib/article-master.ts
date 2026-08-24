@@ -153,6 +153,11 @@ PLACEMENT RULES for links that DO pass the relevance check:
 - Never place two links in the same sentence
 - HTML format: <a href="URL" rel="noopener">anchor text</a>
 - Maximum 1 link per paragraph
+- Do NOT place a site-homepage URL (https://example.com with no path) in a paragraph
+  that states a money amount, grant figure, or percentage. Homepage links are not
+  sources for financial claims — leave those sentences uncited rather than linking
+  the homepage. If the approved list is only a homepage, place it only in a
+  non-figure sentence (for example the author/brand mention), or skip it.
 `
 }
 
