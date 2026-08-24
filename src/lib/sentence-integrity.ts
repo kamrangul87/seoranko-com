@@ -93,6 +93,10 @@ function tokenizeWords(text: string): string[] {
     .filter(Boolean)
 }
 
+function escapeRe(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 /**
  * Live merge shapes with NO mid-word punctuation — duplicated / overlapping
  * phrases instead (confirmed 2026-08-18 live article-v2 output):
@@ -129,34 +133,55 @@ export function hasOverlappingPhraseCorruption(text: string): boolean {
     const a = tokenizeWords(sentences[i].replace(/[.!?]+$/, ''))
     const b = tokenizeWords(sentences[i + 1])
     if (a.length < 2 || b.length < 2) continue
-    const aTail = a.slice(-4)
-    const bHead = b.slice(0, 5)
-    for (let n = 4; n >= 2; n--) {
-      if (aTail.length < n) continue
-      const gram = aTail.slice(-n)
-      // Require at least one non-stopword in the shared gram
-      if (!gram.some(w => !STOPWORDS.has(w) && w.length >= 4)) continue
-      for (let j = 0; j <= bHead.length - n; j++) {
-        const slice = bHead.slice(j, j + n)
-        if (slice.every((w, k) => w === gram[k])) return true
+      const aTail = a.slice(-4)
+      const bHead = b.slice(0, 5)
+      const bPlain = sentences[i + 1]
+      for (let n = 4; n >= 2; n--) {
+        if (aTail.length < n) continue
+        const gram = aTail.slice(-n)
+        // Require at least one non-stopword in the shared gram
+        if (!gram.some(w => !STOPWORDS.has(w) && w.length >= 4)) continue
+        for (let j = 0; j <= bHead.length - n; j++) {
+          const slice = bHead.slice(j, j + n)
+          if (!slice.every((w, k) => w === gram[k])) continue
+          // Topical repetition ("…charger installation. EV charger installation also…")
+          // is not a splice. Live corruption continues after a comma/semicolon:
+          // "…home charger installation. EV charger installation, adding £300…"
+          const overlapThenBreak = new RegExp(
+            `${gram.map(escapeRe).join('\\s+')}\\s*[,;]`,
+            'i',
+          )
+          if (overlapThenBreak.test(bPlain)) return true
+        }
       }
-    }
   }
 
   return false
 }
 
 export function hasInsertionCorruption(text: string): boolean {
-  // Check per block-level segment so </p><p> does not invent
-  // "needed. as a…" lowercase-conjunction false positives.
+  return findInsertionCorruptionEvidence(text) !== null
+}
+
+/**
+ * First matching residual-corruption snippet, or null if clean.
+ * Used so pipeline abort copy names the real leftover, not a generic ".350." example.
+ */
+export function findInsertionCorruptionEvidence(text: string): string | null {
   const blocks = text.split(/<\/?(?:p|div|h[1-6]|li|section|article|td|th|figcaption)(?:\s[^>]*)?>/i)
   for (const block of blocks) {
     const plain = maskUrlsAndHostnames(block.replace(/<[^>]+>/g, ' '))
     if (!plain.trim()) continue
-    if (INSERTION_CORRUPTION_PATTERNS.some(re => re.test(plain))) return true
-    if (hasOverlappingPhraseCorruption(plain)) return true
+    for (const re of INSERTION_CORRUPTION_PATTERNS) {
+      const m = plain.match(re)
+      if (m) return m[0].slice(0, 80)
+    }
+    if (hasOverlappingPhraseCorruption(plain)) {
+      const snippet = plain.replace(/\s+/g, ' ').trim().slice(0, 120)
+      return snippet || 'overlapping duplicated phrase'
+    }
   }
-  return false
+  return null
 }
 
 /**
@@ -286,6 +311,13 @@ function scrubCrossSentencePhraseOverlap(text: string): { text: string; fixes: n
           if (bWords.length < prefixLen + n) continue
           const slice = bWords.slice(prefixLen, prefixLen + n)
           if (!slice.every((w, k) => w === gram[k])) continue
+
+          // Only merge fragment splices: overlap immediately followed by comma/semicolon.
+          const overlapThenBreak = new RegExp(
+            `${gram.map(escapeRe).join('\\s+')}\\s*[,;]`,
+            'i',
+          )
+          if (!overlapThenBreak.test(right)) continue
 
           const dropCount = prefixLen + n
           const wordRe = /[A-Za-z0-9£$€][A-Za-z0-9'-]*/g

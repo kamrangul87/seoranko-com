@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { MODEL_FOR } from '@/lib/model-router';
-import { isSafeTextPatch, splitIntoSentences } from '@/lib/sentence-integrity';
+import { isSafeTextPatch, splitIntoSentences, hasInsertionCorruption, scrubInsertionCorruption } from '@/lib/sentence-integrity';
 import { evaluateClaimEvidence } from '@/lib/claim-evidence';
 import { decideClaimIssue, defaultFreshnessForEvidence } from '@/lib/quality-decision-policy';
 
@@ -174,6 +174,11 @@ export function isSentenceSourced(
   return false
 }
 
+/** Financial/grant figures belong to claim-evidence — do not Haiku-hedge them. */
+export function isFinancialNumericClaim(sentence: string): boolean {
+  return /[£$€]|up to\s+\d|\b\d+(?:\.\d+)?%/i.test(sentence)
+}
+
 function buildClaimEvidenceIndex(html: string): Map<string, ReturnType<typeof evaluateClaimEvidence>[number]> {
   const map = new Map<string, ReturnType<typeof evaluateClaimEvidence>[number]>()
   try {
@@ -223,16 +228,22 @@ export async function checkAndPatchFactSourcing(
       ? 100
       : Math.round((sourcedCount / totalNumericSentences) * 100);
 
-  // If score is already good enough, return unchanged article
-  if (factSourcingScore >= 80 || flaggedClaims.length === 0) {
+  // Financial/grant figures are owned by claim-evidence / Quality Gate.
+  // Haiku hedges on those sentences invented "approximately £350" splices
+  // that then aborted the whole pipeline at text-integrity (live: 7 patches
+  // → score 100 → residual ".350." / overlapping phrases).
+  const patchableClaims = flaggedClaims.filter((f) => !isFinancialNumericClaim(f.sentence))
+
+  // If score is already good enough, or nothing is safe to auto-patch, return unchanged.
+  if (factSourcingScore >= 80 || patchableClaims.length === 0) {
     return {
       article,
       result: { factSourcingScore, flaggedClaims, patchedCount: 0 },
     };
   }
 
-  // Auto-patch: send flagged sentences to Haiku for hedging/attribution
-  const flaggedSnippets = flaggedClaims
+  // Auto-patch: send only non-financial flagged sentences to Haiku
+  const flaggedSnippets = patchableClaims
     .slice(0, 20) // cap at 20 to keep prompt short
     .map((f, i) => `${i + 1}. "${f.sentence}"`)
     .join('\n');
@@ -263,27 +274,54 @@ RULES:
     const cleanRaw = raw.replace(/```json|```/g, '').trim();
     const patches: Record<string, string> = JSON.parse(cleanRaw);
 
-    flaggedClaims.slice(0, 20).forEach((flagged, i) => {
+    patchableClaims.slice(0, 20).forEach((flagged, i) => {
       const key = String(i + 1);
       const patched = patches[key];
       if (!patched || patched === flagged.sentence || !patchedArticle.includes(flagged.sentence)) return;
-      // Shared integrity guard — reject sentence splits / insertion corruption
       if (!isSafeTextPatch(flagged.sentence, patched)) {
         console.warn('[fact-checker] rejected a patch that failed sentence integrity:', flagged.sentence.slice(0, 80));
         return;
       }
-      patchedArticle = patchedArticle.replace(flagged.sentence, patched);
+      const candidate = patchedArticle.replace(flagged.sentence, patched);
+      if (hasInsertionCorruption(candidate) && !hasInsertionCorruption(patchedArticle)) {
+        console.warn('[fact-checker] rejected a patch that introduced article-level insertion corruption');
+        return;
+      }
+      patchedArticle = candidate;
       patchedCount++;
     });
 
-    // Recalculate score based on patchedCount improvement
-    const improvedSourced = sourcedCount + patchedCount;
-    const improvedScore = Math.round((improvedSourced / totalNumericSentences) * 100);
+    const scrubbed = scrubInsertionCorruption(patchedArticle)
+    patchedArticle = scrubbed.html
+    if (hasInsertionCorruption(patchedArticle) && !hasInsertionCorruption(article)) {
+      console.warn('[fact-checker] residual corruption after patches — reverting to original article')
+      return {
+        article,
+        result: { factSourcingScore, flaggedClaims, patchedCount: 0 },
+      }
+    }
+
+    // Re-score from the patched HTML — never assume patchedCount === newly sourced.
+    let sourcedAfter = 0
+    let totalAfter = 0
+    const claimIndexAfter = buildClaimEvidenceIndex(patchedArticle)
+    for (const { innerHtml, text } of paragraphsFromHtml(patchedArticle)) {
+      for (const sentence of splitIntoSentences(text)) {
+        const nums = extractNumericValuesFromSentence(sentence)
+        if (nums.length === 0) continue
+        totalAfter++
+        if (isSentenceSourced(sentence, innerHtml, { claimEvidenceByFigure: claimIndexAfter })) {
+          sourcedAfter++
+        }
+      }
+    }
+    const honestScore =
+      totalAfter === 0 ? 100 : Math.round((sourcedAfter / totalAfter) * 100)
 
     return {
       article: patchedArticle,
       result: {
-        factSourcingScore: Math.min(100, improvedScore),
+        factSourcingScore: Math.min(100, honestScore),
         flaggedClaims,
         patchedCount,
       },
