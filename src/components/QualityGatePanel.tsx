@@ -15,6 +15,19 @@ interface QualityIssue {
   figureText?: string
   verificationStatus?: 'auto-verified' | 'figure-missing' | 'unreachable' | 'no-citation'
   verificationDetail?: string
+  evidenceStatus?: string
+  freshnessStatus?: string
+  dimension?: string
+  blocking?: boolean
+  explanation?: string
+  evidence?: string
+  remediation?: string
+  fixStatus?:
+    | 'AUTO_FIX_ATTEMPTED'
+    | 'AUTO_FIX_FAILED'
+    | 'AUTO_FIX_CONFIRMED'
+    | 'MANUAL_REVIEW_REQUIRED'
+    | 'NO_FIX_NEEDED'
 }
 
 interface DimensionBoardItem {
@@ -171,7 +184,7 @@ export function QualityGatePanel({
               Quality Gate — {statusLabel}
             </p>
             <p className="text-xs text-gray-500 mt-0.5">
-              Score: {result.score}/100
+              Score: {Math.round(result.score)}/100
               {result.explainable?.publishDecision && ` · ${result.explainable.publishDecision.replace('_', ' ')}`}
               {result.autoFixedCount > 0 && ` · ${result.autoFixedCount} issue${result.autoFixedCount > 1 ? 's' : ''} auto-fixed`}
             </p>
@@ -240,7 +253,10 @@ export function QualityGatePanel({
               <p className="text-xs font-semibold text-[#0F0F0F]">{fixAllReport.summary}</p>
               {fixAllReport.scoreBefore != null && fixAllReport.scoreAfter != null && (
                 <p className="text-xs text-[#6B6B6B]">
-                  Score: {fixAllReport.scoreBefore} → {fixAllReport.scoreAfter}
+                  Score: {Math.round(fixAllReport.scoreBefore)} → {Math.round(fixAllReport.scoreAfter)}
+                  {fixAllReport.fixed.length === 0 &&
+                    Math.round(fixAllReport.scoreBefore) === Math.round(fixAllReport.scoreAfter) &&
+                    ' (no confirmed fixes — score unchanged by Fix All)'}
                 </p>
               )}
               {fixAllReport.fixed.length > 0 && !fixAllReport.revalidationFoundAdditionalIssues && (
@@ -297,7 +313,22 @@ export function QualityGatePanel({
                   <div className="mt-0.5">{severityIcon(issue.severity)}</div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900">{issue.title}</p>
-                    <p className="text-xs text-gray-600 mt-0.5 leading-relaxed">{issue.description}</p>
+                    {(issue.evidenceStatus || issue.freshnessStatus || issue.fixStatus) && (
+                      <p className="text-[11px] text-gray-500 mt-0.5">
+                        {[
+                          issue.evidenceStatus && `Evidence: ${issue.evidenceStatus}`,
+                          issue.freshnessStatus && `Freshness: ${issue.freshnessStatus}`,
+                          issue.dimension && `Dimension: ${issue.dimension}`,
+                          issue.blocking && 'Blocking',
+                          issue.fixStatus && `Fix: ${issue.fixStatus}`,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </p>
+                    )}
+                    <p className="text-xs text-gray-600 mt-0.5 leading-relaxed">
+                      {issue.explanation || issue.description}
+                    </p>
                     {issue.location && (
                       <p className="text-xs text-gray-400 font-mono mt-1 truncate">
                         Near: &quot;{issue.location}&quot;
@@ -322,7 +353,7 @@ export function QualityGatePanel({
                         </p>
                         <p className="text-xs text-amber-900 mt-0.5 leading-relaxed">
                           <span className="font-medium">What&apos;s wrong: </span>
-                          {issue.description}
+                          {issue.explanation || issue.description}
                         </p>
                         {issue.location && (
                           <p className="text-xs text-amber-800 mt-1 font-mono truncate">
@@ -331,7 +362,9 @@ export function QualityGatePanel({
                         )}
                         <p className="text-xs text-amber-950 mt-1.5 leading-relaxed">
                           <span className="font-medium">Next step: </span>
-                          {issue.actionHint || 'Edit the flagged sentence, then re-run Quality Gate.'}
+                          {issue.actionHint ||
+                            issue.remediation ||
+                            'Edit the flagged sentence, then re-run Quality Gate.'}
                         </p>
                       </div>
                     ) : null}

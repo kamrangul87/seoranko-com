@@ -133,6 +133,31 @@ describe('Phase 5 decision policy matrix (A–E, H, M)', () => {
     )
   })
 
+  it('claim issues carry the full decision field set', () => {
+    const issues = evaluateGrantFigureClaims(`
+      <p>Eligible renters can claim up to £350 with no citation.</p>
+    `)
+    expect(issues.length).toBeGreaterThan(0)
+    for (const i of issues) {
+      expect(i.id).toBeTruthy()
+      expect(i.category).toBeTruthy()
+      expect(i.evidenceStatus).toBeTruthy()
+      expect(i.freshnessStatus).toBeTruthy()
+      expect(['critical', 'warning', 'info']).toContain(i.severity)
+      expect(typeof i.blocking).toBe('boolean')
+      expect(i.dimension).toBeTruthy()
+      expect(i.title).toBeTruthy()
+      expect(i.explanation).toBeTruthy()
+      expect(i.evidence).toBeTruthy()
+      expect(i.fixStatus).toBeTruthy()
+      expect(i.affectsDimensions?.length).toBeGreaterThan(0)
+      // Title must not soft-pedal a critical/warning
+      if (i.severity === 'critical' || i.severity === 'warning') {
+        expect(i.title).not.toMatch(/properly sourced, just double-check/i)
+      }
+    }
+  })
+
   it('M: PARTIAL title matches warning severity (no soft "properly sourced" copy)', () => {
     const d = decideClaimIssue({
       evidenceStatus: 'PARTIALLY_SUPPORTED',
