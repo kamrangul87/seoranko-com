@@ -111,15 +111,17 @@ describe('grant-figure document-level-once policy', () => {
     expect(issues[0].description).toMatch(/restatement|one citation|Claim status/i)
   })
 
-  it('one GOV.UK citation clears every restatement of the same figure', () => {
+  it('one GOV.UK citation → SUPPORTED advisory (info), not a factual failure', () => {
     const html = `
       <p>The <a href="https://www.gov.uk/government/collections/government-grants-for-low-emission-vehicles">OZEV grant</a> helps eligible renters with up to £350 toward charger installation.</p>
       <p>Eligible renters can claim up to £350 toward installation costs.</p>
     `
     const issues = evaluateGrantFigureClaims(html)
     expect(issues).toHaveLength(1)
-    expect(issues[0].severity).toBe('warning')
+    expect(issues[0].severity).toBe('info')
+    expect(issues[0].title).toMatch(/Currentness verification recommended/i)
     expect(issues[0].autoFixable).toBe(false)
+    expect(issues[0].blocking).toBe(false)
   })
 
   it('one verify hedge near any instance clears the figure for the whole article', () => {

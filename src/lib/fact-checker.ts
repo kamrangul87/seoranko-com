@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { MODEL_FOR } from '@/lib/model-router';
 import { isSafeTextPatch, splitIntoSentences } from '@/lib/sentence-integrity';
+import { evaluateClaimEvidence } from '@/lib/claim-evidence';
+import { decideClaimIssue, defaultFreshnessForEvidence } from '@/lib/quality-decision-policy';
 
 export interface FlaggedClaim {
   claim: string;
@@ -117,13 +119,73 @@ export function hasNamedSource(text: string): boolean {
   return false;
 }
 
-function isSentenceSourced(sentence: string, paragraphHtml: string): boolean {
-  // Has a hyperlink in the same paragraph — genuinely checkable, always counts
-  if (/href=/i.test(paragraphHtml)) return true;
-  if (hasNamedSource(sentence)) return true;
-  // Shows the arithmetic behind the number, so it's derivable/verifiable
-  if (SHOWN_WORKING_RE.test(sentence)) return true;
-  return false;
+/**
+ * Whether a numeric sentence counts as "sourced" for the Fact Sourcing ring.
+ *
+ * Financial/grant figures defer to the canonical claim-evidence model so a
+ * weak href-in-paragraph cannot score 100 while claim evidence is UNSUPPORTED.
+ * Non-financial numerics keep the legacy named-source / shown-working rules
+ * (href alone is not enough when claim-evidence applies).
+ */
+export function isSentenceSourced(
+  sentence: string,
+  paragraphHtml: string,
+  opts?: {
+    /** Precomputed claim-evidence for the article (canonical). */
+    claimEvidenceByFigure?: Map<string, ReturnType<typeof evaluateClaimEvidence>[number]>
+  },
+): boolean {
+  const nums = extractNumericValuesFromSentence(sentence)
+  const financial = nums.find((n) => /[£$€]|%|up to/i.test(n) || /£|€|\$/.test(n))
+  if (financial && opts?.claimEvidenceByFigure) {
+    const key = financial.toLowerCase().replace(/\s+/g, ' ').trim()
+    // Try exact and "up to X" variants
+    const ev =
+      opts.claimEvidenceByFigure.get(key) ||
+      opts.claimEvidenceByFigure.get(`up to ${key}`) ||
+      Array.from(opts.claimEvidenceByFigure.values()).find((e) =>
+        (e.figureText || '').toLowerCase().replace(/\s+/g, ' ').includes(key.replace(/^up to\s+/i, '')),
+      )
+    if (ev) {
+      const decision = decideClaimIssue({
+        evidenceStatus: ev.status,
+        freshnessStatus: defaultFreshnessForEvidence(ev.status),
+        material: true,
+        figureText: ev.figureText,
+      })
+      // Count as sourced only when evidence is SUPPORTED / HISTORICAL (or live-ok).
+      // PARTIAL / UNSUPPORTED must not inflate Fact Sourcing to 100.
+      return (
+        ev.status === 'SUPPORTED' ||
+        ev.status === 'HISTORICAL' ||
+        decision.severity === null
+      )
+    }
+  }
+
+  // Legacy path for non-claim-evidence numerics — named source or shown working.
+  // Do NOT treat bare href-in-paragraph as sufficient for financial figures
+  // (handled above). For other numerics, href still counts as checkable.
+  if (!financial && /href=/i.test(paragraphHtml)) return true
+  if (hasNamedSource(sentence)) return true
+  if (SHOWN_WORKING_RE.test(sentence)) return true
+  // Non-financial: href in paragraph still OK
+  if (/href=/i.test(paragraphHtml)) return true
+  return false
+}
+
+function buildClaimEvidenceIndex(html: string): Map<string, ReturnType<typeof evaluateClaimEvidence>[number]> {
+  const map = new Map<string, ReturnType<typeof evaluateClaimEvidence>[number]>()
+  try {
+    for (const ev of evaluateClaimEvidence(html)) {
+      if (!ev.figureText) continue
+      const key = ev.figureText.toLowerCase().replace(/\s+/g, ' ').trim()
+      map.set(key, ev)
+    }
+  } catch {
+    /* claim-evidence optional for fact-sourcing ring */
+  }
+  return map
 }
 
 export async function checkAndPatchFactSourcing(
@@ -133,6 +195,7 @@ export async function checkAndPatchFactSourcing(
 ): Promise<FactSourcingOutput> {
   const paragraphs = paragraphsFromHtml(article);
   const flaggedClaims: FlaggedClaim[] = [];
+  const claimIndex = buildClaimEvidenceIndex(article)
 
   let totalNumericSentences = 0;
   let sourcedCount = 0;
@@ -143,7 +206,7 @@ export async function checkAndPatchFactSourcing(
       const nums = extractNumericValuesFromSentence(sentence);
       if (nums.length === 0) continue;
       totalNumericSentences++;
-      if (isSentenceSourced(sentence, innerHtml)) {
+      if (isSentenceSourced(sentence, innerHtml, { claimEvidenceByFigure: claimIndex })) {
         sourcedCount++;
       } else {
         flaggedClaims.push({
