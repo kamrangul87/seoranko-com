@@ -269,10 +269,16 @@ export async function POST(req: NextRequest) {
           let resolvedLinksStr = ''
           let linksRequestedFromModel: InternalLink[] = []
           let linkUnavailableNote = ''
+          let homepageGapNote = ''
           if (brand && userId) {
             console.log(`[internal-links] brand="${brand}" userId="${userId}" keyword="${keyword}"`)
-            const { links: eligibleLinks, registryRowCount } = await getEligibleLinks(userId, brand, keyword, angle.unique_angle || keyword)
+            const { links: eligibleLinks, registryRowCount, homepageGapNote: registryHomepageGap } = await getEligibleLinks(userId, brand, keyword, angle.unique_angle || keyword)
             console.log(`[internal-links] ${registryRowCount} active row(s) in registry for this user+brand, ${eligibleLinks.length} scored relevant`)
+            if (registryHomepageGap) {
+              homepageGapNote = registryHomepageGap
+              linkUnavailableNote = registryHomepageGap
+              console.log(`[internal-links] homepage gap: ${registryHomepageGap}`)
+            }
             if (eligibleLinks.length > 0) {
               const registryLinksAsInternal: InternalLink[] = eligibleLinks.map(l => ({
                 url: l.pageUrl,
@@ -281,14 +287,14 @@ export async function POST(req: NextRequest) {
               }))
               resolvedLinksStr = buildInternalLinksPrompt(registryLinksAsInternal, keyword, angle.unique_angle || keyword)
               linksRequestedFromModel = registryLinksAsInternal
-            } else if (registryRowCount === 0) {
+            } else if (!homepageGapNote && registryRowCount === 0) {
               // Distinguish from the "scored too low" case below — this is a
               // data/account problem (zero rows for this user+brand), not a
               // relevance-scoring problem. Confirmed in production: this message
               // used to be identical to the low-score case, which made a wrong-
               // Supabase-account data issue look like a scoring bug.
               linkUnavailableNote = `No internal links are registered for brand "${brand}" on this account. Add entries in Settings → Link Registry — the registry is empty for this user+brand combination.`
-            } else {
+            } else if (!homepageGapNote) {
               linkUnavailableNote = `${registryRowCount} link(s) are registered for brand "${brand}", but none scored relevant enough for "${keyword}". Check Settings → Link Registry — the entries may need better topic tags, or genuinely aren't close enough to this article.`
             }
           } else {
@@ -741,6 +747,11 @@ export async function POST(req: NextRequest) {
               if (linkInject.injected.length > 0) {
                 console.log(`[internal-links] injected clickable anchors: ${linkInject.injected.join(', ')}`)
               }
+              if (linkInject.skipped.length > 0) {
+                console.log(
+                  `[internal-links] skipped homepage/figure placements: ${linkInject.skipped.map((s) => `${s.url} (${s.reason})`).join('; ')}`,
+                )
+              }
             }
 
             // ── FINAL ARTIFACT PIPELINE (Phase 1) ──────────────────────────
@@ -1102,9 +1113,11 @@ export async function POST(req: NextRequest) {
           const linkAudit = {
             ...placementResult,
             totalPlaced: placementResult.placed.length,
-            note: placementResult.placed.length === 0
-              ? (linkUnavailableNote || 'Links were requested but none were placed naturally in the article text — check the skipped list for reasons.')
-              : undefined,
+            note: homepageGapNote || (
+              placementResult.placed.length === 0
+                ? (linkUnavailableNote || 'Links were requested but none were placed naturally in the article text — check the skipped list for reasons.')
+                : undefined
+            ),
           };
           console.log(`[internal-links] placed=${linkAudit.totalPlaced} skipped=${placementResult.skipped.length}${linkAudit.note ? ` note="${linkAudit.note}"` : ''}`);
 

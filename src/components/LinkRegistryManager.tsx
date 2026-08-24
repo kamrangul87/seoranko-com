@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase-client'
 import { BRAND_OPTIONS } from '@/lib/brands'
+import { isBareDomainRootUrl } from '@/lib/bare-domain-url'
 
 interface RegistryLink {
   id: string
@@ -200,6 +201,12 @@ export function LinkRegistryManager() {
               onChange={e => setForm(f => ({ ...f, page_url: e.target.value }))}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400"
             />
+            {isBareDomainRootUrl(form.page_url) && (
+              <p className="text-[11px] text-amber-800 mt-1">
+                This is the site homepage. Quality Gate will not treat homepage links as
+                sources for prices or grant figures. Add a specific page URL for those topics.
+              </p>
+            )}
           </div>
 
           <div>
