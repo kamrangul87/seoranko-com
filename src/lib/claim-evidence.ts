@@ -483,21 +483,31 @@ export function evaluateClaimEvidence(articleHtml: string): ClaimEvidence[] {
   return results
 }
 
-/** Map claim evidence → Quality Gate severity contribution. */
+/**
+ * Coarse evidence-only severity (no freshness axis).
+ *
+ * Quality Gate claim issues MUST use decideClaimIssue() instead — that is the
+ * authoritative evidence × freshness → severity/title/dimension mapping.
+ * Kept for tests/debug of the claim-evidence module alone.
+ */
 export function severityForClaimEvidence(
   status: ClaimEvidenceStatus,
 ): 'critical' | 'warning' | 'info' | null {
   switch (status) {
     case 'CONTRADICTED':
     case 'OUTDATED':
-      return 'critical'
     case 'UNSUPPORTED':
+      // Material financial/policy figures are treated as critical by decideClaimIssue;
+      // this helper matches that default for the evidence-only path.
+      return 'critical'
     case 'NEEDS_REVIEW':
     case 'PARTIALLY_SUPPORTED':
       return 'warning'
     case 'HISTORICAL':
       return 'info'
     case 'SUPPORTED':
+      // Evidence axis alone is fine; currency unknown is a separate freshness advisory
+      // owned by decideClaimIssue (info), not a factual failure here.
       return null
     default:
       return 'warning'

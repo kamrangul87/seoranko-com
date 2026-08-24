@@ -10,6 +10,8 @@
  */
 
 import type { IssueSeverity } from '@/lib/article-quality-gate'
+import { buildExplainableScore } from '@/lib/quality-score-dimensions'
+import { formatFixAllScoreSummary } from '@/lib/quality-decision-policy'
 
 export type AutoFixIssueSnapshot = {
   id: string
@@ -71,13 +73,23 @@ export function confirmAutoFixOutcomes(input: {
   if (input.mutationAttempts === 0 && confirmedResolved.length === 0) {
     summary = 'No auto-fixes were applied.'
   } else if (revalidationFoundAdditionalIssues) {
-    summary = `Auto-fix changed the article and revalidation found additional issues (${regressions.length} new). Score ${input.scoreBefore} → ${input.scoreAfter}.`
-  } else if (confirmedResolved.length > 0 && stillOpen.length > 0) {
-    summary = `Confirmed ${confirmedResolved.length} auto-fix(es) after revalidation. ${stillOpen.length} issue(s) remain. Score ${input.scoreBefore} → ${input.scoreAfter}.`
-  } else if (confirmedResolved.length > 0) {
-    summary = `Confirmed ${confirmedResolved.length} auto-fix(es) after revalidation. Score ${input.scoreBefore} → ${input.scoreAfter}.`
+    summary = formatFixAllScoreSummary({
+      confirmedFixCount: confirmedResolved.length,
+      scoreBefore: input.scoreBefore,
+      scoreAfter: input.scoreAfter,
+      stillNeedsManualReview: stillOpen.length + regressions.length,
+      revalidationFoundAdditionalIssues: true,
+      confirmationSummary: `Auto-fix changed the article and revalidation found additional issues (${regressions.length} new). Score ${Math.round(input.scoreBefore)} → ${Math.round(input.scoreAfter)}.`,
+    })
+  } else if (confirmedResolved.length === 0 && input.mutationAttempts > 0) {
+    summary = `Auto-fix ran (${input.mutationAttempts} mutation(s)) but revalidation did not confirm the original issues as resolved. Score ${Math.round(input.scoreBefore)} → ${Math.round(input.scoreAfter)}.`
   } else {
-    summary = `Auto-fix ran (${input.mutationAttempts} mutation(s)) but revalidation did not confirm the original issues as resolved. Score ${input.scoreBefore} → ${input.scoreAfter}.`
+    summary = formatFixAllScoreSummary({
+      confirmedFixCount: confirmedResolved.length,
+      scoreBefore: input.scoreBefore,
+      scoreAfter: input.scoreAfter,
+      stillNeedsManualReview: stillOpen.length,
+    })
   }
 
   return {
@@ -93,8 +105,17 @@ export function confirmAutoFixOutcomes(input: {
   }
 }
 
+/**
+ * Authoritative numeric Quality Gate score — same formula as buildExplainableScore.
+ * Do not invent a second scoring path in UI or Fix All.
+ */
 export function scoreFromIssues(issues: Array<{ severity: IssueSeverity }>): number {
-  const criticalCount = issues.filter((i) => i.severity === 'critical').length
-  const warningCount = issues.filter((i) => i.severity === 'warning').length
-  return Math.max(0, 100 - criticalCount * 20 - warningCount * 5)
+  return buildExplainableScore(
+    issues.map((i, idx) => ({
+      id: `score-${idx}`,
+      category: 'score-floor',
+      severity: i.severity,
+      title: '',
+    })),
+  ).score
 }

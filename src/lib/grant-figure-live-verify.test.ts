@@ -21,7 +21,9 @@ describe('live GOV.UK grant-figure auto-verify', () => {
     const issues = evaluateGrantFigureClaims(html)
     const grant = issues.find(i => i.category === 'grant-figure')
     expect(grant?.citationUrl).toMatch(/gov\.uk/i)
-    expect(grant?.severity).toBe('warning')
+    // SUPPORTED + currency unknown → advisory info (not a factual warning)
+    expect(grant?.severity).toBe('info')
+    expect(grant?.evidenceStatus).toBe('SUPPORTED')
 
     const verified = await autoVerifyCitedPolicyIssues(issues, new Date())
     const after = verified.find(i => i.category === 'grant-figure')!
@@ -32,6 +34,7 @@ describe('live GOV.UK grant-figure auto-verify', () => {
     if (after.verificationStatus === 'auto-verified') {
       expect(after.severity).toBe('info')
       expect(after.title).toMatch(/Auto-verified as of \d{4}-\d{2}-\d{2}/)
+      expect(after.freshnessStatus).toBe('CURRENT')
     } else {
       expect(after.verificationDetail).toBeTruthy()
       expect(after.verificationDetail!.toLowerCase()).not.toContain('manual review required')

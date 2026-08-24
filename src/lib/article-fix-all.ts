@@ -14,6 +14,7 @@ import { improveArticle } from '@/lib/article-improver'
 import { calculateEEATScore, analyzeKeywordDensity } from '@/lib/content-scorer'
 import { primaryTopicPhrase } from '@/lib/topic-alignment'
 import { computePanelScores, type PanelScores } from '@/lib/panel-scores'
+import { formatFixAllScoreSummary } from '@/lib/quality-decision-policy'
 
 export interface FixAllOptions {
   html: string
@@ -283,13 +284,21 @@ export async function fixAllArticleIssues(opts: FixAllOptions): Promise<FixAllRe
 
   let summary: string
   if (revalidationFoundAdditionalIssues) {
-    summary =
-      confirmation?.summary ||
-      `Auto-fix changed the article and revalidation found additional issues. Score ${qualityGateBefore.score} → ${qualityGateAfter.score}.`
-  } else if (stillNeedsManualReview.length === 0) {
-    summary = `Confirmed ${honestFixed.length} fix(es) after revalidation. Score ${qualityGateBefore.score} → ${qualityGateAfter.score}. Ready for a final human skim.`
+    summary = formatFixAllScoreSummary({
+      confirmedFixCount: honestFixed.length,
+      scoreBefore: qualityGateBefore.score,
+      scoreAfter: qualityGateAfter.score,
+      stillNeedsManualReview: stillNeedsManualReview.length,
+      revalidationFoundAdditionalIssues: true,
+      confirmationSummary: confirmation?.summary,
+    })
   } else {
-    summary = `Confirmed ${honestFixed.length} fix(es). Score ${qualityGateBefore.score} → ${qualityGateAfter.score}. ${stillNeedsManualReview.length} still need manual review.`
+    summary = formatFixAllScoreSummary({
+      confirmedFixCount: honestFixed.length,
+      scoreBefore: qualityGateBefore.score,
+      scoreAfter: qualityGateAfter.score,
+      stillNeedsManualReview: stillNeedsManualReview.length,
+    })
   }
 
   return {

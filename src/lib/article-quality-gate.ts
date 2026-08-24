@@ -55,9 +55,13 @@ import {
 import {
   evaluateClaimEvidence,
   formatClaimEvidenceDescription,
-  severityForClaimEvidence,
   type ClaimEvidence,
+  type ClaimEvidenceStatus,
 } from '@/lib/claim-evidence'
+import {
+  decideClaimIssue,
+  defaultFreshnessForEvidence,
+} from '@/lib/quality-decision-policy'
 import { evaluateHedging, isExtremeHedgeDensity } from '@/lib/hedging-policy'
 import { assessEditorialWordCount } from '@/lib/editorial-word-count'
 import {
@@ -269,19 +273,14 @@ export function evaluateGrantFigureClaims(
       status = 'PARTIALLY_SUPPORTED'
     }
 
-    const sev = severityForClaimEvidence(status)
-    // Uncited financial figures remain critical (material harm risk); cited /
-    // partial stay warning so auto-verify can confirm currency.
-    const severity: 'critical' | 'warning' | 'info' =
-      status === 'CONTRADICTED' || status === 'OUTDATED'
-        ? 'critical'
-        : status === 'UNSUPPORTED' && !anyInlineVerification
-          ? 'critical'
-          : status === 'SUPPORTED' || status === 'HISTORICAL' || status === 'PARTIALLY_SUPPORTED'
-            ? 'warning'
-            : sev === 'critical'
-              ? 'critical'
-              : 'warning'
+    // Authoritative decision — do NOT invent a second severity mapping here.
+    const decision = decideClaimIssue({
+      evidenceStatus: status,
+      freshnessStatus: defaultFreshnessForEvidence(status),
+      material: true,
+      figureText: ev.figureText,
+    })
+    if (decision.severity === null) continue
 
     const countNote =
       ev.occurrenceCount > 1 ? ` (appears ${ev.occurrenceCount} times)` : ''
@@ -293,30 +292,49 @@ export function evaluateGrantFigureClaims(
     )
 
     const isUnsupported = status === 'UNSUPPORTED' || status === 'NEEDS_REVIEW'
-    const title =
-      status === 'CONTRADICTED' || status === 'OUTDATED'
-        ? `Claim may be outdated: "${ev.figureText}"`
-        : isUnsupported && !anyInlineVerification
-          ? 'Specific monetary cap stated — verify this figure is current (grant amounts change frequently)'
-          : 'Financial figure detected — properly sourced, just double-check it\'s current'
+    // Keep category as grant-figure (dated-policy is reserved for the dated-claim
+    // detector). Freshness ownership is expressed via affectsDimensions.
+    const category: IssueCategory = 'grant-figure'
+
+    const evidenceBlock = formatClaimEvidenceDescription({
+      ...ev,
+      status,
+      rationale:
+        anyInlineVerification && isUnsupported
+          ? `Inline verify hedge present.${ev.occurrenceCount > 1 ? ` Claim appears ${ev.occurrenceCount} times — one citation/hedge covers every restatement.` : ''}`
+          : ev.rationale,
+    })
 
     issues.push({
       id: `fact-grant-figure-${representative.position}`,
-      severity,
-      category: 'grant-figure',
-      title,
-      description: formatClaimEvidenceDescription({
-        ...ev,
-        status,
-        rationale:
-          anyInlineVerification && isUnsupported
-            ? `Inline verify hedge present.${ev.occurrenceCount > 1 ? ` Claim appears ${ev.occurrenceCount} times — one citation/hedge covers every restatement.` : ''}`
-            : ev.rationale,
-      }) + (countNote ? `\nFound: "${ev.figureText}"${countNote}` : `\nFound: "${ev.figureText}"`),
+      severity: decision.severity,
+      category,
+      title: decision.title,
+      explanation: decision.explanation,
+      evidence: evidenceBlock,
+      remediation: decision.fixStatus === 'NO_FIX_NEEDED'
+        ? undefined
+        : decision.severity === 'critical' && !ev.source
+          ? 'Add an official source that states this figure, or remove the claim.'
+          : 'Confirm the official page states this figure, then re-run Quality Gate.',
+      fixStatus: decision.fixStatus,
+      dimension: decision.dimension,
+      description:
+        [
+          decision.explanation,
+          evidenceBlock,
+          countNote ? `Found: "${ev.figureText}"${countNote}` : `Found: "${ev.figureText}"`,
+          `Evidence status: ${decision.evidenceStatus}`,
+          `Freshness status: ${decision.freshnessStatus}`,
+        ].join('\n'),
       location,
-      citationUrl: ev.source?.url || (anyInlineVerification ? undefined : undefined),
+      citationUrl: ev.source?.url,
       figureText: ev.figureText,
-      autoFixable: isUnsupported && !anyInlineVerification && !ev.source,
+      evidenceStatus: decision.evidenceStatus,
+      freshnessStatus: decision.freshnessStatus,
+      affectsDimensions: [decision.dimension, ...decision.alsoAffects],
+      blocking: decision.blocking,
+      autoFixable: isUnsupported && !anyInlineVerification && !ev.source && decision.severity === 'critical',
       autoFixDescription:
         isUnsupported && !anyInlineVerification && !ev.source
           ? 'Auto-fix adds "(verify at GOV.UK)" after each instance of this figure'
@@ -337,20 +355,35 @@ export function evaluateClaimEvidenceIssues(articleContent: string): QualityIssu
   for (const ev of evidence) {
     // Grant/financial figures are handled by evaluateGrantFigureClaims
     if (ev.figureText && /[£$€]|up to/i.test(ev.figureText)) continue
-    const sev = severityForClaimEvidence(ev.status)
-    if (sev === null) continue
+    const decision = decideClaimIssue({
+      evidenceStatus: ev.status,
+      freshnessStatus: defaultFreshnessForEvidence(ev.status),
+      material: false,
+      figureText: ev.figureText,
+    })
+    if (decision.severity === null) continue
+    // Keep claim-evidence category; freshness ownership via affectsDimensions.
+    const category: IssueCategory = 'claim-evidence'
     issues.push({
       id: `claim-evidence-${idx++}`,
-      severity: sev,
-      category: 'claim-evidence',
-      title:
-        ev.status === 'UNSUPPORTED'
-          ? `Important claim lacks supporting evidence`
-          : `Claim evidence: ${ev.status}`,
-      description: formatClaimEvidenceDescription(ev),
+      severity: decision.severity,
+      category,
+      title: decision.title,
+      explanation: decision.explanation,
+      evidence: formatClaimEvidenceDescription(ev),
+      remediation: decision.fixStatus === 'NO_FIX_NEEDED'
+        ? undefined
+        : 'Add or tighten an official source that supports this specific claim.',
+      fixStatus: decision.fixStatus,
+      dimension: decision.dimension,
+      description: [decision.explanation, formatClaimEvidenceDescription(ev)].join('\n'),
       location: ev.claimText.slice(0, 100),
       citationUrl: ev.source?.url,
       figureText: ev.figureText,
+      evidenceStatus: decision.evidenceStatus,
+      freshnessStatus: decision.freshnessStatus,
+      affectsDimensions: [decision.dimension, ...decision.alsoAffects],
+      blocking: decision.blocking,
       autoFixable: false,
     })
   }
@@ -783,6 +816,44 @@ export interface QualityIssue {
   figureText?: string
   verificationStatus?: CitationVerifyStatus
   verificationDetail?: string
+  /** Canonical claim-evidence axis (when applicable). */
+  evidenceStatus?: string
+  /** Canonical freshness/time axis (when applicable). */
+  freshnessStatus?: string
+  /** Primary dimension owner (from decideClaimIssue). */
+  dimension?:
+    | 'factual_verification'
+    | 'freshness'
+    | 'technical_seo'
+    | 'structured_data'
+    | 'readability'
+    | 'internal_linking'
+    | 'editorial'
+  /** Extra explainable dimensions this issue must affect (no silent PASS). */
+  affectsDimensions?: Array<
+    | 'factual_verification'
+    | 'freshness'
+    | 'technical_seo'
+    | 'structured_data'
+    | 'readability'
+    | 'internal_linking'
+    | 'editorial'
+  >
+  /** True when this issue alone blocks publish. */
+  blocking?: boolean
+  /** Decision-layer explanation (mirrors decideClaimIssue.explanation). */
+  explanation?: string
+  /** Structured evidence line(s) for the UI. */
+  evidence?: string
+  /** Concrete remediation (actionHint preferred when both set). */
+  remediation?: string
+  /** Auto-fix / review lifecycle from the decision policy. */
+  fixStatus?:
+    | 'AUTO_FIX_ATTEMPTED'
+    | 'AUTO_FIX_FAILED'
+    | 'AUTO_FIX_CONFIRMED'
+    | 'MANUAL_REVIEW_REQUIRED'
+    | 'NO_FIX_NEEDED'
 }
 
 export interface QualityGateResult {
@@ -820,6 +891,7 @@ export function recomputeQualityGateTotals(
   const readyToPublish = explainable.publishDecision === 'READY'
   const blockers = issues
     .filter(i =>
+      i.blocking === true ||
       i.severity === 'critical' ||
       i.id === 'missing-brand' ||
       i.id === 'brand-mismatch'
@@ -1874,8 +1946,11 @@ export async function runQualityGate(
 /**
  * For grant-figure / dated-policy issues that already cite an official URL,
  * re-fetch the page and confirm the figure still appears. Auto-verified
- * items become severity `info` so they no longer block publish or inflate
- * the Quality Gate warning count.
+ * items become severity `info` (or drop to PASS-equivalent advisory) so they
+ * no longer block publish or inflate the Quality Gate warning count.
+ *
+ * Advisory/info grant figures with a citation are still eligible — live
+ * verify upgrades "currentness recommended" → confirmed CURRENT.
  */
 export async function autoVerifyCitedPolicyIssues(
   issues: QualityIssue[],
@@ -1884,12 +1959,16 @@ export async function autoVerifyCitedPolicyIssues(
 ): Promise<QualityIssue[]> {
   const out: QualityIssue[] = []
   for (const issue of issues) {
+    const eligibleCategory =
+      issue.category === 'grant-figure' ||
+      issue.category === 'dated-policy' ||
+      issue.category === 'claim-evidence'
+    // Critical autofixable uncited figures have no URL — skip live verify.
+    // Info advisories WITH a citation remain eligible for currentness confirm.
     const eligible =
-      (issue.category === 'grant-figure' ||
-        issue.category === 'dated-policy' ||
-        issue.category === 'claim-evidence') &&
-      issue.severity !== 'info' &&
-      !issue.autoFixable
+      eligibleCategory &&
+      !issue.autoFixable &&
+      (issue.severity !== 'info' || Boolean(issue.citationUrl))
 
     if (!eligible) {
       out.push(issue)
@@ -1938,21 +2017,56 @@ export async function autoVerifyCitedPolicyIssues(
     })
 
     if (result.status === 'auto-verified') {
+      // Align with authoritative decision: SUPPORTED + live CURRENT → advisory only.
+      const confirmed = decideClaimIssue({
+        evidenceStatus: (issue.evidenceStatus as ClaimEvidenceStatus) || 'SUPPORTED',
+        freshnessStatus: 'CURRENT',
+        material: issue.category === 'grant-figure',
+        figureText: figure,
+        liveCurrentConfirmed: true,
+      })
       out.push({
         ...issue,
-        severity: 'info',
+        severity: confirmed.severity ?? 'info',
         title: `Auto-verified as of ${result.verifiedAsOf}: "${figure}"`,
         description: result.detail,
+        explanation: confirmed.explanation,
         verificationStatus: 'auto-verified',
         verificationDetail: result.detail,
+        evidenceStatus: confirmed.evidenceStatus,
+        freshnessStatus: 'CURRENT',
+        dimension: confirmed.dimension,
+        affectsDimensions:
+          confirmed.severity === null
+            ? []
+            : [confirmed.dimension, ...confirmed.alsoAffects],
+        blocking: false,
+        fixStatus: 'NO_FIX_NEEDED',
+        remediation: undefined,
         autoFixable: false,
       })
     } else {
+      // Live check failed — escalate soft advisories so the failure is visible.
+      const escalatedSeverity =
+        issue.severity === 'info' && result.status === 'figure-missing'
+          ? 'warning'
+          : issue.severity
       out.push({
         ...issue,
+        severity: escalatedSeverity,
         verificationStatus: result.status,
         verificationDetail: result.detail,
         description: `${issue.description} — ${result.detail}.`,
+        title:
+          result.status === 'figure-missing'
+            ? `Current claim could not be confirmed on source: "${figure}"`
+            : issue.title,
+        affectsDimensions:
+          escalatedSeverity === 'warning' || escalatedSeverity === 'critical'
+            ? ['factual_verification', 'freshness']
+            : issue.affectsDimensions,
+        fixStatus: 'MANUAL_REVIEW_REQUIRED',
+        remediation: result.detail,
       })
     }
   }

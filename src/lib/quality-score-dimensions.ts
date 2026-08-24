@@ -3,6 +3,9 @@
  *
  * score = deterministic aggregation of severity-weighted issues
  * (critical −20, warning −5). INFO / editorial advisory never dominate.
+ *
+ * Dimension membership: category map OR issue.affectsDimensions (authoritative
+ * when present — prevents Freshness PASS while a currency claim is open).
  */
 
 export type QualityDimensionId =
@@ -41,6 +44,8 @@ type IssueLike = {
   category: string
   severity: 'critical' | 'warning' | 'info'
   title: string
+  affectsDimensions?: QualityDimensionId[]
+  blocking?: boolean
 }
 
 const DIMENSION_META: Record<QualityDimensionId, { label: string; categories: string[] }> = {
@@ -102,6 +107,19 @@ function summaryFor(status: DimensionStatus, issues: IssueLike[]): string {
   return severe.map((i) => i.title).slice(0, 3).join('; ')
 }
 
+function issuesForDimension(id: QualityDimensionId, issues: IssueLike[]): IssueLike[] {
+  const meta = DIMENSION_META[id]
+  return issues.filter((i) => {
+    // When present, affectsDimensions is the sole membership source — prevents
+    // a Freshness-owned SUPPORTED advisory from also ADVISORY-ing Factual via
+    // the grant-figure category map.
+    if (i.affectsDimensions && i.affectsDimensions.length > 0) {
+      return i.affectsDimensions.includes(id)
+    }
+    return meta.categories.includes(i.category)
+  })
+}
+
 /**
  * Map issues → dimension board + explainable score + publish decision.
  * Editorial/info findings do not reduce the numeric score.
@@ -114,12 +132,11 @@ export function buildExplainableScore(issues: IssueLike[]): ExplainableScoreResu
 
   const dimensions: DimensionResult[] = (Object.keys(DIMENSION_META) as QualityDimensionId[]).map(
     (id) => {
-      const meta = DIMENSION_META[id]
-      const dimIssues = issues.filter((i) => meta.categories.includes(i.category))
+      const dimIssues = issuesForDimension(id, issues)
       const status = statusFromIssues(dimIssues)
       return {
         id,
-        label: meta.label,
+        label: DIMENSION_META[id].label,
         status,
         issueIds: dimIssues.map((i) => i.id),
         summary: summaryFor(status, dimIssues),
@@ -134,26 +151,38 @@ export function buildExplainableScore(issues: IssueLike[]): ExplainableScoreResu
       : 'No advisory-only findings.',
   ].join(' ')
 
+  const blockers = issues.filter(
+    (i) =>
+      i.blocking === true ||
+      i.severity === 'critical' ||
+      i.id === 'missing-brand' ||
+      i.id === 'brand-mismatch' ||
+      i.category === 'topic-alignment',
+  )
+
   let publishDecision: PublishDecision
   let publishDecisionReason: string
 
-  const blocked =
-    criticalCount > 0 ||
-    issues.some(
-      (i) =>
-        i.id === 'missing-brand' ||
-        i.id === 'brand-mismatch' ||
-        i.category === 'topic-alignment' ||
-        (i.category === 'score-floor' && i.severity === 'critical'),
-    )
-
-  if (blocked) {
+  if (blockers.length > 0) {
     publishDecision = 'BLOCKED'
+    const names = blockers
+      .slice(0, 3)
+      .map((i) => i.title)
+      .join('; ')
     publishDecisionReason =
-      'Critical issues remain (brand, topic alignment, structured-data errors, or material factual risk). Do not publish.'
+      blockers.length === 1
+        ? `Blocked by: ${names}. Do not publish until this is resolved.`
+        : `Blocked by ${blockers.length} issue(s): ${names}${blockers.length > 3 ? '…' : ''}. Do not publish until these are resolved.`
   } else if (warningCount > 0) {
     publishDecision = 'NEEDS_REVIEW'
-    publishDecisionReason = `${warningCount} warning(s) need human review before publish. Advisory items do not block.`
+    const warnTitles = issues
+      .filter((i) => i.severity === 'warning')
+      .slice(0, 2)
+      .map((i) => i.title)
+      .join('; ')
+    publishDecisionReason = `${warningCount} warning(s) need human review before publish${
+      warnTitles ? ` (${warnTitles})` : ''
+    }. Advisory items do not block.`
   } else {
     publishDecision = 'READY'
     publishDecisionReason =
