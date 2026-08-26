@@ -72,7 +72,6 @@ export async function lintProse(plainText: string): Promise<ProseFinding[]> {
 
   for (const message of file.messages) {
     const source = message.source
-    const reason = message.reason || ''
     let key: string | null = null
     let severity: ProseFindingSeverity = 'info'
     let title = ''
@@ -91,7 +90,15 @@ export async function lintProse(plainText: string): Promise<ProseFinding[]> {
       // can't distinguish on its own.
       key = 'quote-style'; severity = 'info'; title = 'Straight quotation marks (style only, not an error)'
     } else if (source === 'retext-contractions') {
-      if (reason.startsWith('Unexpected missing apostrophe')) {
+      // Classified on the flagged token itself, not on the English wording
+      // of `reason`: retext emits both defects under the same ruleId
+      // (missing-smart-apostrophe) and its phrasing is not an API. A token
+      // that already contains an apostrophe of any kind is a typographic
+      // style finding; one with no apostrophe at all ("dont") is a real
+      // spelling defect.
+      const actual = typeof message.actual === 'string' ? message.actual : ''
+      const hasApostrophe = /['\u2018\u2019\u02BC]/.test(actual)
+      if (!hasApostrophe) {
         key = 'missing-apostrophe'; severity = 'warning'; title = 'Missing apostrophe in a contraction'
       } else {
         key = 'apostrophe-style'; severity = 'info'; title = 'Straight apostrophe in a contraction (style only, not an error)'

@@ -8,6 +8,7 @@ import {
   SCANNABILITY_POLICY,
   SCANNABILITY_META_PARAGRAPH_RE,
 } from './scannability-policy'
+import { splitParagraphsAtLineBreaks } from './paragraph-splitter'
 
 function splitDenseParagraphOnce(articleHtml: string): string {
   const { denseSentenceThreshold } = SCANNABILITY_POLICY
@@ -34,7 +35,9 @@ function splitDenseParagraphOnce(articleHtml: string): string {
 }
 
 export function autoSplitDenseParagraphs(articleHtml: string): string {
-  let result = articleHtml
+  // <br>-separated sentences carry no whitespace boundary for the offset
+  // splitter to break at — promote them to paragraphs first.
+  let result = splitParagraphsAtLineBreaks(articleHtml)
   for (let i = 0; i < 8; i++) {
     const next = splitDenseParagraphOnce(result)
     if (next === result) break
