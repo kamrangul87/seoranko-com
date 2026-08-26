@@ -17,6 +17,41 @@ function countWords(text: string): number {
   return text.split(/\s+/).filter(Boolean).length
 }
 
+const LINE_BREAK_SPLIT_RE = /<br\s*\/?>/gi
+const LINE_BREAK_TEST_RE = /<br\s*\/?>/i
+
+/**
+ * A dense paragraph whose sentences are separated by <br> instead of spaces
+ * is invisible to sentence-offset splitting: `sentenceBoundaryOffsets` finds
+ * no boundary because every period is followed by a tag, not whitespace —
+ * so both splitters returned the paragraph untouched while
+ * structure-validator (which counts sentences on the tag-stripped text)
+ * still counted it as dense. Promoting those line breaks to real paragraph
+ * breaks is the mechanical repair for that shape.
+ */
+export function splitParagraphsAtLineBreaks(html: string): string {
+  if (!html || !LINE_BREAK_TEST_RE.test(html)) return html
+  const root = parse(html)
+
+  for (const p of root.querySelectorAll('p')) {
+    const outer = p.toString()
+    if (SCANNABILITY_META_PARAGRAPH_RE.test(outer)) continue
+    const innerHtml = p.innerHTML
+    if (!LINE_BREAK_TEST_RE.test(innerHtml)) continue
+    if (countSentences(innerHtml.replace(/<[^>]+>/g, ' ')) < SCANNABILITY_POLICY.denseSentenceThreshold) {
+      continue
+    }
+    const parts = innerHtml
+      .split(LINE_BREAK_SPLIT_RE)
+      .map(part => part.trim())
+      .filter(Boolean)
+    if (parts.length <= 1) continue
+    p.replaceWith(parts.map(part => `<p>${part}</p>`).join('\n'))
+  }
+
+  return root.toString()
+}
+
 // Splits `innerHtml` (the raw contents of one <p>) into multiple HTML
 // chunks, each within the sentence/word budget, breaking only at sentence
 // boundaries found in the plain-text projection. Inline tags (<a>, <strong>,
@@ -69,7 +104,7 @@ function splitParagraphHtml(innerHtml: string): string[] {
 
 export function splitDenseParagraphs(html: string): string {
   if (!html) return html
-  const root = parse(html)
+  const root = parse(splitParagraphsAtLineBreaks(html))
   const paragraphs = root.querySelectorAll('p')
 
   for (const p of paragraphs) {
