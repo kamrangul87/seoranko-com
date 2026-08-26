@@ -7,6 +7,10 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 import { describeInternalLinkRegistryGap } from '@/lib/bare-domain-url'
+import {
+  applyKnownRegistryUrlCorrection,
+  checkUrlReachable,
+} from '@/lib/registry-url-health'
 
 const aiClient = new Anthropic()
 
@@ -187,6 +191,7 @@ export async function getEligibleLinks(
   const registeredUrls: string[] = data
     .map((row: { page_url?: string }) => row.page_url)
     .filter((u: string | undefined): u is string => Boolean(u))
+    .map((u) => applyKnownRegistryUrlCorrection(u))
 
   const rankedLinks: RegisteredLink[] = ranked.map((s: { link: {
     id: string
@@ -197,26 +202,53 @@ export async function getEligibleLinks(
     page_description: string | null
     topic_tags?: string[]
     anchor_text: string
-  } }) => ({
-    id: s.link.id,
-    brand: s.link.brand,
-    siteUrl: s.link.site_url,
-    pageUrl: s.link.page_url,
-    pageTitle: s.link.page_title,
-    pageDescription: s.link.page_description,
-    topicTags: s.link.topic_tags || [],
-    anchorText: s.link.anchor_text,
-  }))
+  } }) => {
+    const pageUrl = applyKnownRegistryUrlCorrection(s.link.page_url)
+    let siteUrl = s.link.site_url
+    try {
+      siteUrl = new URL(pageUrl).origin
+    } catch {
+      /* keep */
+    }
+    return {
+      id: s.link.id,
+      brand: s.link.brand,
+      siteUrl,
+      pageUrl,
+      pageTitle: s.link.page_title,
+      pageDescription: s.link.page_description,
+      topicTags: s.link.topic_tags || [],
+      anchorText: s.link.anchor_text,
+    }
+  })
+
+  // Drop registry URLs that still do not resolve (e.g. /running-costs content gap).
+  // Known wrong→live remaps already applied above; do not invent pages for gaps.
+  const reachability = await Promise.all(
+    rankedLinks.map(async (link) => {
+      const reach = await checkUrlReachable(link.pageUrl)
+      return { link, reach }
+    }),
+  )
+  const liveLinks = reachability
+    .filter(({ reach, link }) => {
+      if (reach.ok) return true
+      console.warn(
+        `[internal-link-engine] skipping unreachable registry URL ${link.pageUrl}: ${reach.detail}`,
+      )
+      return false
+    })
+    .map(({ link }) => link)
 
   const homepageGapNote = describeInternalLinkRegistryGap({
     brand: articleBrand,
     keyword: articleKeyword,
     registeredUrls,
-    eligibleUrls: rankedLinks.map((l) => l.pageUrl),
+    eligibleUrls: liveLinks.map((l) => l.pageUrl),
   })
 
   return {
-    links: rankedLinks,
+    links: liveLinks,
     registryRowCount: data.length,
     registeredUrls,
     homepageGapNote,

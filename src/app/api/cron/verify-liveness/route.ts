@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { runVerificationSweep } from '@/lib/publisher-verification-runner'
+import { auditRegistryLinkRows } from '@/lib/registry-url-health'
 
 // Same auth pattern as the existing cron routes (weekly-jobs,
 // send-digests) — Authorization: Bearer ${CRON_SECRET}, checked by Vercel
@@ -15,7 +16,7 @@ export async function GET(req: NextRequest) {
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
   )
 
   // Originally scheduled every 5 minutes to be the long-tail fallback for
@@ -32,5 +33,52 @@ export async function GET(req: NextRequest) {
   // unprompted. Revisit once either the Vercel plan changes or an
   // on-demand polling UI exists.
   const result = await runVerificationSweep(supabase, { limit: 50 })
-  return NextResponse.json(result)
+
+  // Same daily window: correct known-wrong registry tool URLs and deactivate
+  // unreachable entries so articles cannot keep linking to 404 paths.
+  let registry:
+    | {
+        scanned: number
+        updated: number
+        corrected: number
+        deactivated: number
+      }
+    | { error: string }
+    | undefined
+  try {
+    const { data: rows, error } = await supabase
+      .from('internal_link_registry')
+      .select('id, page_url, site_url, is_active')
+      .eq('is_active', true)
+      .limit(500)
+    if (error) {
+      registry = { error: error.message }
+    } else {
+      const { actions, updates } = await auditRegistryLinkRows(rows || [])
+      let updated = 0
+      for (const u of updates) {
+        const patch: Record<string, unknown> = {}
+        if (u.page_url !== undefined) patch.page_url = u.page_url
+        if (u.site_url !== undefined) patch.site_url = u.site_url
+        if (u.is_active !== undefined) patch.is_active = u.is_active
+        const { error: upErr } = await supabase
+          .from('internal_link_registry')
+          .update(patch)
+          .eq('id', u.id)
+        if (!upErr) updated++
+      }
+      registry = {
+        scanned: (rows || []).length,
+        updated,
+        corrected: actions.filter((a) => a.action === 'corrected').length,
+        deactivated: actions.filter((a) => a.action === 'deactivated').length,
+      }
+    }
+  } catch (err) {
+    registry = {
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+
+  return NextResponse.json({ ...result, registry })
 }

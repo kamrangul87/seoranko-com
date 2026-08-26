@@ -73,6 +73,7 @@ export function LinkRegistryManager() {
     topic_tags: '',
     anchor_text: ''
   })
+  const [urlHint, setUrlHint] = useState<string | null>(null)
 
 
   useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -92,9 +93,34 @@ export function LinkRegistryManager() {
   async function saveLink() {
     if (!form.page_url || !form.page_title || !form.anchor_text || !form.brand) return
     setSaving(true)
+    setUrlHint(null)
 
     const { data: { session } } = await supabase.auth.getSession()
     if (!session?.user) { setSaving(false); return }
+
+    let pageUrl = form.page_url.trim()
+    try {
+      const verifyRes = await fetch('/api/link-registry/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: pageUrl }),
+      })
+      const verify = await verifyRes.json()
+      if (verify.correction?.to) {
+        pageUrl = verify.correction.to as string
+        setUrlHint(`Corrected to live URL: ${pageUrl}`)
+      }
+      if (!verify.ok) {
+        setUrlHint(
+          verify.suggestion ||
+            `URL does not resolve (${verify.detail || 'unreachable'}). Fix the URL before saving.`,
+        )
+        setSaving(false)
+        return
+      }
+    } catch {
+      // Network blip — still allow save; daily registry verify catches dead URLs.
+    }
 
     const tags = form.topic_tags
       .split(',')
@@ -103,7 +129,7 @@ export function LinkRegistryManager() {
 
     let siteUrl = form.site_url
     if (!siteUrl) {
-      try { siteUrl = new URL(form.page_url).origin } catch { siteUrl = '' }
+      try { siteUrl = new URL(pageUrl).origin } catch { siteUrl = '' }
     }
 
     const { error } = await supabase
@@ -112,7 +138,7 @@ export function LinkRegistryManager() {
         user_id: session.user.id,
         brand: form.brand,
         site_url: siteUrl,
-        page_url: form.page_url,
+        page_url: pageUrl,
         page_title: form.page_title,
         page_description: form.page_description || null,
         topic_tags: tags,
@@ -122,6 +148,7 @@ export function LinkRegistryManager() {
 
     if (!error) {
       setForm({ brand: '', site_url: '', page_url: '', page_title: '', page_description: '', topic_tags: '', anchor_text: '' })
+      setUrlHint(null)
       setShowForm(false)
       load()
     }
@@ -196,9 +223,9 @@ export function LinkRegistryManager() {
             <label className="text-xs text-gray-500 mb-1 block">Page URL</label>
             <input
               type="url"
-              placeholder="https://autodun.com/mot-checker"
+              placeholder="https://mot.autodun.com"
               value={form.page_url}
-              onChange={e => setForm(f => ({ ...f, page_url: e.target.value }))}
+              onChange={e => { setUrlHint(null); setForm(f => ({ ...f, page_url: e.target.value })) }}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400"
             />
             {isBareDomainRootUrl(form.page_url) && (
@@ -206,6 +233,9 @@ export function LinkRegistryManager() {
                 This is the site homepage. Quality Gate will not treat homepage links as
                 sources for prices or grant figures. Add a specific page URL for those topics.
               </p>
+            )}
+            {urlHint && (
+              <p className="text-[11px] text-amber-800 mt-1">{urlHint}</p>
             )}
           </div>
 
