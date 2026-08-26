@@ -1,0 +1,33 @@
+{
+  "id": "synthetic-c04-0000-0000-0000-000000000001",
+  "title": "EV Charger Grants: What UK Homeowners Should Know",
+  "keyword": "ev charger grant",
+  "secondaryKeywords": [],
+  "brand": "autodun",
+  "market": "UK",
+  "requestedWordCount": 420,
+  "actualWordCount": 420,
+  "content": "<!DOCTYPE html>\n<html lang=\"en-GB\">\n<head>\n<meta charset=\"UTF-8\">\n<title>EV Charger Grants: What UK Homeowners Should Know</title>\n<meta name=\"description\" content=\"A short guide to UK EV charger grant funding and what it currently covers.\">\n<script type=\"application/ld+json\">{\"@context\":\"https://schema.org\",\"@type\":\"Article\",\"headline\":\"EV Charger Grants: What UK Homeowners Should Know\",\"image\":[\"https://ddfboapzwclecbdjoqex.supabase.co/storage/v1/object/public/article-images/synthetic/ev-charger-grant/hero.webp\"],\"author\":{\"@type\":\"Person\",\"name\":\"Kamran Gul\"},\"publisher\":{\"@type\":\"Organization\",\"name\":\"autodun\",\"url\":\"https://autodun.com\",\"logo\":{\"@type\":\"ImageObject\",\"url\":\"https://logo.clearbit.com/autodun.com\"}},\"datePublished\":\"2026-08-01T09:00:00.000Z\",\"dateModified\":\"2026-08-01T09:00:00.000Z\",\"inLanguage\":\"en\",\"wordCount\":420,\"mainEntityOfPage\":{\"@type\":\"WebPage\",\"@id\":\"https://autodun.com/ev-charger-grant\"}}</script>\n</head>\n<body>\n<h1>EV Charger Grants: What UK Homeowners Should Know</h1>\n<p>Installing a home EV charger is one of the biggest upfront costs new electric vehicle owners face, and grant funding can make a real difference to the final bill. Understanding how much support is actually available right now matters more than reading last year's headline figures, since scheme terms shift often.</p>\n<h2>How Much Does the Grant Currently Cover?</h2>\n<p>As of July 2026, the scheme currently covers approximately 60% of installation costs for eligible households. This figure gets repeated across comparison sites and forums, but it is worth treating cautiously, since eligibility rules and funding caps have changed more than once in recent years and this article does not link out to the scheme's own published terms.</p>\n<p>Most installers quote the discount automatically at checkout, which is convenient but means many buyers never actually see the underlying scheme documentation for themselves before paying a deposit.</p>\n<h2>What Should You Check Before Booking?</h2>\n<p>Before committing to any installer, ask directly whether they are approved to claim the grant on your behalf, and get the discounted price confirmed in writing. Do not assume the figure quoted online still applies to your postcode or property type, since eligibility narrows over time as funding pots are adjusted.</p>\n<p>Two sensible steps: request a written quote showing the grant deduction separately, and ask the installer for the date they last confirmed the current rate with the scheme administrator.</p>\n<h2>Frequently Asked Questions</h2>\n<div class=\"faq-item\"><h3>Is the EV charger grant still available in 2026?</h3><p>Availability depends on property type and installer participation, and it changes over time, so confirm directly with your chosen installer before assuming a specific figure applies to you.</p></div>\n<div class=\"faq-item\"><h3>Does every installer offer the same discount?</h3><p>No. Discounts vary by installer and region, and not every installer participates in every scheme, so compare more than one quote before deciding.</p></div>\n</body>\n</html>",
+  "schemaJson": [
+    {
+      "@context": "https://schema.org",
+      "@type": "Article",
+      "headline": "EV Charger Grants: What UK Homeowners Should Know",
+      "image": ["https://ddfboapzwclecbdjoqex.supabase.co/storage/v1/object/public/article-images/synthetic/ev-charger-grant/hero.webp"],
+      "author": { "@type": "Person", "name": "Kamran Gul" },
+      "publisher": {
+        "@type": "Organization",
+        "name": "autodun",
+        "url": "https://autodun.com",
+        "logo": { "@type": "ImageObject", "url": "https://logo.clearbit.com/autodun.com" }
+      },
+      "datePublished": "2026-08-01T09:00:00.000Z",
+      "dateModified": "2026-08-01T09:00:00.000Z",
+      "inLanguage": "en",
+      "wordCount": 420,
+      "mainEntityOfPage": { "@type": "WebPage", "@id": "https://autodun.com/ev-charger-grant" }
+    }
+  ],
+  "createdAt": "2026-08-01T09:00:00.000Z",
+  "knownFailingRules": ["C04"]
+}

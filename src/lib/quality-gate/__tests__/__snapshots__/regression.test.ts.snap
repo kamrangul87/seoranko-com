@@ -1,0 +1,1141 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > 06ee6720-b643-4f70-a7d6-531171a45130.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£140",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£2940",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£3000",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£3920",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£840",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£980",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::300%",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::40%",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-grant::as of august 2026 ozev administers the ev chargepoint grant for eligible homeown",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-0",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-2",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-3",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-publisher.logo",
+    "severity": "critical",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > 03048d7b-db9d-4861-b5e7-c156ca0a3389.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£1200",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£1500",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£2200",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£4000",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£800",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::40%",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::43%",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-grant::the office for zero emission vehicles publishes grant eligibility rules and inst",
+    "severity": "warning",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£3000",
+    "severity": "warning",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£350",
+    "severity": "info",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£6000",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Article-inLanguage",
+    "severity": "critical",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-logo",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-publisher.logo",
+    "severity": "warning",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > 4cbeb257-827d-4b0e-bb96-899adbc7ba54.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£1000",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£300",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£4.20",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£42",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£600",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-regulation::ev charger installation in the uk must follow building regulations approved docu",
+    "severity": "warning",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£350",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-publisher.logo",
+    "severity": "critical",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > 6c8aab45-52ca-43ec-aee5-f7f5a438ac1e.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£1200",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£800",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::60%",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-grant::about the author kamran gul is the founder of autodun an independent vehicle int",
+    "severity": "warning",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£350",
+    "severity": "info",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-0",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-relative-factual-1",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-logo",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-publisher.logo",
+    "severity": "warning",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > 50a33031-ff83-4ac8-abe9-9544499aba6e.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£1000",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£150",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£1500",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£2000",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£400",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£4000",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£500",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£5000",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-grant::the england driveway ev charger rule landscape has changed significantly since 2",
+    "severity": "warning",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£1200",
+    "severity": "warning",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£350",
+    "severity": "warning",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£800",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-publisher.logo",
+    "severity": "critical",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > 75fbe7a4-3a7a-46fb-b084-4d1195a12ade.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£1200",
+    "severity": "info",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£3000",
+    "severity": "info",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£800",
+    "severity": "info",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-grant::according to the office for zero emission vehicles at govukgovernmentorganisatio",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-technical-standard::a distribution network operator dno owns and maintains the electricity cables an",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-0",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-logo",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-publisher.logo",
+    "severity": "warning",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > 512d0f25-c90b-483d-9edf-c5fc167204cc.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£4.80",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£48",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::15%",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::20%",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::5%",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::80%",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-0",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-1",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-publisher.logo",
+    "severity": "critical",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > 4473dede-4097-4082-8ca2-6922e0dd16af.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::34%",
+    "severity": "warning",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£1200",
+    "severity": "info",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£300",
+    "severity": "warning",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£700",
+    "severity": "warning",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£800",
+    "severity": "info",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-0",
+    "severity": "info",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-publisher.logo",
+    "severity": "warning",
+  },
+  {
+    "category": "word-count",
+    "id": "word-count-advisory",
+    "severity": "info",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > 5757ab14-f105-45eb-ba92-f84078d2bac9.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£1200",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::60%",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-grant::smart charging compliance under the electric vehicles smart charge points regula",
+    "severity": "warning",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£900",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-0",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-1",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-2",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-3",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-publisher.logo",
+    "severity": "critical",
+  },
+  {
+    "category": "dated-policy",
+    "id": "stale-year-0",
+    "severity": "warning",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > 6455c564-cbff-439d-bf0e-63355c37187b.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£2.50",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£2.80",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£2500",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£3.20",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£3.50",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£500",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£625",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£800",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-grant::ev charger installation must be carried out by a qualified electrician ideally o",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-0",
+    "severity": "warning",
+  },
+  {
+    "category": "missing-brand",
+    "id": "missing-brand",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Article-inLanguage",
+    "severity": "critical",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-logo",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-publisher.logo",
+    "severity": "warning",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > 9562b31f-c153-43ce-869b-47d8cb8ce1df.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£1200",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£1220",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£300",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£500",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£590",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£861",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£90",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£953",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::18%",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-grant::as of august 2026 the electric vehicle chargepoint grant administered by ozev is",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-grant::the office for zero emission vehicles ozev administers the electric vehicle char",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-0",
+    "severity": "warning",
+  },
+  {
+    "category": "missing-brand",
+    "id": "missing-brand",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-publisher.logo",
+    "severity": "critical",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > 9733cf84-33d8-4142-a3fd-4089b931b11a.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::10%",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::100%",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::50%",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::70%",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-0",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-faq-parity",
+    "severity": "critical",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-publisher.logo",
+    "severity": "critical",
+  },
+  {
+    "category": "topic-alignment",
+    "id": "topic-alignment-failed",
+    "severity": "critical",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > ae937e80-d35c-471a-8e5e-db4c9d93847a.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£2000",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£3200",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£5000",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::78%",
+    "severity": "warning",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£1500",
+    "severity": "warning",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£800",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-0",
+    "severity": "info",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-1",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Article-inLanguage",
+    "severity": "critical",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-logo",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-publisher.logo",
+    "severity": "warning",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > ba103270-73da-4174-82ff-fe28ac360f05.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£12",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£1200",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£180",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£3",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£720",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£800",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::23%",
+    "severity": "warning",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > d5bb4030-722c-45e8-9314-84c9fd984488.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£1200",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£1500",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£15000",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£2500",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£3000",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£4500",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£500",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£600",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::15%",
+    "severity": "warning",
+  },
+  {
+    "category": "hedging",
+    "id": "hedging-real-repetition",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-publisher.logo",
+    "severity": "critical",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > da83d673-fd5d-4114-b2ec-56ad9a357f57.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-grant::the uk governments electric vehicle homecharge scheme and later grant programmes",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-publisher.logo",
+    "severity": "critical",
+  },
+  {
+    "category": "ai-slop",
+    "id": "slop-4",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "stale-year-0",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "stale-year-1",
+    "severity": "warning",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > ecb1cf37-ff67-4688-8c25-69883c57a3af.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£1200",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£15000",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£5000",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£800",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-grant::the office for zero emission vehicles administers the electric vehicle chargepoi",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-technical-standard::not every installation triggers a dno application a standard charger running at ",
+    "severity": "warning",
+  },
+  {
+    "category": "merge-artifact",
+    "id": "copy-merge-artifact-1",
+    "severity": "critical",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-0",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-publisher.logo",
+    "severity": "critical",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > f0f8d2cc-ad2e-422f-b1ed-02b3bf989fdb.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::£200",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-grant::to qualify you must own or have ordered an eligible electric or plugin hybrid ve",
+    "severity": "warning",
+  },
+  {
+    "category": "merge-artifact",
+    "id": "copy-merge-artifact-4",
+    "severity": "critical",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£1200",
+    "severity": "critical",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£1500",
+    "severity": "warning",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£300",
+    "severity": "warning",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£700",
+    "severity": "warning",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£800",
+    "severity": "critical",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-0",
+    "severity": "info",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-1",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-2",
+    "severity": "info",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Article-inLanguage",
+    "severity": "critical",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-logo",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-publisher.logo",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "stale-year-0",
+    "severity": "warning",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > f9d4f7f8-fece-4a6a-85b0-2d454c2084e7.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-grant::according to ofgem at ofgemgovuk  the average electricity unit rate under the q2",
+    "severity": "warning",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£1200",
+    "severity": "warning",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£350",
+    "severity": "info",
+  },
+  {
+    "category": "grant-figure",
+    "id": "fact-grant-figure-figure::£800",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-0",
+    "severity": "info",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-1",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Article-image",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-logo",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-publisher.logo",
+    "severity": "warning",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > ff441ba4-be5a-4c79-8bab-8ddfe7769bf2.json 1`] = `
+[
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::20%",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-figure::34%",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-grant::installation costs vary depending on your property existing wiring and the unit ",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-0",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-1",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-2",
+    "severity": "warning",
+  },
+  {
+    "category": "schema",
+    "id": "schema-Organization-publisher.logo",
+    "severity": "critical",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > synthetic-c04.json 1`] = `
+[
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-0",
+    "severity": "warning",
+  },
+  {
+    "category": "dated-policy",
+    "id": "freshness-chrono-1",
+    "severity": "warning",
+  },
+]
+`;
+
+exports[`Quality Gate regression harness > snapshots the violation set (id, category, severity) per fixture > synthetic-s05.json 1`] = `
+[
+  {
+    "category": "scannability",
+    "id": "structure-scannability-0",
+    "severity": "warning",
+  },
+  {
+    "category": "word-count",
+    "id": "word-count-advisory",
+    "severity": "info",
+  },
+]
+`;

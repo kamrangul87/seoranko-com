@@ -972,9 +972,12 @@ export function qualityGateStageStatus(gate: Pick<QualityGateResult, 'autoFixedC
  * Used for the initial RULE 6 pass AND the post-autofix refresh so the
  * returned Quality Gate issues always describe articleAfterAutoFix.
  */
+const MIN_PRIMARY_IMAGE_WIDTH_PX = 1200
+
 export function collectSchemaQualityIssues(
   html: string,
   expectOrganizationLogo?: boolean,
+  primaryImageWidth?: number,
 ): QualityIssue[] {
   const schemaResult = validateSchema(html, { expectOrganizationLogo })
   const out: QualityIssue[] = []
@@ -986,6 +989,21 @@ export function collectSchemaQualityIssues(
       category: 'schema',
       title: `${schemaIssue.schemaType}: ${schemaIssue.property}`,
       description: schemaIssue.message,
+      autoFixable: false,
+    })
+  }
+
+  // M06 — Google's Top Stories/Discover eligibility needs a primary image
+  // at least 1200px wide; an 800x450 featured image does not qualify. Only
+  // checked when the pipeline actually knows the shipped image's width
+  // (primaryImageWidth undefined means "unknown", not "missing" — no issue).
+  if (primaryImageWidth !== undefined && primaryImageWidth < MIN_PRIMARY_IMAGE_WIDTH_PX) {
+    out.push({
+      id: 'schema-Article-image-width',
+      severity: 'critical',
+      category: 'schema',
+      title: 'Article: image width',
+      description: `Primary image is ${primaryImageWidth}px wide — Google requires at least ${MIN_PRIMARY_IMAGE_WIDTH_PX}px for Top Stories and Discover eligibility.`,
       autoFixable: false,
     })
   }
@@ -1346,6 +1364,15 @@ export async function runQualityGate(
      * When absent, gate uses article-local citations only (never article datelines).
      */
     freshnessResearchProvider?: FreshnessResearchProvider
+    /**
+     * Regression-harness use only: skips autoVerifyCitedPolicyIssues, the
+     * one step in the gate that makes a real network fetch (re-checking a
+     * cited GOV.UK-style page). Every other check is unaffected. Never set
+     * this true on the live generation/recheck/Fix-All paths.
+     */
+    skipLiveVerification?: boolean
+    /** M06 — pipeline-known width of the primary shipped image, in px. */
+    primaryImageWidth?: number
   }
 ): Promise<QualityGateResult> {
 
@@ -1371,6 +1398,8 @@ export async function runQualityGate(
     humanScore,
     datedPolicy,
     freshnessResearchProvider,
+    skipLiveVerification,
+    primaryImageWidth,
   } = {
     expectOrganizationLogo: false,
     ...options,
@@ -1387,6 +1416,8 @@ export async function runQualityGate(
     brief?: { entities: string[]; topicalGaps: string[] }
     keyword: string
     secondaryKeywords?: string[]
+    skipLiveVerification?: boolean
+    primaryImageWidth?: number
     extraIssues?: QualityIssue[]
     expectOrganizationLogo?: boolean
     eeatScore?: number
@@ -1580,7 +1611,7 @@ export async function runQualityGate(
   // ---- RULE 6: Schema validation (full schema.org property-level check) ----
   // Collected via shared helper so the post-autofix refresh below uses the
   // exact same rules (including FAQ parity).
-  issues.push(...collectSchemaQualityIssues(articleContent, expectOrganizationLogo))
+  issues.push(...collectSchemaQualityIssues(articleContent, expectOrganizationLogo, primaryImageWidth))
 
   // ---- RULE 7: Author byline ----
   if (!articleContent.includes(authorName)) {
@@ -1862,7 +1893,7 @@ export async function runQualityGate(
     )
 
     finalIssues = [...preserved]
-    finalIssues.push(...collectSchemaQualityIssues(articleAfterAutoFix, expectOrganizationLogo))
+    finalIssues.push(...collectSchemaQualityIssues(articleAfterAutoFix, expectOrganizationLogo, primaryImageWidth))
     finalIssues.push(
       ...collectFactualClaimIssues(
         articleAfterAutoFix,
@@ -1942,7 +1973,9 @@ export async function runQualityGate(
     if (bm) finalIssues.push(bm)
 
     finalIssues = consolidateDuplicateIssues(finalIssues)
-    finalIssues = await autoVerifyCitedPolicyIssues(finalIssues, datedPolicy?.now)
+    if (!skipLiveVerification) {
+      finalIssues = await autoVerifyCitedPolicyIssues(finalIssues, datedPolicy?.now)
+    }
     finalIssues = withActionHints(finalIssues)
 
     const confirmation = confirmAutoFixOutcomes({
