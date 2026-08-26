@@ -134,7 +134,7 @@ WHY WRONG: SEORANKO is an SEO tool, not an EV resource. This misleads readers an
 
 EXAMPLE OF CORRECT placement:
 Article about: EV chargers
-Link provided: autodun.com/mot-checker (an MOT checker for UK vehicles)
+Link provided: https://mot.autodun.com (an MOT checker for UK vehicles)
 CORRECT: Place in a section about vehicle maintenance, e.g. "Before a long EV journey, it's also worth ensuring your MOT is current — Autodun's [MOT checker](url) shows your vehicle's status instantly."
 WHY CORRECT: Both are about UK vehicle ownership. The link is genuinely useful to the same reader.
 
