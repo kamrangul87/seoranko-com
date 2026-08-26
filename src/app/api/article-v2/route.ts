@@ -31,6 +31,8 @@ import { computePanelScores } from '@/lib/panel-scores';
 import { MODEL_FOR } from '@/lib/model-router';
 import { runQualityGate, detectWrongBrandInBody, recomputeQualityGateTotals, qualityGateStageStatus, buildTimeAnchoredClaimRecords, timeAnchoredClaimFailureToIssue, type QualityIssue } from '@/lib/article-quality-gate';
 import { repairTimeAnchoredClaims } from '@/lib/time-anchored-claim-repair';
+import { detectTemporalClaims, buildTemporalClaimRows, type TemporalClaim } from '@/lib/temporal-claims';
+import { repairTemporalClaims } from '@/lib/temporal-claims-repair';
 import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
 import { enforceWordCountLimit, countArticleWords, deterministicTrimToTarget, wordCountBand, snapWordCount } from '@/lib/word-count-enforcer';
 import { injectMissingInternalLinks } from '@/lib/inject-internal-links';
@@ -523,6 +525,8 @@ export async function POST(req: NextRequest) {
             autoFixedCount: number; issues: QualityIssue[]; blockers: string[]; readyToPublish: boolean;
           } | undefined;
           let heroImageUrl: string | undefined;
+          let primaryImageWidth: number | undefined;
+          let temporalClaimsStillFailing: TemporalClaim[] = [];
           // Hoisted so the IndexNow ping (fired after the Supabase save,
           // outside this function's inner try block) can reuse the same
           // full URL already computed for the schema/canonical tag, instead
@@ -906,6 +910,7 @@ export async function POST(req: NextRequest) {
               if (artifact.primaryImageUrl) {
                 heroImageUrl = artifact.primaryImageUrl;
               }
+              primaryImageWidth = artifact.primaryImageWidth;
               publishedHtml = artifact.html;
 
               // Hard publish/save gate on the SYNCHRONIZED artifact (distinct
@@ -1007,6 +1012,7 @@ export async function POST(req: NextRequest) {
                   : undefined,
                 secondaryKeywords: filteredSecondaries,
                 extraIssues: imageExtraIssues,
+                primaryImageWidth,
                 datedPolicy: {
                   now: new Date(generatedAt),
                   title: articleTitle,
@@ -1058,6 +1064,43 @@ export async function POST(req: NextRequest) {
                 } catch (repairErr) {
                   console.warn('[article-v2] time-anchored-claim repair failed, continuing with original issues:', repairErr)
                 }
+              }
+
+              // C04 (temporal-claims spec) — stricter same-sentence-citation
+              // sibling to the block above. Detection always runs (not
+              // gated behind a prior QG finding, since this system isn't
+              // wired into the QG issue list the way the older one is);
+              // repair only fires when detection actually finds an unbound
+              // marker+figure sentence.
+              try {
+                const temporalRepair = await repairTemporalClaims(publishedHtml)
+                if (temporalRepair.repairedCount > 0) {
+                  publishedHtml = temporalRepair.article
+                  finalHtml = publishedHtml
+                }
+                temporalClaimsStillFailing = temporalRepair.stillFailing
+                if (temporalRepair.repairedCount > 0 || temporalClaimsStillFailing.length > 0) {
+                  console.log(`[article-v2] temporal-claims repair: fixed ${temporalRepair.repairedCount}, ${temporalClaimsStillFailing.length} still failing`)
+                }
+                if (articleQualityGate && temporalClaimsStillFailing.length > 0) {
+                  const temporalIssues: QualityIssue[] = temporalClaimsStillFailing.map((c, i) => ({
+                    id: `temporal-claim-${i}`,
+                    severity: 'critical',
+                    category: 'dated-policy',
+                    title: `Time-anchored claim — no citation in this sentence: "${c.qualifyingTerm}"`,
+                    description: `"${c.sentence}" — matched temporal marker "${c.matchedMarker}" with no outbound citation in the same sentence. Add a source link in this exact sentence.`,
+                    location: c.sentence.slice(0, 100),
+                    autoFixable: false,
+                  }))
+                  articleQualityGate = recomputeQualityGateTotals({
+                    ...articleQualityGate,
+                    issues: [...articleQualityGate.issues, ...temporalIssues],
+                    articleAfterAutoFix: publishedHtml,
+                    autoFixedCount: (articleQualityGate.autoFixedCount || 0) + temporalRepair.repairedCount,
+                  })
+                }
+              } catch (temporalErr) {
+                console.warn('[article-v2] temporal-claims repair failed, continuing:', temporalErr)
               }
 
               const criticalStops = qr.issues.filter(i => isCriticalPipelineStopIssue(i))
@@ -1151,6 +1194,17 @@ export async function POST(req: NextRequest) {
             timeAnchoredClaimsForDb = buildTimeAnchoredClaimRecords(publishedHtml, new Date(generatedAt));
           } catch (timeAnchoredErr) {
             console.warn('[article-v2] time-anchored-claims extraction failed, continuing:', timeAnchoredErr);
+          }
+
+          // C04 (temporal-claims spec) registry rows — needs the real saved
+          // article id, so only the CLAIMS are computed here; the actual
+          // temporal_claims insert happens right after the articles insert
+          // below, once savedArticleId exists.
+          let finalTemporalClaims: TemporalClaim[] = [];
+          try {
+            finalTemporalClaims = detectTemporalClaims(publishedHtml);
+          } catch (temporalDetectErr) {
+            console.warn('[article-v2] temporal-claims extraction failed, continuing:', temporalDetectErr);
           }
 
           // ── Persist to Supabase ──────────────────────────────────────────
@@ -1274,6 +1328,25 @@ export async function POST(req: NextRequest) {
               if (insertError) throw insertError;
               savedArticleId = savedArticle.id;
               console.log(`[article-v2] saved article ${savedArticleId} for user ${userId}`);
+
+              // C04 (temporal-claims spec) registry — one row per claim
+              // that passed the same-sentence citation check. Never blocks
+              // the response; a failure here just means those claims won't
+              // be re-verified by the freshness job, not a save failure.
+              try {
+                const temporalRows = buildTemporalClaimRows(finalTemporalClaims, {
+                  articleId: savedArticle.id,
+                  userId,
+                  now: new Date(generatedAt),
+                });
+                if (temporalRows.length > 0) {
+                  const { error: temporalInsertError } = await db.from('temporal_claims').insert(temporalRows);
+                  if (temporalInsertError) throw temporalInsertError;
+                  console.log(`[article-v2] registered ${temporalRows.length} temporal claim(s) for article ${savedArticleId}`);
+                }
+              } catch (temporalInsertErr) {
+                console.warn('[article-v2] temporal_claims insert failed, continuing:', temporalInsertErr);
+              }
 
               // Fire-and-forget — never block/fail the response on IndexNow.
               // No-ops itself (see indexnow.ts) if INDEXNOW_KEY isn't

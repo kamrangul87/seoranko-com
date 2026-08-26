@@ -38,6 +38,18 @@ export function buildActionHint(issue: ActionHintIssue): string {
     return 'Add a link to the official page that states this figure (e.g. the GOV.UK grant page), then re-run Quality Gate.'
   }
 
+  // M07 — no fix exists inside the article itself; the logo lives in Brand
+  // Settings, not the JSON-LD block, so the generic 'schema' hint below
+  // (which tells the user to edit the JSON-LD) would send them nowhere.
+  if (issue.id === 'schema-logo-not-configured' || issue.id === 'schema-Organization-logo' || issue.id === 'schema-Organization-publisher.logo') {
+    return 'Add a logo in Brand Settings, then regenerate or re-run Fix All — the schema logo is pulled from there, not editable in the article itself.'
+  }
+  // M06 — likewise, no in-article fix; the image needs to be regenerated
+  // or replaced with one that meets Google's Top Stories/Discover minimum.
+  if (issue.id === 'schema-Article-image-width') {
+    return 'Regenerate the featured image (or upload a replacement at least 1200px wide) — the current image is too small for Google Top Stories/Discover eligibility.'
+  }
+
   switch (issue.category) {
     case 'grant-figure':
       if (issue.citationUrl) {

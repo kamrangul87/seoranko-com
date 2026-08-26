@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { checkBatchRanks } from '@/lib/rank-tracker'
 import { handleRankDrop } from '@/lib/rank-guard'
 import { runWeeklyFreshnessJobs } from '@/lib/freshness-automation'
+import { runTemporalClaimsFreshnessCheck } from '@/lib/temporal-claims-freshness'
 import { checkArticleCitation } from '@/lib/citation-tracker'
 import {
   persistVelocityMetrics,
@@ -28,6 +29,8 @@ export async function GET(req: NextRequest) {
     reoptimised: 0,
     citationChecks: 0,
     freshnessRefreshes: 0,
+    temporalClaimsChecked: 0,
+    temporalClaimsDrifted: 0,
     errors: [] as string[]
   }
 
@@ -180,6 +183,20 @@ export async function GET(req: NextRequest) {
     const fresh = await runWeeklyFreshnessJobs()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     results.freshnessRefreshes = (fresh as any).refreshed || 0
+
+    // Step 6: temporal-claims freshness check (C04) — re-verify cited
+    // source URLs still resolve. Never rewrites articles; drift feeds the
+    // weekly digest via the flagged status set on temporal_claims rows.
+    try {
+      const temporalFreshness = await runTemporalClaimsFreshnessCheck(supabase)
+      results.temporalClaimsChecked = temporalFreshness.checked
+      results.temporalClaimsDrifted = temporalFreshness.drift.length
+      if (temporalFreshness.drift.length > 0) {
+        console.log(`[weekly-jobs] temporal-claims drift: ${temporalFreshness.drift.length} claim(s) flagged`, temporalFreshness.drift)
+      }
+    } catch (err) {
+      results.errors.push(`Temporal-claims freshness check failed: ${String(err)}`)
+    }
 
   } catch (err) {
     results.errors.push(String(err))

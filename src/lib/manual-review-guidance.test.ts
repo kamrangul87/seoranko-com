@@ -3,6 +3,41 @@ import { buildActionHint, withActionHints } from './quality-issue-action-hints'
 import { panelScoresFromMeta, computePanelScores } from './panel-scores'
 
 describe('quality-issue-action-hints', () => {
+  it('M07: points to Brand Settings, not the JSON-LD block', () => {
+    const hint = buildActionHint({
+      id: 'schema-Organization-logo',
+      category: 'schema',
+      title: 'Organization: logo',
+      description: 'Organization is missing a logo.',
+      autoFixable: false,
+    })
+    expect(hint.toLowerCase()).toContain('brand settings')
+    expect(hint.toLowerCase()).not.toContain('json-ld')
+  })
+
+  it('M07 (non-blocking prompt id): also points to Brand Settings', () => {
+    const hint = buildActionHint({
+      id: 'schema-logo-not-configured',
+      category: 'schema',
+      title: 'Organization logo not configured — publisher.logo omitted',
+      description: 'No brand_settings.logo_url configured.',
+      autoFixable: false,
+    })
+    expect(hint.toLowerCase()).toContain('brand settings')
+  })
+
+  it('M06: tells the user to regenerate/replace the image, not edit JSON-LD', () => {
+    const hint = buildActionHint({
+      id: 'schema-Article-image-width',
+      category: 'schema',
+      title: 'Article: image width',
+      description: 'Primary image is 800px wide — Google requires at least 1200px.',
+      autoFixable: false,
+    })
+    expect(hint.toLowerCase()).toContain('1200px')
+    expect(hint.toLowerCase()).not.toContain('json-ld')
+  })
+
   it('never returns vague "manual review required"', () => {
     const hint = buildActionHint({
       id: 'fact-grant-figure-1',

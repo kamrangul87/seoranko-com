@@ -40,6 +40,23 @@ export async function GET(req: NextRequest) {
 
     if (!tracked?.length) continue
 
+    // C04 — claims flagged by the weekly temporal-claims freshness check
+    // (source URL no longer resolves). Review only, never surfaced as if
+    // auto-resolved.
+    const { data: flaggedClaims } = await supabase
+      .from('temporal_claims')
+      .select('article_id, claim_text, source_url')
+      .eq('user_id', user.id)
+      .eq('status', 'flagged')
+      .order('detected_at', { ascending: false })
+      .limit(5)
+    const temporalClaimDrift = (flaggedClaims || []).map(c => ({
+      articleId: c.article_id,
+      claimText: c.claim_text,
+      sourceUrl: c.source_url,
+      reason: 'source page no longer resolves',
+    }))
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const articles: DigestArticle[] = tracked.map((t: any) => ({
       title: t.title || t.keyword,
@@ -97,7 +114,8 @@ export async function GET(req: NextRequest) {
       topAction,
       freshnessSummary,
       citationSummary,
-      weeklySummary: weeklySummary || undefined
+      weeklySummary: weeklySummary || undefined,
+      temporalClaimDrift: temporalClaimDrift.length > 0 ? temporalClaimDrift : undefined
     })
 
     await fetch('https://api.resend.com/emails', {

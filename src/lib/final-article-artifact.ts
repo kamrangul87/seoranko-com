@@ -60,6 +60,13 @@ export interface BuildFinalArticleArtifactResult {
   schemaResult: GeneratedSchema
   /** Absolute https Article.image candidate (hero, else first content / figure). */
   primaryImageUrl: string | undefined
+  /**
+   * M06 — width of primaryImageUrl, when it resolved to a known imageSet
+   * entry (hero/content). undefined when primaryImageUrl fell through to
+   * the raw-<img>-scan fallback (no width data available for that case) or
+   * no image shipped at all.
+   */
+  primaryImageWidth: number | undefined
   figureCount: number
   /** Hero URL set but injection produced zero <figure> tags. */
   imageHandOffError?: string
@@ -100,6 +107,10 @@ export function buildFinalArticleArtifact(
     heroUrl: input.imageSet?.hero?.url,
     contentUrls: input.imageSet?.content?.map((c) => c.url) ?? [],
   })
+  const primaryImageWidth =
+    primaryImageUrl && input.imageSet?.hero?.url === primaryImageUrl
+      ? input.imageSet.hero.width
+      : input.imageSet?.content?.find((c) => c.url === primaryImageUrl)?.width
 
   // ── 3b. Social / canonical / verified (optional; keeps OG:image in sync) ─
   if (input.enrichBeforeSchema) {
@@ -118,6 +129,7 @@ export function buildFinalArticleArtifact(
     html,
     schemaResult,
     primaryImageUrl,
+    primaryImageWidth,
     figureCount,
     imageHandOffError,
   }

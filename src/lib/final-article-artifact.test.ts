@@ -108,6 +108,7 @@ describe('Phase 1 regression — Article.image + schema + final QG', () => {
       schemaInput: schemaFields,
     })
     expect(result.primaryImageUrl).toBe('https://cdn.example.com/hero.webp')
+    expect(result.primaryImageWidth).toBe(1200)
     expect(result.schemaResult.imageUrl).toBe('https://cdn.example.com/hero.webp')
     expect(result.html).toContain('https://cdn.example.com/hero.webp')
     expect(result.html).toMatch(/<figure[\s>]/i)
@@ -126,6 +127,7 @@ describe('Phase 1 regression — Article.image + schema + final QG', () => {
       schemaInput: schemaFields,
     })
     expect(result.primaryImageUrl).toBe('https://cdn.example.com/content-only.webp')
+    expect(result.primaryImageWidth).toBe(800)
     expect(result.schemaResult.imageUrl).toBe('https://cdn.example.com/content-only.webp')
     expect(result.html).toContain('"image": [')
     expect(result.html).toContain('"https://cdn.example.com/content-only.webp"')
@@ -162,6 +164,67 @@ describe('Phase 1 regression — Article.image + schema + final QG', () => {
       (i) => i.category === 'schema' && /Article:\s*image/i.test(i.title),
     )
     expect(schemaImageWarnings).toHaveLength(0)
+  })
+
+  it('3b. M06: primary image under 1200px wide is flagged when width is passed to the gate', async () => {
+    const set = imageSet({
+      heroUrl: '',
+      contentUrls: ['https://cdn.example.com/content-only.webp'],
+    })
+    const artifact = buildFinalArticleArtifact({
+      proseHtml: baseProse,
+      imageSet: set,
+      schemaInput: schemaFields,
+    })
+    expect(artifact.primaryImageWidth).toBe(800)
+    const qr = await runQualityGate(artifact.html, {
+      brand: 'Example Brand',
+      keyword: 'home EV charger installation',
+      authorName: 'Kamran Gul',
+      registeredLinkDomains: ['example.com'],
+      minWordCount: 40,
+      maxWordCount: 500,
+      expectOrganizationLogo: true,
+      primaryImageWidth: artifact.primaryImageWidth,
+    })
+    const widthIssue = qr.issues.find((i) => i.id === 'schema-Article-image-width')
+    expect(widthIssue).toBeTruthy()
+    expect(widthIssue!.severity).toBe('critical')
+    expect(widthIssue!.description).toContain('800px')
+  })
+
+  it('3c. M06: does not fire when primaryImageWidth is unknown (undefined)', async () => {
+    const qr = await runQualityGate(baseProse + '<img src="https://cdn.example.com/x.webp">', {
+      brand: 'Example Brand',
+      keyword: 'home EV charger installation',
+      authorName: 'Kamran Gul',
+      registeredLinkDomains: ['example.com'],
+      minWordCount: 40,
+      maxWordCount: 500,
+    })
+    const widthIssue = qr.issues.find((i) => i.id === 'schema-Article-image-width')
+    expect(widthIssue).toBeUndefined()
+  })
+
+  it('3d. M06: a 1200px+ hero image is not flagged', async () => {
+    const artifact = buildFinalArticleArtifact({
+      proseHtml: baseProse,
+      imageSet: imageSet(),
+      schemaInput: schemaFields,
+    })
+    expect(artifact.primaryImageWidth).toBe(1200)
+    const qr = await runQualityGate(artifact.html, {
+      brand: 'Example Brand',
+      keyword: 'home EV charger installation',
+      authorName: 'Kamran Gul',
+      registeredLinkDomains: ['example.com'],
+      minWordCount: 40,
+      maxWordCount: 500,
+      expectOrganizationLogo: true,
+      primaryImageWidth: artifact.primaryImageWidth,
+    })
+    const widthIssue = qr.issues.find((i) => i.id === 'schema-Article-image-width')
+    expect(widthIssue).toBeUndefined()
   })
 
   it('4. duplicate Article JSON-LD does not remain after schema sync', () => {

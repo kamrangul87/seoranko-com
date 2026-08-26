@@ -11,6 +11,15 @@ export interface DigestData {
   freshnessSummary: { fresh: number; aging: number; stale: number }
   citationSummary: { cited: number; notCited: number; unchecked: number }
   weeklySummary?: string
+  /** C04 — claims whose cited source no longer resolves. Review only, never auto-rewritten. */
+  temporalClaimDrift?: TemporalClaimDriftItem[]
+}
+
+export interface TemporalClaimDriftItem {
+  articleId: string
+  claimText: string
+  sourceUrl: string
+  reason: string
 }
 
 export interface DigestArticle {
@@ -29,7 +38,17 @@ export interface DigestArticle {
 }
 
 export function buildDigestHTML(data: DigestData): string {
-  const { userName, weekEnding, articles, topAction, freshnessSummary, citationSummary, weeklySummary } = data
+  const { userName, weekEnding, articles, topAction, freshnessSummary, citationSummary, weeklySummary, temporalClaimDrift } = data
+
+  const driftSection = temporalClaimDrift && temporalClaimDrift.length > 0 ? `
+    <div style="padding:16px 28px;background:#FCEBEB;border-bottom:1px solid #F5C6C6">
+      <p style="margin:0 0 8px;font-size:11px;color:#791F1F;font-weight:500;text-transform:uppercase;letter-spacing:.06em">Claims needing review — cited source no longer resolves</p>
+      ${temporalClaimDrift.slice(0, 5).map(d => `
+        <p style="margin:0 0 6px;font-size:13px;color:#7A1F1F;line-height:1.4">
+          "${d.claimText.slice(0, 140)}" — <span style="color:#9A4E1A">${d.reason}</span>
+        </p>
+      `).join('')}
+    </div>` : ''
 
   const articleRows = articles.slice(0, 10).map(a => `
     <tr style="border-bottom:1px solid #F3F4F6">
@@ -102,6 +121,7 @@ export function buildDigestHTML(data: DigestData): string {
       <p style="margin:0 0 4px;font-size:11px;color:#065F46;font-weight:500;text-transform:uppercase;letter-spacing:.06em">AI Weekly Summary</p>
       <p style="margin:0;font-size:14px;color:#064E3B;line-height:1.5">${weeklySummary}</p>
     </div>` : ''}
+    ${driftSection}
 
     <!-- Article table -->
     <div style="padding:20px 28px">

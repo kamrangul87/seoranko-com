@@ -26,14 +26,14 @@ const HISTORICAL_FRAMING_RE =
 
 const REVIEW_WINDOW_DAYS = 90
 
-function splitIntoSentences(text: string): string[] {
+export function splitIntoSentences(text: string): string[] {
   return text
     .split(/(?<=[.!?])\s+(?=[A-Z"'])/)
     .map(s => s.trim())
     .filter(Boolean)
 }
 
-function paragraphsFromHtml(html: string): Array<{ innerHtml: string; text: string; position: number }> {
+export function paragraphsFromHtml(html: string): Array<{ innerHtml: string; text: string; position: number }> {
   const results: Array<{ innerHtml: string; text: string; position: number }> = []
   const re = /<p[^>]*>([\s\S]*?)<\/p>/gi
   let m: RegExpExecArray | null
