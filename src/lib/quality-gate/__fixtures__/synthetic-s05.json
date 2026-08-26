@@ -1,0 +1,14 @@
+{
+  "id": "synthetic-s05-0000-0000-0000-000000000001",
+  "title": "EV Charger Installation Guide for UK Homeowners",
+  "keyword": "ev charger installation",
+  "secondaryKeywords": [],
+  "brand": "autodun",
+  "market": "UK",
+  "requestedWordCount": 500,
+  "actualWordCount": 500,
+  "content": "<h1>EV Charger Installation Guide for UK Homeowners</h1>\n<p>Installing a home EV charger starts with an electrical survey. An engineer checks the consumer unit and confirms it can handle the extra load. They also confirm your incoming supply capacity. Older properties sometimes need a supply upgrade first. This adds cost and time to the project. Most homeowners are surprised by this extra step. Budgeting for it early avoids delays later in the process.</p>\n<h2>Choosing a charger</h2>\n<p>Tethered chargers come with a fixed cable attached. Untethered chargers require you to bring your own cable each time. Both types are common across the UK market. Power output ranges from 3.6kW up to 22kW for most domestic units. Higher output units need a three-phase supply, which many homes lack. Smart chargers add scheduling and app control on top of the basic charging function. Compare warranty length and installer support before choosing a specific model.</p>\n<h2>Permits and permissions</h2>\n<p>Most driveway installations do not need planning permission. Listed buildings and conservation areas are the main exceptions to this rule. Flats and shared driveways often need landlord or freeholder sign-off first. Always check with your local authority before work begins if you are unsure. Installers can usually advise on typical requirements for your area. Keeping written confirmation protects you if questions come up later. This paperwork step is often skipped and later causes friction.</p>\n<h2>Installation day</h2>\n<p>The installer runs a dedicated circuit from your consumer unit to the charger location. This typically takes half a day for a straightforward job. Cable routing through walls or under paving can extend the time needed. Once fitted, the unit is tested and registered with your network operator. You should receive a compliance certificate at the end of the visit. Keep this certificate safe for any future house sale. It also matters if you ever make an insurance claim.</p>\n<script type=\"application/ld+json\">{\"@context\":\"https://schema.org\",\"@type\":\"Article\",\"headline\":\"EV Charger Installation Guide for UK Homeowners\",\"author\":{\"@type\":\"Person\",\"name\":\"Kamran Gul\"},\"datePublished\":\"2026-08-01T00:00:00Z\",\"dateModified\":\"2026-08-01T00:00:00Z\",\"inLanguage\":\"en-GB\",\"image\":[\"https://example.com/hero.webp\"],\"publisher\":{\"@type\":\"Organization\",\"name\":\"autodun\",\"url\":\"https://autodun.com\",\"logo\":{\"@type\":\"ImageObject\",\"url\":\"https://logo.clearbit.com/autodun.com\"}}}</script>",
+  "schemaJson": null,
+  "createdAt": "2026-08-26T00:00:00Z",
+  "knownFailingRules": ["S05"]
+}

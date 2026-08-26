@@ -1346,6 +1346,13 @@ export async function runQualityGate(
      * When absent, gate uses article-local citations only (never article datelines).
      */
     freshnessResearchProvider?: FreshnessResearchProvider
+    /**
+     * Regression-harness use only: skips autoVerifyCitedPolicyIssues, the
+     * one step in the gate that makes a real network fetch (re-checking a
+     * cited GOV.UK-style page). Every other check is unaffected. Never set
+     * this true on the live generation/recheck/Fix-All paths.
+     */
+    skipLiveVerification?: boolean
   }
 ): Promise<QualityGateResult> {
 
@@ -1371,6 +1378,7 @@ export async function runQualityGate(
     humanScore,
     datedPolicy,
     freshnessResearchProvider,
+    skipLiveVerification,
   } = {
     expectOrganizationLogo: false,
     ...options,
@@ -1387,6 +1395,7 @@ export async function runQualityGate(
     brief?: { entities: string[]; topicalGaps: string[] }
     keyword: string
     secondaryKeywords?: string[]
+    skipLiveVerification?: boolean
     extraIssues?: QualityIssue[]
     expectOrganizationLogo?: boolean
     eeatScore?: number
@@ -1942,7 +1951,9 @@ export async function runQualityGate(
     if (bm) finalIssues.push(bm)
 
     finalIssues = consolidateDuplicateIssues(finalIssues)
-    finalIssues = await autoVerifyCitedPolicyIssues(finalIssues, datedPolicy?.now)
+    if (!skipLiveVerification) {
+      finalIssues = await autoVerifyCitedPolicyIssues(finalIssues, datedPolicy?.now)
+    }
     finalIssues = withActionHints(finalIssues)
 
     const confirmation = confirmAutoFixOutcomes({
