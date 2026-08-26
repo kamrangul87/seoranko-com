@@ -46,6 +46,7 @@ import { toSlugPath } from '@/lib/slug';
 import { autoSplitDenseParagraphs } from '@/lib/scannability-fixer';
 import { assertSchemaCompleteness } from '@/lib/schema-validate';
 import { detectDatedClaims, detectStaleYearReferences, extractHeadingTexts, buildLastVerifiedLine } from '@/lib/dated-claim-detector';
+import { enforceDatedPolicy } from '@/lib/dated-policy-enforcer';
 import {
   buildFinalArticleArtifact,
 } from '@/lib/final-article-artifact';
@@ -691,6 +692,25 @@ export async function POST(req: NextRequest) {
                 : 'No merge artifacts or insertion corruption detected',
             );
 
+            // Mechanical date-anchor removal BEFORE the gate scores the
+            // article: detection + 90-day review scheduling never changed the
+            // shipped text, so "As of <month year>, …" survived into every
+            // article and the dated-policy warning recurred. Claims the
+            // stripper can't safely rewrite are left in place and still reach
+            // the gate / freshness review below.
+            try {
+              const datedPolicy = enforceDatedPolicy(finalHtml, new Date(generatedAt));
+              if (datedPolicy.strippedCount > 0) {
+                finalHtml = keepIfOnTopic(finalHtml, datedPolicy.html, keyword, 'date-anchor-strip');
+                console.log(
+                  `[article-v2] date-anchor strip: removed ${datedPolicy.strippedCount} anchor(s) [${datedPolicy.appliedRules.join(', ')}], ` +
+                  `${datedPolicy.remainingTimeAnchored.length} time-anchored claim(s) remain`,
+                );
+              }
+            } catch (stripErr) {
+              console.warn('[article-v2] date-anchor strip failed, continuing:', stripErr);
+            }
+
             // Dated-claim / stale-year detection now lives inside runQualityGate
             // (buildDatedPolicyIssues) so recheck and Fix All use the same
             // findings and DATED_POLICY_SEVERITY. article-v2 only logs here
@@ -904,6 +924,16 @@ export async function POST(req: NextRequest) {
               if (artifact.imageHandOffError) {
                 hardBlockReasons.push(artifact.imageHandOffError);
                 console.error('[article-v2] image injection post-condition failed:', artifact.imageHandOffError);
+              }
+              // Post-conditions re-verified on the synchronized artifact: the
+              // repairs above are only trusted when their own validator agrees.
+              if (artifact.schemaImageError) {
+                hardBlockReasons.push(artifact.schemaImageError);
+                console.error('[article-v2] Article.image post-condition failed:', artifact.schemaImageError);
+              }
+              if (artifact.scannabilityError) {
+                hardBlockReasons.push(artifact.scannabilityError);
+                console.error('[article-v2] scannability post-condition failed:', artifact.scannabilityError);
               }
 
               schemaResult = artifact.schemaResult;

@@ -19,7 +19,12 @@
  */
 
 import { injectImagesIntoArticle, type ArticleImageSet } from './image-generator'
-import { splitDenseParagraphs } from './paragraph-splitter'
+import {
+  assertArticleImageSynchronized,
+  injectFallbackHeroFigure,
+} from './article-image-guard'
+import { enforceScannability } from './scannability-enforcer'
+import { normalizeArticleTypography } from './typography-normalizer'
 import {
   generateArticleSchema,
   type ArticleSchemaInput,
@@ -70,6 +75,10 @@ export interface BuildFinalArticleArtifactResult {
   figureCount: number
   /** Hero URL set but injection produced zero <figure> tags. */
   imageHandOffError?: string
+  /** Dense paragraphs the mechanical splitters could not break up. */
+  scannabilityError?: string
+  /** Article schema does not carry an image the page actually ships. */
+  schemaImageError?: string
 }
 
 /**
@@ -84,10 +93,20 @@ export function buildFinalArticleArtifact(
   let figureCount = 0
   let imageHandOffError: string | undefined
 
+  // ── 0. Typographic normalization (visible text only) ───────────────────
+  html = normalizeArticleTypography(html)
+
   // ── 1. Image injection ─────────────────────────────────────────────────
   if (input.imageSet) {
-    const withImages = injectImagesIntoArticle(html, input.imageSet)
+    let withImages = injectImagesIntoArticle(html, input.imageSet)
     figureCount = (withImages.match(/<figure[\s>]/gi) || []).length
+    if (input.imageSet.hero?.url && figureCount === 0) {
+      // Mechanical retry before giving up: a generated/stored hero must not
+      // be dropped (and with it Article.image) because normal injection
+      // found no anchor it recognised.
+      withImages = injectFallbackHeroFigure(withImages, input.imageSet.hero)
+      figureCount = (withImages.match(/<figure[\s>]/gi) || []).length
+    }
     if (input.imageSet.hero?.url && figureCount === 0) {
       imageHandOffError =
         `Image hand-off post-condition failed: imageSet.hero.url is set (${input.imageSet.hero.url}) but the serialized article has 0 <figure> tags after injection.`
@@ -98,7 +117,10 @@ export function buildFinalArticleArtifact(
   }
 
   // ── 2. Final paragraph / scannability transforms ───────────────────────
-  html = splitDenseParagraphs(html)
+  // Repairs, then RE-VALIDATES with the validator's own dense-paragraph
+  // rule — an unsplittable shape is reported, never assumed fixed.
+  const scannability = enforceScannability(html)
+  html = scannability.html
 
   // ── 3. Primary shipped image (hero → content → first figure src) ───────
   // Only URLs that actually appear in `html` after injection qualify —
@@ -125,6 +147,9 @@ export function buildFinalArticleArtifact(
   })
   html = applyGeneratedSchemaToHtml(html, schemaResult.combinedScriptTag)
 
+  // ── 5. Post-conditions on the synchronized artifact ────────────────────
+  const schemaImageError = assertArticleImageSynchronized(html)
+
   return {
     html,
     schemaResult,
@@ -132,5 +157,7 @@ export function buildFinalArticleArtifact(
     primaryImageWidth,
     figureCount,
     imageHandOffError,
+    scannabilityError: scannability.error,
+    schemaImageError,
   }
 }
