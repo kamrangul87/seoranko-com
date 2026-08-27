@@ -48,6 +48,7 @@ import { autoSplitDenseParagraphs } from '@/lib/scannability-fixer';
 import { assertSchemaCompleteness } from '@/lib/schema-validate';
 import { detectDatedClaims, detectStaleYearReferences, extractHeadingTexts, buildLastVerifiedLine } from '@/lib/dated-claim-detector';
 import { enforceDatedPolicy } from '@/lib/dated-policy-enforcer';
+import { enforceUnsourcedNumericClaims } from '@/lib/unsourced-numeric-enforcer';
 import {
   buildFinalArticleArtifact,
 } from '@/lib/final-article-artifact';
@@ -721,6 +722,26 @@ export async function POST(req: NextRequest) {
               }
             } catch (stripErr) {
               console.warn('[article-v2] date-anchor strip failed, continuing:', stripErr);
+            }
+
+            // Mechanical unsourced £/%/deadline generalization + AI-slop
+            // phrase removal BEFORE the gate scores the article. Prompt
+            // rules alone do not stop the model inventing grant figures;
+            // claim-evidence / score-floor then fire on every run. Claims
+            // that remain unsupported after stripping still reach the gate.
+            try {
+              const numericEnforce = enforceUnsourcedNumericClaims(finalHtml);
+              if (numericEnforce.strippedCount > 0 || numericEnforce.aiSlop.strippedCount > 0) {
+                finalHtml = keepIfOnTopic(finalHtml, numericEnforce.html, keyword, 'unsourced-numeric-strip');
+                console.log(
+                  `[article-v2] unsourced-numeric strip: generalized ${numericEnforce.strippedCount} figure(s)` +
+                  `${numericEnforce.strippedFigures.length ? ` [${numericEnforce.strippedFigures.slice(0, 8).join(', ')}]` : ''}, ` +
+                  `${numericEnforce.remainingUnsourced.length} unsourced claim(s) remain; ` +
+                  `ai-slop removed ${numericEnforce.aiSlop.strippedCount}`,
+                );
+              }
+            } catch (numericErr) {
+              console.warn('[article-v2] unsourced-numeric strip failed, continuing:', numericErr);
             }
 
             // Dated-claim / stale-year detection now lives inside runQualityGate

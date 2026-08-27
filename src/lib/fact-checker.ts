@@ -67,7 +67,7 @@ function extractNumericValuesFromSentence(sentence: string): string[] {
   return found;
 }
 
-function paragraphsFromHtml(html: string): Array<{ innerHtml: string; text: string }> {
+export function paragraphsFromHtml(html: string): Array<{ innerHtml: string; text: string }> {
   const results: Array<{ innerHtml: string; text: string }> = [];
   const re = /<p[^>]*>([\s\S]*?)<\/p>/gi;
   let m: RegExpExecArray | null;
@@ -193,32 +193,36 @@ function buildClaimEvidenceIndex(html: string): Map<string, ReturnType<typeof ev
   return map
 }
 
-export async function checkAndPatchFactSourcing(
-  article: string,
-  keyword: string,
-  market: string,
-): Promise<FactSourcingOutput> {
-  const paragraphs = paragraphsFromHtml(article);
-  const flaggedClaims: FlaggedClaim[] = [];
+/**
+ * Sync Fact Sourcing ring score (same formula as checkAndPatchFactSourcing,
+ * without the Haiku hedge pass). Used by generation-time enforcers / tests.
+ */
+export function computeFactSourcingScore(article: string): {
+  factSourcingScore: number
+  flaggedClaims: FlaggedClaim[]
+  totalNumericSentences: number
+} {
+  const paragraphs = paragraphsFromHtml(article)
+  const flaggedClaims: FlaggedClaim[] = []
   const claimIndex = buildClaimEvidenceIndex(article)
 
-  let totalNumericSentences = 0;
-  let sourcedCount = 0;
+  let totalNumericSentences = 0
+  let sourcedCount = 0
 
   for (const { innerHtml, text } of paragraphs) {
-    const sentences = splitIntoSentences(text);
+    const sentences = splitIntoSentences(text)
     for (const sentence of sentences) {
-      const nums = extractNumericValuesFromSentence(sentence);
-      if (nums.length === 0) continue;
-      totalNumericSentences++;
+      const nums = extractNumericValuesFromSentence(sentence)
+      if (nums.length === 0) continue
+      totalNumericSentences++
       if (isSentenceSourced(sentence, innerHtml, { claimEvidenceByFigure: claimIndex })) {
-        sourcedCount++;
+        sourcedCount++
       } else {
         flaggedClaims.push({
           claim: nums[0],
           sentence: sentence.slice(0, 200),
           issue: 'unsourced_statistic',
-        });
+        })
       }
     }
   }
@@ -226,7 +230,17 @@ export async function checkAndPatchFactSourcing(
   const factSourcingScore =
     totalNumericSentences === 0
       ? 100
-      : Math.round((sourcedCount / totalNumericSentences) * 100);
+      : Math.round((sourcedCount / totalNumericSentences) * 100)
+
+  return { factSourcingScore, flaggedClaims, totalNumericSentences }
+}
+
+export async function checkAndPatchFactSourcing(
+  article: string,
+  keyword: string,
+  market: string,
+): Promise<FactSourcingOutput> {
+  const { factSourcingScore, flaggedClaims } = computeFactSourcingScore(article)
 
   // Financial/grant figures are owned by claim-evidence / Quality Gate.
   // Haiku hedges on those sentences invented "approximately £350" splices

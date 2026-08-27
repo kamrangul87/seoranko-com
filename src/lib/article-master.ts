@@ -361,7 +361,7 @@ TONE: ${tone}
 MARKET: ${market}
 TARGET WORD COUNT: ${safeWordCount} words
 CURRENT DATE: ${currentMonth} ${currentYear} (${todayISO})
-DATED FIGURES: any policy, pricing, grant, or regulatory figure must be written without an absolute date anchor (no "as of ${currentMonth} ${currentYear}", no "the current rate is X") and must carry a source link — write the figure with a citation instead, e.g. "grants of up to £350 (see [official source])".
+DATED FIGURES: any policy, pricing, grant, or regulatory figure must be written without an absolute date anchor (no "as of ${currentMonth} ${currentYear}", no "the current rate is X"). Only include a specific £ / % / deadline when it is in LIVE VERIFIED FACTS below and carries a real source link in the same sentence — otherwise write around it with no invented number.
 ${uniqueAngle ? `\nUNIQUE ANGLE (your competitive edge): ${uniqueAngle}` : ''}${uniqueContent ? `\nUNIQUE CONTENT TO INCLUDE: ${uniqueContent}` : ''}
 
 ${links}
@@ -387,10 +387,9 @@ For any specific fact NOT in the live facts above:
   form numbers, document names, official body names, legislation dates
 
 RULE 2 — NUMBERS AND RATES
-Every specific number in the article must come from either:
-a) The live verified facts above, OR
-b) Something you are 100% certain is correct for ${market} in ${currentYear}
-If neither applies: write "current rates — verify at [official source]"
+Every specific £ amount, percentage, fee, fine, grant cap, or deadline in the article must come from the live verified facts above, with a source URL in the same sentence.
+If it is not in live facts: do NOT guess and do NOT use "approximately £X" as a substitute — write "current rates — verify at [official source]" with no invented number.
+Technical constants you can derive transparently (e.g. amps from kW ÷ volts with the working shown) are allowed.
 
 RULE 3 — OFFICIAL BODY NAMES
 Use exact official names only. Never abbreviate or approximate.
@@ -482,15 +481,16 @@ NEVER state a bare statistic with no source, no calculation, and no hedge. This 
 
 For vague claims like tariff timing or pricing: name the SPECIFIC real example if known and verifiable (e.g. "Octopus Go's off-peak window runs from 00:30–04:30"), or soften to acknowledge variability ("many time-of-use tariffs offer cheaper overnight rates — check current options with your supplier") rather than stating invented specifics.
 
-For any topic involving a government grant, allowance, or regulated figure: ALWAYS state the most recent known approximate figure with a hedge — never just say "verify the current figure" with no number at all.
-Example format: "As of ${currentMonth} ${currentYear}, the grant typically covers approximately [X]% up to £[Y], though always confirm the current rate as it is reviewed periodically."
-A number with appropriate hedging is more useful and more citable than a vague instruction with no number.
+For any topic involving a government grant, allowance, or regulated figure:
+- ONLY state a specific £ amount, percentage, cap, or deadline if it appears in the LIVE VERIFIED FACTS above AND you can attach a real source URL in the same sentence.
+- If the figure is NOT in live facts: write around it — e.g. "the scheme covers up to a set percentage of eligible costs — check the official grant page for the current rate" — NEVER invent £2,000 / 40% / deadline dates.
+- A vague but honest pointer to the official page beats an invented number with a hedge. Invented figures are a publishing blocker.
 
 SELF-SOURCING CHECKLIST — before every sentence with a number:
-□ Is this attributed to a named source? → Write "According to [Source]..."
-□ Can I show the calculation? → Show it in brackets: "(X ÷ Y = Z)"
-□ Is it an estimate? → Say "approximately", "typically", or "around" and explain why it varies
-□ Can I not do any of the above? → Omit the specific number entirely
+□ Is this exact figure in the live verified facts above, with a URL? → Use it and cite the URL in the same sentence
+□ Can I show the calculation from known inputs? → Show it in brackets: "(X ÷ Y = Z)"
+□ Is it a non-financial experience detail (hours taken, versions tested) without claiming a regulated rate? → OK without a gov source
+□ Otherwise → Omit the specific £ / % / deadline entirely — do not invent one
 
 ════════════════════════════════
 SECTION 2 — EEAT SIGNALS (MANDATORY)
@@ -510,9 +510,10 @@ MANDATORY EXPERIENCE REQUIREMENTS — every article must contain all four:
 
 1. ONE first-person "tested/used/reviewed" paragraph with:
    - A named scenario: "When I [specific action] with [specific situation]..."
-   - A measured outcome with real numbers: "...it took [X hours] and cost [£Y]..."
+   - A measured outcome with concrete non-invented detail: time taken, steps counted, versions tested — NOT invented grant/price £ or % figures
    - A documented edge case or failure: "It didn't work when..."
    - Must read like a genuine practitioner, NOT generic "users report" advice
+   - Never invent a specific installation cost or grant amount for "experience" colour
 
 2. At least one honest exception or failure caveat per article:
    - "This approach fails if..." or "One thing most guides miss:"
@@ -535,7 +536,7 @@ FORBIDDEN EXPERIENCE PHRASES (too generic — replace with specifics):
 
 EXPERIENCE STYLE RULE:
 Write as if explaining to a knowledgeable friend after actually doing this yourself.
-Every major section must contain at least one specific number from experience (time taken, cost, outcome measured, version tested).
+Every major section must contain at least one concrete detail from experience (time taken, steps, outcome observed, version tested). Do not invent regulated £ / % figures to satisfy this rule.
 
 ════════════════════════════════
 SECTION 3 — GOOGLE HELPFUL CONTENT (MANDATORY)
@@ -554,7 +555,8 @@ NEVER use these phrases:
 "In the realm of" | "Delve into" | "Crucial" | "Leverage" | "Navigate" |
 "Certainly" | "In conclusion" | "Furthermore" | "Moreover" | "In addition to this" |
 "It goes without saying" | "Needless to say" | "At the end of the day" |
-"This article will explore" | "Let us examine" | "To summarise"
+"This article will explore" | "Let us examine" | "To summarise" | "To summarize" |
+"To conclude" | "In other words" | "The bottom line is" | "Without further ado"
 
 USE INSTEAD:
 "Here's the thing —" | "In practice," | "Worth knowing:" | "The honest answer is" |
@@ -621,12 +623,12 @@ AUTHORITY LINKS RULE (mandatory):
 - If the topic involves regulations specific to ${market}, always link to the specific official page, not the homepage
 
 FINANCIAL FIGURES RULE:
-Any time you state a specific grant amount, percentage, or currency figure
-that could change (government grants, tax rates, official caps),
-either link directly to ${authorityGuidance.financialFigureSource} in the same sentence, or
-add "(verify with the official source)" immediately after the figure. A figure with
-no source and no verification note will be flagged as a publishing
-blocker.
+Do NOT invent specific grant amounts, percentages, caps, or deadlines.
+Only state a £ / % / deadline figure when it is in LIVE VERIFIED FACTS and you
+link the official page in the SAME sentence. Otherwise write around it:
+"up to a set percentage — check the official grant page" / "the published
+cap — verify on the scheme page". A "(verify…)" note next to an invented
+number is still a publishing blocker — omit the number instead.
 
 SECONDARY KEYWORDS: each used at least once naturally in body text
 PRIMARY KEYWORD DENSITY: weave "${keyword}" naturally, aiming for roughly 0.5-1.5% of body text — do not force it beyond that.${longTailList ? `
