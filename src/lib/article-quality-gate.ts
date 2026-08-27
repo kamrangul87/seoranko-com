@@ -79,27 +79,7 @@ import {
 import { keywordPresenceHeuristic } from '@/lib/google-seo-policy'
 
 // AI slop patterns — expanded from anti-slop GitHub repo
-const AI_SLOP_PATTERNS = [
-  /\bin today's (world|landscape|digital age|fast-paced)/i,
-  /\bit('s| is) (worth noting|important to note|crucial to understand)/i,
-  /\bin (conclusion|summary|this article|this guide|this piece)/i,
-  /\bwe will (explore|delve into|dive into|examine|discuss)/i,
-  /\blet('s| us) (explore|delve into|dive into|examine)/i,
-  /\bcomprehensive (guide|overview|look|analysis)/i,
-  /\bin the realm of/i,
-  /\bleverage (your|our|the|this)/i,
-  /\bdelve into/i,
-  /\bfurthermore,/i,
-  /\bmoreover,/i,
-  /\bthe bottom line is/i,
-  /\bit goes without saying/i,
-  /\bneedless to say/i,
-  /\bwithout further ado/i,
-  /\bat the end of the day/i,
-  /\bin other words,/i,
-  /\bto summarize,/i,
-  /\bto conclude,/i,
-]
+import { AI_SLOP_PATTERNS } from '@/lib/ai-slop-patterns'
 
 // Dated-policy / freshness detection is owned exclusively by
 // evaluateFreshnessSync → buildDatedPolicyIssues (shared severity via
