@@ -636,14 +636,14 @@ LONG-TAIL KEYWORDS (ranking surface area, not primary-keyword substitutes): ${lo
 Each long-tail term above should appear 1-2 times total — ideally as a natural subheading, FAQ question, or a single sentence addressing that specific angle. Never repeat a long-tail term more than twice; that dilutes the primary keyword's relevance signal and reads as stuffing.` : ''}
 
 HEDGING WORD LIMIT — ENFORCE WHILE WRITING:
-Do not use "typically" more than 4 times in the entire article.
-Do not use "generally", "usually", "often", or "may" more than
-3 times each. When you're about to write a hedge word, first check:
-can this be a direct, confident statement instead? Prefer "A 7kW
-charger requires a dedicated circuit" over "A 7kW charger typically
-requires a dedicated circuit" wherever the fact is well-established.
-Count your hedge words as you write — if you're approaching the
-limit, rewrite the sentence to be direct instead.
+Do not use "typically" more than 3 times in the entire article.
+Do not use "generally", "usually", "often", or "approximately" more than
+3 times each. Do not use "may" or "can" more than 4 times each. When you're
+about to write a hedge word, first check: can this be a direct, confident
+statement instead? Prefer "A 7kW charger requires a dedicated circuit" over
+"A 7kW charger typically requires a dedicated circuit" wherever the fact is
+well-established. Count your hedge words as you write — if you're approaching
+the limit, rewrite the sentence to be direct instead.
 HEADING HIERARCHY: Exactly one H1. ${h2SectionCount} H2 sections (sized to the target word count — see the section budget below). H3 subsections where needed.
 INTERNAL LINKS: Use links specified above. Descriptive anchor text only. Max 3 links.
 

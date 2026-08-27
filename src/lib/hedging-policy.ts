@@ -107,11 +107,15 @@ function classifyOccurrence(token: HedgeToken, sentence: string, tokenCountInDoc
     if (tokenCountInDoc <= 8) return 'APPROPRIATE_QUALIFICATION'
   }
 
-  // Document-level pile-up of the same filler hedge
-  if ((token === 'typically' || token === 'generally' || token === 'usually') && tokenCountInDoc >= 12) {
+  // Document-level pile-up of the same filler hedge (aligned with
+  // hedge-repetition-stripper keep limit of 3 — 4+ is repetitive).
+  if ((token === 'typically' || token === 'generally' || token === 'usually') && tokenCountInDoc >= 4) {
+    return 'REAL_REPETITION'
+  }
+  if ((token === 'typically' || token === 'generally' || token === 'usually' || token === 'often') && tokenCountInDoc >= 8) {
     return 'OVER_HEDGING'
   }
-  if ((token === 'typically' || token === 'generally') && tokenCountInDoc >= 6 && !VARIABILITY_RE.test(sentence)) {
+  if ((token === 'typically' || token === 'generally') && tokenCountInDoc >= 4 && !VARIABILITY_RE.test(sentence)) {
     return 'REAL_REPETITION'
   }
 
@@ -175,6 +179,14 @@ export function evaluateHedging(htmlOrText: string): HedgingEvaluation {
     (o) => o.token === 'typically' && o.classification === 'REAL_REPETITION',
   ).length
   if (realRepTypically >= 3) autoFixableTokens.push('typically')
+  const realRepGenerally = actionable.filter(
+    (o) => o.token === 'generally' && o.classification === 'REAL_REPETITION',
+  ).length
+  if (realRepGenerally >= 3) autoFixableTokens.push('generally')
+  const realRepUsually = actionable.filter(
+    (o) => o.token === 'usually' && o.classification === 'REAL_REPETITION',
+  ).length
+  if (realRepUsually >= 3) autoFixableTokens.push('usually')
 
   const summary =
     actionable.length === 0

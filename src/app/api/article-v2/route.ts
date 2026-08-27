@@ -49,6 +49,7 @@ import { assertSchemaCompleteness } from '@/lib/schema-validate';
 import { detectDatedClaims, detectStaleYearReferences, extractHeadingTexts, buildLastVerifiedLine } from '@/lib/dated-claim-detector';
 import { enforceDatedPolicy } from '@/lib/dated-policy-enforcer';
 import { enforceUnsourcedNumericClaims } from '@/lib/unsourced-numeric-enforcer';
+import { enforceHedgeRepetition } from '@/lib/hedge-repetition-enforcer';
 import {
   buildFinalArticleArtifact,
 } from '@/lib/final-article-artifact';
@@ -742,6 +743,22 @@ export async function POST(req: NextRequest) {
               }
             } catch (numericErr) {
               console.warn('[article-v2] unsourced-numeric strip failed, continuing:', numericErr);
+            }
+
+            // Cap repeated hedge boilerplate (typically/generally/…) before the
+            // gate scores readability — keep the first few uses, drop the rest.
+            try {
+              const hedgeEnforce = enforceHedgeRepetition(finalHtml);
+              if (hedgeEnforce.removedCount > 0) {
+                finalHtml = keepIfOnTopic(finalHtml, hedgeEnforce.html, keyword, 'hedge-repetition-strip');
+                console.log(
+                  `[article-v2] hedge-repetition strip: removed ${hedgeEnforce.removedCount} excess hedge(s)` +
+                  ` [${Object.entries(hedgeEnforce.removedByToken).map(([t, n]) => `${t}×${n}`).join(', ')}]` +
+                  `${hedgeEnforce.stillRepetitive ? ' (residual repetition remains)' : ''}`,
+                );
+              }
+            } catch (hedgeErr) {
+              console.warn('[article-v2] hedge-repetition strip failed, continuing:', hedgeErr);
             }
 
             // Dated-claim / stale-year detection now lives inside runQualityGate

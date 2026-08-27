@@ -10,6 +10,7 @@
 
 import * as chrono from 'chrono-node'
 import { hasNamedSource } from './fact-checker'
+import { isAdvisoryOpinionSentence, requiresCitation } from './claim-factuality'
 
 export interface DatedClaim {
   text: string      // the temporal expression itself, e.g. "August 2026"
@@ -61,6 +62,9 @@ export function detectDatedClaims(html: string, now: Date): DatedClaim[] {
 
   for (const { innerHtml, text } of paragraphsFromHtml(html)) {
     for (const sentence of splitIntoSentences(text)) {
+      // Advisory/opinion without a verifiable figure/date/rule is not a
+      // dated-policy claim (e.g. "smarter choice … charger now" + grant noun).
+      if (!requiresCitation(sentence)) continue
       if (!POLICY_QUANTITATIVE_RE.test(sentence)) continue
       const temporalMatches = chrono.parse(sentence, now)
       if (temporalMatches.length === 0) continue
@@ -209,6 +213,7 @@ export function detectTimeAnchoredClaims(articleHtml: string, now: Date = new Da
 
   for (const { innerHtml, text, position } of paragraphsFromHtml(articleHtml)) {
     for (const sentence of splitIntoSentences(text)) {
+      if (isAdvisoryOpinionSentence(sentence) || !requiresCitation(sentence)) continue
       const sentenceOffsetInParagraph = text.indexOf(sentence)
       const charOffset = position + Math.max(0, sentenceOffsetInParagraph)
 
