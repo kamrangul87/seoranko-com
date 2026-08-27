@@ -55,5 +55,11 @@ export const wordpressAdapter: CMSAdapter = {
 
   async appendContent(creds, page, html, position): Promise<FixApplyResult> {
     return wp.appendContentFix(toConn(creds), toWpPost(page), html, position)
-  }
+  },
+
+  async rewritePageHtml(creds, page, newHtml, opts): Promise<FixApplyResult> {
+    return wp.rewritePostContent(toConn(creds), toWpPost(page), newHtml, {
+      title: opts?.title,
+    })
+  },
 }

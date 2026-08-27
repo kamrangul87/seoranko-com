@@ -344,5 +344,74 @@ export const githubAdapter: CMSAdapter = {
         ? `Pull Request opened: ${result.prUrl} — merge it to apply the fix.`
         : 'Change committed to a review branch.'
     }
-  }
+  },
+
+  async rewritePageHtml(creds, page, newHtml, opts): Promise<FixApplyResult> {
+    const unsafe = guardEditable(page.id)
+    if (unsafe) return { success: false, error: unsafe }
+
+    const fileData = await getFileContent(creds, page.id)
+    if (!fileData) return { success: false, error: 'Could not re-read the file before committing.' }
+    if (fileData.content === newHtml) return { success: true, skipped: true }
+
+    const risk = opts?.riskLevel || 'safe'
+    const result = await commitFileChange(
+      creds,
+      page.id,
+      newHtml,
+      fileData.sha,
+      opts?.commitMessage || `SEORANKO Fix Agent: update ${page.id}`,
+      risk,
+      String(fileData.sha).slice(0, 8),
+    )
+    if (!result.success) return { success: false, error: result.error }
+    return {
+      success: true,
+      pending: true,
+      url: result.prUrl,
+      detail: risk === 'safe'
+        ? `Committed to ${creds.branch || 'main'}. Live after rebuild.`
+        : (result.prUrl ? `PR opened: ${result.prUrl}` : 'Committed to review branch.'),
+    }
+  },
+
+  async writeStaticFile(creds, relativePath, content, opts): Promise<FixApplyResult> {
+    const invalid = validCreds(creds)
+    if (invalid) return { success: false, error: invalid }
+
+    const path = relativePath.replace(/^\/+/, '')
+    if (!/^[a-zA-Z0-9._\/-]+$/.test(path) || path.includes('..')) {
+      return { success: false, error: 'Invalid static file path.' }
+    }
+
+    const existing = await getFileContent(creds, path)
+    const sha = existing?.sha || ''
+    // Creating a new file: GitHub Contents API accepts PUT without sha
+    const branch = creds.branch || 'main'
+    const headers = ghHeaders(creds.accessToken!)
+    try {
+      const commitRes = await fetch(`${GH}/repos/${creds.owner}/${creds.repo}/contents/${path}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          message: opts?.commitMessage || `SEORANKO Fix Agent: add ${path}`,
+          content: Buffer.from(content, 'utf-8').toString('base64'),
+          ...(sha ? { sha } : {}),
+          branch,
+        }),
+        signal: AbortSignal.timeout(20000),
+      })
+      if (!commitRes.ok) {
+        const err = await commitRes.json().catch(() => ({}))
+        return { success: false, error: err.message || `GitHub write failed (${commitRes.status})` }
+      }
+      return {
+        success: true,
+        pending: true,
+        detail: `Wrote ${path} on ${branch}. Live after rebuild.`,
+      }
+    } catch {
+      return { success: false, error: 'GitHub static file write failed' }
+    }
+  },
 }

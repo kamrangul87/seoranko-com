@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { getAdapter, SUPPORTED_PLATFORMS } from '@/lib/site-adapters'
 import { detectSeoPlugin, normaliseSiteUrl } from '@/lib/wordpress-connector'
+import { encryptCredentialsJson } from '@/lib/site-connection-crypto'
 
 export const maxDuration = 60
 
@@ -76,14 +77,30 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    // Encrypt at rest. Keep credentials JSONB as a non-secret pointer so
+    // older readers that only check "is credentials set?" still work;
+    // plaintext secrets live only in credentials_ciphertext.
+    const credPayload = credentials && typeof credentials === 'object' ? credentials : {}
+    let ciphertext: string
+    try {
+      ciphertext = encryptCredentialsJson(credPayload as Record<string, unknown>)
+    } catch (err) {
+      console.error('[connect-site] encrypt failed', err)
+      return NextResponse.json(
+        { success: false, message: 'Could not encrypt credentials — check SITE_CONNECTION_ENCRYPTION_KEY.' },
+        { status: 500 },
+      )
+    }
+
     const { error } = await supabase.from('site_connections').upsert({
       site_id: siteId,
       user_id: user.id,
       cms_type: platform,
-      // Kept populated for WordPress so existing code paths keep working.
+      // Username kept for display; password cleared from plaintext columns.
       wp_username: platform === 'wordpress' ? (credentials?.username ?? null) : null,
-      wp_app_password: platform === 'wordpress' ? (credentials?.appPassword ?? null) : null,
-      credentials: credentials || {},
+      wp_app_password: platform === 'wordpress' ? '' : null,
+      credentials: { __ciphertext: ciphertext, __encrypted: true },
+      credentials_ciphertext: ciphertext,
       detected_seo_plugin: seoPlugin,
       last_verified_at: new Date().toISOString(),
       is_active: true

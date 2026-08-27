@@ -16,3 +16,10 @@ Billing must be revisited in a follow-up; **this PR does not change Stripe/plans
 ## Until then
 - Copilot Audit + Briefs endpoints do not increment `articles_used_month`
 - Legacy Write / article-v2 / publish return HTTP 410
+
+## Fix Agent (this pass) — billing implication only
+- **Audit-only** (any pasted URL): free / included — report only, no write access
+- **Fix Agent** (auto-apply on a connected/owned site): should be a **premium** gate in a later pass
+  - Requires an active site connection (WP / Shopify / GitHub)
+  - Rate-limited per site; every attempt logged + revertible
+- Do **not** implement plan checks, Stripe meters, or paywalls in this PR — only the connection permission gate

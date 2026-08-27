@@ -21,6 +21,7 @@ import { getPublisherAdapter } from './publisher-adapters'
 import type { PublishArticleInput, PublisherCredentials, PublishResult, LivenessState } from './publisher-adapters/types'
 import { transitionLiveness, appendLivenessHistory, type LivenessHistoryEntry } from './publisher-adapters/liveness-state-machine'
 import { checkNearDuplicate, checkVolumeThrottle, type DuplicateCheckResult, type VolumeCheckResult } from './publish-safeguards'
+import { loadConnectionCredentials } from './site-connection-crypto'
 
 export interface PublishArticleParams {
   supabase: any
@@ -114,15 +115,11 @@ export async function publishArticle(params: PublishArticleParams): Promise<Publ
   const platform = connRow.cms_type || 'wordpress'
   const adapter = getPublisherAdapter(platform)
 
-  // Same credential-shape fallback as site-autofix.ts, for connections made
-  // before the generic `credentials` JSONB column existed.
+  const loaded = loadConnectionCredentials(connRow)
   const creds: PublisherCredentials = {
     siteUrl: site.domain.startsWith('http') ? site.domain : `https://${site.domain}`,
     siteId,
-    ...(connRow.credentials || {}),
-    ...(platform === 'wordpress' && !connRow.credentials?.appPassword
-      ? { username: connRow.wp_username, appPassword: connRow.wp_app_password }
-      : {}),
+    ...loaded,
   }
 
   const articleInput: PublishArticleInput = {

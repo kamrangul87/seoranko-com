@@ -161,15 +161,19 @@ export async function findPostByUrl(conn: WPConnection, url: string): Promise<WP
 async function updateContent(
   conn: WPConnection,
   post: WPPost,
-  newContent: string
+  newContent: string,
+  extraFields?: { title?: string }
 ): Promise<{ success: boolean; error?: string }> {
+  const body: Record<string, unknown> = { content: newContent }
+  if (extraFields?.title) body.title = extraFields.title
+
   const res = await fetch(`${conn.siteUrl}/wp-json/wp/v2/${post.type}/${post.id}`, {
     method: 'POST',  // WP REST API accepts POST for partial updates
     headers: {
       Authorization: authHeader(conn),
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ content: newContent }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(20000)
   })
 
@@ -178,6 +182,16 @@ async function updateContent(
     return { success: false, error: errData.message || `WordPress rejected the update (${res.status})` }
   }
   return { success: true }
+}
+
+/** Rewrite post content (and optionally title) — used by Fix Agent. */
+export async function rewritePostContent(
+  conn: WPConnection,
+  post: WPPost,
+  newContent: string,
+  opts?: { title?: string }
+): Promise<{ success: boolean; error?: string }> {
+  return updateContent(conn, post, newContent, opts)
 }
 
 /**
