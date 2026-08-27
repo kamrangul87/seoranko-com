@@ -644,9 +644,6 @@ Count your hedge words as you write — if you're approaching the
 limit, rewrite the sentence to be direct instead.
 HEADING HIERARCHY: Exactly one H1. ${h2SectionCount} H2 sections (sized to the target word count — see the section budget below). H3 subsections where needed.
 INTERNAL LINKS: Use links specified above. Descriptive anchor text only. Max 3 links.
-AI CRAWLERS: Add this meta tag at the top of every generated HTML article (as the second line, right after the META comment):
-<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
-This instructs Google, ChatGPT, and Perplexity to use the full content for AI snippets.
 
 ════════════════════════════════
 SECTION 6.5 — AI CITATION OPTIMISATION (MANDATORY)
@@ -681,7 +678,6 @@ FRESHNESS RULE: The dateModified in the Article JSON-LD schema must reflect a ge
 Output in this EXACT order:
 
 LINE 1: <!-- META: [145-155 chars — include primary keyword and a clear benefit] -->
-LINE 2: <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
 
 <h1>[Title: primary keyword near start, compelling, ${currentYear} where natural, under 60 chars]</h1>
 
@@ -776,6 +772,12 @@ NEVER stop mid-sentence. NEVER stop mid-tag. NEVER omit The Bottom Line.
 Do not write JSON-LD schema scripts even when truncating — see SECTION 7:
 that markup is generated separately by code, not by you, under any
 circumstances.
+Do not write <!DOCTYPE>, <html>, <head>, <body>, <title>, or any bare
+<meta> tag anywhere in your output. Your output is a body-only HTML
+fragment starting with the META comment and the <h1> — the page's real
+<head> (title, description, robots, canonical, Open Graph, Twitter Card)
+is built separately by code from dedicated fields, not by re-reading
+anything you write here.
 
 ════════════════════════════════
 SECTION 9 — FINAL SELF-REVIEW (MANDATORY)

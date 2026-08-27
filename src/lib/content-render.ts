@@ -20,10 +20,19 @@
 // author bio, "Last verified" line, table of contents) untouched.
 
 import { parse } from 'node-html-parser'
+import { stripStrayDocumentWrapperTags } from './html-document-guard'
 
 export function extractRenderableBody(content: string): string {
   if (!content) return content
-  const root = parse(content)
+
+  // Historical articles saved before html-document-guard.ts existed can
+  // still carry a model-written <!DOCTYPE html><html><head>...</head>
+  // wrapper. node-html-parser's querySelectorAll below only removes that
+  // wrapper's meta/script CHILDREN, not the <html>/<head>/<body> container
+  // tags themselves — strip those first so they don't end up nested inside
+  // this page's own real <body>.
+  const { html: unwrapped } = stripStrayDocumentWrapperTags(content)
+  const root = parse(unwrapped)
 
   for (const script of root.querySelectorAll('script')) {
     const type = (script.getAttribute('type') || '').toLowerCase()

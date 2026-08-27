@@ -25,6 +25,7 @@ import {
 } from './article-image-guard'
 import { enforceScannability } from './scannability-enforcer'
 import { normalizeArticleTypography } from './typography-normalizer'
+import { assertNoDocumentWrapperTags } from './html-document-guard'
 import {
   generateArticleSchema,
   type ArticleSchemaInput,
@@ -79,6 +80,8 @@ export interface BuildFinalArticleArtifactResult {
   scannabilityError?: string
   /** Article schema does not carry an image the page actually ships. */
   schemaImageError?: string
+  /** Article content still carries a stray <!DOCTYPE>/<html>/<head>/<body> tag. */
+  documentStructureError?: string
 }
 
 /**
@@ -149,6 +152,7 @@ export function buildFinalArticleArtifact(
 
   // ── 5. Post-conditions on the synchronized artifact ────────────────────
   const schemaImageError = assertArticleImageSynchronized(html)
+  const documentStructureError = assertNoDocumentWrapperTags(html)
 
   return {
     html,
@@ -159,5 +163,6 @@ export function buildFinalArticleArtifact(
     imageHandOffError,
     scannabilityError: scannability.error,
     schemaImageError,
+    documentStructureError,
   }
 }
