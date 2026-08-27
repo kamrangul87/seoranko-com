@@ -11,6 +11,7 @@
  */
 
 import type { IssueSeverity } from './article-quality-gate'
+import { isAdvisoryOpinionSentence } from './claim-factuality'
 
 /** Temporal framing of the claim itself. */
 export type FreshnessTimeStatus =
@@ -144,6 +145,7 @@ export function isInstructionalNonFactual(sentence: string): boolean {
 
 export function classifyClaimType(sentence: string): FreshnessClaimType {
   if (isInstructionalNonFactual(sentence)) return 'instructional'
+  if (isAdvisoryOpinionSentence(sentence)) return 'non-factual'
   if (!QUANTITATIVE_FACT_RE.test(sentence) && !RELATIVE_TIME_RE.test(sentence)) {
     return 'non-factual'
   }

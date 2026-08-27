@@ -10,6 +10,7 @@
  */
 
 import { isBareDomainRootUrl } from '@/lib/bare-domain-url'
+import { isAdvisoryOpinionSentence, requiresCitation } from '@/lib/claim-factuality'
 
 export type ClaimEvidenceStatus =
   | 'SUPPORTED'
@@ -287,6 +288,7 @@ export function extractImportantFactualClaims(articleHtml: string): ExtractedFac
       const absPos = (pm.index ?? 0) + (fm.index ?? 0)
       const sentence =
         sentences.find((s) => s.includes(fm![0].trim())) || plain
+      // Currency / % figures always require citation (verifiable markers).
       claims.push({
         text: fm[0].trim(),
         position: absPos,
@@ -297,19 +299,28 @@ export function extractImportantFactualClaims(articleHtml: string): ExtractedFac
       })
     }
 
-    // Policy assertion without a figure still matters for eligibility/rules
+    // Policy assertion without a figure still matters for eligibility/rules —
+    // but pure advisory/opinion sentences that only name-drop grant/scheme do not.
     if (
       !foundFigure &&
       /\b(require[sd]?|must|eligib|deadline|policy)\b/i.test(plain) &&
       /\b(grant|scheme|regulation|charg|dno|landlord|applicant)\b/i.test(plain)
     ) {
-      claims.push({
-        text: plain.slice(0, 80),
-        position: pm.index ?? 0,
-        claimKind: classifyClaimKind(plain),
-        topicTerms: extractTopicTerms(plain),
-        claimText: plain,
-      })
+      const policySentence =
+        sentences.find(
+          (s) =>
+            /\b(require[sd]?|must|eligib|deadline|policy)\b/i.test(s) &&
+            requiresCitation(s),
+        ) || plain
+      if (!isAdvisoryOpinionSentence(policySentence) && requiresCitation(policySentence)) {
+        claims.push({
+          text: policySentence.slice(0, 80),
+          position: pm.index ?? 0,
+          claimKind: classifyClaimKind(policySentence),
+          topicTerms: extractTopicTerms(policySentence),
+          claimText: policySentence,
+        })
+      }
     }
   }
   return claims

@@ -14,6 +14,7 @@ import {
   type FreshnessClaimType,
   type FreshnessTimeStatus,
 } from '@/lib/freshness-policy'
+import { isAdvisoryOpinionSentence } from '@/lib/claim-factuality'
 
 /** How time is expressed in the sentence. */
 export type TimeExpressionKind =
@@ -132,6 +133,19 @@ export function assessTimeSensitivity(
       requiresVerification: false,
       rationale:
         'Relative time language is instructional/editorial only — not a factual dated-policy claim.',
+    }
+  }
+
+  if (isAdvisoryOpinionSentence(trimmed)) {
+    return {
+      sentence: trimmed,
+      expressionKind,
+      domain: 'non_factual',
+      timeStatus,
+      verdict: 'NOT_TIME_SENSITIVE',
+      requiresVerification: false,
+      rationale:
+        'Advisory/opinion phrasing without a verifiable figure or named rule — not a factual claim.',
     }
   }
 
