@@ -66,23 +66,6 @@ export function languageTagForMarket(market?: string): string {
   return MARKET_LANGUAGE_TAGS[market.trim().toLowerCase()] || 'en'
 }
 
-// Resolves a brand-agnostic Organization.logo candidate when brand_settings
-// has none configured: Clearbit's public logo API (no key required) serves a
-// best-effort logo for any domain, keyed only on the domain itself — no
-// market or brand-specific assumption. This is a CANDIDATE URL only, never
-// fetched/verified here (a network call during article save is its own
-// failure mode); schema-validate.ts checks it's a structurally valid https
-// URL, not that the image actually exists or meets Google's size guidance.
-function deriveLogoUrlFromDomain(organizationUrl?: string): string | undefined {
-  if (!organizationUrl) return undefined
-  try {
-    const host = new URL(organizationUrl).hostname.replace(/^www\./, '')
-    return host ? `https://logo.clearbit.com/${host}` : undefined
-  } catch {
-    return undefined
-  }
-}
-
 function isAbsoluteHttpsUrl(url: string | undefined): url is string {
   return !!url && /^https:\/\/\S+/i.test(url)
 }
@@ -108,15 +91,18 @@ export function generateArticleSchema(input: ArticleSchemaInput): GeneratedSchem
     organizationUrl = 'https://seoranko.com',
   } = input
 
-  // Resolution chain: brand_settings.logoUrl -> derive from brand domain ->
-  // if truly unavailable, omit (but never silently — logged below).
-  let organizationLogoUrl = input.organizationLogoUrl
+  // Resolution: brand_settings.logoUrl only — if truly unavailable, omit
+  // (but never silently — logged below). There is deliberately no derived
+  // fallback candidate here any more: this used to synthesize a
+  // https://logo.clearbit.com/<host> URL when brand_settings had no logo,
+  // but Clearbit's public Logo API was permanently shut down (2025-12-08,
+  // support ended 2025-03-18) — that fallback returned a dead URL that
+  // still passed a naive "logo field is present" check. A real logo must
+  // come from brand_settings; there is no safe substitute to invent.
+  const organizationLogoUrl = input.organizationLogoUrl
   let logoOmittedReason: string | undefined
   if (!organizationLogoUrl) {
-    organizationLogoUrl = deriveLogoUrlFromDomain(organizationUrl)
-  }
-  if (!organizationLogoUrl) {
-    logoOmittedReason = `No brand_settings.logo_url configured and no organizationUrl to derive a candidate from (organizationUrl="${organizationUrl}") — Organization.logo omitted.`
+    logoOmittedReason = `No brand_settings.logo_url configured for organizationUrl="${organizationUrl}" — Organization.logo omitted (no fallback is generated; a dead logo URL is worse than none).`
     console.warn(`[schema-generator] ${logoOmittedReason}`)
   }
 

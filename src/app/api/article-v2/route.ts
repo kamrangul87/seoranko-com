@@ -33,6 +33,7 @@ import { runQualityGate, detectWrongBrandInBody, recomputeQualityGateTotals, qua
 import { repairTimeAnchoredClaims } from '@/lib/time-anchored-claim-repair';
 import { detectTemporalClaims, buildTemporalClaimRows, type TemporalClaim } from '@/lib/temporal-claims';
 import { repairTemporalClaims } from '@/lib/temporal-claims-repair';
+import { stripStrayDocumentWrapperTags } from '@/lib/html-document-guard';
 import { repairAllMergeArtifacts } from '@/lib/merge-artifact-repair';
 import { enforceWordCountLimit, countArticleWords, deterministicTrimToTarget, wordCountBand, snapWordCount } from '@/lib/word-count-enforcer';
 import { injectMissingInternalLinks } from '@/lib/inject-internal-links';
@@ -366,7 +367,18 @@ export async function POST(req: NextRequest) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const cacheHit = ((response.usage as any).cache_read_input_tokens ?? 0) > 0
             console.log(`[model-router] task=articleWriting model=${MODEL_FOR.articleWriting} inputTokens=${response.usage.input_tokens} cacheHit=${cacheHit}`)
-            return text.replace(/^```html?\n?/i, '').replace(/```\s*$/, '').trim()
+            const fenceStripped = text.replace(/^```html?\n?/i, '').replace(/```\s*$/, '').trim()
+            // The model occasionally wraps its draft in a full <!DOCTYPE
+            // html><html><head>...</head> document skeleton — articles.content
+            // is a body-only fragment by design (the live page supplies its
+            // own <head>/<body>), so strip that here, at the single chokepoint
+            // every fresh draft passes through, before any later step appends
+            // its own canonical/OG/schema tags after the model's stray </html>.
+            const { html: docStripped, stripped, strippedTags } = stripStrayDocumentWrapperTags(fenceStripped)
+            if (stripped) {
+              console.warn(`[article-v2] stripped stray document-wrapper tag(s) from model output: ${strippedTags.join(', ')}`)
+            }
+            return docStripped
           }
 
           emitStage('writing-draft', 'running');
@@ -935,6 +947,10 @@ export async function POST(req: NextRequest) {
                 hardBlockReasons.push(artifact.scannabilityError);
                 console.error('[article-v2] scannability post-condition failed:', artifact.scannabilityError);
               }
+              if (artifact.documentStructureError) {
+                hardBlockReasons.push(artifact.documentStructureError);
+                console.error('[article-v2] document-structure post-condition failed:', artifact.documentStructureError);
+              }
 
               schemaResult = artifact.schemaResult;
               if (artifact.primaryImageUrl) {
@@ -1043,6 +1059,7 @@ export async function POST(req: NextRequest) {
                 secondaryKeywords: filteredSecondaries,
                 extraIssues: imageExtraIssues,
                 primaryImageWidth,
+                organizationLogoUrl: schemaResult.organizationLogoUrl,
                 datedPolicy: {
                   now: new Date(generatedAt),
                   title: articleTitle,

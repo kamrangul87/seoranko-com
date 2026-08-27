@@ -64,17 +64,33 @@ describe('generateArticleSchema', () => {
     expect(result.logoOmittedReason).toBeTruthy()
   })
 
-  it('still derives a Clearbit candidate logo from organizationUrl when no brand logo is configured', () => {
+  it('never derives a Clearbit (or any other) fallback candidate — the API was shut down and always returned a dead URL', () => {
     const result = generateArticleSchema({
       ...baseInput,
       organizationLogoUrl: undefined,
       organizationUrl: 'https://acme.example.com',
     })
-    expect(result.organizationLogoUrl).toBe('https://logo.clearbit.com/acme.example.com')
+    expect(result.organizationLogoUrl).toBeUndefined()
+    expect(result.logoOmittedReason).toBeTruthy()
+    expect(result.logoOmittedReason).not.toContain('clearbit')
+    const article = JSON.parse(result.articleSchema)
+    expect(article.publisher.logo).toBeUndefined()
+    const org = JSON.parse(result.organizationSchema)
+    expect(org.logo).toBeUndefined()
+  })
+
+  it('uses brand_settings logoUrl as-is, never substituting a derived candidate', () => {
+    const result = generateArticleSchema({
+      ...baseInput,
+      organizationLogoUrl: 'https://cdn.example.com/real-logo.png',
+      organizationUrl: 'https://acme.example.com',
+    })
+    expect(result.organizationLogoUrl).toBe('https://cdn.example.com/real-logo.png')
+    expect(result.logoOmittedReason).toBeUndefined()
     const article = JSON.parse(result.articleSchema)
     expect(article.publisher.logo).toEqual({
       '@type': 'ImageObject',
-      url: 'https://logo.clearbit.com/acme.example.com',
+      url: 'https://cdn.example.com/real-logo.png',
     })
   })
 

@@ -10,6 +10,7 @@
 // ============================================================
 
 import { validateSchema } from './schema-validator'
+import { verifyLogoUrlReachable } from './logo-reachability'
 import { validateArticleStructure } from './structure-validator'
 import { createClient } from '@supabase/supabase-js'
 import { lintProse } from './prose-linter'
@@ -1373,6 +1374,14 @@ export async function runQualityGate(
     skipLiveVerification?: boolean
     /** M06 — pipeline-known width of the primary shipped image, in px. */
     primaryImageWidth?: number
+    /**
+     * M07 — the exact Organization.logo URL the schema actually emitted
+     * (schemaResult.organizationLogoUrl), when set. When present and
+     * !skipLiveVerification, a real HTTP request confirms it resolves to an
+     * actual image before the schema/logo dimension counts as PASS — field
+     * presence alone is not enough (see logo-reachability.ts).
+     */
+    organizationLogoUrl?: string
   }
 ): Promise<QualityGateResult> {
 
@@ -1400,6 +1409,7 @@ export async function runQualityGate(
     freshnessResearchProvider,
     skipLiveVerification,
     primaryImageWidth,
+    organizationLogoUrl,
   } = {
     expectOrganizationLogo: false,
     ...options,
@@ -1418,6 +1428,7 @@ export async function runQualityGate(
     secondaryKeywords?: string[]
     skipLiveVerification?: boolean
     primaryImageWidth?: number
+    organizationLogoUrl?: string
     extraIssues?: QualityIssue[]
     expectOrganizationLogo?: boolean
     eeatScore?: number
@@ -1975,6 +1986,24 @@ export async function runQualityGate(
     finalIssues = consolidateDuplicateIssues(finalIssues)
     if (!skipLiveVerification) {
       finalIssues = await autoVerifyCitedPolicyIssues(finalIssues, datedPolicy?.now)
+      // M07 — a logo URL being present in the schema is not the same as it
+      // actually working (the Clearbit fallback this codebase used to emit
+      // was dead for months and nothing caught it, because every prior
+      // check only looked at field presence). A real HTTP request is the
+      // only thing that can tell the difference.
+      if (organizationLogoUrl) {
+        const reachability = await verifyLogoUrlReachable(organizationLogoUrl)
+        if (!reachability.reachable) {
+          finalIssues.push({
+            id: 'schema-Organization-logo-reachability',
+            severity: 'critical',
+            category: 'schema',
+            title: 'Organization: logo URL does not resolve',
+            description: `Organization.logo is set to "${organizationLogoUrl}" but a live check found it does not serve a valid image: ${reachability.reason}. Field presence alone does not mean the logo works — add a real logo in Brand Settings.`,
+            autoFixable: false,
+          })
+        }
+      }
     }
     finalIssues = withActionHints(finalIssues)
 

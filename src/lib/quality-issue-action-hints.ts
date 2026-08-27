@@ -44,6 +44,9 @@ export function buildActionHint(issue: ActionHintIssue): string {
   if (issue.id === 'schema-logo-not-configured' || issue.id === 'schema-Organization-logo' || issue.id === 'schema-Organization-publisher.logo') {
     return 'Add a logo in Brand Settings, then regenerate or re-run Fix All — the schema logo is pulled from there, not editable in the article itself.'
   }
+  if (issue.id === 'schema-Organization-logo-reachability') {
+    return 'The logo URL in Brand Settings is set but a live check found it broken (dead link or not an image) — upload a working logo image in Brand Settings, then regenerate or re-run Fix All.'
+  }
   // M06 — likewise, no in-article fix; the image needs to be regenerated
   // or replaced with one that meets Google's Top Stories/Discover minimum.
   if (issue.id === 'schema-Article-image-width') {
