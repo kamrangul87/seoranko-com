@@ -13,6 +13,10 @@ export interface BrandSettingsLookup {
   logoUrl: string | null
   /** The brand_settings.brand value the row was actually found under. */
   matchedBrandKey?: string
+  /** Tracked site profile fields (SEO copilot). */
+  siteUrl?: string | null
+  siteType?: string | null
+  market?: string | null
 }
 
 /**
