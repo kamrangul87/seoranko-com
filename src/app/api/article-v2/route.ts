@@ -1059,6 +1059,7 @@ export async function POST(req: NextRequest) {
                 secondaryKeywords: filteredSecondaries,
                 extraIssues: imageExtraIssues,
                 primaryImageWidth,
+                organizationLogoUrl: schemaResult.organizationLogoUrl,
                 datedPolicy: {
                   now: new Date(generatedAt),
                   title: articleTitle,
