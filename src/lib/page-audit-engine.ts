@@ -71,8 +71,13 @@ function mapAuditIssue(issue: AuditIssue, index: number): PageAuditIssue {
     mobile: ['technical_seo'],
     depth: ['editorial'],
   }
+  // Prefer scorer fix_type in the id so Fix Agent classification can match
+  // stably; keep index for uniqueness when several issues share a fix_type.
+  const stableId = issue.fix_type
+    ? `audit-${issue.fix_type}-${index}`
+    : `audit-${issue.category}-${index}`
   return {
-    id: `audit-${issue.category}-${index}`,
+    id: stableId,
     severity,
     category: issue.category,
     title: issue.message,

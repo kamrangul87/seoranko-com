@@ -3,6 +3,7 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { verifyConnection, detectSeoPlugin, normaliseSiteUrl } from '@/lib/wordpress-connector'
+import { encryptCredentialsJson } from '@/lib/site-connection-crypto'
 
 export const maxDuration = 60
 
@@ -61,12 +62,25 @@ export async function POST(req: NextRequest) {
 
     const seoPlugin = await detectSeoPlugin(conn)
 
+    let ciphertext: string
+    try {
+      ciphertext = encryptCredentialsJson({ username, appPassword })
+    } catch (err) {
+      console.error('[connect-wordpress] encrypt failed', err)
+      return NextResponse.json(
+        { success: false, message: 'Could not encrypt credentials — check SITE_CONNECTION_ENCRYPTION_KEY.' },
+        { status: 500 },
+      )
+    }
+
     const { error } = await supabase.from('site_connections').upsert({
       site_id: siteId,
       user_id: user.id,
       cms_type: 'wordpress',
       wp_username: username,
-      wp_app_password: appPassword,
+      wp_app_password: '',
+      credentials: { __ciphertext: ciphertext, __encrypted: true },
+      credentials_ciphertext: ciphertext,
       detected_seo_plugin: seoPlugin,
       last_verified_at: new Date().toISOString(),
       is_active: true

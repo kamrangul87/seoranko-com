@@ -33,7 +33,8 @@ function isValidShopHost(host: string): boolean {
 async function updateBody(
   creds: SiteCredentials,
   pageId: string,
-  newBody: string
+  newBody: string,
+  title?: string
 ): Promise<FixApplyResult> {
   const host = shopHost(creds)
   if (!isValidShopHost(host)) {
@@ -46,9 +47,14 @@ async function updateBody(
     ? `https://${host}/admin/api/${API_VERSION}/pages/${idParts[0]}.json`
     : `https://${host}/admin/api/${API_VERSION}/blogs/${idParts[0]}/articles/${idParts[1]}.json`
 
+  const pagePayload: Record<string, unknown> = { id: Number(idParts[0]), body_html: newBody }
+  if (title) pagePayload.title = title
+  const articlePayload: Record<string, unknown> = { id: Number(idParts[1]), body_html: newBody }
+  if (title) articlePayload.title = title
+
   const body = type === 'page'
-    ? { page: { id: Number(idParts[0]), body_html: newBody } }
-    : { article: { id: Number(idParts[1]), body_html: newBody } }
+    ? { page: pagePayload }
+    : { article: articlePayload }
 
   try {
     const res = await fetch(endpoint, {
@@ -164,5 +170,9 @@ export const shopifyAdapter: CMSAdapter = {
     }
     const newBody = position === 'start' ? html + page.bodyHtml : page.bodyHtml + html
     return updateBody(creds, page.id, newBody)
-  }
+  },
+
+  async rewritePageHtml(creds, page, newHtml, opts): Promise<FixApplyResult> {
+    return updateBody(creds, page.id, newHtml, opts?.title)
+  },
 }

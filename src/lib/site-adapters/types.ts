@@ -60,6 +60,29 @@ export interface CMSAdapter {
   injectSchema(creds: SiteCredentials, page: PageContent, schemaJsonLd: Record<string, unknown>): Promise<FixApplyResult>
 
   appendContent(creds: SiteCredentials, page: PageContent, html: string, position: 'start' | 'end'): Promise<FixApplyResult>
+
+  /**
+   * Optional: rewrite the full editable page source (HTML/Markdown body).
+   * Used by Fix Agent for meta/H1/lang/alt/structure mutations.
+   * When omitted, Fix Agent falls back to injectSchema / appendContent only.
+   */
+  rewritePageHtml?(
+    creds: SiteCredentials,
+    page: PageContent,
+    newHtml: string,
+    opts?: { title?: string; riskLevel?: 'safe' | 'review-required'; commitMessage?: string },
+  ): Promise<FixApplyResult>
+
+  /**
+   * Optional: create/update a static file at the site root (e.g. llms.txt).
+   * Primarily supported by the GitHub adapter.
+   */
+  writeStaticFile?(
+    creds: SiteCredentials,
+    relativePath: string,
+    content: string,
+    opts?: { commitMessage?: string },
+  ): Promise<FixApplyResult>
 }
 
 /** Shared idempotency check — don't append a second block of the same @type. */

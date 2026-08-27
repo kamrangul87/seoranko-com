@@ -9,6 +9,7 @@ import { getAdapter } from './site-adapters'
 import type { FixApplyResult } from './site-adapters/types'
 import { validateSchema } from './schema-validator'
 import { checkSiteWashout } from './treatment-log'
+import { loadConnectionCredentials } from './site-connection-crypto'
 
 export type SiteFixType = 'schema-org-inject' | 'schema-article-inject' | 'author-bio-visible'
 
@@ -65,15 +66,11 @@ export async function applySiteAutoFix(
   const platform = connRow.cms_type || 'wordpress'
   const adapter = getAdapter(platform, supabase)
 
-  // credentials JSONB is the generic store; fall back to the original
-  // WordPress columns for connections made before that column existed.
+  const loaded = loadConnectionCredentials(connRow)
   const creds = {
     siteUrl,
     siteId,
-    ...(connRow.credentials || {}),
-    ...(platform === 'wordpress' && !connRow.credentials?.appPassword
-      ? { username: connRow.wp_username, appPassword: connRow.wp_app_password }
-      : {})
+    ...loaded,
   }
 
   const check = await adapter.verifyConnection(creds)
