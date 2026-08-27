@@ -18,6 +18,7 @@ export const MODEL_FOR = {
   // Scaffold only — see src/lib/structured-article-schema.ts. Not called
   // anywhere yet; behind STRUCTURED_ARTICLE_WRITING_ENABLED.
   structuredArticleWriting: MODELS.SONNET,
+  contentBrief: MODELS.SONNET,
   // HAIKU ONLY — fast classification, simple extraction, separate rate-limit bucket
   keywordClassification: MODELS.HAIKU,
   imagePromptGeneration: MODELS.HAIKU,
