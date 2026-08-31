@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { DashboardNav } from '@/components/DashboardNav'
 import { createClient } from '@/lib/supabase/client'
+import type { User } from '@supabase/supabase-js'
 
 interface Site {
   id: string
@@ -60,7 +61,7 @@ export default function AiVisibilityPage() {
 
   useEffect(() => {
     const supabase = createClient()
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
+    supabase.auth.getUser().then(async ({ data: { user } }: { data: { user: User | null } }) => {
       if (!user) return
       const { data } = await supabase
         .from('connected_sites')
