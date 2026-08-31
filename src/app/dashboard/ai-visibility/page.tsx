@@ -1,9 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { DashboardNav } from '@/components/DashboardNav'
 import { createClient } from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
+import { canFixCitationGap } from '@/lib/ai-visibility/citation-gap-brief'
 
 interface Site {
   id: string
@@ -62,6 +64,8 @@ export default function AiVisibilityPage() {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [fixingId, setFixingId] = useState<string | null>(null)
+  const router = useRouter()
 
   useEffect(() => {
     const supabase = createClient()
@@ -149,6 +153,35 @@ export default function AiVisibilityPage() {
     }
   }
 
+  async function fixGap(r: ResultRow) {
+    if (!canFixCitationGap(r.cited, r.diagnostic)) return
+    setFixingId(r.id)
+    setError(null)
+    try {
+      const res = await fetch('/api/copilot/brief', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          seedKeyword: r.prompt_text,
+          siteId: siteId || undefined,
+          aiVisibilityResultId: r.id,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Could not build brief')
+      if (json.id) {
+        router.push(`/dashboard/briefs?id=${encodeURIComponent(json.id)}`)
+        return
+      }
+      // Persist failed (table not live) — still land on Briefs with the generated payload.
+      sessionStorage.setItem('seoranko_pending_brief', JSON.stringify(json))
+      router.push('/dashboard/briefs?pending=1')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not build brief')
+    } finally {
+      setFixingId(null)
+    }
+  }
   const trendDelta =
     trend?.citationRate != null && trend?.previousCitationRate != null
       ? Number(trend.citationRate) - Number(trend.previousCitationRate)
@@ -294,6 +327,15 @@ export default function AiVisibilityPage() {
                           )}
                           {!isCheckFailed(r) && r.diagnostic?.finding && (
                             <p className="text-[#6B6B6B] mt-1">{r.diagnostic.finding}</p>
+                          )}
+                          {canFixCitationGap(r.cited, r.diagnostic) && (
+                            <button
+                              onClick={() => void fixGap(r)}
+                              disabled={fixingId === r.id}
+                              className="mt-2 px-3 py-1.5 rounded-lg bg-[#FF6B2C] text-white text-xs disabled:opacity-50"
+                            >
+                              {fixingId === r.id ? 'Building brief…' : 'Fix this gap'}
+                            </button>
                           )}
                         </li>
                       )
