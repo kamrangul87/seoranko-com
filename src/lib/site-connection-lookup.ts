@@ -6,6 +6,7 @@
 import { normaliseDomain } from './connected-sites'
 import { loadConnectionCredentials } from './site-connection-crypto'
 import { normaliseSiteUrl } from './wordpress-connector'
+import { describeFixableScope, isServerCmsConnection } from './fix-agent-classification'
 
 export interface OwnedSiteConnection {
   siteId: string
@@ -87,6 +88,9 @@ export async function getSiteConnectionStatus(
   cmsType?: string
   lastVerifiedAt?: string | null
   prompt?: string
+  fixableScope?: string
+  isUniversalTag?: boolean
+  canFixHeaders?: boolean
 }> {
   const owned = await findOwnedSiteConnection(supabase, userId, auditUrl)
   if (!owned) {
@@ -103,5 +107,8 @@ export async function getSiteConnectionStatus(
     brand: owned.brand,
     cmsType: owned.cmsType,
     lastVerifiedAt: owned.lastVerifiedAt,
+    fixableScope: describeFixableScope(owned.cmsType),
+    isUniversalTag: owned.cmsType === 'universal-tag',
+    canFixHeaders: isServerCmsConnection(owned.cmsType),
   }
 }

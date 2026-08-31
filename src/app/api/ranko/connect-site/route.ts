@@ -110,12 +110,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: `Could not save the connection: ${error.message}` })
     }
 
+    // First CMS connection → kick off AI Visibility citation check (fire-and-forget).
+    void import('@/lib/ai-visibility/run-citation-check')
+      .then(({ runCitationCheck }) =>
+        runCitationCheck({
+          supabase,
+          userId: user.id,
+          siteId,
+          trigger: 'first_connect',
+        }),
+      )
+      .catch((err) => console.warn('[connect-site] first AI visibility run skipped', err))
+
     let message = check.detail ? `Connected. ${check.detail}` : 'Connected successfully.'
     if (platform === 'wordpress') {
       message += seoPlugin
         ? ` Detected ${seoPlugin} — schema fixes will work alongside it.`
         : ' No SEO plugin detected — fixes will inject schema directly into post content, which is fully valid.'
     }
+    message += ' AI Visibility citation check started in the background.'
 
     return NextResponse.json({ success: true, message })
   } catch (error) {

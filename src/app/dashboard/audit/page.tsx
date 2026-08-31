@@ -53,6 +53,9 @@ interface ConnectionStatus {
   cmsType?: string
   lastVerifiedAt?: string | null
   prompt?: string
+  fixableScope?: string
+  isUniversalTag?: boolean
+  canFixHeaders?: boolean
 }
 
 interface FixAttempt {
@@ -88,24 +91,74 @@ interface HumanTask {
   briefHint?: string
 }
 
-function classifyClientSide(issue: AuditIssue): 'auto' | 'human' | 'skip' {
+const SECURITY_ISSUE_RE = /x-frame-options|x-content-type|content-security-policy|security header|hsts/i
+const LLMS_ISSUE_RE = /llms\.txt/i
+const SERVER_REQUIRED_HINT =
+  'Requires server access — connect via WordPress/Shopify/GitHub to auto-fix, or fix manually'
+
+function classifyClientSide(
+  issue: AuditIssue,
+  cmsType?: string | null,
+): { label: 'auto' | 'human' | 'skip' | 'server'; hint?: string } {
   const hay = `${issue.id} ${issue.title} ${issue.description} ${issue.category}`
   if (/thin content|low word count|lacks indexable|placeholder product|ecom-description-thin|ecom-category-thin|ecom-description-placeholder/i.test(hay)) {
-    return 'human'
+    return { label: 'human' }
   }
-  if (/internal link|related-product linking|orphan|ecom-related-links/i.test(hay)) return 'human'
+  if (/internal link|related-product linking|orphan|ecom-related-links/i.test(hay)) return { label: 'human' }
   if (/availability mismatch|pricing|stock claim|policy statement|ecom-availability-mismatch/i.test(hay)) {
-    return 'human'
+    return { label: 'human' }
   }
+
+  const needsServer = SECURITY_ISSUE_RE.test(hay) || LLMS_ISSUE_RE.test(hay)
+  if (needsServer) {
+    const isCms = cmsType === 'wordpress' || cmsType === 'shopify' || cmsType === 'webflow' || cmsType === 'github'
+    if (cmsType === 'universal-tag' || !cmsType || !isCms) {
+      return { label: 'server', hint: SERVER_REQUIRED_HINT }
+    }
+    return { label: 'auto' }
+  }
+
   if (
-    /title tag|meta title|meta description|missing h1|organization schema|article schema|product schema|breadcrumb|lang attribute|alt text|llms\.txt|html structure|x-frame|x-content-type|content-security-policy|security header|ecom-product|ecom-offer|ecom-image-alt|ecom-breadcrumb|ecom-category-missing-h1|ecom-title-templated/i.test(
+    /title tag|meta title|meta description|missing h1|organization schema|article schema|product schema|breadcrumb|lang attribute|alt text|html structure|ecom-product|ecom-offer|ecom-image-alt|ecom-breadcrumb|ecom-category-missing-h1|ecom-title-templated/i.test(
       hay,
     )
   ) {
-    return 'auto'
+    return { label: 'auto' }
   }
-  if (issue.severity === 'info') return 'skip'
-  return 'human'
+  if (issue.severity === 'info') return { label: 'skip' }
+  return { label: 'human' }
+}
+
+function buildFixConfirmMessage(connection: ConnectionStatus, issues: AuditIssue[]): string {
+  const cms = connection.cmsType || 'connected site'
+  const autoTitles = issues
+    .map((i) => ({ i, c: classifyClientSide(i, connection.cmsType) }))
+    .filter((x) => x.c.label === 'auto')
+    .map((x) => x.i.title)
+    .slice(0, 8)
+  const serverBlocked = issues
+    .map((i) => ({ i, c: classifyClientSide(i, connection.cmsType) }))
+    .filter((x) => x.c.label === 'server')
+    .map((x) => x.i.title)
+    .slice(0, 5)
+
+  const scope =
+    connection.fixableScope ||
+    (connection.isUniversalTag
+      ? 'Universal Tag can only change post-load DOM (meta, schema, H1, alt) — not HTTP headers.'
+      : `Fixes will use your ${cms} connection.`)
+
+  let msg = `Run Fix Agent on ${connection.domain} only?\n\n${scope}\n\n`
+  if (autoTitles.length) {
+    msg += `Will attempt (${autoTitles.length}+):\n- ${autoTitles.join('\n- ')}\n\n`
+  } else {
+    msg += 'No auto-fixable issues for this connection type.\n\n'
+  }
+  if (serverBlocked.length) {
+    msg += `Not auto-fixed via ${cms} (needs server/CMS):\n- ${serverBlocked.join('\n- ')}\n\n`
+  }
+  msg += 'Thin content and linking issues become human tasks — never auto-published. You can review and revert each change.'
+  return msg
 }
 
 export default function AuditPage() {
@@ -175,9 +228,7 @@ export default function AuditPage() {
 
   async function runFixAgent() {
     if (!audit || !connection?.connected || !connection.siteId) return
-    const ok = window.confirm(
-      `Run Fix Agent on ${connection.domain} only?\n\nAuto-fixable structural issues will be applied via your ${connection.cmsType} connection. Thin content and linking issues become human tasks — never auto-published.\n\nYou can review and revert each change.`,
-    )
+    const ok = window.confirm(buildFixConfirmMessage(connection, audit.issues))
     if (!ok) return
 
     setFixRunning(true)
@@ -300,8 +351,16 @@ export default function AuditPage() {
                   <div className="space-y-3">
                     <p className="text-sm text-[#6B6B6B]">
                       Connected as <span className="text-[#0F0F0F] font-medium">{connection.domain}</span>
-                      {connection.cmsType ? ` via ${connection.cmsType}` : ''}. Fix Agent can apply structural fixes only on this site.
+                      {connection.cmsType ? ` via ${connection.cmsType}` : ''}.
                     </p>
+                    {connection.fixableScope && (
+                      <p className="text-sm text-[#0F0F0F]">{connection.fixableScope}</p>
+                    )}
+                    {connection.isUniversalTag && (
+                      <p className="text-xs text-amber-800 bg-amber-50 rounded px-2 py-1.5">
+                        Universal Tag cannot set HTTP security headers (they are sent before any JavaScript runs). Connect WordPress, Shopify, or GitHub to auto-fix headers.
+                      </p>
+                    )}
                     <button
                       onClick={runFixAgent}
                       disabled={fixRunning}
@@ -350,17 +409,22 @@ export default function AuditPage() {
                 <h2 className="font-medium mb-2">Issues ({audit.issues.length})</h2>
                 <ul className="space-y-2">
                   {audit.issues.slice(0, 40).map((issue) => {
-                    const fixability = classifyClientSide(issue)
+                    const fixability = classifyClientSide(issue, connection?.cmsType)
                     return (
                       <li key={issue.id} className="border border-[#E5E5E5] rounded-lg px-3 py-2 bg-white">
                         <div className="flex flex-wrap gap-2 items-center text-xs uppercase tracking-wide text-[#9B9B9B]">
                           <span>{issue.severity} · {issue.category}</span>
-                          {fixability === 'auto' && (
+                          {fixability.label === 'auto' && (
                             <span className="normal-case tracking-normal text-green-800 bg-green-50 px-1.5 py-0.5 rounded">
                               Auto-fixable
                             </span>
                           )}
-                          {fixability === 'human' && (
+                          {fixability.label === 'server' && (
+                            <span className="normal-case tracking-normal text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded">
+                              Needs server/CMS
+                            </span>
+                          )}
+                          {fixability.label === 'human' && (
                             <span className="normal-case tracking-normal text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded">
                               Human / brief
                             </span>
@@ -368,8 +432,10 @@ export default function AuditPage() {
                         </div>
                         <div className="font-medium">{issue.title}</div>
                         <div className="text-sm text-[#6B6B6B]">{issue.description}</div>
-                        {issue.remediation && (
-                          <div className="text-sm mt-1 text-[#0F0F0F]">What to do: {issue.remediation}</div>
+                        {(fixability.hint || issue.remediation) && (
+                          <div className="text-sm mt-1 text-[#0F0F0F]">
+                            What to do: {fixability.hint || issue.remediation}
+                          </div>
                         )}
                       </li>
                     )

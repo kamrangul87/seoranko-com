@@ -198,6 +198,32 @@ export async function GET(req: NextRequest) {
       results.errors.push(`Temporal-claims freshness check failed: ${String(err)}`)
     }
 
+    // Step 7: AI Visibility weekly citation checks (OpenAI + Perplexity)
+    try {
+      const { data: sites } = await supabase
+        .from('connected_sites')
+        .select('id, user_id')
+        .limit(30)
+      const { runCitationCheck } = await import('@/lib/ai-visibility/run-citation-check')
+      let aiVisRuns = 0
+      for (const s of sites || []) {
+        try {
+          const r = await runCitationCheck({
+            supabase,
+            userId: s.user_id,
+            siteId: s.id,
+            trigger: 'weekly_cron',
+          })
+          if (r.ok) aiVisRuns++
+        } catch (err) {
+          results.errors.push(`AI Visibility site ${s.id}: ${String(err)}`)
+        }
+      }
+      ;(results as { aiVisibilityRuns?: number }).aiVisibilityRuns = aiVisRuns
+    } catch (err) {
+      results.errors.push(`AI Visibility weekly check failed: ${String(err)}`)
+    }
+
   } catch (err) {
     results.errors.push(String(err))
   }

@@ -16,13 +16,8 @@ interface BriefSection {
 }
 
 interface BriefPayload {
-  clusters: {
-    primary: string
-    secondary: string[]
-    intent: string | null
-    shortTail: Array<{ keyword: string; searchVolume?: number }>
-    longTail: string[]
-  }
+  seedKeyword: string
+  market: string
   brief: {
     mode: BriefMode
     seedKeyword: string
@@ -70,9 +65,9 @@ export default function BriefsPage() {
       <DashboardNav />
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-8 py-8">
-          <h1 className="text-2xl font-semibold mb-2">Keyword Research + Content Brief</h1>
+          <h1 className="text-2xl font-semibold mb-2">Content Brief</h1>
           <p className="text-[#6B6B6B] mb-6">
-            Enter a seed keyword. Get short-tail / long-tail clusters and a strategist brief — structure and guidance only. No invented prices, stock claims, or specs.
+            Enter a seed keyword or topic. SEORANKO builds a strategist brief — H1/H2 structure, section guidance, and “needs real source” flags. No invented prices, stock claims, or specs.
           </p>
 
           <div className="grid gap-3 mb-6">
@@ -104,7 +99,7 @@ export default function BriefsPage() {
                 disabled={loading || !seed.trim()}
                 className="px-4 py-2 rounded-lg bg-[#FF6B2C] text-white disabled:opacity-50"
               >
-                {loading ? 'Researching…' : 'Generate brief'}
+                {loading ? 'Building brief…' : 'Generate brief'}
               </button>
             </div>
           </div>
@@ -114,39 +109,12 @@ export default function BriefsPage() {
           {data && (
             <div className="space-y-6">
               <div className="border border-[#E5E5E5] rounded-xl p-4 bg-white">
-                <div className="text-xs uppercase text-[#9B9B9B]">Clusters · intent {data.clusters.intent || 'n/a'}</div>
-                <div className="font-medium mt-1">Primary: {data.clusters.primary}</div>
-                {data.clusters.secondary.length > 0 && (
-                  <p className="text-sm text-[#6B6B6B] mt-1">Secondary: {data.clusters.secondary.join(', ')}</p>
-                )}
-                <div className="mt-3 grid md:grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <div className="font-medium mb-1">Short-tail</div>
-                    <ul className="text-[#6B6B6B] space-y-0.5">
-                      {data.clusters.shortTail.map((k) => (
-                        <li key={k.keyword}>{k.keyword}{k.searchVolume != null ? ` (${k.searchVolume})` : ''}</li>
-                      ))}
-                      {data.clusters.shortTail.length === 0 && <li>No DataForSEO results — seed only</li>}
-                    </ul>
-                  </div>
-                  <div>
-                    <div className="font-medium mb-1">Long-tail</div>
-                    <ul className="text-[#6B6B6B] space-y-0.5">
-                      {data.clusters.longTail.map((k) => (
-                        <li key={k}>{k}</li>
-                      ))}
-                      {data.clusters.longTail.length === 0 && <li>No long-tail variants returned</li>}
-                    </ul>
-                  </div>
-                </div>
-              </div>
-
-              <div className="border border-[#E5E5E5] rounded-xl p-4 bg-white">
                 <div className="text-xs uppercase text-[#9B9B9B]">
-                  {data.brief.mode} brief
+                  {data.brief.mode} brief · seed “{data.brief.seedKeyword || data.seedKeyword}”
                   {data.brief.strippedInventedClaims ? ' · invented claims stripped' : ''}
                 </div>
                 <h2 className="text-xl font-semibold mt-1">{data.brief.suggestedTitle}</h2>
+                <p className="text-sm text-[#6B6B6B] mt-1">Intent: {data.brief.intent}</p>
                 <ul className="mt-3 text-sm text-[#6B6B6B] list-disc pl-5 space-y-1">
                   {data.brief.strategistNotes.map((n) => (
                     <li key={n}>{n}</li>
