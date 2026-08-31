@@ -62,4 +62,6 @@ pipeline, schema generation, image generation, or publisher adapters.
 - SEORANKO does not yet publish articles to a live public URL — Publisher
   Adapter foundation (src/lib/publisher-adapters/) exists but only the
   GitHub adapter has been tested against real credentials.
-- 11 Supabase tables still have Row Level Security disabled.
+- RLS for the former 11 unprotected tables is tracked in
+  `supabase/migrations/20260831130000_enable_rls_eleven_tables.sql`
+  (applied on hosted; see `docs/LIVE_SCHEMA_VERIFICATION_20260831.md`).
