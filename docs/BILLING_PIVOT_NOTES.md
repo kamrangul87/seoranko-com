@@ -23,3 +23,8 @@ Billing must be revisited in a follow-up; **this PR does not change Stripe/plans
   - Requires an active site connection (WP / Shopify / GitHub)
   - Rate-limited per site; every attempt logged + revertible
 - Do **not** implement plan checks, Stripe meters, or paywalls in this PR — only the connection permission gate
+
+## AI Visibility (citation check) — billing implication only
+- Weekly OpenAI + Perplexity checks with configurable `AI_VISIBILITY_PROMPT_CAP`
+- Per-run `cost_usd` is logged for unit economics — **not** billed in this pass
+- Likely a premium add-on later; no pricing logic here
