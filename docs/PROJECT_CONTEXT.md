@@ -104,7 +104,9 @@ Key ones by function:
 - **GEO/AEO:** `ai_citation_tests`, `scheduled_citation_tests`, `entity_cache`, `serp_intent_cache`
 - **Auth/usage:** `user_profiles`, `projects`, `saved_keywords`, `agent_logs`
 
-**Open issue:** 11 tables still have Row Level Security disabled — anyone with the anon key can read/write them. Not yet fixed.
+**RLS:** The former 11 unprotected tables are covered by
+`supabase/migrations/20260831130000_enable_rls_eleven_tables.sql` (applied on
+hosted; verification notes in `docs/LIVE_SCHEMA_VERIFICATION_20260831.md`).
 
 ---
 
