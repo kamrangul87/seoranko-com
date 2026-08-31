@@ -42,6 +42,8 @@ describe('Phase 10 — explainable score dimensions', () => {
     expect(board['Readability']).toBe('PASS')
     expect(board['Internal Linking']).toBe('PASS')
     expect(board['Editorial']).toBe('ADVISORY')
+    expect(board['Core Web Vitals']).toBe('PASS')
+    expect(result.dimensions).toHaveLength(8)
 
     expect(formatDimensionBoard(result)).toContain('Structured Data: FAIL')
     expect(formatDimensionBoard(result)).toContain('Editorial: ADVISORY')

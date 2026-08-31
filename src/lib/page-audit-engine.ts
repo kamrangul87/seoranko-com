@@ -11,6 +11,7 @@
 import { fetchPageSignals, scorePage, type AuditIssue, type PageSignals } from '@/lib/site-audit/scorer'
 import { detectSiteType, type SiteTypeDetection } from '@/lib/site-type-detector'
 import { runEcommerceAuditChecks, type EcommerceAuditIssue } from '@/lib/ecommerce-audit-checks'
+import { fetchCoreWebVitals, type CwVAuditIssue } from '@/lib/core-web-vitals'
 import {
   buildExplainableScore,
   type ExplainableScoreResult,
@@ -53,6 +54,19 @@ export interface PageAuditResult {
   >
   history: Array<{ auditedAt: string; score: number }>
   crawlNotes: string[]
+  coreWebVitals?: {
+    dataMode: 'field' | 'lab' | 'none'
+    labFallbackUsed: boolean
+    metrics: Array<{
+      id: string
+      label: string
+      value: number
+      unit: string
+      rating: string
+      source: string
+      displayValue: string
+    }>
+  }
 }
 
 function mapAuditIssue(issue: AuditIssue, index: number): PageAuditIssue {
@@ -100,6 +114,19 @@ function mapEcommerceIssue(issue: EcommerceAuditIssue): PageAuditIssue {
     remediation: issue.remediation,
     affectsDimensions: issue.affectsDimensions,
     blocking: issue.severity === 'critical',
+  }
+}
+
+function mapCwVIssue(issue: CwVAuditIssue): PageAuditIssue {
+  return {
+    id: issue.id,
+    severity: issue.severity,
+    category: issue.category,
+    title: issue.title,
+    description: issue.description,
+    remediation: issue.remediation,
+    affectsDimensions: issue.affectsDimensions,
+    blocking: issue.blocking ?? issue.severity === 'critical',
   }
 }
 
@@ -158,11 +185,27 @@ export async function runPageAudit(rawUrl: string): Promise<PageAuditResult> {
 
   const detection = detectSiteType(html || '', url)
   const scored = scorePage(signals, [signals])
-  const ecommerceIssues = runEcommerceAuditChecks(html || '', url, detection)
+  // Ecommerce checks only fire when site-type is ecommerce; CWV runs for every
+  // page (content + ecommerce) via the same PSI path.
+  const [ecommerceIssues, cwv] = await Promise.all([
+    Promise.resolve(runEcommerceAuditChecks(html || '', url, detection)),
+    fetchCoreWebVitals(url),
+  ])
+
+  if (cwv.labFallbackUsed) {
+    crawlNotes.push(
+      'Core Web Vitals: lab data only — insufficient real-user traffic for field data (Chrome UX Report).',
+    )
+  } else if (cwv.dataMode === 'field') {
+    crawlNotes.push('Core Web Vitals: Chrome UX Report field data from PageSpeed Insights.')
+  } else if (cwv.error) {
+    crawlNotes.push(`Core Web Vitals: ${cwv.error}`)
+  }
 
   const issues: PageAuditIssue[] = [
     ...scored.issues.map(mapAuditIssue),
     ...ecommerceIssues.map(mapEcommerceIssue),
+    ...cwv.issues.map(mapCwVIssue),
   ]
 
   const explainable = buildExplainableScore(issues)
@@ -218,5 +261,10 @@ export async function runPageAudit(rawUrl: string): Promise<PageAuditResult> {
     },
     history,
     crawlNotes,
+    coreWebVitals: {
+      dataMode: cwv.dataMode,
+      labFallbackUsed: cwv.labFallbackUsed,
+      metrics: cwv.metrics,
+    },
   }
 }

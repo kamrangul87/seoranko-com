@@ -43,6 +43,17 @@ interface AuditResult {
   }
   history: Array<{ auditedAt: string; score: number }>
   crawlNotes: string[]
+  coreWebVitals?: {
+    dataMode: string
+    labFallbackUsed: boolean
+    metrics: Array<{
+      id: string
+      label: string
+      displayValue: string
+      rating: string
+      source: string
+    }>
+  }
 }
 
 interface ConnectionStatus {
@@ -394,8 +405,28 @@ export default function AuditPage() {
                       <div>
                         <div className="font-medium">{d.label}</div>
                         <div className="text-xs text-[#6B6B6B]">{d.summary}</div>
+                        {d.id === 'core_web_vitals' && audit.coreWebVitals?.metrics && audit.coreWebVitals.metrics.length > 0 && (
+                          <div className="text-xs text-[#0F0F0F] mt-1">
+                            {audit.coreWebVitals.metrics
+                              .map((m) => `${m.label} ${m.displayValue} (${m.rating.replace(/_/g, ' ')}, ${m.source})`)
+                              .join(' · ')}
+                            {audit.coreWebVitals.labFallbackUsed
+                              ? ' · lab data only — insufficient real-user traffic for field data'
+                              : ''}
+                          </div>
+                        )}
                       </div>
-                      <div className={`text-sm font-medium ${d.status === 'FAIL' ? 'text-red-600' : d.status === 'REVIEW' ? 'text-amber-600' : 'text-green-700'}`}>
+                      <div
+                        className={`text-sm font-medium ${
+                          d.status === 'FAIL'
+                            ? 'text-red-600'
+                            : d.status === 'REVIEW'
+                              ? 'text-amber-600'
+                              : d.status === 'ADVISORY'
+                                ? 'text-[#6B6B6B]'
+                                : 'text-green-700'
+                        }`}
+                      >
                         {d.status}
                       </div>
                     </div>

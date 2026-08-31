@@ -3,6 +3,9 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { runPageAudit } from '@/lib/page-audit-engine'
 
+/** PSI Core Web Vitals can take 15–45s; keep headroom for crawl + ecommerce checks. */
+export const maxDuration = 120
+
 export async function POST(req: NextRequest) {
   try {
     const cookieStore = cookies()

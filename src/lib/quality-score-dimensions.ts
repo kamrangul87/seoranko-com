@@ -16,6 +16,7 @@ export type QualityDimensionId =
   | 'readability'
   | 'internal_linking'
   | 'editorial'
+  | 'core_web_vitals'
 
 export type DimensionStatus = 'PASS' | 'REVIEW' | 'FAIL' | 'ADVISORY'
 
@@ -88,6 +89,10 @@ const DIMENSION_META: Record<QualityDimensionId, { label: string; categories: st
   editorial: {
     label: 'Editorial',
     categories: ['word-count', 'brief-coverage', 'secondary-keyword-coverage'],
+  },
+  core_web_vitals: {
+    label: 'Core Web Vitals',
+    categories: ['core-web-vitals'],
   },
 }
 
