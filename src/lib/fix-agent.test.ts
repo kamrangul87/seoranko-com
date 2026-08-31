@@ -89,6 +89,41 @@ describe('fix-agent-classification', () => {
     expect(sch.autoKind).toBe('schema-product')
   })
 
+  it('demotes security headers for universal-tag but keeps them for WordPress/GitHub', () => {
+    const headerIssue = issue({
+      id: 'audit-security-0',
+      title: 'No X-Frame-Options header — clickjacking protection missing',
+      category: 'security',
+    })
+    const tag = classifyAuditIssue(headerIssue, { connectionType: 'universal-tag' })
+    expect(tag.fixability).toBe('human')
+    expect(tag.humanKind).toBe('requires-server')
+    expect(tag.fixPathHint).toMatch(/server access/i)
+
+    const wp = classifyAuditIssue(headerIssue, { connectionType: 'wordpress' })
+    expect(wp.fixability).toBe('auto')
+    expect(wp.autoKind).toBe('security-headers')
+
+    const gh = classifyAuditIssue(headerIssue, { connectionType: 'github' })
+    expect(gh.fixability).toBe('auto')
+    expect(gh.autoKind).toBe('security-headers')
+  })
+
+  it('demotes llms.txt for universal-tag (static file) but keeps schema auto', () => {
+    const llms = classifyAuditIssue(
+      issue({ id: 'audit-ai-0', title: 'No llms.txt file found', category: 'ai' }),
+      { connectionType: 'universal-tag' },
+    )
+    expect(llms.fixability).toBe('human')
+    expect(llms.humanKind).toBe('requires-server')
+
+    const schema = classifyAuditIssue(
+      issue({ id: 'x', title: 'No Organization schema', category: 'schema' }),
+      { connectionType: 'universal-tag' },
+    )
+    expect(schema.fixability).toBe('auto')
+  })
+
   it('splits a mixed list into auto vs human', () => {
     const list = classifyAuditIssues([
       issue({ id: 'audit-meta_title', title: 'Title tag too long', category: 'onpage' }),

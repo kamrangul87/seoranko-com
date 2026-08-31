@@ -15,6 +15,7 @@ import { getAdapter } from './site-adapters'
 import type { CMSAdapter, FixApplyResult, PageContent, SiteCredentials } from './site-adapters/types'
 import {
   classifyAuditIssues,
+  describeFixableScope,
   type AutoFixKind,
   type ClassifiedIssue,
 } from './fix-agent-classification'
@@ -72,6 +73,8 @@ export interface FixAgentRunResult {
   siteId?: string
   domain?: string
   cmsType?: string
+  /** Plain description of what this connection can actually auto-fix. */
+  fixableScope?: string
   scoreBefore?: number
   scoreAfter?: number
   classified: {
@@ -461,6 +464,16 @@ function humanTaskFrom(classified: ClassifiedIssue): FixAgentHumanTask {
       suggestedAction: 'Plan internal links editorially (which pages should link where) — not auto-applied.',
     }
   }
+  if (kind === 'requires-server') {
+    return {
+      kind,
+      title: classified.issue.title,
+      reason: classified.reason,
+      suggestedAction:
+        classified.fixPathHint ||
+        'Connect via WordPress, Shopify, or GitHub (not Universal Tag) to auto-fix, or apply manually in hosting/CMS config.',
+    }
+  }
   return {
     kind,
     title: classified.issue.title,
@@ -519,7 +532,7 @@ export async function runFixAgent(opts: {
     }
   }
 
-  const classified = classifyAuditIssues(opts.issues)
+  const classified = classifyAuditIssues(opts.issues, { connectionType: owned.cmsType })
   const autoIssues = classified.filter((c) => c.fixability === 'auto' && c.autoKind)
   const humanIssues = classified.filter((c) => c.fixability === 'human')
   const skipCount = classified.filter((c) => c.fixability === 'skip').length
@@ -853,6 +866,7 @@ export async function runFixAgent(opts: {
     siteId: owned.siteId,
     domain: owned.domain,
     cmsType: owned.cmsType,
+    fixableScope: describeFixableScope(owned.cmsType),
     scoreBefore,
     scoreAfter,
     message: anyPending

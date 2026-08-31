@@ -10,7 +10,10 @@ Settings → Your Sites → Connect (existing `ConnectSiteModal`). Credentials a
 ## Classification
 | Auto-fixable | Human / brief |
 |---|---|
-| Meta title/description, H1, JSON-LD, lang, alt (filename + review flag), llms.txt, HTML structure, security headers (hand-off if host config unsupported) | Thin content, internal linking, factual claims (price/stock/policy) |
+| Meta title/description, H1, JSON-LD, lang, alt (filename + review flag), HTML structure | Thin content, internal linking, factual claims (price/stock/policy) |
+| Security headers + llms.txt — **only** on WordPress / Shopify / Webflow / GitHub | Same items on **Universal Tag** → `requires-server` (tag cannot set HTTP headers or write static files) |
+
+Connection type is passed into `classifyAuditIssues({ connectionType })`. The audit UI and Fix Agent confirm dialog list only what that connector can actually apply.
 
 ## Runtime
 `POST /api/copilot/fix-agent` with `{ url, siteId, issues, confirm: true }`  
