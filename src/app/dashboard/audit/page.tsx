@@ -130,10 +130,13 @@ function classifyClientSide(
   }
 
   if (
-    /title tag|meta title|meta description|missing h1|organization schema|article schema|product schema|breadcrumb|lang attribute|alt text|html structure|ecom-product|ecom-offer|ecom-image-alt|ecom-breadcrumb|ecom-category-missing-h1|ecom-title-templated/i.test(
+    /title tag|meta title|title too (long|short)|meta_title|audit-meta_title|meta description|missing h1|no structured data|organization schema|article schema|product schema|breadcrumb|lang attribute|alt text|html structure|ecom-product|ecom-offer|ecom-image-alt|ecom-breadcrumb|ecom-category-missing-h1|ecom-title-templated/i.test(
       hay,
     )
   ) {
+    return { label: 'auto' }
+  }
+  if (issue.category === 'schema' && issue.severity !== 'info' && !/review|rating/i.test(hay)) {
     return { label: 'auto' }
   }
   if (issue.severity === 'info') return { label: 'skip' }

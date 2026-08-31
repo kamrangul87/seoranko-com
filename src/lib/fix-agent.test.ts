@@ -78,6 +78,21 @@ describe('fix-agent-classification', () => {
     expect(c.autoKind).toBe('meta-description')
   })
 
+  it('marks Site Audit scorer title messages as auto-fixable (not only "title tag" copy)', () => {
+    for (const title of [
+      'Title too long (89 chars) — will be truncated in Google results',
+      'Title too short (22 chars) — add more context and keyword',
+      'Missing title tag — fundamental SEO requirement',
+    ]) {
+      const c = classifyAuditIssue(
+        issue({ id: 'audit-meta_title-0', title, category: 'onpage' }),
+        { connectionType: 'github' },
+      )
+      expect(c.fixability, title).toBe('auto')
+      expect(c.autoKind, title).toBe('meta-title')
+    }
+  })
+
   it('marks missing H1 and schema as auto-fixable', () => {
     const h1 = classifyAuditIssue(
       issue({ id: 'ecom-category-missing-h1', title: 'Category page missing H1', category: 'onpage' }),
@@ -126,7 +141,11 @@ describe('fix-agent-classification', () => {
 
   it('splits a mixed list into auto vs human', () => {
     const list = classifyAuditIssues([
-      issue({ id: 'audit-meta_title', title: 'Title tag too long', category: 'onpage' }),
+      issue({
+        id: 'audit-meta_title-0',
+        title: 'Title too long (89 chars) — will be truncated in Google results',
+        category: 'onpage',
+      }),
       issue({ id: 'ecom-description-thin', title: 'Thin content', category: 'content' }),
       issue({ id: 'x', title: 'No Organization schema', category: 'schema' }),
     ])

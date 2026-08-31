@@ -100,7 +100,10 @@ const THIN_RE = /thin content|low word count|lacks indexable copy|thin product d
 const INTERNAL_LINK_RE = /internal link|related-product linking|orphan|link strategy/i
 const FACTUAL_RE = /availability mismatch|pricing|stock claim|policy statement|invent/i
 
-const META_TITLE_RE = /title tag|meta title|weak \/ templated product title|missing title/i
+// Match Site Audit scorer copy ("Title too long…") and stable audit-meta_title ids —
+// not only "title tag" phrasing (see fix-agent.test.ts scorer-message cases).
+const META_TITLE_RE =
+  /title tag|meta title|title too (long|short)|weak \/ templated product title|missing title|meta_title|audit-meta_title/i
 const META_DESC_RE = /meta description|description too (short|long)|thin meta/i
 const H1_RE = /missing h1|no h1|h1 missing|category page missing h1/i
 const SCHEMA_ORG_RE = /organization schema|missing organization/i
