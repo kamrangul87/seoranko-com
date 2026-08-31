@@ -5,7 +5,18 @@
 - **Fix Agent** only when the audited host matches a `connected_sites` row **and** an active `site_connections` credential (WordPress / Shopify / GitHub / Webflow / Universal Tag)
 
 ## Connect flow
-Settings → Your Sites → Connect (existing `ConnectSiteModal`). Credentials are verified via the platform adapter, then stored as AES-256-GCM (`credentials_ciphertext` / `enc:v1:…`). Set `SITE_CONNECTION_ENCRYPTION_KEY` (or rely on service-role key derivation).
+Settings → Your Sites → **Connect site** / **Change connection**.
+`ConnectSiteModal` always shows a platform picker: **GitHub**, WordPress, Shopify,
+Webflow, and Universal Tag (script fallback). Existing connections can be switched
+(e.g. Universal Tag → GitHub) — credentials are re-verified via the platform adapter
+before upserting `site_connections`.
+
+Stored as AES-256-GCM (`credentials_ciphertext` / `enc:v1:…`). Set
+`SITE_CONNECTION_ENCRYPTION_KEY` (or rely on service-role key derivation).
+
+**GitHub tip:** use the repository that builds the live domain (not this SEORANKO
+app repo). For example, a Vercel-hosted marketing site usually has its own repo
+with `index.html` / `public/**/*.html` sources the Fix Agent can edit.
 
 ## Classification
 | Auto-fixable | Human / brief |

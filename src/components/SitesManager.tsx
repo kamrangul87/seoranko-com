@@ -113,7 +113,7 @@ export function SitesManager() {
         <div>
           <h3 className="text-base font-semibold text-gray-900">Your Sites</h3>
           <p className="text-xs text-gray-500 mt-0.5">
-            RANKO Diagnose, Audit, and Cannibalisation all run against your connected sites — never a placeholder.
+            Connect via GitHub, WordPress, Shopify, Webflow, or Universal Tag so Audit Fix Agent can apply changes on sites you own.
           </p>
         </div>
         <button
@@ -188,7 +188,9 @@ export function SitesManager() {
                   : 'text-blue-600 hover:text-blue-700'}`}
               >
                 {connections[site.id]
-                  ? `✓ ${connections[site.id].cms_type === 'universal-tag' ? 'Tag installed' : connections[site.id].cms_type} connected`
+                  ? connections[site.id].cms_type === 'universal-tag'
+                    ? '✓ Tag installed · Change connection'
+                    : `✓ ${connections[site.id].cms_type} · Change connection`
                   : 'Connect site'}
               </button>
               {!site.isPrimary && (
@@ -219,6 +221,7 @@ export function SitesManager() {
           siteId={connectTarget.id}
           domain={connectTarget.domain}
           universalTagToken={connectTarget.token}
+          currentCmsType={connections[connectTarget.id]?.cms_type || null}
           onClose={() => setConnectTarget(null)}
           onConnected={load}
         />
