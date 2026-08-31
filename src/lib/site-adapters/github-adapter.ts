@@ -80,43 +80,80 @@ function urlSegments(url: string): string[] {
 /**
  * Map a live URL to its source file. Scored rather than fuzzy-substring:
  * a wrong match here means committing into an unrelated file.
+ *
+ * Supports:
+ * - /blog/slug → …/blog/slug.html or …/blog/slug.md
+ * - /contact → …/contact/index.html (directory index)
+ * - / → shallowest index.html / index.md
  */
-function findBestMatch(files: GHFile[], url: string): GHFile | null {
+export function findBestGithubSourceMatch(
+  files: Array<{ path: string }>,
+  url: string,
+): { path: string } | null {
   const segs = urlSegments(url)
-  const editable = files.filter(f => HTML_SAFE.test(f.path))
+  const editable = files.filter((f) => HTML_SAFE.test(f.path))
   if (editable.length === 0) return null
 
-  // Site root -> an index file as close to the root as possible.
+  // Prefer public/ assets when both public/foo.html and content/foo.html exist
+  // (Vite/static sites serve from public/).
+  const preferPublic = (a: string, b: string) => {
+    const ap = a.startsWith('public/') ? 1 : 0
+    const bp = b.startsWith('public/') ? 1 : 0
+    return bp - ap
+  }
+
   if (segs.length === 0) {
     const indexes = editable
-      .filter(f => /(^|\/)index\.(html?|md|mdx)$/i.test(f.path))
-      .sort((a, b) => a.path.split('/').length - b.path.split('/').length)
-    return indexes[0] ?? null
+      .filter((f) => /(^|\/)index\.(html?|md|mdx)$/i.test(f.path))
+      .sort((a, b) => {
+        const depth = a.path.split('/').length - b.path.split('/').length
+        if (depth !== 0) return depth
+        return preferPublic(a.path, b.path)
+      })
+    // Prefer root index.html / public/index.html over nested marketing indexes.
+    const rootish = indexes.find(
+      (f) =>
+        /^index\.(html?|md|mdx)$/i.test(f.path) ||
+        /^public\/index\.(html?|md|mdx)$/i.test(f.path),
+    )
+    return rootish ?? indexes[0] ?? null
   }
 
   const slug = segs[segs.length - 1].toLowerCase()
   const norm = (s: string) => s.toLowerCase().replace(/[-_]/g, '')
 
-  const scored = editable.map(f => {
-    const base = f.path.split('/').pop()!.replace(/\.(html?|md|mdx)$/i, '')
-    const dir = f.path.split('/').slice(0, -1)
-    let score = 0
+  const scored = editable
+    .map((f) => {
+      const parts = f.path.split('/')
+      const base = parts[parts.length - 1]!.replace(/\.(html?|md|mdx)$/i, '')
+      const parent = parts.length >= 2 ? parts[parts.length - 2]! : ''
+      const dir = parts.slice(0, -1)
+      let score = 0
 
-    if (base.toLowerCase() === slug) score += 100                    // exact filename
-    else if (norm(base) === norm(slug)) score += 80                  // ignoring -/_
-    else return { f, score: 0 }                                      // require a real filename hit
+      if (base.toLowerCase() === slug) score += 100
+      else if (norm(base) === norm(slug)) score += 80
+      else if (/^index$/i.test(base) && parent.toLowerCase() === slug) score += 95
+      else if (/^index$/i.test(base) && norm(parent) === norm(slug)) score += 75
+      else return { f, score: 0 }
 
-    // Bonus when the parent directories also match the URL path.
-    for (const seg of segs.slice(0, -1)) {
-      if (dir.some(d => norm(d) === norm(seg))) score += 10
-    }
-    score -= f.path.split('/').length                                // prefer shallower
-    return { f, score }
-  }).filter(x => x.score > 0)
+      for (const seg of segs.slice(0, -1)) {
+        if (dir.some((d) => norm(d) === norm(seg))) score += 10
+      }
+      if (f.path.startsWith('public/')) score += 5
+      score -= f.path.split('/').length
+      return { f, score }
+    })
+    .filter((x) => x.score > 0)
 
   if (scored.length === 0) return null
   scored.sort((a, b) => b.score - a.score)
   return scored[0].f
+}
+
+function findBestMatch(files: GHFile[], url: string): GHFile | null {
+  const hit = findBestGithubSourceMatch(files, url)
+  if (!hit) return null
+  return files.find((f) => f.path === hit.path) || null
 }
 
 async function getFileContent(
@@ -379,14 +416,21 @@ export const githubAdapter: CMSAdapter = {
     const invalid = validCreds(creds)
     if (invalid) return { success: false, error: invalid }
 
-    const path = relativePath.replace(/^\/+/, '')
+    let path = relativePath.replace(/^\/+/, '')
     if (!/^[a-zA-Z0-9._\/-]+$/.test(path) || path.includes('..')) {
       return { success: false, error: 'Invalid static file path.' }
     }
 
+    // Vite / static sites serve from public/ — prefer that when it exists.
+    if (!path.startsWith('public/') && /^(llms\.txt|robots\.txt)$/i.test(path)) {
+      const tree = await getRepoTree(creds)
+      if (tree.some((f) => f.path === `public/${path}` || f.path.startsWith('public/'))) {
+        path = `public/${path}`
+      }
+    }
+
     const existing = await getFileContent(creds, path)
     const sha = existing?.sha || ''
-    // Creating a new file: GitHub Contents API accepts PUT without sha
     const branch = creds.branch || 'main'
     const headers = ghHeaders(creds.accessToken!)
     try {

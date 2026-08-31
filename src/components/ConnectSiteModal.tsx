@@ -1,7 +1,6 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-// Inline SVG icons (lucide-react not installed)
 function IconCopy({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -18,111 +17,165 @@ function IconCheck({ className }: { className?: string }) {
   )
 }
 
-// What detectCMS reports…
 type DetectedPlatform = 'wordpress' | 'shopify' | 'webflow' | 'unknown'
-// …vs the adapter name we persist. 'unknown' maps to 'universal-tag'.
-type ConnectPlatform = 'wordpress' | 'shopify' | 'webflow' | 'github' | 'universal-tag'
+export type ConnectPlatform = 'wordpress' | 'shopify' | 'webflow' | 'github' | 'universal-tag'
 
 interface Field { key: string; label: string; placeholder: string; secret?: boolean; optional?: boolean }
 
-const PLATFORM_FIELDS: Record<string, { label: string; help: React.ReactNode; fields: Field[]; footnote?: string }> = {
+const PLATFORM_ORDER: ConnectPlatform[] = ['github', 'wordpress', 'shopify', 'webflow', 'universal-tag']
+
+const PLATFORM_META: Record<ConnectPlatform, { label: string; short: string; blurb: string }> = {
+  github: {
+    label: 'GitHub',
+    short: 'GitHub',
+    blurb: 'Best for Vercel/Netlify/static sites. Fix Agent can commit schema, meta, and llms.txt.',
+  },
   wordpress: {
     label: 'WordPress',
+    short: 'WordPress',
+    blurb: 'Application Passwords — no plugin required (Editor or Administrator).',
+  },
+  shopify: {
+    label: 'Shopify',
+    short: 'Shopify',
+    blurb: 'Custom app Admin API token with read_content + write_content.',
+  },
+  webflow: {
+    label: 'Webflow',
+    short: 'Webflow',
+    blurb: 'Data API v2 site token with CMS read/write.',
+  },
+  'universal-tag': {
+    label: 'Universal Tag',
+    short: 'Script tag',
+    blurb: 'Fallback only — injects schema in the browser. Cannot set HTTP headers or write static files.',
+  },
+}
+
+const PLATFORM_FIELDS: Record<Exclude<ConnectPlatform, 'universal-tag'>, { help: React.ReactNode; fields: Field[]; footnote?: string }> = {
+  wordpress: {
     help: (
       <>
-        Uses WordPress&rsquo;s built-in Application Passwords — no plugin needed.
         In WP Admin: <strong>Users → Profile → Application Passwords</strong> → create one named &ldquo;SEORANKO&rdquo;.
         The account needs <strong>Editor</strong> or <strong>Administrator</strong> permissions.
       </>
     ),
     fields: [
       { key: 'username', label: 'WordPress username', placeholder: 'admin' },
-      { key: 'appPassword', label: 'Application Password', placeholder: 'xxxx xxxx xxxx xxxx xxxx xxxx', secret: true }
-    ]
+      { key: 'appPassword', label: 'Application Password', placeholder: 'xxxx xxxx xxxx xxxx xxxx xxxx', secret: true },
+    ],
   },
   shopify: {
-    label: 'Shopify',
     help: (
       <>
         Create a Custom App in <strong>Shopify Admin → Settings → Apps → Develop apps</strong>,
-        then install it and copy the Admin API access token. It needs the
-        <strong> read_content</strong> and <strong>write_content</strong> scopes.
+        install it, and copy the Admin API access token with
+        <strong> read_content</strong> and <strong>write_content</strong>.
       </>
     ),
     fields: [
       { key: 'shopDomain', label: 'Store domain', placeholder: 'your-store.myshopify.com' },
-      { key: 'accessToken', label: 'Admin API access token', placeholder: 'shpat_…', secret: true }
-    ]
+      { key: 'accessToken', label: 'Admin API access token', placeholder: 'shpat_…', secret: true },
+    ],
   },
   github: {
-    label: 'GitHub',
     help: (
       <>
-        Create a token at{' '}
+        Create a fine-grained token at{' '}
         <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
-          github.com/settings/personal-access-tokens/new
+          github.com/settings/tokens
         </a>{' '}
-        — fine-grained, scoped to this one repository, with{' '}
-        <strong>Contents: Read and write</strong> and <strong>Pull requests: Read and write</strong>.
+        scoped to the repository that builds this live site, with{' '}
+        <strong>Contents: Read and write</strong> (and Pull requests: Read and write for review-required fixes).
       </>
     ),
     fields: [
-      { key: 'owner', label: 'Owner', placeholder: 'kamrangul87' },
-      { key: 'repo', label: 'Repository', placeholder: 'autodun-site' },
+      { key: 'owner', label: 'GitHub owner / org', placeholder: 'your-github-org' },
+      { key: 'repo', label: 'Repository name', placeholder: 'your-site-repo' },
       { key: 'branch', label: 'Branch', placeholder: 'main', optional: true },
-      { key: 'accessToken', label: 'Access token', placeholder: 'github_pat_…', secret: true }
+      { key: 'accessToken', label: 'Access token', placeholder: 'github_pat_…', secret: true },
     ],
-    footnote: 'Safe fixes (schema) commit directly. Visible content changes open a Pull Request for you to review and merge.'
+    footnote: 'Safe fixes (schema, llms.txt) commit directly. Visible content changes open a Pull Request for review.',
   },
   webflow: {
-    label: 'Webflow',
     help: (
       <>
         Generate a token in <strong>Webflow → Site Settings → Apps &amp; Integrations → API Access</strong>.
-        It needs CMS read/write and site publish permissions. The Site ID is on the same screen.
+        It needs CMS read/write and site publish permissions.
       </>
     ),
     fields: [
       { key: 'siteId', label: 'Webflow Site ID', placeholder: '64f…' },
-      { key: 'apiToken', label: 'API token', placeholder: 'Bearer token', secret: true }
-    ]
-  }
+      { key: 'apiToken', label: 'API token', placeholder: 'Bearer token', secret: true },
+    ],
+  },
+}
+
+function detectedToConnect(p: DetectedPlatform): ConnectPlatform | null {
+  if (p === 'wordpress' || p === 'shopify' || p === 'webflow') return p
+  return null
 }
 
 export function ConnectSiteModal({
-  siteId, domain, universalTagToken, onClose, onConnected
+  siteId,
+  domain,
+  universalTagToken,
+  currentCmsType,
+  onClose,
+  onConnected,
 }: {
   siteId: string
   domain: string
   universalTagToken?: string | null
+  /** Existing connection — modal opens ready to switch platforms. */
+  currentCmsType?: string | null
   onClose: () => void
   onConnected: () => void
 }) {
   const [detecting, setDetecting] = useState(true)
-  const [platform, setPlatform] = useState<DetectedPlatform>('unknown')
+  const [detected, setDetected] = useState<DetectedPlatform>('unknown')
+  const [platform, setPlatform] = useState<ConnectPlatform | null>(
+    currentCmsType && PLATFORM_ORDER.includes(currentCmsType as ConnectPlatform)
+      ? (currentCmsType as ConnectPlatform)
+      : null,
+  )
   const [values, setValues] = useState<Record<string, string>>({})
   const [connecting, setConnecting] = useState(false)
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null)
   const [copied, setCopied] = useState(false)
-  // GitHub can't be detected from a live page, so it's always a manual choice.
-  const [manualPlatform, setManualPlatform] = useState<ConnectPlatform | null>(null)
 
   useEffect(() => {
     let cancelled = false
     fetch('/api/ranko/detect-cms', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domain })
+      body: JSON.stringify({ domain }),
     })
-      .then(r => r.json())
-      .then(data => {
+      .then((r) => r.json())
+      .then((data) => {
         if (cancelled) return
-        setPlatform(data.platform || 'unknown')
+        const d = (data.platform || 'unknown') as DetectedPlatform
+        setDetected(d)
         setDetecting(false)
+        // Only auto-select detection when the user has no existing connection.
+        setPlatform((prev) => {
+          if (prev) return prev
+          if (currentCmsType && PLATFORM_ORDER.includes(currentCmsType as ConnectPlatform)) {
+            return currentCmsType as ConnectPlatform
+          }
+          return detectedToConnect(d)
+        })
       })
-      .catch(() => { if (!cancelled) { setPlatform('unknown'); setDetecting(false) } })
-    return () => { cancelled = true }
-  }, [domain])
+      .catch(() => {
+        if (!cancelled) {
+          setDetected('unknown')
+          setDetecting(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [domain, currentCmsType])
 
   async function handleConnect(target: ConnectPlatform) {
     setConnecting(true)
@@ -131,12 +184,12 @@ export function ConnectSiteModal({
       const res = await fetch('/api/ranko/connect-site', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ siteId, domain, platform: target, credentials: values })
+        body: JSON.stringify({ siteId, domain, platform: target, credentials: values }),
       })
       const data = await res.json()
       setResult({ success: Boolean(data.success), message: data.message || data.error || 'Connection failed' })
       if (data.success) {
-        setValues({})          // don't retain credentials in component state
+        setValues({})
         onConnected()
         setTimeout(onClose, 1500)
       }
@@ -146,6 +199,12 @@ export function ConnectSiteModal({
       setConnecting(false)
     }
   }
+
+  const snippet = useMemo(() => {
+    if (!universalTagToken) return ''
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    return `<script src="${origin}/api/universal-tag/${universalTagToken}" async></script>`
+  }, [universalTagToken])
 
   const shell = (children: React.ReactNode) => (
     <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50 p-4">
@@ -157,129 +216,142 @@ export function ConnectSiteModal({
     return shell(
       <div className="py-6 text-center text-sm text-gray-500">
         Detecting {domain}&rsquo;s platform…
-      </div>
+      </div>,
     )
   }
 
-  const effective: string = manualPlatform ?? platform
-  const config = PLATFORM_FIELDS[effective]
-
-  if (config) {
-    const allFilled = config.fields.every(f => f.optional || values[f.key]?.trim())
-    return shell(
-      <>
-        <h3 className="text-sm font-semibold mb-1">Connect {domain}</h3>
-        <p className="text-xs text-gray-500 mb-1">
-          {manualPlatform ? <>Connecting via <strong>{config.label}</strong>.</> : <>Detected <strong>{config.label}</strong>.</>}
-        </p>
-        <p className="text-xs text-gray-500 mb-4">{config.help}</p>
-
-        {config.fields.map(f => (
-          <div key={f.key} className="mb-2">
-            <label className="text-xs text-gray-500 mb-1 block">{f.label}</label>
-            <input
-              type={f.secret ? 'password' : 'text'}
-              placeholder={f.placeholder}
-              value={values[f.key] || ''}
-              onChange={e => setValues(v => ({ ...v, [f.key]: e.target.value }))}
-              autoComplete="off"
-              className={`w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400 ${f.secret ? 'font-mono' : ''}`}
-            />
-          </div>
-        ))}
-
-        {result && (
-          <p className={`text-xs my-2 ${result.success ? 'text-green-600' : 'text-red-600'}`}>{result.message}</p>
-        )}
-
-        <div className="flex gap-2 mt-3">
-          <button
-            onClick={() => handleConnect(effective as ConnectPlatform)}
-            disabled={connecting || !allFilled}
-            className="flex-1 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
-          >
-            {connecting ? 'Verifying…' : 'Connect'}
-          </button>
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
-        </div>
-
-        {config.footnote && <p className="text-xs text-gray-400 mt-3">{config.footnote}</p>}
-
-        <button
-          onClick={() => { setManualPlatform(null); setPlatform('unknown'); setValues({}); setResult(null) }}
-          className="mt-3 text-xs text-gray-400 hover:text-gray-600 underline block"
-        >
-          Not {config.label}? Choose another method
-        </button>
-      </>
-    )
-  }
-
-  // Universal Tag fallback — works on anything
-  const snippet = universalTagToken
-    ? `<script src="${typeof window !== 'undefined' ? window.location.origin : ''}/api/universal-tag/${universalTagToken}" async></script>`
-    : ''
+  const switching = Boolean(currentCmsType)
+  const config = platform && platform !== 'universal-tag' ? PLATFORM_FIELDS[platform] : null
 
   return shell(
     <>
-      <h3 className="text-sm font-semibold mb-1">Connect {domain}</h3>
-
-      {/* GitHub isn't detectable from a live page, so offer it explicitly. */}
-      <div className="flex gap-2 mb-4 mt-2">
-        <button
-          className="text-xs px-3 py-1.5 rounded-lg border bg-orange-500 text-white border-orange-500"
-        >
-          Paste a script tag
-        </button>
-        <button
-          onClick={() => { setManualPlatform('github'); setValues({}); setResult(null) }}
-          className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:border-gray-300"
-        >
-          My site is on GitHub
-        </button>
-      </div>
-
-      <p className="text-xs text-gray-500 mb-4">
-        We couldn&rsquo;t detect WordPress, Shopify or Webflow — no problem.
-        Paste this one line into your site&rsquo;s <code>&lt;head&gt;</code>
-        (works on Wix, Squarespace, Framer, or any custom-built site):
-      </p>
-
-      {snippet ? (
-        <div className="bg-gray-900 text-gray-100 rounded-lg p-3 pr-10 font-mono text-xs relative break-all">
-          {snippet}
-          <button
-            onClick={() => { navigator.clipboard.writeText(snippet); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
-            className="absolute top-2 right-2 text-gray-400 hover:text-white"
-            aria-label="Copy snippet"
-          >
-            {copied ? <IconCheck className="w-4 h-4 text-green-400" /> : <IconCopy className="w-4 h-4" />}
-          </button>
-        </div>
-      ) : (
-        <p className="text-xs text-red-600">Could not load this site&rsquo;s tag token — try reopening this dialog.</p>
+      <h3 className="text-sm font-semibold mb-1">
+        {switching ? 'Change connection for' : 'Connect'} {domain}
+      </h3>
+      {switching && (
+        <p className="text-xs text-amber-800 bg-amber-50 rounded px-2 py-1.5 mb-3">
+          Currently connected via <strong>{PLATFORM_META[currentCmsType as ConnectPlatform]?.label || currentCmsType}</strong>.
+          Pick a different connector below to replace it (credentials are re-verified before saving).
+        </p>
+      )}
+      {detected !== 'unknown' && (
+        <p className="text-xs text-gray-500 mb-2">
+          Auto-detected: <strong>{PLATFORM_META[detected]?.label || detected}</strong> — you can still choose GitHub or another method.
+        </p>
+      )}
+      {detected === 'unknown' && !switching && (
+        <p className="text-xs text-gray-500 mb-2">
+          No WordPress/Shopify/Webflow fingerprint found. For Vercel/Next/Vite sites, choose <strong>GitHub</strong> so Fix Agent can commit real fixes.
+        </p>
       )}
 
-      <p className="text-xs text-gray-400 mt-3">
-        Schema fixes are injected in the browser when the page loads. Googlebot renders
-        JavaScript, so this is valid — but it won&rsquo;t appear in a plain
-        &ldquo;view source&rdquo;. Verify with Google&rsquo;s Rich Results Test.
-      </p>
+      <p className="text-xs font-medium text-gray-700 mb-2">Connection type</p>
+      <div className="grid grid-cols-2 gap-2 mb-4">
+        {PLATFORM_ORDER.map((p) => {
+          const meta = PLATFORM_META[p]
+          const selected = platform === p
+          const isCurrent = currentCmsType === p
+          return (
+            <button
+              key={p}
+              type="button"
+              onClick={() => {
+                setPlatform(p)
+                setValues({})
+                setResult(null)
+              }}
+              className={`text-left rounded-lg border px-3 py-2 transition-colors ${
+                selected
+                  ? 'border-orange-500 bg-orange-50 text-gray-900'
+                  : 'border-gray-200 text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <div className="text-xs font-semibold">
+                {meta.short}
+                {isCurrent ? ' · current' : ''}
+              </div>
+              <div className="text-[11px] text-gray-500 mt-0.5 leading-snug">{meta.blurb}</div>
+            </button>
+          )
+        })}
+      </div>
+
+      {!platform && (
+        <p className="text-xs text-gray-500 mb-3">Select a connection type to continue.</p>
+      )}
+
+      {platform === 'universal-tag' && (
+        <>
+          <p className="text-xs text-gray-500 mb-3">{PLATFORM_META['universal-tag'].blurb}</p>
+          {snippet ? (
+            <div className="bg-gray-900 text-gray-100 rounded-lg p-3 pr-10 font-mono text-xs relative break-all mb-3">
+              {snippet}
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(snippet)
+                  setCopied(true)
+                  setTimeout(() => setCopied(false), 2000)
+                }}
+                className="absolute top-2 right-2 text-gray-400 hover:text-white"
+                aria-label="Copy snippet"
+              >
+                {copied ? <IconCheck className="w-4 h-4 text-green-400" /> : <IconCopy className="w-4 h-4" />}
+              </button>
+            </div>
+          ) : (
+            <p className="text-xs text-red-600 mb-3">Could not load this site&rsquo;s tag token — try reopening this dialog.</p>
+          )}
+        </>
+      )}
+
+      {config && platform && (
+        <>
+          <p className="text-xs text-gray-500 mb-3">{config.help}</p>
+          {config.fields.map((f) => (
+            <div key={f.key} className="mb-2">
+              <label className="text-xs text-gray-500 mb-1 block">{f.label}</label>
+              <input
+                type={f.secret ? 'password' : 'text'}
+                placeholder={f.placeholder}
+                value={values[f.key] || ''}
+                onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                autoComplete="off"
+                className={`w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400 ${f.secret ? 'font-mono' : ''}`}
+              />
+            </div>
+          ))}
+          {config.footnote && <p className="text-xs text-gray-400 mt-1 mb-2">{config.footnote}</p>}
+        </>
+      )}
 
       {result && (
-        <p className={`text-xs mt-2 ${result.success ? 'text-green-600' : 'text-red-600'}`}>{result.message}</p>
+        <p className={`text-xs my-2 ${result.success ? 'text-green-600' : 'text-red-600'}`}>{result.message}</p>
       )}
 
-      <div className="flex gap-2 mt-4">
+      <div className="flex gap-2 mt-3">
         <button
-          onClick={() => handleConnect('universal-tag')}
-          disabled={connecting || !snippet}
+          onClick={() => platform && void handleConnect(platform)}
+          disabled={
+            connecting ||
+            !platform ||
+            (platform === 'universal-tag'
+              ? !snippet
+              : !config?.fields.every((f) => f.optional || values[f.key]?.trim()))
+          }
           className="flex-1 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
         >
-          {connecting ? 'Saving…' : 'I\'ve pasted it — enable fixes'}
+          {connecting
+            ? 'Verifying…'
+            : platform === 'universal-tag'
+              ? "I've pasted it — enable tag"
+              : switching
+                ? `Switch to ${PLATFORM_META[platform!]?.label || 'connector'}`
+                : `Connect ${PLATFORM_META[platform!]?.label || ''}`}
         </button>
-        <button onClick={onClose} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+        <button onClick={onClose} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">
+          Cancel
+        </button>
       </div>
-    </>
+    </>,
   )
 }
