@@ -8,6 +8,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { MODEL_FOR } from '@/lib/model-router'
 import { stripUnsourcedNumericClaims } from '@/lib/unsourced-numeric-stripper'
+import { applyCitationGapToBrief, citationGapRequestNotes } from '@/lib/ai-visibility/citation-gap-brief'
 
 export type BriefMode = 'content' | 'product' | 'category'
 
@@ -235,6 +236,14 @@ export async function generateContentBrief(input: {
   mode?: BriefMode
   secondaryKeywords?: string[]
   market?: string
+  /** Pre-fill only — does not change seed-only generation for ordinary briefs. */
+  citationGap?: {
+    resultId: string
+    prompt: string
+    engine: string
+    finding: string
+    gaps: string[]
+  }
 }): Promise<ContentBrief> {
   const seed = input.seedKeyword.trim()
   if (!seed) throw new Error('seedKeyword is required')
@@ -242,37 +251,47 @@ export async function generateContentBrief(input: {
   const market = input.market || 'Global'
   const secondaries = (input.secondaryKeywords || []).slice(0, 8)
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return stripInventedClaimsFromBrief(fallbackBrief(seed, mode))
-  }
+  const gapNotes = input.citationGap
+    ? `\n\n${citationGapRequestNotes(input.citationGap)}`
+    : ''
 
-  try {
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-    const response = await client.messages.create({
-      model: MODEL_FOR.contentBrief,
-      max_tokens: 2000,
-      system: `You are an experienced SEO strategist writing INTERNAL BRIEFING NOTES for a human writer.
+  let brief: ContentBrief
+  if (!process.env.ANTHROPIC_API_KEY) {
+    brief = stripInventedClaimsFromBrief(fallbackBrief(seed, mode))
+  } else {
+    try {
+      const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+      const response = await client.messages.create({
+        model: MODEL_FOR.contentBrief,
+        max_tokens: 2000,
+        system: `You are an experienced SEO strategist writing INTERNAL BRIEFING NOTES for a human writer.
 NEVER write finished publishable prose.
 NEVER invent prices, stock levels, SKUs, GTINs, percentages, grant amounts, or specific specs.
 Output JSON only with keys: suggestedTitle, intent, strategistNotes (string[]), sections (array of {heading, level: h1|h2|h3, guidance, primaryKeywordPlacement?, secondaryKeywordPlacement?, needsCitation: boolean, citationNote?}).
 Guidance must tell WHAT to cover and WHY — not the finished answer.
 When a section would need a real figure or policy claim, set needsCitation true and explain what source the human must add.
 Mode: ${mode}. Market context: ${market}.`,
-      messages: [
-        {
-          role: 'user',
-          content: `Seed keyword: "${seed}"
+        messages: [
+          {
+            role: 'user',
+            content: `Seed keyword: "${seed}"
 Secondary keywords: ${secondaries.join(', ') || '(none)'}
-Produce a ${mode} brief with one H1 and 4–7 supporting sections.`,
-        },
-      ],
-    })
-    const raw = response.content[0].type === 'text' ? response.content[0].text : ''
-    const parsed = parseBriefJson(raw, seed, mode)
-    return stripInventedClaimsFromBrief(parsed || fallbackBrief(seed, mode))
-  } catch {
-    return stripInventedClaimsFromBrief(fallbackBrief(seed, mode))
+Produce a ${mode} brief with one H1 and 4–7 supporting sections.${gapNotes}`,
+          },
+        ],
+      })
+      const raw = response.content[0].type === 'text' ? response.content[0].text : ''
+      const parsed = parseBriefJson(raw, seed, mode)
+      brief = stripInventedClaimsFromBrief(parsed || fallbackBrief(seed, mode))
+    } catch {
+      brief = stripInventedClaimsFromBrief(fallbackBrief(seed, mode))
+    }
   }
+
+  if (input.citationGap) {
+    brief = applyCitationGapToBrief(brief, input.citationGap)
+  }
+  return brief
 }
 
 /** Test helper — detects leftover invented-claim shapes in a brief. */

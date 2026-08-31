@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { Suspense, useCallback, useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { DashboardNav } from '@/components/DashboardNav'
 
 type BriefMode = 'content' | 'product' | 'category'
@@ -15,7 +16,15 @@ interface BriefSection {
   citationNote?: string
 }
 
+interface CitationGapMeta {
+  resultId: string
+  prompt: string
+  engine: string
+  badge: string
+}
+
 interface BriefPayload {
+  id?: string | null
   seedKeyword: string
   market: string
   brief: {
@@ -27,15 +36,82 @@ interface BriefPayload {
     sections: BriefSection[]
     strippedInventedClaims: boolean
   }
+  citationGap?: CitationGapMeta | null
 }
 
-export default function BriefsPage() {
+interface RecentBrief {
+  id: string
+  seedKeyword: string
+  createdAt: string
+  citationGap: CitationGapMeta | null
+}
+
+function BriefsPageInner() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const briefId = searchParams.get('id') || ''
+  const pending = searchParams.get('pending') === '1'
+
   const [seed, setSeed] = useState('')
   const [mode, setMode] = useState<BriefMode | ''>('')
   const [market, setMarket] = useState('Global')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<BriefPayload | null>(null)
+  const [recent, setRecent] = useState<RecentBrief[]>([])
+
+  const loadRecent = useCallback(async () => {
+    try {
+      const res = await fetch('/api/copilot/brief')
+      const json = await res.json()
+      if (res.ok) setRecent(json.briefs || [])
+    } catch {
+      /* list is optional */
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadRecent()
+  }, [loadRecent])
+
+  useEffect(() => {
+    if (briefId || !pending) return
+    try {
+      const raw = sessionStorage.getItem('seoranko_pending_brief')
+      if (!raw) return
+      const json = JSON.parse(raw) as BriefPayload
+      setData(json)
+      setSeed(json.seedKeyword || json.brief?.seedKeyword || '')
+      setMarket(json.market || 'Global')
+    } catch {
+      /* ignore bad pending payload */
+    }
+  }, [briefId, pending])
+
+  useEffect(() => {
+    if (!briefId) return
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    fetch(`/api/copilot/brief?id=${encodeURIComponent(briefId)}`)
+      .then(async (res) => {
+        const json = await res.json()
+        if (!res.ok) throw new Error(json.error || 'Could not load brief')
+        if (cancelled) return
+        setData(json)
+        setSeed(json.seedKeyword || json.brief?.seedKeyword || '')
+        setMarket(json.market || 'Global')
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load brief')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [briefId])
 
   async function run() {
     setLoading(true)
@@ -53,6 +129,8 @@ export default function BriefsPage() {
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Failed')
       setData(json)
+      if (json.id) router.replace(`/dashboard/briefs?id=${encodeURIComponent(json.id)}`)
+      await loadRecent()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed')
     } finally {
@@ -109,6 +187,11 @@ export default function BriefsPage() {
           {data && (
             <div className="space-y-6">
               <div className="border border-[#E5E5E5] rounded-xl p-4 bg-white">
+                {data.citationGap?.badge && (
+                  <p className="text-xs text-amber-800 bg-amber-50 rounded px-2 py-1.5 mb-3">
+                    {data.citationGap.badge}
+                  </p>
+                )}
                 <div className="text-xs uppercase text-[#9B9B9B]">
                   {data.brief.mode} brief · seed “{data.brief.seedKeyword || data.seedKeyword}”
                   {data.brief.strippedInventedClaims ? ' · invented claims stripped' : ''}
@@ -143,8 +226,42 @@ export default function BriefsPage() {
               </div>
             </div>
           )}
+
+          {recent.length > 0 && (
+            <div className="mt-8">
+              <h2 className="font-medium mb-2">Recent briefs</h2>
+              <ul className="text-sm text-[#6B6B6B] space-y-1">
+                {recent.map((b) => (
+                  <li key={b.id}>
+                    <button
+                      className="text-[#FF6B2C] underline text-left"
+                      onClick={() => router.push(`/dashboard/briefs?id=${encodeURIComponent(b.id)}`)}
+                    >
+                      {b.seedKeyword}
+                    </button>
+                    {b.citationGap ? ' · citation gap' : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </main>
     </div>
+  )
+}
+
+export default function BriefsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-screen bg-[#FAFAF8] text-[#0F0F0F]" style={{ fontFamily: "'Outfit', sans-serif" }}>
+          <DashboardNav />
+          <main className="flex-1 p-8 text-sm text-[#9B9B9B]">Loading…</main>
+        </div>
+      }
+    >
+      <BriefsPageInner />
+    </Suspense>
   )
 }
