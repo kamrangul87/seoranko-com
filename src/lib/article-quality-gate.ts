@@ -844,6 +844,7 @@ export interface QualityIssue {
     | 'readability'
     | 'internal_linking'
     | 'editorial'
+    | 'core_web_vitals'
   /** Extra explainable dimensions this issue must affect (no silent PASS). */
   affectsDimensions?: Array<
     | 'factual_verification'
@@ -853,6 +854,7 @@ export interface QualityIssue {
     | 'readability'
     | 'internal_linking'
     | 'editorial'
+    | 'core_web_vitals'
   >
   /** True when this issue alone blocks publish. */
   blocking?: boolean

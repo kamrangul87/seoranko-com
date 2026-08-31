@@ -4,6 +4,7 @@
  */
 
 import type { SiteTypeDetection } from './site-type-detector'
+import type { QualityDimensionId } from './quality-score-dimensions'
 
 export interface EcommerceAuditIssue {
   id: string
@@ -13,9 +14,7 @@ export interface EcommerceAuditIssue {
   description: string
   remediation: string
   /** Maps into explainable score dimensions. */
-  affectsDimensions: Array<
-    'technical_seo' | 'structured_data' | 'factual_verification' | 'readability' | 'internal_linking' | 'editorial'
-  >
+  affectsDimensions: QualityDimensionId[]
 }
 
 function extractJsonLdBlocks(html: string): unknown[] {

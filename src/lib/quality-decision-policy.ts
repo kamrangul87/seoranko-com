@@ -39,6 +39,7 @@ export type DecisionDimensionId =
   | 'readability'
   | 'internal_linking'
   | 'editorial'
+  | 'core_web_vitals'
 
 export type FixStatus =
   | 'AUTO_FIX_ATTEMPTED'
