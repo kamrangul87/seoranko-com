@@ -23,6 +23,7 @@ interface RunRow {
   mention_rate: number | null
   cost_usd: number | null
   cost_breakdown?: Record<string, number>
+  error_message?: string | null
   status: string
   trigger: string
 }
@@ -33,10 +34,13 @@ interface ResultRow {
   engine: string
   mentioned: boolean
   cited: boolean
+  cited_urls?: string[]
   competitor_domains: string[]
-  diagnostic: { finding?: string; status?: string; gaps?: string[] } | null
+  diagnostic: { finding?: string; status?: string; gaps?: string[]; error?: string; httpStatus?: number } | null
   cost_usd: number
   checked_at: string
+  error?: string | null
+  http_status?: number | null
 }
 
 export default function AiVisibilityPage() {
@@ -150,6 +154,19 @@ export default function AiVisibilityPage() {
       ? Number(trend.citationRate) - Number(trend.previousCitationRate)
       : null
 
+  function isCheckFailed(r: ResultRow): boolean {
+    return Boolean(r.error || r.diagnostic?.status === 'check_failed' || r.diagnostic?.error)
+  }
+
+  function resultStatus(r: ResultRow): { label: string; className: string } {
+    if (isCheckFailed(r)) return { label: 'Check failed', className: 'text-red-700 font-medium' }
+    if (r.cited) return { label: 'Cited', className: 'text-green-700' }
+    if (r.mentioned) return { label: 'Mentioned', className: 'text-amber-700' }
+    return { label: 'Not cited', className: 'text-[#6B6B6B]' }
+  }
+
+  const failedCount = results.filter(isCheckFailed).length
+
   return (
     <div className="flex h-screen bg-[#FAFAF8] text-[#0F0F0F] overflow-hidden" style={{ fontFamily: "'Outfit', sans-serif", fontSize: '15px' }}>
       <DashboardNav />
@@ -243,22 +260,44 @@ export default function AiVisibilityPage() {
               {results.length > 0 && (
                 <div>
                   <h2 className="font-medium mb-2">Latest results</h2>
+                  {failedCount > 0 && (
+                    <p className="text-sm text-red-700 mb-2">
+                      {failedCount} of {results.length} engine checks failed to run — these are not the same as &quot;not cited&quot;.
+                    </p>
+                  )}
                   <ul className="space-y-2">
-                    {results.map((r) => (
-                      <li key={r.id} className="border border-[#E5E5E5] rounded-lg px-3 py-2 bg-white text-sm">
-                        <div className="flex flex-wrap gap-2 items-baseline">
-                          <span className="font-medium">{r.prompt_text}</span>
-                          <span className="text-xs uppercase text-[#9B9B9B]">{r.engine}</span>
-                          <span className={r.cited ? 'text-green-700' : r.mentioned ? 'text-amber-700' : 'text-[#6B6B6B]'}>
-                            {r.cited ? 'Cited' : r.mentioned ? 'Mentioned' : 'Not cited'}
-                          </span>
-                          <span className="text-xs text-[#9B9B9B]">${Number(r.cost_usd || 0).toFixed(4)}</span>
-                        </div>
-                        {r.diagnostic?.finding && (
-                          <p className="text-[#6B6B6B] mt-1">{r.diagnostic.finding}</p>
-                        )}
-                      </li>
-                    ))}
+                    {results.map((r) => {
+                      const status = resultStatus(r)
+                      const failReason = isCheckFailed(r)
+                        ? r.diagnostic?.finding || r.error || r.diagnostic?.error
+                        : null
+                      return (
+                        <li
+                          key={r.id}
+                          className={`border rounded-lg px-3 py-2 text-sm ${
+                            isCheckFailed(r) ? 'border-red-200 bg-red-50' : 'border-[#E5E5E5] bg-white'
+                          }`}
+                        >
+                          <div className="flex flex-wrap gap-2 items-baseline">
+                            <span className="font-medium">{r.prompt_text}</span>
+                            <span className="text-xs uppercase text-[#9B9B9B]">{r.engine}</span>
+                            <span className={status.className}>{status.label}</span>
+                            <span className="text-xs text-[#9B9B9B]">${Number(r.cost_usd || 0).toFixed(4)}</span>
+                          </div>
+                          {failReason && (
+                            <p className="text-red-700 mt-1">{failReason}</p>
+                          )}
+                          {!isCheckFailed(r) && r.cited && r.cited_urls && r.cited_urls.length > 0 && (
+                            <p className="text-[#6B6B6B] mt-1 break-all">
+                              Cited sources: {r.cited_urls.join(', ')}
+                            </p>
+                          )}
+                          {!isCheckFailed(r) && r.diagnostic?.finding && (
+                            <p className="text-[#6B6B6B] mt-1">{r.diagnostic.finding}</p>
+                          )}
+                        </li>
+                      )
+                    })}
                   </ul>
                 </div>
               )}
@@ -271,6 +310,7 @@ export default function AiVisibilityPage() {
                       <li key={r.id}>
                         {new Date(r.started_at).toLocaleString()} — citation {r.citation_rate ?? '—'}% · cost $
                         {Number(r.cost_usd || 0).toFixed(4)} · {r.trigger} · {r.status}
+                        {r.error_message ? ` · ${r.error_message}` : ''}
                       </li>
                     ))}
                   </ul>

@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
     const supabase = serviceClient()
     const { data: runs } = await supabase
       .from('ai_visibility_runs')
-      .select('id, started_at, finished_at, status, prompt_count, citation_rate, mention_rate, cost_usd, cost_breakdown, trigger')
+      .select('id, started_at, finished_at, status, prompt_count, citation_rate, mention_rate, cost_usd, cost_breakdown, error_message, trigger')
       .eq('user_id', user.id)
       .eq('site_id', siteId)
       .order('started_at', { ascending: false })
@@ -74,12 +74,25 @@ export async function GET(req: NextRequest) {
     const latest = runs?.[0]
     let results: unknown[] = []
     if (latest) {
-      const { data } = await supabase
+      const fullSelect =
+        'id, prompt_text, engine, mentioned, cited, cited_urls, competitor_domains, diagnostic, cost_usd, checked_at, error, http_status'
+      const fallbackSelect =
+        'id, prompt_text, engine, mentioned, cited, cited_urls, competitor_domains, diagnostic, cost_usd, checked_at'
+      const first = await supabase
         .from('ai_visibility_results')
-        .select('id, prompt_text, engine, mentioned, cited, competitor_domains, diagnostic, cost_usd, checked_at')
+        .select(fullSelect)
         .eq('run_id', latest.id)
         .order('checked_at', { ascending: true })
-      results = data || []
+      if (first.error) {
+        const retry = await supabase
+          .from('ai_visibility_results')
+          .select(fallbackSelect)
+          .eq('run_id', latest.id)
+          .order('checked_at', { ascending: true })
+        results = retry.data || []
+      } else {
+        results = first.data || []
+      }
     }
 
     const prev = runs?.[1]

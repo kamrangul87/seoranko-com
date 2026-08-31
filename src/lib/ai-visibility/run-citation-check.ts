@@ -5,8 +5,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { getAiVisibilityPromptCap, AI_VISIBILITY_PHASE_NOTE } from './config'
-import { checkOpenAICitation, checkPerplexityCitation } from './citation-engines'
-import { buildCitationDiagnostic } from './diagnostic-linkage'
+import { checkOpenAICitation, checkPerplexityCitation, type EngineCheckResult } from './citation-engines'
+import { buildCitationDiagnostic, buildCheckFailedDiagnostic, type CitationDiagnostic } from './diagnostic-linkage'
 import { normaliseDomain } from '../connected-sites'
 
 export interface VisibilityPromptRow {
@@ -31,7 +31,47 @@ export interface RunCitationCheckResult {
     diagnosticFinding?: string
     costUsd: number
     error?: string
+    httpStatus?: number
   }>
+}
+
+function columnMissing(message: string | undefined, columns: string[]): boolean {
+  if (!message) return false
+  const lower = message.toLowerCase()
+  return columns.some((c) => lower.includes(c.toLowerCase()) && /column|schema cache|could not find/i.test(message))
+}
+
+/** Insert a result row; retry without error/http_status if those columns are not live yet. */
+async function insertVisibilityResult(
+  supabase: any,
+  row: {
+    run_id: string
+    prompt_id: string
+    prompt_text: string
+    engine: string
+    mentioned: boolean
+    cited: boolean
+    cited_urls: string[]
+    competitor_domains: string[]
+    response_snippet: string
+    diagnostic: CitationDiagnostic
+    cost_usd: number
+    checked_at: string
+    error: string | null
+    http_status: number | null
+  },
+) {
+  const { error } = await supabase.from('ai_visibility_results').insert(row)
+  if (!error) return
+  if (columnMissing(error.message, ['error', 'http_status'])) {
+    const rest = { ...row }
+    delete (rest as { error?: unknown }).error
+    delete (rest as { http_status?: unknown }).http_status
+    const retry = await supabase.from('ai_visibility_results').insert(rest)
+    if (retry.error) console.error('[ai-visibility] insert result', retry.error.message)
+    return
+  }
+  console.error('[ai-visibility] insert result', error.message)
 }
 
 export function suggestPromptsForSite(opts: { brand: string; domain: string; market?: string }): string[] {
@@ -157,7 +197,9 @@ export async function runCitationCheck(opts: {
   const costBreakdown: Record<string, number> = { openai: 0, perplexity: 0 }
   let citedPairs = 0
   let mentionPairs = 0
-  let pairCount = 0
+  let checkedCount = 0
+  let failCount = 0
+  const failMessages: string[] = []
   const flatResults: RunCitationCheckResult['results'] = []
 
   for (const p of prompts) {
@@ -166,68 +208,87 @@ export async function runCitationCheck(opts: {
       checkPerplexityCitation({ prompt: p.prompt, brand, domain }),
     ])
 
-    for (const eng of [openai, perplexity]) {
-      pairCount++
+    for (const eng of [openai, perplexity] as EngineCheckResult[]) {
       totalCost += eng.costUsd
       costBreakdown[eng.engine] = (costBreakdown[eng.engine] || 0) + eng.costUsd
-      if (eng.cited) citedPairs++
-      if (eng.mentioned || eng.cited) mentionPairs++
 
-      const diagnostic = await buildCitationDiagnostic({
-        prompt: p.prompt,
-        userDomain: domain,
-        userSiteUrl: siteUrl,
-        mentioned: eng.mentioned,
-        cited: eng.cited,
-        competitorDomains: eng.competitorDomains,
-        competitorCitedUrls: eng.competitorUrls || [],
-      })
+      const failed = Boolean(eng.error)
+      if (failed) {
+        failCount++
+        if (eng.error && failMessages.length < 6) {
+          failMessages.push(`${eng.engine}: ${eng.error}`)
+        }
+      } else {
+        checkedCount++
+        if (eng.cited) citedPairs++
+        if (eng.mentioned || eng.cited) mentionPairs++
+      }
 
-      await opts.supabase.from('ai_visibility_results').insert({
+      const diagnostic = failed
+        ? buildCheckFailedDiagnostic(eng.error || 'Citation check failed', eng.httpStatus)
+        : await buildCitationDiagnostic({
+            prompt: p.prompt,
+            userDomain: domain,
+            userSiteUrl: siteUrl,
+            mentioned: eng.mentioned,
+            cited: eng.cited,
+            competitorDomains: eng.competitorDomains,
+            competitorCitedUrls: eng.competitorUrls || [],
+          })
+
+      await insertVisibilityResult(opts.supabase, {
         run_id: runId,
         prompt_id: p.id,
         prompt_text: p.prompt,
         engine: eng.engine,
-        mentioned: eng.mentioned,
-        cited: eng.cited,
+        mentioned: failed ? false : eng.mentioned,
+        cited: failed ? false : eng.cited,
         cited_urls: eng.citedUrls,
         competitor_domains: eng.competitorDomains,
         response_snippet: eng.responseSnippet,
         diagnostic,
         cost_usd: eng.costUsd,
         checked_at: new Date().toISOString(),
+        error: eng.error || null,
+        http_status: eng.httpStatus ?? null,
       })
 
       flatResults!.push({
         prompt: p.prompt,
         engine: eng.engine,
-        mentioned: eng.mentioned,
-        cited: eng.cited,
+        mentioned: failed ? false : eng.mentioned,
+        cited: failed ? false : eng.cited,
         diagnosticFinding: diagnostic?.finding,
         costUsd: eng.costUsd,
         error: eng.error,
+        httpStatus: eng.httpStatus,
       })
     }
   }
 
-  const citationRate = pairCount ? Math.round((citedPairs / pairCount) * 1000) / 10 : 0
-  const mentionRate = pairCount ? Math.round((mentionPairs / pairCount) * 1000) / 10 : 0
+  const citationRate = checkedCount ? Math.round((citedPairs / checkedCount) * 1000) / 10 : 0
+  const mentionRate = checkedCount ? Math.round((mentionPairs / checkedCount) * 1000) / 10 : 0
+  const status = failCount === 0 ? 'completed' : checkedCount === 0 ? 'failed' : 'partial'
 
   await opts.supabase
     .from('ai_visibility_runs')
     .update({
-      status: 'completed',
+      status,
       finished_at: new Date().toISOString(),
       citation_rate: citationRate,
       mention_rate: mentionRate,
       cost_usd: totalCost,
       cost_breakdown: costBreakdown,
+      error_message: failMessages.length ? failMessages.join(' · ').slice(0, 500) : null,
     })
     .eq('id', runId)
 
   return {
     ok: true,
-    message: `Checked ${prompts.length} prompts across OpenAI + Perplexity.`,
+    message:
+      failCount > 0
+        ? `Checked ${prompts.length} prompts across OpenAI + Perplexity — ${failCount} engine check${failCount === 1 ? '' : 's'} failed to run.`
+        : `Checked ${prompts.length} prompts across OpenAI + Perplexity.`,
     runId,
     citationRate,
     mentionRate,

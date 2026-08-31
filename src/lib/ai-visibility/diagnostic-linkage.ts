@@ -20,13 +20,29 @@ export interface PageCitationSignals {
 }
 
 export interface CitationDiagnostic {
-  status: 'compared' | 'insufficient_data' | 'user_cited' | 'no_competitor'
+  status: 'compared' | 'insufficient_data' | 'user_cited' | 'no_competitor' | 'check_failed'
   /** User-facing finding — competitor domains anonymized. */
   finding: string
   userSignals: Partial<PageCitationSignals>
   competitorSignals?: Partial<PageCitationSignals>
   gaps: string[]
   competitorLabel?: string
+  /** Present when status is check_failed — also stored on dedicated result columns. */
+  error?: string
+  httpStatus?: number
+}
+
+/** Persist a failed engine check so the UI never confuses it with "not cited". */
+export function buildCheckFailedDiagnostic(error: string, httpStatus?: number): CitationDiagnostic {
+  const statusBit = httpStatus ? ` (HTTP ${httpStatus})` : ''
+  return {
+    status: 'check_failed',
+    finding: `Citation check failed to run${statusBit} — ${error}`,
+    userSignals: {},
+    gaps: [],
+    error,
+    httpStatus,
+  }
 }
 
 function extractJsonLdBlocks(html: string): Array<Record<string, unknown>> {
