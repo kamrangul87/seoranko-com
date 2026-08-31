@@ -11,7 +11,7 @@ Billing must be revisited in a follow-up; **this PR does not change Stripe/plans
 1. Rename or replace `articles_used_month` with `audits_used_month` + `briefs_used_month`
 2. Reprice plans around **audit scans / month** and **briefs / month** instead of articles
 3. Update marketing/pricing pages and Stripe product metadata when ready
-4. Keep DataForSEO keyword usage metering as-is (still the backbone of Briefs)
+4. DataForSEO is **no longer** used by Content Briefs (seed-only). Rank tracking / legacy Keywords station may still call it when credentials exist — metering for those paths can stay until they are retired or replaced.
 
 ## Until then
 - Copilot Audit + Briefs endpoints do not increment `articles_used_month`
