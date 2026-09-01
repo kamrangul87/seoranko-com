@@ -86,6 +86,12 @@ export function buildIndexDiagnosisFixAgentIssues(
     const parts: string[] = []
     if (drift.missingFromLive.length > 0) parts.push(`${drift.missingFromLive.length} indexable page(s) missing from live sitemap`)
     if (drift.deadInLive.length > 0) parts.push(`${drift.deadInLive.length} dead/stale URL(s) still listed`)
+    if (drift.liveHealthFailures.length > 0) {
+      parts.push(`${drift.liveHealthFailures.length} live sitemap URL(s) not returning HTTP 200`)
+    }
+    if (drift.noindexContradictions.length > 0) {
+      parts.push(`${drift.noindexContradictions.length} noindex page(s) still listed in sitemap`)
+    }
     if (!drift.liveSitemapFetched && drift.expectedIndexableCount > 0) parts.push('no live sitemap found')
 
     issues.push({
@@ -93,7 +99,15 @@ export function buildIndexDiagnosisFixAgentIssues(
       severity: 'warning',
       category: 'index-diagnosis',
       title: `Sitemap out of date: ${parts.join('; ')}`,
-      description: `Live sitemap (${drift.liveSitemapEvidence}) does not match the current crawl. Expected ${drift.expectedIndexableCount} indexable URL(s).`,
+      description: `Live sitemap (${drift.liveSitemapEvidence}) does not match the current crawl. Expected ${drift.expectedIndexableCount} indexable URL(s).${
+        drift.liveHealthFailures.length > 0
+          ? ` ${drift.liveHealthFailures.length} deployed URL(s) failed live HTTP check.`
+          : ''
+      }${
+        drift.noindexContradictions.length > 0
+          ? ` ${drift.noindexContradictions.length} URL(s) have noindex contradictions — remove from sitemap or remove noindex on the page.`
+          : ''
+      }`,
       remediation: drift.generatedSitemapXml
         ? 'Auto-fixable on GitHub-connected sites: Regenerate & apply commits an updated sitemap.xml. Until replaced, this finding will reappear on every audit.'
         : 'Generate an updated sitemap from the Sitemap tool and upload it to your site root.',

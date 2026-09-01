@@ -1,7 +1,11 @@
 import { discoverSitemapUrls } from '@/lib/index-diagnosis/sitemap-discovery'
 import { normalizeUrl } from '@/lib/supabase/audit-db'
 import { generateSitemap } from './generate'
+import { checkLiveSitemapUrlHealth, type LiveSitemapUrlHealth } from './live-health'
+import { findNoindexInSitemapContradictions, type NoindexInSitemapContradiction } from './noindex-contradiction'
 import type { SitemapCrawlInput } from './types'
+
+export type { LiveSitemapUrlHealth, NoindexInSitemapContradiction }
 
 export interface SitemapDriftReport {
   liveSitemapFetched: boolean
@@ -14,6 +18,12 @@ export interface SitemapDriftReport {
   /** Generated sitemap.xml content ready to apply. */
   generatedSitemapXml: string | null
   generatedSitemapPath: string
+  /** Live HTTP status check against deployed sitemap <loc> URLs. */
+  liveHealthChecked: boolean
+  liveHealthResults: LiveSitemapUrlHealth[]
+  liveHealthFailures: LiveSitemapUrlHealth[]
+  /** Sitemap lists URL but crawl found noindex on the page. */
+  noindexContradictions: NoindexInSitemapContradiction[]
 }
 
 function normSet(urls: string[]): Set<string> {
@@ -56,9 +66,25 @@ export async function detectSitemapDrift(input: SitemapCrawlInput): Promise<Site
     return false
   })
 
+  let liveHealthResults: LiveSitemapUrlHealth[] = []
+  let liveHealthFailures: LiveSitemapUrlHealth[] = []
+  const liveHealthChecked = live.urls.length > 0
+
+  if (liveHealthChecked) {
+    liveHealthResults = await checkLiveSitemapUrlHealth(live.urls)
+    liveHealthFailures = liveHealthResults.filter((r) => !r.ok)
+  }
+
+  const noindexContradictions =
+    live.urls.length > 0
+      ? findNoindexInSitemapContradictions(live.urls, input.pages, input.coverage)
+      : []
+
   const hasDrift =
     missingFromLive.length > 0 ||
     deadInLive.length > 0 ||
+    liveHealthFailures.length > 0 ||
+    noindexContradictions.length > 0 ||
     (live.urls.length > 0 && expectedIndexableCountDiff(indexableNorm.size, live.urls.length))
 
   return {
@@ -71,6 +97,10 @@ export async function detectSitemapDrift(input: SitemapCrawlInput): Promise<Site
     hasDrift: hasDrift || (live.urls.length === 0 && indexableNorm.size > 0),
     generatedSitemapXml: primary?.content || null,
     generatedSitemapPath: 'public/sitemap.xml',
+    liveHealthChecked,
+    liveHealthResults,
+    liveHealthFailures,
+    noindexContradictions,
   }
 }
 

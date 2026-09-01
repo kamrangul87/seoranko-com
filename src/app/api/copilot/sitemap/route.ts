@@ -3,6 +3,8 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { normalizeDomain } from '@/lib/supabase/audit-db'
 import { loadOrRunCrawlForSitemap } from '@/lib/sitemap-generator/load-crawl'
+import { detectSitemapDrift } from '@/lib/sitemap-generator/drift'
+import { driftReportToSitemapChecks } from '@/lib/sitemap-generator/drift-checks'
 import { generateSitemap } from '@/lib/sitemap-generator/generate'
 import { persistIndexDiagnosisRun } from '@/lib/index-diagnosis/persist'
 
@@ -54,6 +56,13 @@ export async function POST(req: NextRequest) {
     }
 
     const result = generateSitemap(crawl, { cmsType })
+
+    try {
+      const drift = await detectSitemapDrift(crawl)
+      result.checks.push(...driftReportToSitemapChecks(drift))
+    } catch {
+      /* live health check is best-effort — generation output still returned */
+    }
 
     return NextResponse.json({ ok: true, sitemap: result })
   } catch (err) {

@@ -90,6 +90,10 @@ describe('index-diagnosis fix-agent bridge', () => {
       liveSitemapFetched: true,
       generatedSitemapXml: '<?xml version="1.0"?><urlset></urlset>',
       generatedSitemapPath: 'public/sitemap.xml',
+      liveHealthChecked: true,
+      liveHealthResults: [],
+      liveHealthFailures: [],
+      noindexContradictions: [],
     }
 
     const issues = buildIndexDiagnosisFixAgentIssues(result, drift)

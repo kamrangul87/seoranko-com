@@ -152,8 +152,30 @@ export function IndexDiagnosisPanel({
             {sitemapDrift.deadInLive.length > 0 && (
               <> {sitemapDrift.deadInLive.length} dead/stale URL(s) still listed.</>
             )}
+            {sitemapDrift.liveHealthFailures.length > 0 && (
+              <> {sitemapDrift.liveHealthFailures.length} deployed URL(s) not returning HTTP 200.</>
+            )}
+            {sitemapDrift.noindexContradictions.length > 0 && (
+              <> {sitemapDrift.noindexContradictions.length} noindex contradiction(s).</>
+            )}
             {!sitemapDrift.liveSitemapFetched && <> No live sitemap found.</>}
           </p>
+          {sitemapDrift.liveHealthFailures.length > 0 && (
+            <ul className="text-xs font-mono text-red-800 mb-2 max-h-24 overflow-y-auto space-y-0.5">
+              {sitemapDrift.liveHealthFailures.slice(0, 8).map((f) => (
+                <li key={f.url} className="break-all">
+                  {f.url}
+                  {f.error ? ` — ${f.error}` : ` — HTTP ${f.httpStatus}`}
+                </li>
+              ))}
+            </ul>
+          )}
+          {sitemapDrift.noindexContradictions.length > 0 && (
+            <p className="text-xs text-amber-900 mb-2">
+              Noindex in sitemap: either remove the URL from sitemap.xml, or remove the noindex directive from the
+              page — whichever matches your intent.
+            </p>
+          )}
           <p className="text-xs text-[#6B6B6B] mb-3">
             This check runs automatically on every audit. Until the live file is replaced, this finding will keep
             resurfacing.
