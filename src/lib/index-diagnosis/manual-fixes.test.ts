@@ -102,6 +102,9 @@ describe('manual-fixes', () => {
     expect(fix?.fixType).toBe('canonical')
     expect(fix?.snippets.some((s) => s.kind === 'html' && s.content.includes('rel="canonical"'))).toBe(true)
     expect(fix?.snippets.filter((s) => s.kind.startsWith('redirect-'))).toHaveLength(3)
+    const next = fix?.snippets.find((s) => s.kind === 'redirect-nextjs')
+    expect(next?.content).toMatch(/async redirects\(\)/)
+    expect(next?.placementBefore).toMatch(/next\.config/)
     expect(fix?.evidenceCitation).toContain('autodun.com/blog/index.html')
   })
 

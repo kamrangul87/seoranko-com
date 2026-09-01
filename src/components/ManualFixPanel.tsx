@@ -12,6 +12,7 @@ import {
   type ManualFixPlatform,
 } from '@/lib/manual-fix-platform-steps'
 import { copyToClipboard, downloadTextFile, manualFixToText } from '@/lib/copy-export'
+import { FIX_AGENT_DEVELOPER_FALLBACK } from '@/lib/developer-snippet-placements'
 
 function CopyButton({
   label,
@@ -40,15 +41,27 @@ function CopyButton({
 }
 
 function SnippetBlock({ snippet, showCopy = true }: { snippet: ManualFixSnippet; showCopy?: boolean }) {
+  const fullText = [snippet.placementBefore, snippet.content, snippet.placementAfter].filter(Boolean).join('\n\n')
+
   return (
     <div className="border border-[#E5E5E5] rounded-lg overflow-hidden bg-[#FAFAFA]">
       <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-white border-b border-[#E5E5E5]">
         <span className="text-xs font-medium text-[#0F0F0F]">{snippet.label}</span>
-        {showCopy && <CopyButton label="Copy" getText={() => snippet.content} />}
+        {showCopy && <CopyButton label="Copy" getText={() => fullText} />}
       </div>
-      <pre className="text-xs font-mono p-2 overflow-x-auto whitespace-pre-wrap break-all text-[#6B6B6B] max-h-64 overflow-y-auto">
+      {snippet.placementBefore && (
+        <div className="text-xs text-[#0F0F0F] px-2 py-2 bg-amber-50 border-b border-amber-100 whitespace-pre-wrap">
+          {snippet.placementBefore}
+        </div>
+      )}
+      <pre className="text-xs font-mono p-2 overflow-x-auto whitespace-pre-wrap break-all text-[#6B6B6B] max-h-64 overflow-y-auto bg-white">
         {snippet.content}
       </pre>
+      {snippet.placementAfter && (
+        <div className="text-xs text-[#6B6B6B] px-2 py-2 border-t border-[#E5E5E5] whitespace-pre-wrap">
+          {snippet.placementAfter}
+        </div>
+      )}
     </div>
   )
 }
@@ -178,7 +191,13 @@ function PlatformStepsSection({ fix }: { fix: ManualFixPayload }) {
 
       {platform === 'developer' && (
         <div className="space-y-2">
-          <p className="text-xs text-[#6B6B6B]">Raw code snippets for developers or file-level access:</p>
+          <div className="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+            {FIX_AGENT_DEVELOPER_FALLBACK}
+          </div>
+          <p className="text-xs text-[#6B6B6B]">
+            Technical snippets below include which file to edit, where to put the code, and what to do after saving.
+            Hand this to your developer if you are not comfortable editing config files yourself.
+          </p>
           {developerSnippetsFromFix(fix).map((s) => (
             <SnippetBlock key={s.id} snippet={s} />
           ))}

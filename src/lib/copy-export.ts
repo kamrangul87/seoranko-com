@@ -89,5 +89,13 @@ export function manualFixToText(
 }
 
 export function snippetsToText(snippets: ManualFixSnippet[]): string {
-  return snippets.map((s) => `## ${s.label}\n\n${s.content}`).join('\n\n---\n\n')
+  return snippets
+    .map((s) => {
+      const parts = [`## ${s.label}`]
+      if (s.placementBefore) parts.push(s.placementBefore)
+      parts.push(s.content)
+      if (s.placementAfter) parts.push(s.placementAfter)
+      return parts.join('\n\n')
+    })
+    .join('\n\n---\n\n')
 }

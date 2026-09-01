@@ -3,6 +3,10 @@
  */
 
 import { normalizeUrl } from '@/lib/supabase/audit-db'
+import {
+  buildCanonicalTagSnippetWithPlacement,
+  developerRedirectSnippets,
+} from '@/lib/developer-snippet-placements'
 import type { FetchedPage } from './crawler'
 import { buildDuplicateCohortBriefContext } from './cohort-topic'
 import type {
@@ -16,60 +20,10 @@ import type {
   SiteFollowUpTaskKind,
 } from './types'
 
-function pathFromUrl(url: string): string {
-  try {
-    return new URL(url).pathname || '/'
-  } catch {
-    return '/'
-  }
-}
-
-function regexEscapePath(path: string): string {
-  return path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\//g, '\\/')
-}
-
-function developerRedirectSnippets(fromUrl: string, toUrl: string, evidence: string): ManualFixSnippet[] {
-  const fromPath = pathFromUrl(fromUrl)
-  const toPath = pathFromUrl(toUrl)
-  const fromRegex = regexEscapePath(fromPath)
-
-  return [
-    {
-      id: 'redirect-nextjs',
-      label: 'Next.js (next.config.js redirects)',
-      kind: 'redirect-nextjs',
-      content: `// 301 redirect — ${evidence}
-{
-  source: '${fromPath}',
-  destination: '${toPath}',
-  permanent: true,
-},`,
-    },
-    {
-      id: 'redirect-htaccess',
-      label: 'Apache (.htaccess RewriteRule)',
-      kind: 'redirect-htaccess',
-      content: `# 301 redirect — ${evidence}
-RewriteRule ^${fromRegex.slice(1)}$ ${toPath} [R=301,L]`,
-    },
-    {
-      id: 'redirect-nginx',
-      label: 'nginx rewrite',
-      kind: 'redirect-nginx',
-      content: `# 301 redirect — ${evidence}
-rewrite ^${fromPath}$ ${toPath} permanent;`,
-    },
-  ]
-}
+export { developerRedirectSnippets } from '@/lib/developer-snippet-placements'
 
 function canonicalTagSnippet(pageUrl: string, evidence: string): ManualFixSnippet {
-  return {
-    id: 'canonical-self',
-    label: 'Self-referencing canonical tag',
-    kind: 'html',
-    content: `<!-- ${evidence} -->
-<link rel="canonical" href="${pageUrl}" />`,
-  }
+  return buildCanonicalTagSnippetWithPlacement(pageUrl, evidence)
 }
 
 function sitemapUrlBlock(url: string): string {

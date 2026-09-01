@@ -136,6 +136,10 @@ export interface ManualFixSnippet {
   label: string
   kind: ManualFixSnippetKind
   content: string
+  /** Plain-language instructions shown above the code block (developer path). */
+  placementBefore?: string
+  /** Deploy / Fix Agent notes shown below the code block. */
+  placementAfter?: string
 }
 
 export interface DuplicateCohortBriefContext {
