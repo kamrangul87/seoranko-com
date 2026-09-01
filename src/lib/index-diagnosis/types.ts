@@ -128,6 +128,7 @@ export type SiteFollowUpTaskKind =
 export type ManualFixSnippetKind =
   | 'html'
   | 'redirect-nextjs'
+  | 'redirect-vercel'
   | 'redirect-htaccess'
   | 'redirect-nginx'
   | 'sitemap-xml'

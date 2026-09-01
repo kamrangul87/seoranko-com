@@ -130,8 +130,51 @@ Evidence from this crawl: ${evidence}`,
   }
 }
 
+export function buildVercelJsonRedirectSnippet(fromUrl: string, toUrl: string, evidence: string): ManualFixSnippet {
+  const fromPath = pathFromUrl(fromUrl)
+  const toPath = pathFromUrl(toUrl)
+
+  const fullFile = `{
+  "redirects": [
+    {
+      "source": "${fromPath}",
+      "destination": "${toPath}",
+      "permanent": true
+    }
+  ]
+}`
+
+  const mergeEntry = `    {
+      "source": "${fromPath}",
+      "destination": "${toPath}",
+      "permanent": true
+    }`
+
+  return {
+    id: 'redirect-vercel',
+    label: 'Vercel (vercel.json)',
+    kind: 'redirect-vercel',
+    placementBefore: `WHICH FILE: vercel.json in your project root — the same folder as package.json.
+
+WHERE IN THE FILE: Inside the top-level "redirects" array. If you already have redirects (www → apex, legacy paths, etc.), add the object below to that array — do not replace the whole file.
+
+WHEN THIS APPLIES: Vite, React, and static sites deployed on Vercel use vercel.json for redirects. Next.js App Router projects may use next.config.js instead — use the Next.js tab if that matches your stack.
+
+Evidence from this crawl: ${evidence}`,
+    content: fullFile,
+    placementAfter: `Already have a redirects array? Add only this object inside it:
+
+${mergeEntry}
+
+${DEPLOY_AFTER_SAVE_NOTE}
+
+${FIX_AGENT_DEVELOPER_FALLBACK}`,
+  }
+}
+
 export function developerRedirectSnippets(fromUrl: string, toUrl: string, evidence: string): ManualFixSnippet[] {
   return [
+    buildVercelJsonRedirectSnippet(fromUrl, toUrl, evidence),
     buildNextJsRedirectSnippet(fromUrl, toUrl, evidence),
     buildHtaccessRedirectSnippet(fromUrl, toUrl, evidence),
     buildNginxRedirectSnippet(fromUrl, toUrl, evidence),

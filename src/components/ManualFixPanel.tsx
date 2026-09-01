@@ -157,7 +157,8 @@ function PlatformStepsSection({ fix }: { fix: ManualFixPayload }) {
     return steps.filter(Boolean)
   }, [fix, platform])
 
-  if (fix.fixMode === 'content' && !fix.redirectTargets?.length) return null
+  if (!fix.redirectTargets?.length) return null
+  if (fix.fixMode === 'content' && !fix.redirectTargets.length) return null
 
   return (
     <div className="space-y-2">
@@ -337,13 +338,38 @@ export function ManualFixPanel({
 
       <p className="text-xs text-[#6B6B6B]">{fix.evidenceCitation}</p>
 
-      {(fix.fixMode === 'content' || fix.fixMode === 'hybrid') && fix.contentFixKind && (
+      {fix.fixType === 'canonical' && (
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-[#0F0F0F]">Canonical tag correction</div>
+          {fix.snippets
+            .filter((s) => s.kind === 'html' || s.kind === 'guidance')
+            .map((s) => (
+              <SnippetBlock key={s.id} snippet={s} />
+            ))}
+        </div>
+      )}
+
+      {(fix.fixMode === 'content' || fix.fixMode === 'hybrid') && fix.contentFixKind && fix.fixType !== 'canonical' && (
         <PasteAndFixSection fix={fix} />
+      )}
+
+      {(fix.fixMode === 'content' || fix.fixMode === 'hybrid') && fix.contentFixKind && fix.fixType === 'canonical' && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-[#FF6B2C] underline">Optional: paste-and-fix canonical tag in your HTML</summary>
+          <div className="mt-2">
+            <PasteAndFixSection fix={fix} />
+          </div>
+        </details>
       )}
 
       {(fix.fixMode === 'infrastructure' || fix.fixMode === 'hybrid') && fix.redirectTargets && (
         <PlatformStepsSection fix={fix} />
       )}
+
+      {fix.fixType === 'non_200' &&
+        fix.snippets.filter((s) => s.kind === 'guidance').map((s) => (
+          <SnippetBlock key={s.id} snippet={s} />
+        ))}
 
       {fix.fixMode === 'content' && fix.snippets.length > 0 && !fix.contentFixKind && (
         <div className="space-y-2">

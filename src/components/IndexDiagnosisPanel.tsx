@@ -2,9 +2,9 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import type { IndexDiagnosisResult } from '@/lib/index-diagnosis/types'
+import type { IndexDiagnosisResult, InboundLinkEvidence } from '@/lib/index-diagnosis/types'
 import { CRAWLER_JS_LIMITATION } from '@/lib/index-diagnosis/fix-agent-issues'
-import { lookupManualFixForUrl } from '@/lib/index-diagnosis/manual-fixes'
+import { lookupManualFixForUrl, resolveManualFixForTask } from '@/lib/index-diagnosis/manual-fixes'
 import { ManualFixPanel } from '@/components/ManualFixPanel'
 
 const EXCLUDE_LABELS: Record<string, string> = {
@@ -90,10 +90,16 @@ export function IndexDiagnosisPanel({
   onRegenerateSitemap?: () => void
   fixRunning?: boolean
 }) {
-  const { coverage, verdict, pages, cohorts, followUpTasks, manualFixesByTaskId, sitemapDrift, crawlerJsLimitation } =
+  const { coverage, verdict, pages, cohorts, followUpTasks, sitemapDrift, crawlerJsLimitation } =
     data
   const topCauses = verdict.topCauses
-  const [expandedFix, setExpandedFix] = useState<Record<string, boolean>>({})
+  const [expandedFix, setExpandedFix] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {}
+    for (const t of followUpTasks) {
+      if (t.kind === 'canonical' || t.kind === 'non_200') initial[t.id] = true
+    }
+    return initial
+  })
   const [urlLookup, setUrlLookup] = useState('')
   const [lookupFix, setLookupFix] = useState<ReturnType<typeof lookupManualFixForUrl>>(null)
   const [lookupMessage, setLookupMessage] = useState<string | null>(null)
@@ -102,13 +108,14 @@ export function IndexDiagnosisPanel({
     setExpandedFix((prev) => ({ ...prev, [taskId]: !prev[taskId] }))
   }
 
+  function inboundMapFromData(): Map<string, InboundLinkEvidence[]> {
+    return new Map(Object.entries(data.inboundLinksByUrl || {}).map(([k, v]) => [k, v]))
+  }
+
   function runUrlLookup() {
     const trimmed = urlLookup.trim()
     if (!trimmed) return
-    const inboundMap = new Map(
-      Object.entries(data.inboundLinksByUrl || {}).map(([k, v]) => [k, v]),
-    )
-    const fix = lookupManualFixForUrl(trimmed, data, inboundMap)
+    const fix = lookupManualFixForUrl(trimmed, data, inboundMapFromData())
     setLookupFix(fix)
     setLookupMessage(fix ? null : 'No manual fix found for this URL in the current crawl.')
   }
@@ -299,8 +306,8 @@ export function IndexDiagnosisPanel({
 
           <ul className="space-y-3 text-sm">
             {followUpTasks.map((t) => {
-              const fix = manualFixesByTaskId?.[t.id]
-              const isOpen = expandedFix[t.id] ?? false
+              const fix = resolveManualFixForTask(t, data, inboundMapFromData())
+              const isOpen = expandedFix[t.id] ?? (t.kind === 'canonical' || t.kind === 'non_200')
               const isSitemapGap = t.kind === 'sitemap_gap' || t.id === 'sitemap-missing-linked-urls'
               return (
                 <li key={t.id} className="border border-blue-100 rounded-lg px-3 py-2 bg-white">

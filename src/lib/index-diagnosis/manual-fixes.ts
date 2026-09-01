@@ -96,6 +96,17 @@ function canonicalManualFix(
         pageUrl,
         `Based on canonical tag found at ${pageUrl} during this crawl (${canonEvidence})`,
       ),
+      {
+        id: 'canonical-redirect-guidance',
+        label: `${pageUrl} — redirect vs canonical options`,
+        kind: 'guidance',
+        content: `${pageUrl}
+Evidence: ${canonEvidence}
+
+Option A (recommended) — 301 redirect: permanently send ${pageUrl} to ${redirectTarget} so search engines only see one URL. Use the platform picker below or the developer snippets.
+
+Option B — self-referencing canonical: change the <link rel="canonical"> to ${pageUrl} itself. Only use this if both URLs must remain live (usually a redirect is cleaner).`,
+      },
       ...developerRedirectSnippets(
         pageUrl,
         redirectTarget,
@@ -303,6 +314,17 @@ export function lookupManualFixForUrl(
 
 export function developerSnippetsFromFix(fix: ManualFixPayload): ManualFixSnippet[] {
   return fix.snippets.filter((s) =>
-    ['redirect-nextjs', 'redirect-htaccess', 'redirect-nginx', 'html', 'sitemap-xml'].includes(s.kind),
+    ['redirect-vercel', 'redirect-nextjs', 'redirect-htaccess', 'redirect-nginx', 'html', 'sitemap-xml'].includes(
+      s.kind,
+    ),
   )
+}
+
+/** Resolve a manual-fix payload for a follow-up task (rebuild when cache missing). */
+export function resolveManualFixForTask(
+  task: SiteFollowUpTask,
+  result: IndexDiagnosisResult,
+  inboundMap: Map<string, InboundLinkEvidence[]>,
+): ManualFixPayload | null {
+  return result.manualFixesByTaskId?.[task.id] ?? generateManualFixForTask(task, result, inboundMap)
 }

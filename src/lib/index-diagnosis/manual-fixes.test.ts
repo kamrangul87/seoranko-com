@@ -4,6 +4,7 @@ import {
   buildInboundLinkMap,
   generateManualFixForTask,
   lookupManualFixForUrl,
+  resolveManualFixForTask,
 } from './manual-fixes'
 import type { FetchedPage } from './crawler'
 import type { IndexDiagnosisResult, PageIndexability } from './types'
@@ -102,7 +103,7 @@ describe('manual-fixes', () => {
     const fix = generateManualFixForTask(task, { pages } as IndexDiagnosisResult, new Map())
     expect(fix?.fixType).toBe('canonical')
     expect(fix?.snippets.some((s) => s.kind === 'html' && s.content.includes('rel="canonical"'))).toBe(true)
-    expect(fix?.snippets.filter((s) => s.kind.startsWith('redirect-'))).toHaveLength(3)
+    expect(fix?.snippets.filter((s) => s.kind.startsWith('redirect-'))).toHaveLength(4)
     const next = fix?.snippets.find((s) => s.kind === 'redirect-nextjs')
     expect(next?.content).toMatch(/async redirects\(\)/)
     expect(next?.placementBefore).toMatch(/next\.config/)
@@ -181,6 +182,82 @@ describe('manual-fixes', () => {
     } as IndexDiagnosisResult
     expect(lookupManualFixForUrl(gap, result, new Map())?.fixType).toBe('sitemap_gap')
     expect(lookupManualFixForUrl(dead, result, new Map())?.fixType).toBe('non_200')
+  })
+
+  it('resolveManualFixForTask rebuilds canonical fix when cache is missing', () => {
+    const pageUrl = 'https://autodun.com/blog/index.html'
+    const pages: PageIndexability[] = [
+      {
+        url: pageUrl,
+        verdict: 'AT_RISK',
+        decisiveStep: 'canonical',
+        decisiveEvidence: 'x',
+        steps: [
+          {
+            step: 'canonical',
+            passed: false,
+            evidence: `Canonical points to different same-host URL: https://autodun.com/blog/ (page ${pageUrl})`,
+          },
+        ],
+        httpStatus: 200,
+        crawlDepth: 2,
+        internalLinksIn: 1,
+        inboundLinks: [],
+        duplicateClusterId: null,
+        duplicateClusterSize: 1,
+        mainContentFingerprint: 'fp',
+        pathPattern: '/blog',
+        depthBand: '2',
+        pageTitle: 'Blog',
+        pageH1: 'Blog',
+      },
+    ]
+    const task = buildSiteFollowUpTasks({
+      coverage: {
+        domain: 'autodun.com',
+        seedUrl: 'https://autodun.com/',
+        discoveredCount: 5,
+        fetchedCount: 5,
+        excluded: [],
+        excludedByReason: {
+          ROBOTS_DISALLOWED: 0,
+          META_NOINDEX: 0,
+          X_ROBOTS_NOINDEX: 0,
+          NON_200: 0,
+          DEPTH_LIMIT: 0,
+          TIMEOUT: 0,
+          PLAN_LIMIT: 0,
+          REDIRECT_CHAIN: 0,
+          NOT_REACHED: 0,
+        },
+        terminationReason: 'QUEUE_EMPTY',
+        terminationEvidence: 'done',
+        discoverySources: { sitemap: 0, links: 5, both: 0, seed: 1 },
+        sitemapOnlyUrls: [],
+        linkedOnlyUrls: [],
+        sitemapDiscoveredUrls: [],
+        robotsTxtFetched: true,
+        robotsTxtEvidence: 'ok',
+      },
+      pages,
+      cohorts: [],
+      verdict: {
+        headline: 'test',
+        topCauses: [],
+        indexableCount: 1,
+        blockedCount: 0,
+        atRiskCount: 1,
+      },
+      followUpTasks: [],
+      ranAt: '',
+    }).find((t) => t.kind === 'canonical')!
+
+    const result = { pages, followUpTasks: [task], manualFixesByTaskId: {} } as IndexDiagnosisResult
+    const fix = resolveManualFixForTask(task, result, new Map())
+    expect(fix?.fixType).toBe('canonical')
+    expect(fix?.redirectTargets?.length).toBe(1)
+    expect(fix?.snippets.some((s) => s.kind === 'html')).toBe(true)
+    expect(fix?.snippets.some((s) => s.kind === 'redirect-vercel')).toBe(true)
   })
 
   it('duplicate cohort fix routes to brief context, not fabricated snippets', () => {
