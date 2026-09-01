@@ -46,7 +46,7 @@ export function canonicalUrlsEquivalent(pageUrl: string, canonicalUrl: string): 
   if (!canonicalUrl.trim()) return false
   const pageVariants = expandCanonicalUrlVariants(pageUrl)
   const canonVariants = expandCanonicalUrlVariants(canonicalUrl)
-  for (const v of pageVariants) {
+  for (const v of Array.from(pageVariants)) {
     if (canonVariants.has(v)) return true
   }
   return false
