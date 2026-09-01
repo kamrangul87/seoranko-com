@@ -505,7 +505,7 @@ export default function AuditPage() {
                       </p>
                     )}
                     <button
-                      onClick={runFixAgent}
+                      onClick={() => void runFixAgent()}
                       disabled={fixRunning}
                       className="px-4 py-2 rounded-lg bg-[#0F0F0F] text-white disabled:opacity-50"
                     >
