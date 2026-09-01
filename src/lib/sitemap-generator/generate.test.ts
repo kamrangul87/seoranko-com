@@ -32,6 +32,7 @@ function mockInput(pages: PageIndexability[], overrides: Partial<SitemapCrawlInp
       discoverySources: { sitemap: 0, links: 5, both: 0, seed: 1 },
       sitemapOnlyUrls: ['https://autodun.com/old-page.html'],
       linkedOnlyUrls: ['https://autodun.com/mot-predictor'],
+      sitemapDiscoveredUrls: ['https://autodun.com/'],
       robotsTxtFetched: true,
       robotsTxtEvidence: 'ok',
     },

@@ -82,6 +82,7 @@ describe('manual-fixes', () => {
         discoverySources: { sitemap: 0, links: 5, both: 0, seed: 1 },
         sitemapOnlyUrls: [],
         linkedOnlyUrls: [],
+        sitemapDiscoveredUrls: [],
         robotsTxtFetched: true,
         robotsTxtEvidence: 'ok',
       },
@@ -122,6 +123,7 @@ describe('manual-fixes', () => {
       coverage: {
         domain: 'autodun.com',
         linkedOnlyUrls: urls,
+        sitemapDiscoveredUrls: [],
         robotsTxtEvidence: 'robots ok',
       },
     } as IndexDiagnosisResult
@@ -171,6 +173,7 @@ describe('manual-fixes', () => {
       coverage: {
         domain: 'autodun.com',
         linkedOnlyUrls: [gap],
+        sitemapDiscoveredUrls: [],
         excluded: [{ url: dead, reason: 'NON_200', evidence: 'HTTP 404', httpStatus: 404 }],
       },
       pages: [],

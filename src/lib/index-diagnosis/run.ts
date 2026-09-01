@@ -4,6 +4,7 @@ import { buildCohortComparison } from './cohorts'
 import { buildIndexDiagnosisVerdict } from './verdict'
 import { buildSiteFollowUpTasks } from './follow-up-tasks'
 import { buildInboundLinkMap, buildManualFixesForResult } from './manual-fixes'
+import { filterLinkedOnlyUrls, buildSitemapGapFilterContext } from './sitemap-gap-filter'
 import type { IndexDiagnosisResult } from './types'
 
 /**
@@ -13,6 +14,10 @@ import type { IndexDiagnosisResult } from './types'
 export async function runIndexDiagnosis(seedUrl: string): Promise<IndexDiagnosisResult> {
   const crawl = await runIndexCrawl(seedUrl)
   const pages = evaluateAllPages(crawl.fetchedPages, crawl.robotsTxt)
+
+  const gapCtx = buildSitemapGapFilterContext(crawl.coverage, crawl.fetchedPages, pages)
+  crawl.coverage.linkedOnlyUrls = filterLinkedOnlyUrls(crawl.coverage.linkedOnlyUrls, gapCtx)
+
   const cohorts = buildCohortComparison(pages)
   const verdict = buildIndexDiagnosisVerdict(crawl.coverage, pages)
   const partial: IndexDiagnosisResult = {

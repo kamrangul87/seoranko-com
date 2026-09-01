@@ -115,7 +115,9 @@ describe('verdict', () => {
       terminationEvidence: 'limit',
       discoverySources: { sitemap: 80, links: 20, both: 0, seed: 1 },
       sitemapOnlyUrls: [],
+      sitemapDiscoveredUrls: [],
       linkedOnlyUrls: [],
+      sitemapDiscoveredUrls: [],
       robotsTxtFetched: true,
       robotsTxtEvidence: 'ok',
     }

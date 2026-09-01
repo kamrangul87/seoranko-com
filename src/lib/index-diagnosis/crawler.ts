@@ -2,6 +2,7 @@ import { normalizeDomain, normalizeUrl } from '@/lib/supabase/audit-db'
 import { isSafePublicUrl } from '@/lib/fetch-page-content'
 import { matchRobotsForUrl } from './robots-parser'
 import { discoverSitemapUrls, extractInternalLinks } from './sitemap-discovery'
+import { filterLinkedOnlyUrls, buildSitemapGapFilterContext } from './sitemap-gap-filter'
 import type {
   CrawlCoverage,
   CrawlExcludeReason,
@@ -353,7 +354,12 @@ export async function runIndexCrawl(seedUrl: string): Promise<CrawlResult> {
   )
 
   const sitemapOnlyUrls = Array.from(sitemapSet).filter((u) => !linkDiscovered.has(u)).slice(0, 100)
-  const linkedOnlyUrls = Array.from(linkDiscovered).filter((u) => !sitemapSet.has(u)).slice(0, 100)
+  const rawLinkedOnlyUrls = Array.from(linkDiscovered).filter((u) => !sitemapSet.has(u)).slice(0, 100)
+  const gapCtx = buildSitemapGapFilterContext(
+    { excluded, sitemapDiscoveredUrls: sitemap.urls },
+    fetchedPages,
+  )
+  const linkedOnlyUrls = filterLinkedOnlyUrls(rawLinkedOnlyUrls, gapCtx)
 
   const sourceCounts = { sitemap: 0, links: 0, both: 0, seed: 0 }
   for (const d of Array.from(discovered.values())) {
@@ -372,6 +378,7 @@ export async function runIndexCrawl(seedUrl: string): Promise<CrawlResult> {
     discoverySources: sourceCounts,
     sitemapOnlyUrls,
     linkedOnlyUrls,
+    sitemapDiscoveredUrls: sitemap.urls,
     robotsTxtFetched: robotsTxt.length > 0,
     robotsTxtEvidence: robotsEvidence,
   }

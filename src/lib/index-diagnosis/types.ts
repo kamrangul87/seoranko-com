@@ -49,6 +49,8 @@ export interface CrawlCoverage {
   }
   sitemapOnlyUrls: string[]
   linkedOnlyUrls: string[]
+  /** URLs discovered in live/sitemap.xml during crawl — used for gap cross-checks. */
+  sitemapDiscoveredUrls: string[]
   robotsTxtFetched: boolean
   robotsTxtEvidence: string
 }
