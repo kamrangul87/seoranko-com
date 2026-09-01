@@ -3,6 +3,10 @@
  * No model calls — pattern matching on evidence fields only.
  */
 
+import {
+  isIndexHtmlCanonicalMisconfiguration,
+  parseCanonicalMismatchEvidence,
+} from './canonical-equivalence'
 import type { CohortMetrics, IndexDiagnosisResult, PageIndexability, SiteFollowUpTask } from './types'
 
 function canonicalMismatchTasks(pages: PageIndexability[]): SiteFollowUpTask[] {
@@ -10,10 +14,12 @@ function canonicalMismatchTasks(pages: PageIndexability[]): SiteFollowUpTask[] {
   for (const p of pages) {
     const canonStep = p.steps.find((s) => s.step === 'canonical')
     if (!canonStep || canonStep.passed) continue
-    if (!/\/index\.html?$/i.test(p.url)) continue
     if (!canonStep.evidence.includes('different same-host URL')) continue
 
-    const target = canonStep.evidence.match(/Canonical points to different same-host URL: ([^\s]+)/)?.[1]
+    const parsed = parseCanonicalMismatchEvidence(canonStep.evidence)
+    const target = parsed?.canonicalUrl
+    if (!target || !isIndexHtmlCanonicalMisconfiguration(p.url, target)) continue
+
     tasks.push({
       id: `canonical-index-html-${p.url}`,
       kind: 'canonical',

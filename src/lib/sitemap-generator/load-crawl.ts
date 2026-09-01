@@ -6,6 +6,8 @@ import type { SitemapCrawlInput } from './types'
 
 const RECENT_CRAWL_MS = 7 * 24 * 60 * 60 * 1000
 
+/** Index Diagnosis audits always run a fresh crawl (see runIndexDiagnosis). This TTL only applies to Sitemap Generator crawl reuse. */
+
 function seedUrlFromDomain(domain: string): string {
   return `https://${domain.replace(/^www\./, '')}/`
 }

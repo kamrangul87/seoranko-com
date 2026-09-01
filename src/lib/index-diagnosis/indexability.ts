@@ -1,4 +1,5 @@
 import { normalizeUrl } from '@/lib/supabase/audit-db'
+import { canonicalConsolidationOk } from './canonical-equivalence'
 import { matchRobotsForUrl } from './robots-parser'
 import {
   clusterNearDuplicates,
@@ -50,8 +51,14 @@ function classifyCanonical(
       evidence: `Canonical ${canon} points off-site (page host ${pageHost})`,
     }
   }
-  if (normCanon === normPage || canon === pageUrl) {
-    return { kind: 'self', evidence: `Canonical self-reference: ${canon}` }
+  if (normCanon === normPage || canon === pageUrl || canonicalConsolidationOk(pageUrl, canon)) {
+    const equiv = normCanon !== normPage && canon !== pageUrl
+    return {
+      kind: 'self',
+      evidence: equiv
+        ? `Canonical matches this page (equivalent URL): ${canon}`
+        : `Canonical self-reference: ${canon}`,
+    }
   }
   return { kind: 'other', evidence: `Canonical points to different same-host URL: ${canon} (page ${pageUrl})` }
 }

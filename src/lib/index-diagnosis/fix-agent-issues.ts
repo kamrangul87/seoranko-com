@@ -3,6 +3,10 @@
  * Mechanical fixes are auto-classified; missing destination pages stay human tasks.
  */
 
+import {
+  isIndexHtmlCanonicalMisconfiguration,
+  parseCanonicalMismatchEvidence,
+} from '@/lib/index-diagnosis/canonical-equivalence'
 import type { IndexDiagnosisResult } from '@/lib/index-diagnosis/types'
 import type { PageAuditIssue, PageAuditFixMetadata } from '@/lib/page-audit-engine'
 import type { SitemapDriftReport } from '@/lib/sitemap-generator/drift'
@@ -24,11 +28,11 @@ export function buildIndexDiagnosisFixAgentIssues(
   for (const p of result.pages) {
     const canonStep = p.steps.find((s) => s.step === 'canonical')
     if (!canonStep || canonStep.passed) continue
-    if (!/\/index\.html?$/i.test(p.url)) continue
     if (!canonStep.evidence.includes('different same-host URL')) continue
 
-    const target = canonStep.evidence.match(/Canonical points to different same-host URL: ([^\s]+)/)?.[1]
-    if (!target) continue
+    const parsed = parseCanonicalMismatchEvidence(canonStep.evidence)
+    const target = parsed?.canonicalUrl
+    if (!target || !isIndexHtmlCanonicalMisconfiguration(p.url, target)) continue
 
     issues.push({
       id: `idx-canonical-${encodeURIComponent(p.url)}`,

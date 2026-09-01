@@ -5,6 +5,7 @@ import { buildIndexDiagnosisVerdict } from './verdict'
 import { buildSiteFollowUpTasks } from './follow-up-tasks'
 import { buildInboundLinkMap, buildManualFixesForResult } from './manual-fixes'
 import { filterLinkedOnlyUrls, buildSitemapGapFilterContext } from './sitemap-gap-filter'
+import { finalizeIndexDiagnosisCanonicalFindings } from './canonical-postprocess'
 import type { IndexDiagnosisResult } from './types'
 
 /**
@@ -44,7 +45,7 @@ export async function runIndexDiagnosis(seedUrl: string): Promise<IndexDiagnosis
   const htmlByUrl: Record<string, string> = {}
   for (const p of crawl.fetchedPages) htmlByUrl[p.finalUrl] = p.html
 
-  return {
+  const base: IndexDiagnosisResult = {
     coverage: crawl.coverage,
     pages,
     cohorts,
@@ -55,5 +56,14 @@ export async function runIndexDiagnosis(seedUrl: string): Promise<IndexDiagnosis
     htmlByUrl,
     robotsTxt: crawl.robotsTxt,
     ranAt: new Date().toISOString(),
+  }
+
+  const { pages: verifiedPages, followUpTasks: verifiedTasks } =
+    await finalizeIndexDiagnosisCanonicalFindings(base)
+  const verifiedVerdict = buildIndexDiagnosisVerdict(crawl.coverage, verifiedPages)
+  const verifiedPartial = { ...base, pages: verifiedPages, followUpTasks: verifiedTasks, verdict: verifiedVerdict }
+  return {
+    ...verifiedPartial,
+    manualFixesByTaskId: buildManualFixesForResult(verifiedPartial, inboundMap),
   }
 }
