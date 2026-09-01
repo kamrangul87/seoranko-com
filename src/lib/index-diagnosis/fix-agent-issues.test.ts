@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { classifyAuditIssue } from '@/lib/fix-agent-classification'
 import { buildIndexDiagnosisFixAgentIssues } from '@/lib/index-diagnosis/fix-agent-issues'
-import { mergeNextConfigRedirect } from '@/lib/fix-agent-redirect'
+import { mergeNextConfigRedirect, mergeVercelJsonRedirect } from '@/lib/fix-agent-redirect'
 import { removeDeadLinkFromHtml } from '@/lib/fix-agent-dead-links'
 import type { IndexDiagnosisResult } from '@/lib/index-diagnosis/types'
 import type { PageAuditIssue } from '@/lib/page-audit-engine'
@@ -111,6 +111,22 @@ describe('fix-agent mechanical mutations', () => {
     expect(merged.changed).toBe(true)
     expect(merged.content).toContain("source: '/blog/index.html'")
     expect(merged.content).toContain("destination: '/blog/'")
+  })
+
+  it('merges redirect into vercel.json for Vite/Vercel sites', () => {
+    const existing = `{
+  "redirects": [
+    { "source": "/contact-us", "destination": "/contact", "permanent": true }
+  ]
+}`
+    const merged = mergeVercelJsonRedirect(
+      existing,
+      'https://autodun.com/blog/index.html',
+      'https://autodun.com/blog/',
+    )
+    expect(merged.changed).toBe(true)
+    expect(merged.content).toContain('"source": "/blog/index.html"')
+    expect(merged.content).toContain('"destination": "/blog/"')
   })
 
   it('removes dead anchor from HTML', () => {

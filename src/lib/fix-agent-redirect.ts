@@ -1,5 +1,5 @@
 /**
- * Mechanical redirect config merges for Fix Agent (Next.js next.config.js).
+ * Mechanical redirect config merges for Fix Agent (vercel.json or Next.js next.config.js).
  */
 
 function pathFromUrl(url: string): string {
@@ -23,7 +23,40 @@ export function redirectEntryObject(fromUrl: string, toUrl: string): string {
 export function redirectAlreadyInConfig(content: string, fromUrl: string): boolean {
   const fromPath = pathFromUrl(fromUrl)
   const escaped = fromPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return new RegExp(`source:\\s*['"]${escaped}['"]`, 'i').test(content)
+  return (
+    new RegExp(`source:\\s*['"]${escaped}['"]`, 'i').test(content) ||
+    new RegExp(`"source"\\s*:\\s*"${escaped}"`, 'i').test(content)
+  )
+}
+
+export function mergeVercelJsonRedirect(
+  content: string,
+  fromUrl: string,
+  toUrl: string,
+): { content: string; changed: boolean; summary: string } {
+  const fromPath = pathFromUrl(fromUrl)
+  const toPath = pathFromUrl(toUrl)
+
+  if (redirectAlreadyInConfig(content, fromUrl)) {
+    return { content, changed: false, summary: `Redirect for ${fromPath} already present in vercel.json.` }
+  }
+
+  let parsed: { redirects?: Array<Record<string, unknown>> }
+  try {
+    parsed = JSON.parse(content) as { redirects?: Array<Record<string, unknown>> }
+  } catch {
+    return { content, changed: false, summary: 'Could not parse vercel.json as JSON.' }
+  }
+
+  const entry = { source: fromPath, destination: toPath, permanent: true }
+  if (!Array.isArray(parsed.redirects)) parsed.redirects = []
+  parsed.redirects.push(entry)
+
+  return {
+    content: `${JSON.stringify(parsed, null, 2)}\n`,
+    changed: true,
+    summary: `Added redirect ${fromPath} → ${toPath} to vercel.json.`,
+  }
 }
 
 export function mergeNextConfigRedirect(

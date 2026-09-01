@@ -16,7 +16,7 @@ import {
   CMSAdapter, SiteCredentials, PageContent, FixApplyResult,
   alreadyHasSchemaType, schemaScriptTag
 } from './types'
-import { mergeNextConfigRedirect } from '../fix-agent-redirect'
+import { mergeNextConfigRedirect, mergeVercelJsonRedirect } from '../fix-agent-redirect'
 
 const GH = 'https://api.github.com'
 
@@ -465,7 +465,10 @@ export const githubAdapter: CMSAdapter = {
     if (invalid) return { success: false, error: invalid }
 
     const tree = await getRepoTree(creds)
-    const configFile = tree.find((f) => /^next\.config\.(js|mjs|ts)$/i.test(f.path.split('/').pop() || ''))
+    const vercelFile = tree.find((f) => f.path === 'vercel.json')
+    const nextConfigFile = tree.find((f) => /^next\.config\.(js|mjs|ts)$/i.test(f.path.split('/').pop() || ''))
+    const configFile = vercelFile || nextConfigFile
+
     if (!configFile) {
       const created = mergeNextConfigRedirect('', fromUrl, toUrl)
       const path = 'next.config.js'
@@ -495,7 +498,10 @@ export const githubAdapter: CMSAdapter = {
     const fileData = await getFileContent(creds, configFile.path)
     if (!fileData) return { success: false, error: `Could not read ${configFile.path}` }
 
-    const merged = mergeNextConfigRedirect(fileData.content, fromUrl, toUrl)
+    const merged =
+      configFile.path === 'vercel.json'
+        ? mergeVercelJsonRedirect(fileData.content, fromUrl, toUrl)
+        : mergeNextConfigRedirect(fileData.content, fromUrl, toUrl)
     if (!merged.changed) {
       return { success: true, skipped: true, detail: merged.summary }
     }

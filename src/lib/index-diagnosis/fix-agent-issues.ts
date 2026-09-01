@@ -36,7 +36,7 @@ export function buildIndexDiagnosisFixAgentIssues(
       category: 'index-diagnosis',
       title: 'index.html canonical points elsewhere — redirect needed',
       description: canonStep.evidence,
-      remediation: `Fix Agent can add a 301 redirect from ${p.url} to ${target} in next.config.js (GitHub-connected sites).`,
+      remediation: `Fix Agent can add a 301 redirect from ${p.url} to ${target} in vercel.json or next.config.js (GitHub-connected sites).`,
       fixMetadata: meta({
         kind: 'redirect-canonical',
         fromUrl: p.url,
