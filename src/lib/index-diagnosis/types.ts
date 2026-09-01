@@ -184,6 +184,9 @@ export interface ManualFixPayload {
   sitemapEntriesRaw?: string
   /** Path B — redirect pairs for platform step generator. */
   redirectTargets?: ManualFixRedirectTarget[]
+  /** Route sitemap_gap fixes to the Sitemap Generator tool. */
+  sitemapDomain?: string
+  linkedOnlyHighlight?: string[]
 }
 
 export interface SiteFollowUpTask {
@@ -213,5 +216,9 @@ export interface IndexDiagnosisResult {
   manualFixesByTaskId?: Record<string, ManualFixPayload>
   /** Reverse lookup of internal links to each URL (from fetched pages). */
   inboundLinksByUrl?: Record<string, InboundLinkEvidence[]>
+  /** Crawl HTML keyed by final URL — for sitemap lastmod extraction. */
+  htmlByUrl?: Record<string, string>
+  /** robots.txt body from crawl — for sitemap checker. */
+  robotsTxt?: string
   ranAt: string
 }

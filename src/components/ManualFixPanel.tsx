@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ManualFixPayload, ManualFixSnippet } from '@/lib/index-diagnosis/types'
 import { developerSnippetsFromFix } from '@/lib/index-diagnosis/manual-fixes'
@@ -254,6 +255,34 @@ export function ManualFixPanel({
     } finally {
       setBriefLoading(false)
     }
+  }
+
+  if (fix.fixType === 'sitemap_gap') {
+    const href = `/dashboard/sitemap?domain=${encodeURIComponent(fix.sitemapDomain || '')}`
+    return (
+      <div className="mt-3 pt-3 border-t border-blue-100 space-y-2">
+        <p className="text-xs text-[#6B6B6B]">{fix.evidenceCitation}</p>
+        {fix.linkedOnlyHighlight && fix.linkedOnlyHighlight.length > 0 && (
+          <ul className="text-xs font-mono text-[#6B6B6B] space-y-0.5 max-h-32 overflow-y-auto">
+            {fix.linkedOnlyHighlight.map((u) => (
+              <li key={u} className="break-all">
+                {u}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="text-xs text-[#0F0F0F]">
+          Sitemaps list URLs for crawlers — they do not contain page content. Use the Sitemap Generator to build a
+          complete, valid sitemap.xml from your crawl data.
+        </p>
+        <Link
+          href={href}
+          className="inline-block text-xs px-3 py-1.5 rounded-lg bg-[#FF6B2C] text-white"
+        >
+          Open Sitemap Generator
+        </Link>
+      </div>
+    )
   }
 
   if (fix.fixType === 'duplicate_cohort') {

@@ -108,7 +108,7 @@ describe('manual-fixes', () => {
     expect(fix?.evidenceCitation).toContain('autodun.com/blog/index.html')
   })
 
-  it('generates sitemap XML blocks without lastmod', () => {
+  it('routes sitemap gap to Sitemap Generator instead of XML fragments', () => {
     const urls = ['https://autodun.com/mot-predictor', 'https://autodun.com/charging-map']
     const task = {
       id: 'sitemap-missing-linked-urls',
@@ -120,14 +120,18 @@ describe('manual-fixes', () => {
     }
     const result = {
       coverage: {
+        domain: 'autodun.com',
         linkedOnlyUrls: urls,
         robotsTxtEvidence: 'robots ok',
       },
     } as IndexDiagnosisResult
     const fix = generateManualFixForTask(task, result, new Map())
-    expect(fix?.snippets[0]?.content).toContain('<loc>https://autodun.com/mot-predictor</loc>')
-    expect(fix?.snippets[0]?.content).not.toMatch(/<lastmod>/)
-    expect(fix?.snippets[0]?.content).not.toMatch(/<priority>/)
+    expect(fix?.fixType).toBe('sitemap_gap')
+    expect(fix?.fixMode).toBe('infrastructure')
+    expect(fix?.sitemapDomain).toBe('autodun.com')
+    expect(fix?.linkedOnlyHighlight).toEqual(urls)
+    expect(fix?.contentFixKind).toBeUndefined()
+    expect(fix?.snippets).toHaveLength(0)
   })
 
   it('lists inbound link sources for non-200 URLs', () => {

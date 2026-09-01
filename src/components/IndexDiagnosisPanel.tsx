@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import type { IndexDiagnosisResult } from '@/lib/index-diagnosis/types'
 import { lookupManualFixForUrl } from '@/lib/index-diagnosis/manual-fixes'
 import { ManualFixPanel } from '@/components/ManualFixPanel'
@@ -168,7 +169,15 @@ export function IndexDiagnosisPanel({
           )}
           {coverage.linkedOnlyUrls.length > 0 && (
             <div>
-              <div className="font-medium mb-1">Linked, absent from sitemap ({coverage.linkedOnlyUrls.length})</div>
+              <div className="font-medium mb-1 flex flex-wrap items-center gap-2">
+                Linked, absent from sitemap ({coverage.linkedOnlyUrls.length})
+                <Link
+                  href={`/dashboard/sitemap?domain=${encodeURIComponent(coverage.domain)}`}
+                  className="text-[#FF6B2C] underline font-normal"
+                >
+                  Open Sitemap Generator
+                </Link>
+              </div>
               <ul className="text-[#6B6B6B] max-h-32 overflow-y-auto space-y-0.5">
                 {coverage.linkedOnlyUrls.map((u) => (
                   <li key={u} className="break-all">{u}</li>
@@ -213,11 +222,20 @@ export function IndexDiagnosisPanel({
             {followUpTasks.map((t) => {
               const fix = manualFixesByTaskId?.[t.id]
               const isOpen = expandedFix[t.id] ?? false
+              const isSitemapGap = t.kind === 'sitemap_gap' || t.id === 'sitemap-missing-linked-urls'
               return (
                 <li key={t.id} className="border border-blue-100 rounded-lg px-3 py-2 bg-white">
                   <div className="font-medium">{t.title}</div>
                   <div className="text-[#6B6B6B] mt-0.5">{t.detail}</div>
                   <div className="text-xs font-mono text-[#9B9B9B] mt-1">{t.evidence}</div>
+                  {isSitemapGap && (
+                    <Link
+                      href={`/dashboard/sitemap?domain=${encodeURIComponent(coverage.domain)}`}
+                      className="inline-block mt-2 text-xs px-3 py-1.5 rounded-lg bg-[#FF6B2C] text-white"
+                    >
+                      Open Sitemap Generator
+                    </Link>
+                  )}
                   {t.affectedUrls.length > 0 && (
                     <ul className="mt-2 text-xs space-y-0.5">
                       {t.affectedUrls.map((u) => (
@@ -229,7 +247,7 @@ export function IndexDiagnosisPanel({
                       ))}
                     </ul>
                   )}
-                  {fix && (
+                  {fix && !isSitemapGap && (
                     <>
                       <button
                         type="button"

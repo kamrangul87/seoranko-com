@@ -36,6 +36,9 @@ export async function runIndexDiagnosis(seedUrl: string): Promise<IndexDiagnosis
     inboundMap,
   )
 
+  const htmlByUrl: Record<string, string> = {}
+  for (const p of crawl.fetchedPages) htmlByUrl[p.finalUrl] = p.html
+
   return {
     coverage: crawl.coverage,
     pages,
@@ -44,6 +47,8 @@ export async function runIndexDiagnosis(seedUrl: string): Promise<IndexDiagnosis
     followUpTasks,
     manualFixesByTaskId,
     inboundLinksByUrl,
+    htmlByUrl,
+    robotsTxt: crawl.robotsTxt,
     ranAt: new Date().toISOString(),
   }
 }

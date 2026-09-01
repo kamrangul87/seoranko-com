@@ -26,12 +26,6 @@ function canonicalTagSnippet(pageUrl: string, evidence: string): ManualFixSnippe
   return buildCanonicalTagSnippetWithPlacement(pageUrl, evidence)
 }
 
-function sitemapUrlBlock(url: string): string {
-  return `  <url>
-    <loc>${url}</loc>
-  </url>`
-}
-
 export function buildInboundLinkMap(pages: FetchedPage[]): Map<string, InboundLinkEvidence[]> {
   const map = new Map<string, InboundLinkEvidence[]>()
   const hostNorm = (u: string) => {
@@ -113,24 +107,15 @@ function canonicalManualFix(
 
 function sitemapGapManualFix(task: SiteFollowUpTask, coverage: IndexDiagnosisResult['coverage']): ManualFixPayload {
   const urls = task.affectedUrls.length > 0 ? task.affectedUrls : coverage.linkedOnlyUrls
-  const blocks = urls.map(sitemapUrlBlock).join('\n')
-  const raw = `<!-- ${urls.length} linked-only URL(s) from crawl — no lastmod/priority invented -->\n${blocks}`
 
   return {
     taskId: task.id,
     fixType: 'sitemap_gap',
-    fixMode: 'content',
+    fixMode: 'infrastructure',
     evidenceCitation: `Based on ${urls.length} URL(s) linked internally but absent from sitemap.xml during this crawl (${coverage.robotsTxtEvidence})`,
-    contentFixKind: 'sitemap_entries',
-    sitemapEntriesRaw: blocks,
-    snippets: [
-      {
-        id: 'sitemap-xml-blocks',
-        label: 'Sitemap XML entries (paste inside <urlset>)',
-        kind: 'sitemap-xml',
-        content: raw,
-      },
-    ],
+    snippets: [],
+    sitemapDomain: coverage.domain,
+    linkedOnlyHighlight: urls,
   }
 }
 
