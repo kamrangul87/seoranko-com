@@ -25,6 +25,9 @@ import {
 } from '@/lib/supabase/audit-db'
 import { createClient } from '@supabase/supabase-js'
 import { isSafePublicUrl } from '@/lib/fetch-page-content'
+import { runIndexDiagnosis } from '@/lib/index-diagnosis/run'
+import { persistIndexDiagnosisRun } from '@/lib/index-diagnosis/persist'
+import type { IndexDiagnosisResult } from '@/lib/index-diagnosis/types'
 
 export interface PageAuditIssue {
   id: string
@@ -66,6 +69,13 @@ export interface PageAuditResult {
       source: string
       displayValue: string
     }>
+  }
+  /** Domain crawl coverage + per-URL indexability (same crawl pass). */
+  indexDiagnosis?: IndexDiagnosisResult | null
+  /** Denominator for site-wide checks — URLs actually fetched in index diagnosis. */
+  auditScope?: {
+    urlsDiscovered: number
+    urlsFetched: number
   }
 }
 
@@ -166,7 +176,10 @@ async function loadScoreHistory(pageUrl: string): Promise<Array<{ auditedAt: str
   }
 }
 
-export async function runPageAudit(rawUrl: string): Promise<PageAuditResult> {
+export async function runPageAudit(
+  rawUrl: string,
+  opts?: { userId?: string },
+): Promise<PageAuditResult> {
   const url = rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`
   if (!isSafePublicUrl(url)) {
     throw new Error('URL is not allowed (must be a public http(s) URL)')
@@ -187,9 +200,15 @@ export async function runPageAudit(rawUrl: string): Promise<PageAuditResult> {
   const scored = scorePage(signals, [signals])
   // Ecommerce checks only fire when site-type is ecommerce; CWV runs for every
   // page (content + ecommerce) via the same PSI path.
-  const [ecommerceIssues, cwv] = await Promise.all([
+  const [ecommerceIssues, cwv, indexDiagnosis] = await Promise.all([
     Promise.resolve(runEcommerceAuditChecks(html || '', url, detection)),
     fetchCoreWebVitals(url),
+    runIndexDiagnosis(url).catch((err) => {
+      crawlNotes.push(
+        `Index Diagnosis skipped: ${err instanceof Error ? err.message : 'crawl failed'}`,
+      )
+      return null
+    }),
   ])
 
   if (cwv.labFallbackUsed) {
@@ -235,6 +254,10 @@ export async function runPageAudit(rawUrl: string): Promise<PageAuditResult> {
     crawlNotes.push(`History persist skipped: ${err instanceof Error ? err.message : 'unknown'}`)
   }
 
+  if (indexDiagnosis && opts?.userId) {
+    void persistIndexDiagnosisRun(opts.userId, indexDiagnosis)
+  }
+
   const history = await loadScoreHistory(url)
 
   return {
@@ -266,5 +289,12 @@ export async function runPageAudit(rawUrl: string): Promise<PageAuditResult> {
       labFallbackUsed: cwv.labFallbackUsed,
       metrics: cwv.metrics,
     },
+    indexDiagnosis,
+    auditScope: indexDiagnosis
+      ? {
+          urlsDiscovered: indexDiagnosis.coverage.discoveredCount,
+          urlsFetched: indexDiagnosis.coverage.fetchedCount,
+        }
+      : undefined,
   }
 }

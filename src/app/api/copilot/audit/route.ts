@@ -3,8 +3,8 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { runPageAudit } from '@/lib/page-audit-engine'
 
-/** PSI Core Web Vitals can take 15–45s; keep headroom for crawl + ecommerce checks. */
-export const maxDuration = 120
+/** PSI + domain index crawl can run 60–120s on larger sites. */
+export const maxDuration = 300
 
 export async function POST(req: NextRequest) {
   try {
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     const url = typeof body.url === 'string' ? body.url.trim() : ''
     if (!url) return NextResponse.json({ error: 'url is required' }, { status: 400 })
 
-    const result = await runPageAudit(url)
+    const result = await runPageAudit(url, { userId: user.id })
     return NextResponse.json({ ok: true, audit: result })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Audit failed'

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { DashboardNav } from '@/components/DashboardNav'
+import { IndexDiagnosisPanel } from '@/components/IndexDiagnosisPanel'
+import type { IndexDiagnosisResult } from '@/lib/index-diagnosis/types'
 
 interface AuditIssue {
   id: string
@@ -53,6 +55,11 @@ interface AuditResult {
       rating: string
       source: string
     }>
+  }
+  indexDiagnosis?: IndexDiagnosisResult | null
+  auditScope?: {
+    urlsDiscovered: number
+    urlsFetched: number
   }
 }
 
@@ -326,6 +333,10 @@ export default function AuditPage() {
 
           {audit && (
             <div className="space-y-6">
+              {audit.indexDiagnosis && (
+                <IndexDiagnosisPanel data={audit.indexDiagnosis} />
+              )}
+
               <div className="border border-[#E5E5E5] rounded-xl p-4 bg-white">
                 <div className="flex flex-wrap gap-4 items-baseline">
                   <div>
@@ -440,7 +451,21 @@ export default function AuditPage() {
               </div>
 
               <div>
-                <h2 className="font-medium mb-2">Issues ({audit.issues.length})</h2>
+                <h2 className="font-medium mb-2">
+                  Issues ({audit.issues.length})
+                  {audit.auditScope && (
+                    <span className="text-xs font-normal text-[#9B9B9B] ml-2">
+                      — page-level checks on scanned URL; site-wide indexability checked across{' '}
+                      {audit.auditScope.urlsFetched} crawled / {audit.auditScope.urlsDiscovered} discovered URLs
+                    </span>
+                  )}
+                </h2>
+                {audit.issues.length === 0 && audit.auditScope && (
+                  <p className="text-sm text-[#6B6B6B] mb-2">
+                    No issues on the scanned URL. Index diagnosis analysed {audit.auditScope.urlsFetched} fetched URLs
+                    (of {audit.auditScope.urlsDiscovered} discovered).
+                  </p>
+                )}
                 <ul className="space-y-2">
                   {audit.issues.slice(0, 40).map((issue) => {
                     const fixability = classifyClientSide(issue, connection?.cmsType)
