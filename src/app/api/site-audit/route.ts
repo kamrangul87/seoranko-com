@@ -1,8 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import { upsertAuditResults, insertAuditHistory, getAuditResults, normalizeUrl, normalizeDomain } from '@/lib/supabase/audit-db';
 import { AuditIssue, PageSignals, DomainSignals, fetchPageSignals, scorePage } from '@/lib/site-audit/scorer';
+import { getConnectedSites, addConnectedSite, normaliseDomain } from '@/lib/connected-sites';
+import { ingestAuditIssues } from '@/lib/seo-workshop/issue-ingest';
 
 import { MODEL_FOR } from '@/lib/model-router';
 
@@ -363,6 +367,64 @@ function issueToKey(message: string): string {
   return '';
 }
 
+// ── SEO Workshop: mirror freshly-scored issues into seo_issue ─────────────
+// Best-effort, additive, never throws into the caller. Only runs when the
+// request carries a real dashboard session (site-audit itself has none —
+// unauthenticated/API-key callers keep working exactly as before) and the
+// audited domain resolves to (or can become) a connected_sites row, since
+// Repair Order is inherently a per-owned-site concept, same as the CMS
+// Fix Agent it will eventually call into (PR3).
+async function syncSeoWorkshopIssues(domain: string, results: any[]): Promise<void> {
+  const cookieStore = cookies();
+  const authClient = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { cookies: { get: (name: string) => cookieStore.get(name)?.value } }
+  );
+
+  const { data: { user } } = await authClient.auth.getUser();
+  if (!user) return;
+
+  let sites = await getConnectedSites(authClient, user.id);
+  let site = sites.find(s => s.domain === normaliseDomain(domain));
+  if (!site) {
+    const { success } = await addConnectedSite(authClient, user.id, domain, domain);
+    if (!success) return;
+    sites = await getConnectedSites(authClient, user.id);
+    site = sites.find(s => s.domain === normaliseDomain(domain));
+    if (!site) return;
+  }
+
+  // Best-effort: upsertAuditResults() runs concurrently, unawaited, to keep
+  // this endpoint fast — its rows may not exist yet on a page's very first
+  // audit. audit_id is nullable and just stays null in that case.
+  const normUrls = results.map(r => normalizeUrl(r.url));
+  const { data: auditRows } = await authClient
+    .from('site_audit_results')
+    .select('id, page_url')
+    .eq('domain', normalizeDomain(domain))
+    .in('page_url', normUrls);
+  const auditRowIdByUrl = new Map<string, string>((auditRows ?? []).map((r: any) => [r.page_url, r.id]));
+
+  const outcome = await ingestAuditIssues(authClient, {
+    userId: user.id,
+    siteId: site.id,
+    pages: results.map(r => ({
+      pageUrl: r.url,
+      auditRowId: auditRowIdByUrl.get(normalizeUrl(r.url)) ?? null,
+      issues: r.issues ?? [],
+    })),
+  });
+
+  await authClient.from('seo_service_event').insert({
+    user_id: user.id,
+    site_id: site.id,
+    event_type: 'INSPECTION_COMPLETED',
+    summary: `Inspection completed — ${outcome.created} new issue${outcome.created === 1 ? '' : 's'}, ${outcome.fixed} no longer detected`,
+    detail: { pagesAudited: results.length, ...outcome },
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -549,6 +611,10 @@ export async function POST(req: NextRequest) {
         score: r.score,
         aiScore: r.aiScore ?? null,
       }))).catch(e => console.warn('[site-audit] history insert failed:', e));
+
+      syncSeoWorkshopIssues(cleanDomain, freshResults).catch(e =>
+        console.warn('[site-audit] seo-workshop issue sync failed:', e)
+      );
     }
 
     const preservedNote = fixedPageMap.size > 0
