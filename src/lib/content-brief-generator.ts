@@ -9,6 +9,11 @@ import Anthropic from '@anthropic-ai/sdk'
 import { MODEL_FOR } from '@/lib/model-router'
 import { stripUnsourcedNumericClaims } from '@/lib/unsourced-numeric-stripper'
 import { applyCitationGapToBrief, citationGapRequestNotes } from '@/lib/ai-visibility/citation-gap-brief'
+import {
+  applyDuplicateCohortToBrief,
+  duplicateCohortRequestNotes,
+} from '@/lib/index-diagnosis/duplicate-cohort-brief'
+import type { DuplicateCohortBriefContext } from '@/lib/index-diagnosis/types'
 
 export type BriefMode = 'content' | 'product' | 'category'
 
@@ -244,6 +249,7 @@ export async function generateContentBrief(input: {
     finding: string
     gaps: string[]
   }
+  indexDiagnosisCohort?: DuplicateCohortBriefContext
 }): Promise<ContentBrief> {
   const seed = input.seedKeyword.trim()
   if (!seed) throw new Error('seedKeyword is required')
@@ -253,6 +259,9 @@ export async function generateContentBrief(input: {
 
   const gapNotes = input.citationGap
     ? `\n\n${citationGapRequestNotes(input.citationGap)}`
+    : ''
+  const cohortNotes = input.indexDiagnosisCohort
+    ? `\n\n${duplicateCohortRequestNotes(input.indexDiagnosisCohort)}`
     : ''
 
   let brief: ContentBrief
@@ -276,7 +285,7 @@ Mode: ${mode}. Market context: ${market}.`,
             role: 'user',
             content: `Seed keyword: "${seed}"
 Secondary keywords: ${secondaries.join(', ') || '(none)'}
-Produce a ${mode} brief with one H1 and 4–7 supporting sections.${gapNotes}`,
+Produce a ${mode} brief with one H1 and 4–7 supporting sections.${gapNotes}${cohortNotes}`,
           },
         ],
       })
@@ -290,6 +299,9 @@ Produce a ${mode} brief with one H1 and 4–7 supporting sections.${gapNotes}`,
 
   if (input.citationGap) {
     brief = applyCitationGapToBrief(brief, input.citationGap)
+  }
+  if (input.indexDiagnosisCohort) {
+    brief = applyDuplicateCohortToBrief(brief, input.indexDiagnosisCohort)
   }
   return brief
 }

@@ -3,6 +3,7 @@ import { evaluateAllPages } from './indexability'
 import { buildCohortComparison } from './cohorts'
 import { buildIndexDiagnosisVerdict } from './verdict'
 import { buildSiteFollowUpTasks } from './follow-up-tasks'
+import { buildInboundLinkMap, buildManualFixesForResult } from './manual-fixes'
 import type { IndexDiagnosisResult } from './types'
 
 /**
@@ -14,14 +15,26 @@ export async function runIndexDiagnosis(seedUrl: string): Promise<IndexDiagnosis
   const pages = evaluateAllPages(crawl.fetchedPages, crawl.robotsTxt)
   const cohorts = buildCohortComparison(pages)
   const verdict = buildIndexDiagnosisVerdict(crawl.coverage, pages)
-  const followUpTasks = buildSiteFollowUpTasks({
+  const partial: IndexDiagnosisResult = {
     coverage: crawl.coverage,
     pages,
     cohorts,
     verdict,
     followUpTasks: [],
     ranAt: '',
-  })
+  }
+  const followUpTasks = buildSiteFollowUpTasks(partial)
+  partial.followUpTasks = followUpTasks
+
+  const inboundMap = buildInboundLinkMap(crawl.fetchedPages)
+  const inboundLinksByUrl: IndexDiagnosisResult['inboundLinksByUrl'] = {}
+  for (const [target, links] of Array.from(inboundMap.entries())) {
+    inboundLinksByUrl[target] = links
+  }
+  const manualFixesByTaskId = buildManualFixesForResult(
+    { ...partial, followUpTasks },
+    inboundMap,
+  )
 
   return {
     coverage: crawl.coverage,
@@ -29,6 +42,8 @@ export async function runIndexDiagnosis(seedUrl: string): Promise<IndexDiagnosis
     cohorts,
     verdict,
     followUpTasks,
+    manualFixesByTaskId,
+    inboundLinksByUrl,
     ranAt: new Date().toISOString(),
   }
 }

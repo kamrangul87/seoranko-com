@@ -114,8 +114,50 @@ export interface IndexDiagnosisCause {
   exampleEvidence: string
 }
 
+export type SiteFollowUpTaskKind =
+  | 'canonical'
+  | 'sitemap_gap'
+  | 'non_200'
+  | 'duplicate_cohort'
+
+export type ManualFixSnippetKind =
+  | 'html'
+  | 'redirect-nextjs'
+  | 'redirect-htaccess'
+  | 'redirect-nginx'
+  | 'sitemap-xml'
+  | 'guidance'
+
+export interface ManualFixSnippet {
+  id: string
+  label: string
+  kind: ManualFixSnippetKind
+  content: string
+}
+
+export interface DuplicateCohortBriefContext {
+  cohortLabel: string
+  cohortId: string
+  flagEvidence: string
+  exampleUrls: string[]
+  duplicateDensity?: number
+}
+
+export interface ManualFixPayload {
+  taskId: string
+  fixType: SiteFollowUpTaskKind
+  evidenceCitation: string
+  snippets: ManualFixSnippet[]
+  /** Guidance when fix is "remove dead link" vs redirect. */
+  removeLinkGuidance?: string
+  /** Near-duplicate cohort — route to Content Brief instead of code snippets. */
+  briefSeedKeyword?: string
+  briefContext?: DuplicateCohortBriefContext
+}
+
 export interface SiteFollowUpTask {
   id: string
+  kind?: SiteFollowUpTaskKind
   title: string
   detail: string
   evidence: string
@@ -136,5 +178,9 @@ export interface IndexDiagnosisResult {
   cohorts: CohortMetrics[]
   verdict: IndexDiagnosisVerdict
   followUpTasks: SiteFollowUpTask[]
+  /** Deterministic copy-paste snippets keyed by follow-up task id. */
+  manualFixesByTaskId?: Record<string, ManualFixPayload>
+  /** Reverse lookup of internal links to each URL (from fetched pages). */
+  inboundLinksByUrl?: Record<string, InboundLinkEvidence[]>
   ranAt: string
 }

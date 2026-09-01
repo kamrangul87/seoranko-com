@@ -45,9 +45,11 @@ interface AuditResult {
   }
   history: Array<{ auditedAt: string; score: number }>
   crawlNotes: string[]
+  coreWebVitalsPending?: boolean
   coreWebVitals?: {
     dataMode: string
     labFallbackUsed: boolean
+    error?: string
     metrics: Array<{
       id: string
       label: string
@@ -193,6 +195,56 @@ export default function AuditPage() {
   const [attempts, setAttempts] = useState<FixAttempt[]>([])
   const [humanTasks, setHumanTasks] = useState<HumanTask[]>([])
   const [scoreAfterFix, setScoreAfterFix] = useState<number | null>(null)
+  const [cwvLoading, setCwvLoading] = useState(false)
+
+  const fetchCoreWebVitalsAsync = useCallback(async (auditUrl: string) => {
+    setCwvLoading(true)
+    try {
+      const res = await fetch('/api/copilot/audit/cwv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: auditUrl }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Core Web Vitals check failed')
+
+      setAudit((prev) => {
+        if (!prev || prev.url !== auditUrl) return prev
+        const mergedIssues = [
+          ...prev.issues.filter((i) => i.category !== 'core-web-vitals'),
+          ...(data.issues || []),
+        ]
+        const dimensions = prev.explainable.dimensions.map((d) =>
+          d.id === 'core_web_vitals' && data.dimension
+            ? { ...d, status: data.dimension.status, summary: data.dimension.summary }
+            : d,
+        )
+        const crawlNotes = data.crawlNote
+          ? [...prev.crawlNotes.filter((n) => !n.startsWith('Core Web Vitals:')), data.crawlNote]
+          : prev.crawlNotes
+        return {
+          ...prev,
+          coreWebVitalsPending: false,
+          coreWebVitals: data.coreWebVitals,
+          issues: mergedIssues,
+          explainable: { ...prev.explainable, dimensions },
+          crawlNotes,
+        }
+      })
+    } catch (err) {
+      setAudit((prev) => {
+        if (!prev || prev.url !== auditUrl) return prev
+        const note = `Core Web Vitals: ${err instanceof Error ? err.message : 'check failed'}`
+        return {
+          ...prev,
+          coreWebVitalsPending: false,
+          crawlNotes: [...prev.crawlNotes.filter((n) => !n.startsWith('Core Web Vitals:')), note],
+        }
+      })
+    } finally {
+      setCwvLoading(false)
+    }
+  }, [])
 
   const refreshConnection = useCallback(async (auditUrl: string) => {
     try {
@@ -240,6 +292,9 @@ export default function AuditPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Audit failed')
       setAudit(data.audit)
+      if (data.audit?.coreWebVitalsPending !== false) {
+        void fetchCoreWebVitalsAsync(data.audit.url)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Audit failed')
     } finally {
@@ -334,7 +389,7 @@ export default function AuditPage() {
           {audit && (
             <div className="space-y-6">
               {audit.indexDiagnosis && (
-                <IndexDiagnosisPanel data={audit.indexDiagnosis} />
+                <IndexDiagnosisPanel data={audit.indexDiagnosis} siteId={connection?.siteId} />
               )}
 
               <div className="border border-[#E5E5E5] rounded-xl p-4 bg-white">
@@ -455,6 +510,9 @@ export default function AuditPage() {
                       <div>
                         <div className="font-medium">{d.label}</div>
                         <div className="text-xs text-[#6B6B6B]">{d.summary}</div>
+                        {d.id === 'core_web_vitals' && cwvLoading && (
+                          <div className="text-xs text-[#9B9B9B] mt-1">Loading PageSpeed Insights…</div>
+                        )}
                         {d.id === 'core_web_vitals' && audit.coreWebVitals?.metrics && audit.coreWebVitals.metrics.length > 0 && (
                           <div className="text-xs text-[#0F0F0F] mt-1">
                             {audit.coreWebVitals.metrics

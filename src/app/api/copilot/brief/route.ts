@@ -7,6 +7,7 @@ import {
   citationGapBadgeText,
   type CitationGapContext,
 } from '@/lib/ai-visibility/citation-gap-brief'
+import type { DuplicateCohortBriefContext } from '@/lib/index-diagnosis/types'
 
 function authClient() {
   const cookieStore = cookies()
@@ -110,9 +111,16 @@ export async function POST(req: NextRequest) {
     const mode = (body.mode as BriefMode | undefined) || undefined
     const siteId = typeof body.siteId === 'string' ? body.siteId : null
     const resultId = typeof body.aiVisibilityResultId === 'string' ? body.aiVisibilityResultId : ''
+    const indexCohort = body.indexDiagnosisCohort as DuplicateCohortBriefContext | undefined
 
     let seed = seedIn
     let citationGap: CitationGapContext | undefined
+    let duplicateCohort: DuplicateCohortBriefContext | undefined
+
+    if (indexCohort?.cohortLabel && indexCohort?.cohortId) {
+      duplicateCohort = indexCohort
+      seed = seed || indexCohort.exampleUrls[0]?.replace(/^https?:\/\/[^/]+/, '').replace(/^\//, '') || indexCohort.cohortLabel
+    }
 
     if (resultId) {
       const { data: result, error: resultErr } = await supabase
@@ -152,6 +160,7 @@ export async function POST(req: NextRequest) {
       mode,
       market,
       citationGap,
+      indexDiagnosisCohort: duplicateCohort,
     })
 
     const insertRow = {

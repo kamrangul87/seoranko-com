@@ -11,6 +11,7 @@ import {
   parsePagespeedCoreWebVitals,
   mergeFieldAndLabMetrics,
   fetchCoreWebVitals,
+  classifyPsiHttpError,
   CWV_THRESHOLDS,
 } from './core-web-vitals'
 import { buildExplainableScore } from './quality-score-dimensions'
@@ -162,8 +163,14 @@ describe('fetchCoreWebVitals network wrapper', () => {
     const result = await fetchCoreWebVitals('https://example.com')
     expect(result.ok).toBe(false)
     expect(result.issues[0]?.id).toBe('cwv-psi-unavailable')
-    expect(result.issues[0]?.description).toMatch(/429/)
+    expect(result.issues[0]?.description).toMatch(/quota exceeded/i)
     expect(result.issues[0]?.affectsDimensions).toEqual(['core_web_vitals'])
+  })
+
+  it('classifies quota errors distinctly from generic HTTP errors', () => {
+    const quota = classifyPsiHttpError(429, '{"error":{"message":"Quota exceeded"}}')
+    expect(quota.kind).toBe('quota')
+    expect(quota.message).toMatch(/quota exceeded/i)
   })
 
   it('calls the official PSI endpoint with strategy=mobile', async () => {

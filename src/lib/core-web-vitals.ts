@@ -408,15 +408,52 @@ function psiApiKey(): string | undefined {
   return process.env.PAGESPEED_API_KEY || process.env.GOOGLE_API_KEY || undefined
 }
 
+/** PSI can take 20–90s for a full Lighthouse run — allow headroom above typical server defaults. */
+export const PSI_FETCH_TIMEOUT_MS = 120_000
+
+export type PsiFailureKind = 'quota' | 'timeout' | 'http' | 'network'
+
+export function classifyPsiHttpError(status: number, body: string): { kind: PsiFailureKind; message: string } {
+  const lower = body.toLowerCase()
+  if (
+    status === 429 ||
+    /quota exceeded|rate limit|resource_exhausted|daily limit/i.test(lower)
+  ) {
+    return {
+      kind: 'quota',
+      message: 'PageSpeed Insights quota exceeded — try again later or add PAGESPEED_API_KEY for a dedicated quota.',
+    }
+  }
+  return {
+    kind: 'http',
+    message: `PageSpeed Insights API error ${status}${body ? `: ${body.slice(0, 200)}` : ''}`,
+  }
+}
+
+export function classifyPsiNetworkError(err: unknown): { kind: PsiFailureKind; message: string } {
+  const message = err instanceof Error ? err.message : String(err)
+  if (/timeout|aborted|deadline/i.test(message)) {
+    return {
+      kind: 'timeout',
+      message: `PageSpeed Insights request timed out after ${PSI_FETCH_TIMEOUT_MS / 1000}s — the API can be slow; retry or check quota.`,
+    }
+  }
+  return {
+    kind: 'network',
+    message: `PageSpeed Insights request failed: ${message}`,
+  }
+}
+
 /**
  * Fetch Core Web Vitals for a public URL via PageSpeed Insights API v5.
  */
 export async function fetchCoreWebVitals(
   pageUrl: string,
-  opts?: { fetchImpl?: typeof fetch; strategy?: 'mobile' | 'desktop' },
+  opts?: { fetchImpl?: typeof fetch; strategy?: 'mobile' | 'desktop'; timeoutMs?: number },
 ): Promise<CoreWebVitalsResult> {
   const fetchImpl = opts?.fetchImpl || fetch
   const strategy = opts?.strategy || 'mobile'
+  const timeoutMs = opts?.timeoutMs ?? PSI_FETCH_TIMEOUT_MS
   const key = psiApiKey()
   const endpoint = new URL('https://www.googleapis.com/pagespeedonline/v5/runPagespeed')
   endpoint.searchParams.set('url', pageUrl)
@@ -428,11 +465,17 @@ export async function fetchCoreWebVitals(
   try {
     const res = await fetchImpl(endpoint.toString(), {
       method: 'GET',
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(timeoutMs),
     })
     if (!res.ok) {
       const detail = await res.text().catch(() => '')
-      const error = `PageSpeed Insights API error ${res.status}${detail ? `: ${detail.slice(0, 160)}` : ''}`
+      console.warn('[core-web-vitals] PSI non-OK', {
+        url: pageUrl,
+        status: res.status,
+        detail: detail.slice(0, 400),
+        hasApiKey: Boolean(key),
+      })
+      const classified = classifyPsiHttpError(res.status, detail)
       return {
         ok: false,
         dataMode: 'none',
@@ -440,19 +483,22 @@ export async function fetchCoreWebVitals(
         issues: buildCoreWebVitalsIssues([], {
           labFallbackUsed: false,
           dataMode: 'none',
-          error,
+          error: classified.message,
         }),
-        error,
+        error: classified.message,
         labFallbackUsed: false,
       }
     }
     const data: unknown = await res.json()
     return parsePagespeedCoreWebVitals(data)
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    const error = /timeout|aborted/i.test(message)
-      ? 'PageSpeed Insights request timed out'
-      : `PageSpeed Insights request failed: ${message}`
+    const classified = classifyPsiNetworkError(err)
+    console.warn('[core-web-vitals] PSI fetch failed', {
+      url: pageUrl,
+      kind: classified.kind,
+      message: classified.message,
+      hasApiKey: Boolean(key),
+    })
     return {
       ok: false,
       dataMode: 'none',
@@ -460,9 +506,9 @@ export async function fetchCoreWebVitals(
       issues: buildCoreWebVitalsIssues([], {
         labFallbackUsed: false,
         dataMode: 'none',
-        error,
+        error: classified.message,
       }),
-      error,
+      error: classified.message,
       labFallbackUsed: false,
     }
   }

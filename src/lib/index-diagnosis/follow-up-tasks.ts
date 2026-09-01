@@ -16,6 +16,7 @@ function canonicalMismatchTasks(pages: PageIndexability[]): SiteFollowUpTask[] {
     const target = canonStep.evidence.match(/Canonical points to different same-host URL: ([^\s]+)/)?.[1]
     tasks.push({
       id: `canonical-index-html-${p.url}`,
+      kind: 'canonical',
       title: 'index.html canonical points elsewhere',
       detail:
         target && !target.includes('index.html')
@@ -32,6 +33,7 @@ function sitemapGapTask(coverage: IndexDiagnosisResult['coverage']): SiteFollowU
   if (coverage.linkedOnlyUrls.length === 0) return null
   return {
     id: 'sitemap-missing-linked-urls',
+    kind: 'sitemap_gap',
     title: 'Linked URLs missing from sitemap',
     detail: `${coverage.linkedOnlyUrls.length} internally linked URL(s) are absent from sitemap.xml — add them to the sitemap.`,
     evidence: `linkedOnlyUrls count=${coverage.linkedOnlyUrls.length}`,
@@ -44,6 +46,7 @@ function non200Task(coverage: IndexDiagnosisResult['coverage']): SiteFollowUpTas
   if (non200.length === 0) return null
   return {
     id: 'non-200-linked-urls',
+    kind: 'non_200',
     title: 'Internally linked URLs return non-200',
     detail: `${non200.length} URL(s) returned non-200 when crawled — fix or remove dead internal links.`,
     evidence: non200.map((e) => e.evidence).join(' | '),
@@ -56,6 +59,7 @@ function duplicateCohortTasks(cohorts: CohortMetrics[]): SiteFollowUpTask[] {
     .filter((c) => c.flagged && c.kind === 'path_pattern' && c.duplicateClusterDensity >= 0.25)
     .map((c) => ({
       id: `cohort-dup-${c.cohortId}`,
+      kind: 'duplicate_cohort' as const,
       title: `Near-duplicate cohort: ${c.label}`,
       detail: `Duplicate density ${(c.duplicateClusterDensity * 100).toFixed(0)}% (site median comparison in flag). Differentiate content and add internal links to this template.`,
       evidence: c.flagEvidence || `size=${c.size} medianDepth=${c.medianDepth}`,
