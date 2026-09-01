@@ -16,6 +16,7 @@ import {
   CMSAdapter, SiteCredentials, PageContent, FixApplyResult,
   alreadyHasSchemaType, schemaScriptTag
 } from './types'
+import { mergeNextConfigRedirect } from '../fix-agent-redirect'
 
 const GH = 'https://api.github.com'
 
@@ -457,5 +458,58 @@ export const githubAdapter: CMSAdapter = {
     } catch {
       return { success: false, error: 'GitHub static file write failed' }
     }
+  },
+
+  async mergeRedirectConfig(creds, fromUrl, toUrl, opts): Promise<FixApplyResult> {
+    const invalid = validCreds(creds)
+    if (invalid) return { success: false, error: invalid }
+
+    const tree = await getRepoTree(creds)
+    const configFile = tree.find((f) => /^next\.config\.(js|mjs|ts)$/i.test(f.path.split('/').pop() || ''))
+    if (!configFile) {
+      const created = mergeNextConfigRedirect('', fromUrl, toUrl)
+      const path = 'next.config.js'
+      const branch = creds.branch || 'main'
+      const headers = ghHeaders(creds.accessToken!)
+      try {
+        const commitRes = await fetch(`${GH}/repos/${creds.owner}/${creds.repo}/contents/${path}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({
+            message: opts?.commitMessage || `SEORANKO: redirect ${fromUrl} → ${toUrl}`,
+            content: Buffer.from(created.content, 'utf-8').toString('base64'),
+            branch,
+          }),
+          signal: AbortSignal.timeout(20000),
+        })
+        if (!commitRes.ok) {
+          const err = await commitRes.json().catch(() => ({}))
+          return { success: false, error: err.message || `Could not create ${path}` }
+        }
+        return { success: true, pending: true, detail: `Created ${path} with redirect. Live after rebuild.` }
+      } catch {
+        return { success: false, error: 'GitHub redirect config write failed' }
+      }
+    }
+
+    const fileData = await getFileContent(creds, configFile.path)
+    if (!fileData) return { success: false, error: `Could not read ${configFile.path}` }
+
+    const merged = mergeNextConfigRedirect(fileData.content, fromUrl, toUrl)
+    if (!merged.changed) {
+      return { success: true, skipped: true, detail: merged.summary }
+    }
+
+    const result = await commitFileChange(
+      creds,
+      configFile.path,
+      merged.content,
+      fileData.sha,
+      opts?.commitMessage || `SEORANKO: redirect ${fromUrl} → ${toUrl}`,
+      'safe',
+      String(fileData.sha).slice(0, 8),
+    )
+    if (!result.success) return { success: false, error: result.error }
+    return { success: true, pending: true, detail: merged.summary + ' Live after rebuild.' }
   },
 }

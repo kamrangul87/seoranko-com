@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import type { IndexDiagnosisResult } from '@/lib/index-diagnosis/types'
+import { CRAWLER_JS_LIMITATION } from '@/lib/index-diagnosis/fix-agent-issues'
 import { lookupManualFixForUrl } from '@/lib/index-diagnosis/manual-fixes'
 import { ManualFixPanel } from '@/components/ManualFixPanel'
 
@@ -79,11 +80,18 @@ function ExcludedByReasonList({
 export function IndexDiagnosisPanel({
   data,
   siteId,
+  cmsConnected,
+  onRegenerateSitemap,
+  fixRunning,
 }: {
   data: IndexDiagnosisResult
   siteId?: string
+  cmsConnected?: boolean
+  onRegenerateSitemap?: () => void
+  fixRunning?: boolean
 }) {
-  const { coverage, verdict, pages, cohorts, followUpTasks, manualFixesByTaskId } = data
+  const { coverage, verdict, pages, cohorts, followUpTasks, manualFixesByTaskId, sitemapDrift, crawlerJsLimitation } =
+    data
   const topCauses = verdict.topCauses
   const [expandedFix, setExpandedFix] = useState<Record<string, boolean>>({})
   const [urlLookup, setUrlLookup] = useState('')
@@ -133,6 +141,50 @@ export function IndexDiagnosisPanel({
         </div>
       </div>
 
+      {sitemapDrift?.hasDrift && (
+        <div className="border border-amber-300 rounded-xl p-4 bg-amber-50">
+          <h2 className="font-medium mb-1">Sitemap drift detected</h2>
+          <p className="text-sm text-[#6B6B6B] mb-2">
+            Your live sitemap ({sitemapDrift.liveSitemapEvidence}) does not match this crawl.
+            {sitemapDrift.missingFromLive.length > 0 && (
+              <> {sitemapDrift.missingFromLive.length} indexable page(s) missing.</>
+            )}
+            {sitemapDrift.deadInLive.length > 0 && (
+              <> {sitemapDrift.deadInLive.length} dead/stale URL(s) still listed.</>
+            )}
+            {!sitemapDrift.liveSitemapFetched && <> No live sitemap found.</>}
+          </p>
+          <p className="text-xs text-[#6B6B6B] mb-3">
+            This check runs automatically on every audit. Until the live file is replaced, this finding will keep
+            resurfacing.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {cmsConnected && onRegenerateSitemap && (
+              <button
+                type="button"
+                onClick={onRegenerateSitemap}
+                disabled={fixRunning}
+                className="text-xs px-3 py-1.5 rounded-lg bg-[#0F0F0F] text-white disabled:opacity-50"
+              >
+                {fixRunning ? 'Applying…' : 'Regenerate & apply (Fix Agent)'}
+              </button>
+            )}
+            <Link
+              href={`/dashboard/sitemap?domain=${encodeURIComponent(coverage.domain)}`}
+              className="text-xs px-3 py-1.5 rounded-lg border border-amber-400 bg-white text-[#0F0F0F]"
+            >
+              {cmsConnected ? 'Preview sitemap' : 'Regenerate (Copy/Download)'}
+            </Link>
+          </div>
+          {!cmsConnected && (
+            <p className="text-xs text-amber-900 mt-2">
+              Connect GitHub in Settings to auto-commit an updated sitemap.xml, or use Copy/Download from the Sitemap
+              tool.
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="border border-[#E5E5E5] rounded-xl p-4 bg-white">
         <h2 className="font-medium mb-2">Crawl coverage</h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-3">
@@ -160,6 +212,11 @@ export function IndexDiagnosisPanel({
           {coverage.sitemapOnlyUrls.length > 0 && (
             <div>
               <div className="font-medium mb-1">In sitemap, not linked internally ({coverage.sitemapOnlyUrls.length})</div>
+              {(crawlerJsLimitation ?? true) && (
+                <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded px-2 py-1.5 mb-2">
+                  {CRAWLER_JS_LIMITATION}
+                </p>
+              )}
               <ul className="text-[#6B6B6B] max-h-32 overflow-y-auto space-y-0.5">
                 {coverage.sitemapOnlyUrls.map((u) => (
                   <li key={u} className="break-all">{u}</li>

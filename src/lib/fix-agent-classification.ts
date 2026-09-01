@@ -23,12 +23,16 @@ export type AutoFixKind =
   | 'llms-txt'
   | 'html-structure'
   | 'security-headers'
+  | 'redirect-canonical'
+  | 'remove-dead-link'
+  | 'sitemap-regenerate'
 
 export type HumanFixKind =
   | 'thin-content'
   | 'internal-linking'
   | 'factual-claim'
   | 'requires-server'
+  | 'missing-page-content'
   | 'other-editorial'
 
 export type SiteConnectionType =
@@ -91,7 +95,7 @@ export function describeFixableScope(connectionType?: string | null): string {
     return 'Via Universal Tag: meta tags, JSON-LD schema, H1/headings, image alt, and visible structure only. HTTP security headers and static files (llms.txt) require WordPress, Shopify, or GitHub.'
   }
   if (isServerCmsConnection(connectionType)) {
-    return `Via ${connectionType}: structural meta/schema/H1/alt fixes, and header/static-file fixes when the platform allows.`
+    return `Via ${connectionType}: structural meta/schema/H1/alt fixes, redirects, dead-link removal, sitemap updates, and header/static-file fixes when the platform allows.`
   }
   return 'Connect via WordPress, Shopify, or GitHub for the widest auto-fix coverage. A Universal Tag can only change post-load DOM (not HTTP headers).'
 }
@@ -115,6 +119,19 @@ const ALT_RE = /alt text|images missing alt/i
 const LLMS_RE = /llms\.txt/i
 const HTML_STRUCT_RE = /html structure|tags outside|document wrapper|stray <\/?(?:html|head|body)/i
 const SECURITY_RE = /x-frame-options|x-content-type|content-security-policy|security header|hsts/i
+const REDIRECT_CANONICAL_RE = /idx-canonical-|redirect-canonical|index\.html canonical points elsewhere/i
+const DEAD_LINK_REMOVE_RE = /idx-dead-link-remove|remove dead internal link|auto-fixable.*remove.*dead/i
+const SITEMAP_DRIFT_RE = /idx-sitemap-drift|sitemap out of date|sitemap-regenerate/i
+const MISSING_PAGE_RE = /idx-dead-page-|missing-page-content|destination page missing/i
+
+/** Site-wide / multi-file fixes — require server/CMS write access. */
+const SERVER_AUTO_KINDS = new Set<AutoFixKind>([
+  'security-headers',
+  'llms-txt',
+  'redirect-canonical',
+  'remove-dead-link',
+  'sitemap-regenerate',
+])
 
 const SERVER_REQUIRED_HINT =
   'Requires server access — connect via WordPress/Shopify/GitHub to auto-fix, or fix manually in hosting config.'
@@ -128,7 +145,7 @@ function demoteForConnection(
   // No connection context: keep structural DOM fixes; demote header/file kinds
   // so we never overpromise when the UI doesn't know the connector yet.
   if (!connectionType) {
-    if (classified.autoKind === 'security-headers' || classified.autoKind === 'llms-txt') {
+    if (classified.autoKind && SERVER_AUTO_KINDS.has(classified.autoKind)) {
       return {
         ...classified,
         fixability: 'human',
@@ -170,7 +187,42 @@ export function classifyAuditIssue(
 
   let base: ClassifiedIssue
 
-  if (THIN_RE.test(hay) || /ecom-description-thin|ecom-category-thin|ecom-description-placeholder/i.test(issue.id)) {
+  if (issue.fixMetadata?.kind === 'missing-page-content') {
+    base = {
+      issue,
+      fixability: 'human',
+      humanKind: 'missing-page-content',
+      reason: 'Recreating a missing page requires real legal/business content — never auto-generated.',
+    }
+  } else if (issue.fixMetadata?.kind === 'redirect-canonical' || REDIRECT_CANONICAL_RE.test(hay)) {
+    base = {
+      issue,
+      fixability: 'auto',
+      autoKind: 'redirect-canonical',
+      reason: 'Mechanical 301 redirect from crawl-derived canonical mismatch evidence.',
+    }
+  } else if (issue.fixMetadata?.kind === 'remove-dead-link' || DEAD_LINK_REMOVE_RE.test(hay)) {
+    base = {
+      issue,
+      fixability: 'auto',
+      autoKind: 'remove-dead-link',
+      reason: 'Mechanical removal of dead <a href> on source page(s) — does not recreate destination content.',
+    }
+  } else if (issue.fixMetadata?.kind === 'sitemap-regenerate' || SITEMAP_DRIFT_RE.test(hay)) {
+    base = {
+      issue,
+      fixability: 'auto',
+      autoKind: 'sitemap-regenerate',
+      reason: 'Regenerate sitemap.xml from INDEXABLE crawl URLs and commit to site.',
+    }
+  } else if (MISSING_PAGE_RE.test(hay)) {
+    base = {
+      issue,
+      fixability: 'human',
+      humanKind: 'missing-page-content',
+      reason: 'The destination page needs real content — not auto-invented.',
+    }
+  } else if (THIN_RE.test(hay) || /ecom-description-thin|ecom-category-thin|ecom-description-placeholder/i.test(issue.id)) {
     base = {
       issue,
       fixability: 'human',

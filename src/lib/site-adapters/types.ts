@@ -83,6 +83,14 @@ export interface CMSAdapter {
     content: string,
     opts?: { commitMessage?: string },
   ): Promise<FixApplyResult>
+
+  /** Optional: merge a redirect into next.config.js (GitHub / Next.js sites). */
+  mergeRedirectConfig?(
+    creds: SiteCredentials,
+    fromUrl: string,
+    toUrl: string,
+    opts?: { commitMessage?: string },
+  ): Promise<FixApplyResult>
 }
 
 /** Shared idempotency check — don't append a second block of the same @type. */

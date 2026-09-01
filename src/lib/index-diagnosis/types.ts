@@ -220,5 +220,9 @@ export interface IndexDiagnosisResult {
   htmlByUrl?: Record<string, string>
   /** robots.txt body from crawl — for sitemap checker. */
   robotsTxt?: string
+  /** Live vs expected sitemap comparison from last audit crawl. */
+  sitemapDrift?: import('@/lib/sitemap-generator/drift').SitemapDriftReport
+  /** HTTP-only crawl — JS-rendered links may be false positives. */
+  crawlerJsLimitation?: boolean
   ranAt: string
 }

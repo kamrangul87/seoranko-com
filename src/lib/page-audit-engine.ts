@@ -26,7 +26,20 @@ import { createClient } from '@supabase/supabase-js'
 import { isSafePublicUrl } from '@/lib/fetch-page-content'
 import { runIndexDiagnosis } from '@/lib/index-diagnosis/run'
 import { persistIndexDiagnosisRun } from '@/lib/index-diagnosis/persist'
+import { buildIndexDiagnosisFixAgentIssues } from '@/lib/index-diagnosis/fix-agent-issues'
+import { detectSitemapDrift } from '@/lib/sitemap-generator/drift'
 import type { IndexDiagnosisResult } from '@/lib/index-diagnosis/types'
+
+export interface PageAuditFixMetadata {
+  kind: 'redirect-canonical' | 'remove-dead-link' | 'sitemap-regenerate' | 'missing-page-content'
+  fromUrl?: string
+  toUrl?: string
+  deadUrl?: string
+  sourceUrls?: string[]
+  sitemapContent?: string
+  sitemapPath?: string
+  evidence?: string
+}
 
 export interface PageAuditIssue {
   id: string
@@ -37,6 +50,8 @@ export interface PageAuditIssue {
   remediation?: string
   affectsDimensions?: QualityDimensionId[]
   blocking?: boolean
+  /** Machine-readable payload for Index Diagnosis / Fix Agent mechanical fixes. */
+  fixMetadata?: PageAuditFixMetadata
 }
 
 export interface PageAuditResult {
@@ -201,6 +216,28 @@ export async function runPageAudit(
     ...scored.issues.map(mapAuditIssue),
     ...ecommerceIssues.map(mapEcommerceIssue),
   ]
+
+  if (indexDiagnosis) {
+    indexDiagnosis.crawlerJsLimitation = true
+    try {
+      const drift = await detectSitemapDrift({
+        domain: indexDiagnosis.coverage.domain,
+        seedUrl: indexDiagnosis.coverage.seedUrl,
+        pages: indexDiagnosis.pages,
+        coverage: indexDiagnosis.coverage,
+        htmlByUrl: indexDiagnosis.htmlByUrl,
+        robotsTxt: indexDiagnosis.robotsTxt || '',
+        ranAt: indexDiagnosis.ranAt,
+        crawlSource: 'fresh',
+      })
+      indexDiagnosis.sitemapDrift = drift
+      issues.push(...buildIndexDiagnosisFixAgentIssues(indexDiagnosis, drift))
+    } catch (err) {
+      crawlNotes.push(
+        `Sitemap drift check skipped: ${err instanceof Error ? err.message : 'error'}`,
+      )
+    }
+  }
 
   const explainable = buildExplainableScore(issues)
 

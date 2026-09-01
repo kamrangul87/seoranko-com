@@ -7,6 +7,8 @@ import { IndexDiagnosisPanel } from '@/components/IndexDiagnosisPanel'
 import { AuditPasteFix } from '@/components/AuditPasteFix'
 import type { IndexDiagnosisResult } from '@/lib/index-diagnosis/types'
 
+import type { PageAuditFixMetadata } from '@/lib/page-audit-engine'
+
 interface AuditIssue {
   id: string
   severity: string
@@ -14,6 +16,7 @@ interface AuditIssue {
   title: string
   description: string
   remediation?: string
+  fixMetadata?: PageAuditFixMetadata
 }
 
 interface AuditResult {
@@ -121,6 +124,15 @@ function classifyClientSide(
   issue: AuditIssue,
   cmsType?: string | null,
 ): { label: 'auto' | 'human' | 'skip' | 'server'; hint?: string } {
+  const meta = issue.fixMetadata?.kind
+  const isCms = cmsType === 'wordpress' || cmsType === 'shopify' || cmsType === 'webflow' || cmsType === 'github'
+
+  if (meta === 'missing-page-content') return { label: 'human' }
+  if (meta === 'redirect-canonical' || meta === 'remove-dead-link' || meta === 'sitemap-regenerate') {
+    if (isCms) return { label: 'auto' }
+    return { label: 'server', hint: SERVER_REQUIRED_HINT }
+  }
+
   const hay = `${issue.id} ${issue.title} ${issue.description} ${issue.category}`
   if (/thin content|low word count|lacks indexable|placeholder product|ecom-description-thin|ecom-category-thin|ecom-description-placeholder/i.test(hay)) {
     return { label: 'human' }
@@ -137,6 +149,16 @@ function classifyClientSide(
       return { label: 'server', hint: SERVER_REQUIRED_HINT }
     }
     return { label: 'auto' }
+  }
+
+  if (
+    /idx-canonical-|idx-dead-link-remove|idx-sitemap-drift|redirect-canonical|remove dead internal link|sitemap out of date/i.test(
+      hay,
+    )
+  ) {
+    if (/idx-dead-page-|destination page missing/i.test(hay)) return { label: 'human' }
+    if (isCms) return { label: 'auto' }
+    return { label: 'server', hint: SERVER_REQUIRED_HINT }
   }
 
   if (
@@ -303,9 +325,10 @@ export default function AuditPage() {
     }
   }
 
-  async function runFixAgent() {
+  async function runFixAgent(issueFilter?: (i: AuditIssue) => boolean) {
     if (!audit || !connection?.connected || !connection.siteId) return
-    const ok = window.confirm(buildFixConfirmMessage(connection, audit.issues))
+    const issuesToFix = issueFilter ? audit.issues.filter(issueFilter) : audit.issues
+    const ok = window.confirm(buildFixConfirmMessage(connection, issuesToFix))
     if (!ok) return
 
     setFixRunning(true)
@@ -317,7 +340,7 @@ export default function AuditPage() {
         body: JSON.stringify({
           url: audit.url,
           siteId: connection.siteId,
-          issues: audit.issues,
+          issues: issuesToFix,
           scoreBefore: audit.score,
           confirm: true,
         }),
@@ -390,7 +413,17 @@ export default function AuditPage() {
           {audit && (
             <div className="space-y-6">
               {audit.indexDiagnosis && (
-                <IndexDiagnosisPanel data={audit.indexDiagnosis} siteId={connection?.siteId} />
+                <IndexDiagnosisPanel
+                  data={audit.indexDiagnosis}
+                  siteId={connection?.siteId}
+                  cmsConnected={connection?.connected}
+                  onRegenerateSitemap={
+                    connection?.connected
+                      ? () => void runFixAgent((i) => i.id === 'idx-sitemap-drift')
+                      : undefined
+                  }
+                  fixRunning={fixRunning}
+                />
               )}
 
               <div className="border border-[#E5E5E5] rounded-xl p-4 bg-white">
