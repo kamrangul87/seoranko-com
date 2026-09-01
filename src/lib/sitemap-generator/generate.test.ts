@@ -84,6 +84,37 @@ describe('sitemap-generator', () => {
     expect(result.indexableCount).toBe(2)
   })
 
+  it('excludes /blog/index.html when /blog is INDEXABLE (canonical duplicate pair)', () => {
+    const blog = page('https://autodun.com/blog', 'INDEXABLE')
+    blog.steps = [
+      {
+        step: 'canonical',
+        passed: true,
+        evidence:
+          'Canonical matches this page (equivalent URL): https://autodun.com/blog/index.html',
+      },
+    ]
+    const indexHtml = page('https://autodun.com/blog/index.html', 'INDEXABLE')
+    indexHtml.steps = [
+      {
+        step: 'canonical',
+        passed: true,
+        evidence: 'Canonical self-reference: https://autodun.com/blog/index.html',
+      },
+    ]
+    const pages = [
+      page('https://autodun.com/', 'INDEXABLE'),
+      blog,
+      indexHtml,
+      page('https://autodun.com/mot-predictor', 'INDEXABLE'),
+    ]
+    const result = generateSitemap(mockInput(pages))
+    const main = result.files.find((f) => f.filename === 'sitemap.xml')!
+    expect(main.content).toContain('<loc>https://autodun.com/blog</loc>')
+    expect(main.content).not.toContain('blog/index.html')
+    expect(result.checks.some((c) => c.id === 'canonical-duplicates-excluded')).toBe(true)
+  })
+
   it('adds lastmod only when JSON-LD dateModified exists', () => {
     const html = `<script type="application/ld+json">{"@type":"Article","dateModified":"2026-08-01T09:00:00.000Z"}</script>`
     expect(lastmodFromHtml(html)).toBe('2026-08-01T09:00:00.000Z')

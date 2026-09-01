@@ -1,4 +1,5 @@
 import { extractSitemapUrlsFromRobots } from '@/lib/index-diagnosis/robots-parser'
+import { filterPagesForSitemapInclusion } from './canonical-inclusion'
 import { lastmodFromHtml } from './lastmod'
 import { analyzeAndNormalizeUrls } from './url-style'
 import type { SitemapCheck, SitemapCrawlInput, SitemapGeneratorResult, SitemapUrlEntry } from './types'
@@ -49,8 +50,9 @@ function buildPlacementGuidance(domain: string, cmsType?: string | null): string
 }
 
 export function generateSitemap(input: SitemapCrawlInput, opts?: { cmsType?: string | null }): SitemapGeneratorResult {
-  const indexablePages = input.pages.filter(
-    (p) => p.verdict === 'INDEXABLE' && p.httpStatus >= 200 && p.httpStatus < 300,
+  const { pages: indexablePages, exclusions: canonicalExclusions } = filterPagesForSitemapInclusion(
+    input.pages,
+    input.htmlByUrl,
   )
   const crawledUrls = indexablePages.map((p) => p.url)
   const styleReport = analyzeAndNormalizeUrls(crawledUrls)
@@ -173,6 +175,17 @@ export function generateSitemap(input: SitemapCrawlInput, opts?: { cmsType?: str
       severity: 'info',
       title: 'robots.txt already references a sitemap',
       detail: existingRobotsSitemapUrls.join('\n'),
+    })
+  }
+
+  if (canonicalExclusions.length > 0) {
+    checks.push({
+      id: 'canonical-duplicates-excluded',
+      severity: 'info',
+      title: `${canonicalExclusions.length} non-canonical duplicate URL(s) excluded from sitemap`,
+      detail:
+        'These crawled URLs are directory/index.html variants or canonical aliases of another listed URL. Only the preferred representative is included.',
+      urls: canonicalExclusions.slice(0, 20).map((e) => `${e.url} → kept ${e.keptUrl}`),
     })
   }
 

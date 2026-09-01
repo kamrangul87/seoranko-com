@@ -5,6 +5,7 @@
  */
 
 import { normalizeUrl } from '@/lib/supabase/audit-db'
+import { expandCanonicalUrlVariants } from '@/lib/index-diagnosis/canonical-equivalence'
 import type { FetchedPage } from './crawler'
 import type { ExcludedUrlRecord, PageIndexability } from './types'
 
@@ -29,12 +30,19 @@ function sitemapSet(urls: string[]): Set<string> {
   return new Set(urls.map(norm))
 }
 
+function isListedInSitemap(url: string, inSitemap: Set<string>): boolean {
+  for (const v of Array.from(expandCanonicalUrlVariants(url))) {
+    if (inSitemap.has(norm(v))) return true
+  }
+  return false
+}
+
 function canonicalTargetInSitemap(page: PageIndexability, inSitemap: Set<string>): string | null {
   const canonStep = page.steps.find((s) => s.step === 'canonical')
   if (!canonStep || canonStep.passed) return null
   const target = canonStep.evidence.match(/Canonical points to different same-host URL: ([^\s]+)/)?.[1]
   if (!target) return null
-  return inSitemap.has(norm(target)) ? target : null
+  return isListedInSitemap(target, inSitemap) ? target : null
 }
 
 /** Why this URL should NOT be flagged as missing-from-sitemap, or null if it should stay flagged. */
@@ -68,7 +76,7 @@ export function sitemapGapExcludeReason(
     if (fetched.canonicalTags.length > 0) {
       for (const canon of fetched.canonicalTags) {
         try {
-          if (inSitemap.has(norm(canon))) return 'canonical_duplicate_in_sitemap'
+          if (isListedInSitemap(canon, inSitemap)) return 'canonical_duplicate_in_sitemap'
         } catch {
           /* skip bad canonical href */
         }
