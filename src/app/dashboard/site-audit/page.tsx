@@ -1221,6 +1221,24 @@ export default function SiteAuditPage() {
             })()}
           </div>
 
+          {/* Repair Order — prioritized, trackable issue list (SEO Workshop) */}
+          {domain.trim() && (
+            <div style={{ background: '#fff', border: '1px solid #E8E8E4', borderRadius: '10px', padding: '14px 18px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' as const }}>
+              <div style={{ flex: 1, minWidth: '200px' }}>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#0F0F0F' }}>🔧 Repair Order</div>
+                <div style={{ fontSize: '11px', color: '#6B6B6B', marginTop: '2px' }}>
+                  These issues, prioritized and tracked over time, with what SEORANKO can and can&rsquo;t fix automatically.
+                </div>
+              </div>
+              <a
+                href={`/dashboard/site-audit/repair-order?domain=${encodeURIComponent(domain.trim())}`}
+                style={{ padding: '8px 16px', background: '#0F0F0F', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' as const, textDecoration: 'none' }}
+              >
+                Open Repair Order →
+              </a>
+            </div>
+          )}
+
           {/* Install SEORANKO Script banner */}
           <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: '10px', padding: '14px 18px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' as const }}>
             <div style={{ flex: 1, minWidth: '200px' }}>
