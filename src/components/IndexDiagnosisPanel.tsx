@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import type { IndexDiagnosisResult } from '@/lib/index-diagnosis/types'
 
 const EXCLUDE_LABELS: Record<string, string> = {
@@ -20,10 +21,61 @@ function verdictColor(v: string): string {
   return 'text-amber-800 bg-amber-50'
 }
 
-export function IndexDiagnosisPanel({ data }: { data: IndexDiagnosisResult }) {
-  const { coverage, verdict, pages, cohorts } = data
-  const topCauses = verdict.topCauses
+function ExcludedByReasonList({
+  coverage,
+}: {
+  coverage: IndexDiagnosisResult['coverage']
+}) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({ NON_200: true })
   const excludedReasons = Object.entries(coverage.excludedByReason).filter(([, n]) => n > 0)
+
+  if (excludedReasons.length === 0) return null
+
+  return (
+    <div className="mb-3">
+      <div className="text-xs font-medium text-[#9B9B9B] uppercase mb-1">Excluded by reason</div>
+      <ul className="text-sm space-y-2">
+        {excludedReasons.map(([reason, count]) => {
+          const items = coverage.excluded.filter((e) => e.reason === reason)
+          const isOpen = expanded[reason] ?? false
+          return (
+            <li key={reason}>
+              <button
+                type="button"
+                onClick={() => setExpanded((prev) => ({ ...prev, [reason]: !isOpen }))}
+                className="text-left w-full flex items-center gap-2 hover:text-[#0F0F0F]"
+              >
+                <span className="text-[#9B9B9B] w-4 shrink-0">{isOpen ? '▾' : '▸'}</span>
+                <span>
+                  {EXCLUDE_LABELS[reason] || reason}: <span className="font-medium">{count}</span>
+                </span>
+              </button>
+              {isOpen && (
+                <ul className="mt-1 ml-6 space-y-1 text-xs font-mono text-[#6B6B6B] max-h-48 overflow-y-auto">
+                  {items.map((e) => (
+                    <li key={`${e.url}-${e.evidence}`} className="break-all">
+                      <a href={e.url} className="text-[#FF6B2C] underline" target="_blank" rel="noreferrer">
+                        {e.url}
+                      </a>
+                      {e.httpStatus != null && (
+                        <span className="text-red-700 font-semibold"> — HTTP {e.httpStatus}</span>
+                      )}
+                      {!e.httpStatus && <span> — {e.evidence}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+export function IndexDiagnosisPanel({ data }: { data: IndexDiagnosisResult }) {
+  const { coverage, verdict, pages, cohorts, followUpTasks } = data
+  const topCauses = verdict.topCauses
 
   return (
     <div className="space-y-4">
@@ -49,6 +101,7 @@ export function IndexDiagnosisPanel({ data }: { data: IndexDiagnosisResult }) {
           <span>{verdict.indexableCount} indexable</span>
           <span>{verdict.blockedCount} blocked</span>
           <span>{verdict.atRiskCount} at risk</span>
+          <span>· {coverage.fetchedCount} pages crawled</span>
         </div>
       </div>
 
@@ -75,26 +128,15 @@ export function IndexDiagnosisPanel({ data }: { data: IndexDiagnosisResult }) {
         <p className="text-xs text-[#6B6B6B] mb-2">{coverage.terminationEvidence}</p>
         <p className="text-xs text-[#6B6B6B] mb-2">{coverage.robotsTxtEvidence}</p>
 
-        {excludedReasons.length > 0 && (
-          <div className="mb-3">
-            <div className="text-xs font-medium text-[#9B9B9B] uppercase mb-1">Excluded by reason</div>
-            <ul className="text-sm space-y-1">
-              {excludedReasons.map(([reason, count]) => (
-                <li key={reason}>
-                  {EXCLUDE_LABELS[reason] || reason}: <span className="font-medium">{count}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        <ExcludedByReasonList coverage={coverage} />
 
         <div className="grid sm:grid-cols-2 gap-3 text-xs">
           {coverage.sitemapOnlyUrls.length > 0 && (
             <div>
               <div className="font-medium mb-1">In sitemap, not linked internally ({coverage.sitemapOnlyUrls.length})</div>
-              <ul className="text-[#6B6B6B] max-h-24 overflow-y-auto">
-                {coverage.sitemapOnlyUrls.slice(0, 8).map((u) => (
-                  <li key={u} className="truncate">{u}</li>
+              <ul className="text-[#6B6B6B] max-h-32 overflow-y-auto space-y-0.5">
+                {coverage.sitemapOnlyUrls.map((u) => (
+                  <li key={u} className="break-all">{u}</li>
                 ))}
               </ul>
             </div>
@@ -102,15 +144,44 @@ export function IndexDiagnosisPanel({ data }: { data: IndexDiagnosisResult }) {
           {coverage.linkedOnlyUrls.length > 0 && (
             <div>
               <div className="font-medium mb-1">Linked, absent from sitemap ({coverage.linkedOnlyUrls.length})</div>
-              <ul className="text-[#6B6B6B] max-h-24 overflow-y-auto">
-                {coverage.linkedOnlyUrls.slice(0, 8).map((u) => (
-                  <li key={u} className="truncate">{u}</li>
+              <ul className="text-[#6B6B6B] max-h-32 overflow-y-auto space-y-0.5">
+                {coverage.linkedOnlyUrls.map((u) => (
+                  <li key={u} className="break-all">{u}</li>
                 ))}
               </ul>
             </div>
           )}
         </div>
       </div>
+
+      {followUpTasks.length > 0 && (
+        <div className="border border-blue-200 rounded-xl p-4 bg-blue-50">
+          <h2 className="font-medium mb-2">Recommended site fixes</h2>
+          <p className="text-xs text-[#6B6B6B] mb-3">
+            Mechanical follow-ups from this crawl — apply on your live site (not auto-fixed by SEORANKO).
+          </p>
+          <ul className="space-y-3 text-sm">
+            {followUpTasks.map((t) => (
+              <li key={t.id} className="border border-blue-100 rounded-lg px-3 py-2 bg-white">
+                <div className="font-medium">{t.title}</div>
+                <div className="text-[#6B6B6B] mt-0.5">{t.detail}</div>
+                <div className="text-xs font-mono text-[#9B9B9B] mt-1">{t.evidence}</div>
+                {t.affectedUrls.length > 0 && (
+                  <ul className="mt-2 text-xs space-y-0.5">
+                    {t.affectedUrls.map((u) => (
+                      <li key={u} className="break-all">
+                        <a href={u} className="text-[#FF6B2C] underline" target="_blank" rel="noreferrer">
+                          {u}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {cohorts.filter((c) => c.flagged).length > 0 && (
         <div className="border border-amber-200 rounded-xl p-4 bg-amber-50">
@@ -146,25 +217,22 @@ export function IndexDiagnosisPanel({ data }: { data: IndexDiagnosisResult }) {
               </tr>
             </thead>
             <tbody>
-              {pages.slice(0, 30).map((p) => (
+              {pages.map((p) => (
                 <tr key={p.url} className="border-b border-[#F0F0F0] align-top">
-                  <td className="py-1.5 pr-2 max-w-[140px] truncate">
+                  <td className="py-1.5 pr-2 max-w-[180px] break-all">
                     <a href={p.url} className="text-[#FF6B2C] underline" target="_blank" rel="noreferrer">
                       {p.url.replace(/^https?:\/\/[^/]+/, '') || '/'}
                     </a>
                   </td>
-                  <td className="py-1.5 pr-2">
+                  <td className="py-1.5 pr-2 whitespace-nowrap">
                     <span className={`px-1.5 py-0.5 rounded ${verdictColor(p.verdict)}`}>{p.verdict}</span>
                   </td>
-                  <td className="py-1.5 text-[#6B6B6B] font-mono">{p.decisiveEvidence}</td>
+                  <td className="py-1.5 text-[#6B6B6B] font-mono break-all">{p.decisiveEvidence}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {pages.length > 30 && (
-          <p className="text-xs text-[#9B9B9B] mt-2">Showing 30 of {pages.length} URLs.</p>
-        )}
       </div>
     </div>
   )

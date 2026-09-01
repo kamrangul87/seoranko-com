@@ -28,6 +28,8 @@ export interface ExcludedUrlRecord {
   url: string
   reason: CrawlExcludeReason
   evidence: string
+  /** Set for NON_200 exclusions — literal HTTP status from fetch attempt. */
+  httpStatus?: number
 }
 
 export interface CrawlCoverage {
@@ -112,6 +114,14 @@ export interface IndexDiagnosisCause {
   exampleEvidence: string
 }
 
+export interface SiteFollowUpTask {
+  id: string
+  title: string
+  detail: string
+  evidence: string
+  affectedUrls: string[]
+}
+
 export interface IndexDiagnosisVerdict {
   headline: string
   topCauses: IndexDiagnosisCause[]
@@ -125,5 +135,6 @@ export interface IndexDiagnosisResult {
   pages: PageIndexability[]
   cohorts: CohortMetrics[]
   verdict: IndexDiagnosisVerdict
+  followUpTasks: SiteFollowUpTask[]
   ranAt: string
 }

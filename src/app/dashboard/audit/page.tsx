@@ -310,7 +310,7 @@ export default function AuditPage() {
         <div className="max-w-3xl mx-auto px-8 py-8">
           <h1 className="text-2xl font-semibold mb-2">Site Audit</h1>
           <p className="text-[#6B6B6B] mb-6">
-            Paste a URL. SEORANKO crawls the page, detects content vs e-commerce, and returns the Quality Gate dimension report — plus e-commerce checks when relevant.
+            Paste a URL. SEORANKO runs a domain Index Diagnosis crawl plus a Quality Gate check on the scanned page.
           </p>
 
           <div className="flex gap-2 mb-6">
@@ -338,10 +338,21 @@ export default function AuditPage() {
               )}
 
               <div className="border border-[#E5E5E5] rounded-xl p-4 bg-white">
+                <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+                  <h2 className="font-medium">
+                    {audit.indexDiagnosis ? 'Scanned page — Quality Gate' : 'Audit summary'}
+                  </h2>
+                  {audit.indexDiagnosis && (
+                    <span className="text-xs text-[#9B9B9B]">
+                      Single URL only · site crawl above covers {audit.indexDiagnosis.coverage.fetchedCount} pages
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-[#6B6B6B] mb-3 break-all">{audit.url}</p>
                 <div className="flex flex-wrap gap-4 items-baseline">
                   <div>
                     <div className="text-3xl font-semibold">{audit.score}</div>
-                    <div className="text-xs text-[#9B9B9B]">Overall</div>
+                    <div className="text-xs text-[#9B9B9B]">Quality score (this URL)</div>
                   </div>
                   {scoreAfterFix != null && (
                     <div>
@@ -349,24 +360,42 @@ export default function AuditPage() {
                       <div className="text-xs text-[#9B9B9B]">After Fix Agent</div>
                     </div>
                   )}
-                  <div>
-                    <div className="text-lg">{audit.siteType.siteType}</div>
-                    <div className="text-xs text-[#9B9B9B]">
-                      site type · {audit.siteType.confidence}
-                      {audit.siteType.pageRole ? ` · ${audit.siteType.pageRole}` : ''}
+                  {!audit.indexDiagnosis && (
+                    <>
+                      <div>
+                        <div className="text-lg">{audit.siteType.siteType}</div>
+                        <div className="text-xs text-[#9B9B9B]">
+                          site type · {audit.siteType.confidence}
+                          {audit.siteType.pageRole ? ` · ${audit.siteType.pageRole}` : ''}
+                        </div>
+                      </div>
+                      <div className="text-sm text-[#6B6B6B]">
+                        HTTP {audit.httpStatus} · {audit.signals.wordCount} words ·{' '}
+                        {audit.signals.hasProductSchema ? 'Product schema' : audit.signals.hasSchema ? 'Schema present' : 'No schema'}
+                      </div>
+                    </>
+                  )}
+                  {audit.indexDiagnosis && (
+                    <div className="text-sm text-[#6B6B6B]">
+                      HTTP {audit.httpStatus}
+                      {audit.signals.wordCount < 40 && (
+                        <span className="text-amber-800">
+                          {' '}
+                          · {audit.signals.wordCount} words in initial HTML (likely JS-rendered shell — not representative of{' '}
+                          {audit.indexDiagnosis.coverage.fetchedCount} crawled site pages)
+                        </span>
+                      )}
                     </div>
-                  </div>
-                  <div className="text-sm text-[#6B6B6B]">
-                    HTTP {audit.httpStatus} · {audit.signals.wordCount} words ·{' '}
-                    {audit.signals.hasProductSchema ? 'Product schema' : audit.signals.hasSchema ? 'Schema present' : 'No schema'}
-                  </div>
+                  )}
                 </div>
-                {audit.siteType.signals.length > 0 && (
+                {!audit.indexDiagnosis && audit.siteType.signals.length > 0 && (
                   <p className="text-xs text-[#9B9B9B] mt-2">Signals: {audit.siteType.signals.join(', ')}</p>
                 )}
-                {audit.crawlNotes.map((n) => (
-                  <p key={n} className="text-xs text-amber-700 mt-1">{n}</p>
-                ))}
+                {audit.crawlNotes
+                  .filter((n) => !audit.indexDiagnosis || !/SPA|Index Diagnosis skipped/i.test(n))
+                  .map((n) => (
+                    <p key={n} className="text-xs text-amber-700 mt-1">{n}</p>
+                  ))}
               </div>
 
               {/* Connection gate — Fix Agent only when owned + connected */}
@@ -412,7 +441,14 @@ export default function AuditPage() {
               </div>
 
               <div>
-                <h2 className="font-medium mb-2">Dimensions</h2>
+                <h2 className="font-medium mb-1">Dimensions</h2>
+                {audit.indexDiagnosis && (
+                  <p className="text-xs text-[#9B9B9B] mb-2">
+                    Per-page Quality Gate on the scanned URL only. Technical SEO, structured data, and editorial checks
+                    below do not summarise the {audit.indexDiagnosis.coverage.fetchedCount}-page crawl — use Index
+                    Diagnosis above for site-wide indexability.
+                  </p>
+                )}
                 <div className="grid gap-2">
                   {audit.explainable.dimensions.map((d) => (
                     <div key={d.id} className="border border-[#E5E5E5] rounded-lg px-3 py-2 bg-white flex justify-between gap-4">

@@ -219,8 +219,13 @@ export async function runIndexCrawl(seedUrl: string): Promise<CrawlResult> {
 
   const excluded: ExcludedUrlRecord[] = []
   const excludedByReason = initExcludeCounts()
-  const pushExcluded = (url: string, reason: CrawlExcludeReason, evidence: string) => {
-    excluded.push({ url, reason, evidence })
+  const pushExcluded = (
+    url: string,
+    reason: CrawlExcludeReason,
+    evidence: string,
+    httpStatus?: number,
+  ) => {
+    excluded.push({ url, reason, evidence, ...(httpStatus != null ? { httpStatus } : {}) })
     excludedByReason[reason]++
   }
 
@@ -267,7 +272,7 @@ export async function runIndexCrawl(seedUrl: string): Promise<CrawlResult> {
     }
 
     if (fetchResult.status < 200 || fetchResult.status >= 300) {
-      pushExcluded(url, 'NON_200', `HTTP ${fetchResult.status} at ${fetchResult.finalUrl}`)
+      pushExcluded(url, 'NON_200', `HTTP ${fetchResult.status} at ${fetchResult.finalUrl}`, fetchResult.status)
       continue
     }
 

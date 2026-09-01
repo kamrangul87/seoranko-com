@@ -2,6 +2,7 @@ import { runIndexCrawl } from './crawler'
 import { evaluateAllPages } from './indexability'
 import { buildCohortComparison } from './cohorts'
 import { buildIndexDiagnosisVerdict } from './verdict'
+import { buildSiteFollowUpTasks } from './follow-up-tasks'
 import type { IndexDiagnosisResult } from './types'
 
 /**
@@ -13,12 +14,21 @@ export async function runIndexDiagnosis(seedUrl: string): Promise<IndexDiagnosis
   const pages = evaluateAllPages(crawl.fetchedPages, crawl.robotsTxt)
   const cohorts = buildCohortComparison(pages)
   const verdict = buildIndexDiagnosisVerdict(crawl.coverage, pages)
+  const followUpTasks = buildSiteFollowUpTasks({
+    coverage: crawl.coverage,
+    pages,
+    cohorts,
+    verdict,
+    followUpTasks: [],
+    ranAt: '',
+  })
 
   return {
     coverage: crawl.coverage,
     pages,
     cohorts,
     verdict,
+    followUpTasks,
     ranAt: new Date().toISOString(),
   }
 }
