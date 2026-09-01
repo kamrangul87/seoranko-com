@@ -67,22 +67,37 @@ function SnippetBlock({ snippet, showCopy = true }: { snippet: ManualFixSnippet;
   )
 }
 
-function PasteAndFixSection({ fix }: { fix: ManualFixPayload }) {
+function PasteAndFixSection({
+  fix,
+  variant = 'default',
+}: {
+  fix: ManualFixPayload
+  variant?: 'default' | 'canonical'
+}) {
   const [html, setHtml] = useState('')
   const [output, setOutput] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [summary, setSummary] = useState<string | null>(null)
+  const [suggestedLine, setSuggestedLine] = useState<string | null>(null)
 
   if (!fix.contentFixKind) return null
 
   const placeholder =
     fix.contentFixKind === 'sitemap_entries'
       ? 'Paste your existing sitemap.xml here…'
-      : 'Paste your page HTML (or just the <head> section) here…'
+      : variant === 'canonical'
+        ? 'Paste your page HTML or just the <head> section here…'
+        : 'Paste your page HTML (or just the <head> section) here…'
+
+  const introText =
+    variant === 'canonical'
+      ? 'Paste your page\'s HTML (or just the <head> section) below. We return the same content with only the canonical tag corrected — nothing else invented.'
+      : 'Paste your actual page content below. We return the same content with only the detected issue corrected — nothing invented.'
 
   function runFix() {
     setError(null)
     setSummary(null)
+    setSuggestedLine(null)
     const result = applyPasteAndFix({
       html,
       fixKind: fix.contentFixKind!,
@@ -92,19 +107,26 @@ function PasteAndFixSection({ fix }: { fix: ManualFixPayload }) {
     if (!result.ok) {
       setOutput(null)
       setError(result.error || 'Could not apply fix.')
+      setSuggestedLine(result.suggestedManualLine || null)
       return
     }
     setOutput(result.html)
     setSummary(result.summary)
   }
 
+  const downloadName =
+    variant === 'canonical' ? 'canonical-fixed.html' : `paste-fix-${fix.contentFixKind}.html`
+
   return (
     <div className="border border-green-200 rounded-lg p-3 bg-green-50 space-y-2">
       <div className="text-xs font-medium text-[#0F0F0F]">Paste and fix (no coding required)</div>
-      <p className="text-xs text-[#6B6B6B]">
-        Paste your actual page content below. We return the same content with only the detected issue corrected —
-        nothing invented.
-      </p>
+      <p className="text-xs text-[#6B6B6B]">{introText}</p>
+      {variant === 'canonical' && fix.canonicalSelfUrl && (
+        <p className="text-xs text-[#0F0F0F]">
+          Correct canonical URL (from this crawl):{' '}
+          <code className="font-mono bg-white px-1 rounded">{fix.canonicalSelfUrl}</code>
+        </p>
+      )}
       <textarea
         value={html}
         onChange={(e) => setHtml(e.target.value)}
@@ -120,12 +142,29 @@ function PasteAndFixSection({ fix }: { fix: ManualFixPayload }) {
       >
         Apply fix to my content
       </button>
-      {error && <p className="text-xs text-red-700">{error}</p>}
+      {error && (
+        <div className="space-y-2">
+          <p className="text-xs text-red-700">{error}</p>
+          {suggestedLine && (
+            <div className="border border-amber-200 rounded-lg p-2 bg-amber-50 space-y-1">
+              <code className="text-xs font-mono break-all block">{suggestedLine}</code>
+              <CopyButton label="Copy line" getText={() => suggestedLine} />
+            </div>
+          )}
+        </div>
+      )}
       {summary && <p className="text-xs text-green-800">{summary}</p>}
       {output && (
         <div className="space-y-1">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <CopyButton label="Copy fixed content" getText={() => output} />
+            <button
+              type="button"
+              onClick={() => downloadTextFile(downloadName, output)}
+              className="text-xs px-2 py-0.5 rounded border border-[#E5E5E5] bg-white hover:bg-[#FAFAFA]"
+            >
+              Download
+            </button>
           </div>
           <pre className="text-xs font-mono p-2 bg-white border rounded-lg max-h-64 overflow-auto whitespace-pre-wrap break-all">
             {output}
@@ -338,32 +377,40 @@ export function ManualFixPanel({
 
       <p className="text-xs text-[#6B6B6B]">{fix.evidenceCitation}</p>
 
-      {fix.fixType === 'canonical' && (
-        <div className="space-y-2">
-          <div className="text-xs font-medium text-[#0F0F0F]">Canonical tag correction</div>
-          {fix.snippets
-            .filter((s) => s.kind === 'html' || s.kind === 'guidance')
-            .map((s) => (
-              <SnippetBlock key={s.id} snippet={s} />
-            ))}
-        </div>
-      )}
-
-      {(fix.fixMode === 'content' || fix.fixMode === 'hybrid') && fix.contentFixKind && fix.fixType !== 'canonical' && (
-        <PasteAndFixSection fix={fix} />
-      )}
-
-      {(fix.fixMode === 'content' || fix.fixMode === 'hybrid') && fix.contentFixKind && fix.fixType === 'canonical' && (
-        <details className="text-xs">
-          <summary className="cursor-pointer text-[#FF6B2C] underline">Optional: paste-and-fix canonical tag in your HTML</summary>
-          <div className="mt-2">
-            <PasteAndFixSection fix={fix} />
+      {fix.fixType === 'canonical' ? (
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <div className="text-sm font-medium text-[#0F0F0F]">
+              Option A: Fix the canonical tag directly (paste and fix)
+            </div>
+            {(fix.fixMode === 'content' || fix.fixMode === 'hybrid') && fix.contentFixKind && (
+              <PasteAndFixSection fix={fix} variant="canonical" />
+            )}
           </div>
-        </details>
-      )}
 
-      {(fix.fixMode === 'infrastructure' || fix.fixMode === 'hybrid') && fix.redirectTargets && (
-        <PlatformStepsSection fix={fix} />
+          {(fix.fixMode === 'infrastructure' || fix.fixMode === 'hybrid') && fix.redirectTargets && (
+            <div className="space-y-2 border-t border-blue-100 pt-3">
+              <div className="text-sm font-medium text-[#0F0F0F]">
+                Option B: Set up a redirect instead (technical)
+              </div>
+              <p className="text-xs text-[#6B6B6B]">
+                Prefer sending {fix.redirectTargets[0]?.fromUrl} to {fix.redirectTargets[0]?.toUrl} with a 301
+                redirect? Use your platform below, or hand the developer snippets to someone with file access.
+              </p>
+              <PlatformStepsSection fix={fix} />
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          {(fix.fixMode === 'content' || fix.fixMode === 'hybrid') && fix.contentFixKind && (
+            <PasteAndFixSection fix={fix} />
+          )}
+
+          {(fix.fixMode === 'infrastructure' || fix.fixMode === 'hybrid') && fix.redirectTargets && (
+            <PlatformStepsSection fix={fix} />
+          )}
+        </>
       )}
 
       {fix.fixType === 'non_200' &&

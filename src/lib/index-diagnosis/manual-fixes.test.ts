@@ -255,6 +255,8 @@ describe('manual-fixes', () => {
     const result = { pages, followUpTasks: [task], manualFixesByTaskId: {} } as IndexDiagnosisResult
     const fix = resolveManualFixForTask(task, result, new Map())
     expect(fix?.fixType).toBe('canonical')
+    expect(fix?.contentFixKind).toBe('canonical_tag')
+    expect(fix?.canonicalSelfUrl).toBe(pageUrl)
     expect(fix?.redirectTargets?.length).toBe(1)
     expect(fix?.snippets.some((s) => s.kind === 'html')).toBe(true)
     expect(fix?.snippets.some((s) => s.kind === 'redirect-vercel')).toBe(true)

@@ -26,6 +26,33 @@ describe('manual-paste-fix', () => {
     expect(result.html).toContain('<loc>https://autodun.com/mot-predictor</loc>')
     expect(result.html).not.toMatch(/<lastmod>/)
   })
+
+  it('replaces only canonical href for autodun blog index.html', () => {
+    const pageUrl = 'https://autodun.com/blog/index.html'
+    const html = `<!DOCTYPE html><html><head>
+  <title>Blog</title>
+  <link rel="canonical" href="https://autodun.com/blog/" />
+  <meta name="description" content="EV guides">
+</head><body><h1>Blog</h1><p>Body unchanged.</p></body></html>`
+
+    const result = applyPasteAndFix({ html, fixKind: 'canonical_tag', canonicalUrl: pageUrl })
+    expect(result.ok).toBe(true)
+    expect(result.html).toContain(`href="${pageUrl}"`)
+    expect(result.html).not.toContain('href="https://autodun.com/blog/"')
+    expect(result.html).toContain('<title>Blog</title>')
+    expect(result.html).toContain('Body unchanged.')
+    expect(result.html).toMatch(/<link rel="canonical" href="https:\/\/autodun\.com\/blog\/index\.html" \/>/)
+  })
+
+  it('does not invent canonical tag when missing from pasted HTML', () => {
+    const pageUrl = 'https://autodun.com/blog/index.html'
+    const html = '<head><title>Blog</title></head>'
+    const result = applyPasteAndFix({ html, fixKind: 'canonical_tag', canonicalUrl: pageUrl })
+    expect(result.ok).toBe(false)
+    expect(result.error).toMatch(/No canonical tag found/)
+    expect(result.suggestedManualLine).toBe(`<link rel="canonical" href="${pageUrl}">`)
+    expect(result.html).toBe(html)
+  })
 })
 
 describe('manual-fix-platform-steps', () => {

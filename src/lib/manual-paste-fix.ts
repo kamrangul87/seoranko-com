@@ -31,6 +31,8 @@ export interface PasteFixResult {
   summary: string
   fixKind: ContentPasteFixKind
   error?: string
+  /** When no canonical tag exists in pasted HTML — line to add manually. */
+  suggestedManualLine?: string
 }
 
 function insertSitemapEntries(existing: string, entries: string): string {
@@ -45,23 +47,51 @@ function insertSitemapEntries(existing: string, entries: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${blocks}\n</urlset>`
 }
 
+const CANONICAL_LINK_RE = /<link\b(?=[^>]*\brel\s*=\s*["']canonical["'])[^>]*>/i
+
 function mutateCanonicalTag(html: string, canonicalUrl: string): PasteFixResult {
   if (!canonicalUrl) {
     return { ok: false, html, summary: '', fixKind: 'canonical_tag', error: 'Canonical URL is required.' }
   }
-  const tag = `<link rel="canonical" href="${canonicalUrl}" />`
-  let next = html
-  if (/<link\b[^>]+rel=["']canonical["'][^>]*>/i.test(html)) {
-    next = html.replace(/<link\b[^>]+rel=["']canonical["'][^>]*>/i, tag)
-  } else if (/<\/head>/i.test(html)) {
-    next = html.replace(/<\/head>/i, `  ${tag}\n</head>`)
-  } else {
-    next = `${tag}\n${html}`
+
+  const suggestedManualLine = `<link rel="canonical" href="${canonicalUrl}">`
+  const match = html.match(CANONICAL_LINK_RE)
+  if (!match) {
+    return {
+      ok: false,
+      html,
+      summary: '',
+      fixKind: 'canonical_tag',
+      error:
+        'No canonical tag found in what you pasted — paste the full <head> section, or add this line manually:',
+      suggestedManualLine,
+    }
   }
+
+  const originalTag = match[0]
+  let fixedTag = originalTag
+  if (/href\s*=/i.test(originalTag)) {
+    fixedTag = originalTag.replace(/href\s*=\s*(["'])([^"']*)\1/i, `href=$1${canonicalUrl}$1`)
+  } else {
+    fixedTag = originalTag.replace(/\/?>$/, ` href="${canonicalUrl}">`)
+  }
+
+  if (fixedTag === originalTag) {
+    return {
+      ok: false,
+      html,
+      summary: '',
+      fixKind: 'canonical_tag',
+      error: 'Found a canonical tag but could not update its href — check the tag format or edit it manually.',
+      suggestedManualLine,
+    }
+  }
+
+  const next = html.replace(originalTag, fixedTag)
   return {
     ok: true,
     html: next,
-    summary: `Set canonical to ${canonicalUrl} (self-reference from crawl evidence).`,
+    summary: `Updated canonical href to ${canonicalUrl} (self-reference from crawl evidence). No other content changed.`,
     fixKind: 'canonical_tag',
   }
 }

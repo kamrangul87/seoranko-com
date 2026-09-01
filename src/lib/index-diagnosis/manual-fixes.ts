@@ -103,9 +103,9 @@ function canonicalManualFix(
         content: `${pageUrl}
 Evidence: ${canonEvidence}
 
-Option A (recommended) — 301 redirect: permanently send ${pageUrl} to ${redirectTarget} so search engines only see one URL. Use the platform picker below or the developer snippets.
+Option A — fix the canonical tag: use paste-and-fix above to set href to ${pageUrl}.
 
-Option B — self-referencing canonical: change the <link rel="canonical"> to ${pageUrl} itself. Only use this if both URLs must remain live (usually a redirect is cleaner).`,
+Option B — 301 redirect (technical): permanently send ${pageUrl} to ${redirectTarget} using the platform picker or developer snippets below.`,
       },
       ...developerRedirectSnippets(
         pageUrl,
