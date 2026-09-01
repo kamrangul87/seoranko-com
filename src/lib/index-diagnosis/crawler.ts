@@ -203,6 +203,11 @@ export async function runIndexCrawl(seedUrl: string): Promise<CrawlResult> {
     }
   }
 
+  const fetchedPages: FetchedPage[] = []
+  const fetchedSet = new Set<string>()
+  const queue: Array<{ url: string; depth: number }> = [{ url: normalizedSeed, depth: 0 }]
+  const queued = new Set<string>([normalizedSeed])
+
   addDiscovered(normalizedSeed, 'seed', 0)
   for (const u of sitemap.urls.slice(0, MAX_DISCOVERED)) {
     addDiscovered(u, 'sitemap', null)
@@ -218,11 +223,6 @@ export async function runIndexCrawl(seedUrl: string): Promise<CrawlResult> {
     excluded.push({ url, reason, evidence })
     excludedByReason[reason]++
   }
-
-  const fetchedPages: FetchedPage[] = []
-  const fetchedSet = new Set<string>()
-  const queue: Array<{ url: string; depth: number }> = [{ url: normalizedSeed, depth: 0 }]
-  const queued = new Set<string>([normalizedSeed])
 
   let terminationReason: CrawlTerminationReason = 'QUEUE_EMPTY'
   let terminationEvidence = 'Crawl queue exhausted'
@@ -306,7 +306,7 @@ export async function runIndexCrawl(seedUrl: string): Promise<CrawlResult> {
   if (fetchedPages.length >= MAX_FETCHED) {
     terminationReason = 'FETCH_BUDGET_EXHAUSTED'
     terminationEvidence = `Fetch budget ${MAX_FETCHED} pages exhausted`
-    for (const [u] of discovered) {
+    for (const u of Array.from(discovered.keys())) {
       if (!fetchedSet.has(u) && !excluded.some((e) => e.url === u)) {
         pushExcluded(u, 'PLAN_LIMIT', `Not fetched — plan limit ${MAX_FETCHED} pages per run`)
       }
@@ -322,7 +322,7 @@ export async function runIndexCrawl(seedUrl: string): Promise<CrawlResult> {
   }
 
   // Mark remaining discovered-but-not-fetched
-  for (const [u] of discovered) {
+  for (const u of Array.from(discovered.keys())) {
     if (fetchedSet.has(u)) continue
     if (excluded.some((e) => e.url === u)) continue
     pushExcluded(u, 'NOT_REACHED', 'Discovered but not fetched in this crawl pass')
@@ -330,14 +330,16 @@ export async function runIndexCrawl(seedUrl: string): Promise<CrawlResult> {
 
   const sitemapSet = new Set(sitemap.urls.map(normalizeUrl))
   const linkDiscovered = new Set(
-    [...discovered.values()].filter((d) => d.sources.includes('links') || d.sources.includes('both')).map((d) => d.url),
+    Array.from(discovered.values())
+      .filter((d) => d.sources.includes('links') || d.sources.includes('both'))
+      .map((d) => d.url),
   )
 
-  const sitemapOnlyUrls = [...sitemapSet].filter((u) => !linkDiscovered.has(u)).slice(0, 100)
-  const linkedOnlyUrls = [...linkDiscovered].filter((u) => !sitemapSet.has(u)).slice(0, 100)
+  const sitemapOnlyUrls = Array.from(sitemapSet).filter((u) => !linkDiscovered.has(u)).slice(0, 100)
+  const linkedOnlyUrls = Array.from(linkDiscovered).filter((u) => !sitemapSet.has(u)).slice(0, 100)
 
   const sourceCounts = { sitemap: 0, links: 0, both: 0, seed: 0 }
-  for (const d of discovered.values()) {
+  for (const d of Array.from(discovered.values())) {
     for (const s of d.sources) sourceCounts[s]++
   }
 

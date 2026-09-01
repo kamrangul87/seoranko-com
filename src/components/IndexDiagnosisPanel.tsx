@@ -21,7 +21,8 @@ function verdictColor(v: string): string {
 }
 
 export function IndexDiagnosisPanel({ data }: { data: IndexDiagnosisResult }) {
-  const { coverage, verdict, topCauses, pages, cohorts } = data
+  const { coverage, verdict, pages, cohorts } = data
+  const topCauses = verdict.topCauses
   const excludedReasons = Object.entries(coverage.excludedByReason).filter(([, n]) => n > 0)
 
   return (

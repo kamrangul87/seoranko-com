@@ -91,7 +91,7 @@ function buildInboundMap(pages: FetchedPage[]): Map<string, InboundLinkEvidence[
   }
 
   for (const page of pages) {
-    const links = page.html.matchAll(/href=["']([^"'#?]+)["']/gi)
+    const links = Array.from(page.html.matchAll(/href=["']([^"'#?]+)["']/gi))
     for (const m of links) {
       let abs = m[1].trim()
       try {

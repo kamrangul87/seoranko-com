@@ -84,7 +84,7 @@ export function buildCohortComparison(pages: PageIndexability[]): CohortMetrics[
     list.push(p)
     byPattern.set(p.pathPattern, list)
   }
-  for (const [pattern, members] of byPattern) {
+  for (const [pattern, members] of Array.from(byPattern.entries())) {
     cohorts.push(
       buildCohort(`path:${pattern}`, `Path ${pattern}`, 'path_pattern', members, siteMedianDepth, siteDupDensity),
     )
@@ -97,7 +97,7 @@ export function buildCohortComparison(pages: PageIndexability[]): CohortMetrics[
     list.push(p)
     byDepth.set(p.depthBand, list)
   }
-  for (const [band, members] of byDepth) {
+  for (const [band, members] of Array.from(byDepth.entries())) {
     cohorts.push(
       buildCohort(`depth:${band}`, `Depth band ${band}`, 'depth_band', members, siteMedianDepth, siteDupDensity),
     )
@@ -111,7 +111,7 @@ export function buildCohortComparison(pages: PageIndexability[]): CohortMetrics[
     list.push(p)
     byCluster.set(p.duplicateClusterId, list)
   }
-  for (const [clusterId, members] of byCluster) {
+  for (const [clusterId, members] of Array.from(byCluster.entries())) {
     cohorts.push(
       buildCohort(
         `dup:${clusterId}`,

@@ -47,7 +47,7 @@ export function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 && b.size === 0) return 1
   if (a.size === 0 || b.size === 0) return 0
   let inter = 0
-  for (const x of a) if (b.has(x)) inter++
+  for (const x of Array.from(a)) if (b.has(x)) inter++
   const union = a.size + b.size - inter
   return union === 0 ? 0 : inter / union
 }
@@ -115,7 +115,7 @@ export function clusterNearDuplicates(
   }
 
   // Only keep clusters with 2+ members as duplicate clusters
-  for (const [url, cluster] of urlToCluster) {
+  for (const [url, cluster] of Array.from(urlToCluster.entries())) {
     if (cluster.memberUrls.length < 2) {
       urlToCluster.delete(url)
     }

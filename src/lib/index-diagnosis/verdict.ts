@@ -30,7 +30,7 @@ function groupBlockedCauses(pages: PageIndexability[]): CauseBucket[] {
     buckets.set(key, list)
   }
 
-  return [...buckets.entries()].map(([cause, urls]) => ({ cause, urls }))
+  return Array.from(buckets.entries()).map(([cause, urls]) => ({ cause, urls }))
 }
 
 function groupAtRiskCauses(pages: PageIndexability[]): CauseBucket[] {
@@ -52,7 +52,7 @@ function groupAtRiskCauses(pages: PageIndexability[]): CauseBucket[] {
     buckets.set(key, list)
   }
 
-  return [...buckets.entries()].map(([cause, urls]) => ({ cause, urls }))
+  return Array.from(buckets.entries()).map(([cause, urls]) => ({ cause, urls }))
 }
 
 export function buildIndexDiagnosisVerdict(

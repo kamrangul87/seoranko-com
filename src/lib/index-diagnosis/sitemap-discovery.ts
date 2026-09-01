@@ -82,7 +82,7 @@ export function extractInternalLinks(html: string, pageUrl: string, siteHost: st
   const hostNorm = siteHost.replace(/^www\./, '').toLowerCase()
   const out: string[] = []
 
-  for (const m of html.matchAll(/href=["']([^"'#?]+)["']/gi)) {
+  for (const m of Array.from(html.matchAll(/href=["']([^"'#?]+)["']/gi))) {
     const href = m[1].trim()
     if (!href || href.startsWith('mailto:') || href.startsWith('tel:') || href.startsWith('javascript:')) continue
 
