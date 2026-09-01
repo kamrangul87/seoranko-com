@@ -91,6 +91,9 @@ export interface PageIndexability {
   mainContentFingerprint: string
   pathPattern: string
   depthBand: string
+  /** From crawl HTML — used for cohort topic derivation. */
+  pageTitle: string
+  pageH1: string
 }
 
 export interface CohortMetrics {
@@ -141,18 +144,42 @@ export interface DuplicateCohortBriefContext {
   flagEvidence: string
   exampleUrls: string[]
   duplicateDensity?: number
+  /** Real shared subject derived from cohort page titles/slugs — not the path pattern. */
+  sharedTopic: string
+  suggestedBriefTitle: string
+  pageSummaries: Array<{
+    url: string
+    title: string
+    h1: string
+    slugLabel: string
+  }>
+}
+
+export type ManualFixMode = 'content' | 'infrastructure' | 'hybrid'
+
+export interface ManualFixRedirectTarget {
+  fromUrl: string
+  toUrl: string
+  evidence: string
+  httpStatus?: number
+  inboundFrom?: string[]
 }
 
 export interface ManualFixPayload {
   taskId: string
   fixType: SiteFollowUpTaskKind
+  fixMode: ManualFixMode
   evidenceCitation: string
   snippets: ManualFixSnippet[]
-  /** Guidance when fix is "remove dead link" vs redirect. */
   removeLinkGuidance?: string
-  /** Near-duplicate cohort — route to Content Brief instead of code snippets. */
   briefSeedKeyword?: string
   briefContext?: DuplicateCohortBriefContext
+  /** Path A — which content fix to apply on pasted HTML. */
+  contentFixKind?: 'meta_title' | 'meta_description' | 'missing_h1' | 'canonical_tag' | 'sitemap_entries'
+  canonicalSelfUrl?: string
+  sitemapEntriesRaw?: string
+  /** Path B — redirect pairs for platform step generator. */
+  redirectTargets?: ManualFixRedirectTarget[]
 }
 
 export interface SiteFollowUpTask {

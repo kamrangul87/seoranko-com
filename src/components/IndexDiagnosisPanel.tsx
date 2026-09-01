@@ -1,9 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import type { IndexDiagnosisResult, ManualFixPayload, ManualFixSnippet } from '@/lib/index-diagnosis/types'
+import type { IndexDiagnosisResult } from '@/lib/index-diagnosis/types'
 import { lookupManualFixForUrl } from '@/lib/index-diagnosis/manual-fixes'
+import { ManualFixPanel } from '@/components/ManualFixPanel'
 
 const EXCLUDE_LABELS: Record<string, string> = {
   ROBOTS_DISALLOWED: 'Robots.txt disallowed',
@@ -21,114 +21,6 @@ function verdictColor(v: string): string {
   if (v === 'INDEXABLE') return 'text-green-800 bg-green-50'
   if (v === 'BLOCKED') return 'text-red-800 bg-red-50'
   return 'text-amber-800 bg-amber-50'
-}
-
-function CopySnippetButton({ snippet }: { snippet: ManualFixSnippet }) {
-  const [copied, setCopied] = useState(false)
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(snippet.content)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      setCopied(false)
-    }
-  }
-
-  return (
-    <div className="border border-[#E5E5E5] rounded-lg overflow-hidden bg-[#FAFAFA]">
-      <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-white border-b border-[#E5E5E5]">
-        <span className="text-xs font-medium text-[#0F0F0F]">{snippet.label}</span>
-        <button
-          type="button"
-          onClick={() => void copy()}
-          className="text-xs px-2 py-0.5 rounded bg-[#0F0F0F] text-white hover:opacity-90"
-        >
-          {copied ? 'Copied' : 'Copy'}
-        </button>
-      </div>
-      <pre className="text-xs font-mono p-2 overflow-x-auto whitespace-pre-wrap break-all text-[#6B6B6B] max-h-48 overflow-y-auto">
-        {snippet.content}
-      </pre>
-    </div>
-  )
-}
-
-function ManualFixPanel({
-  fix,
-  siteId,
-}: {
-  fix: ManualFixPayload
-  siteId?: string
-}) {
-  const router = useRouter()
-  const [briefLoading, setBriefLoading] = useState(false)
-  const [briefError, setBriefError] = useState<string | null>(null)
-
-  async function openBrief() {
-    if (!fix.briefSeedKeyword || !fix.briefContext) return
-    setBriefLoading(true)
-    setBriefError(null)
-    try {
-      const res = await fetch('/api/copilot/brief', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          seedKeyword: fix.briefSeedKeyword,
-          siteId: siteId || undefined,
-          indexDiagnosisCohort: fix.briefContext,
-        }),
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || 'Could not build brief')
-      if (json.id) {
-        router.push(`/dashboard/briefs?id=${encodeURIComponent(json.id)}`)
-        return
-      }
-      sessionStorage.setItem('seoranko_pending_brief', JSON.stringify(json))
-      router.push('/dashboard/briefs?pending=1')
-    } catch (err) {
-      setBriefError(err instanceof Error ? err.message : 'Could not build brief')
-    } finally {
-      setBriefLoading(false)
-    }
-  }
-
-  if (fix.fixType === 'duplicate_cohort') {
-    return (
-      <div className="mt-3 pt-3 border-t border-blue-100 space-y-2">
-        <p className="text-xs text-[#6B6B6B]">{fix.evidenceCitation}</p>
-        <p className="text-xs text-[#0F0F0F]">
-          Near-duplicate content cannot be auto-generated as copy — use a Content Brief for strategist
-          guidance on differentiating this cohort.
-        </p>
-        <button
-          type="button"
-          onClick={() => void openBrief()}
-          disabled={briefLoading}
-          className="px-3 py-1.5 rounded-lg bg-[#FF6B2C] text-white text-xs disabled:opacity-50"
-        >
-          {briefLoading ? 'Building brief…' : 'Open Content Brief for this cohort'}
-        </button>
-        {briefError && <p className="text-xs text-red-700">{briefError}</p>}
-      </div>
-    )
-  }
-
-  return (
-    <div className="mt-3 pt-3 border-t border-blue-100 space-y-2">
-      <p className="text-xs text-[#6B6B6B]">{fix.evidenceCitation}</p>
-      {fix.removeLinkGuidance && (
-        <p className="text-xs text-amber-800 bg-amber-50 rounded px-2 py-1">{fix.removeLinkGuidance}</p>
-      )}
-      <div className="space-y-2">
-        {fix.snippets.map((s) => (
-          <CopySnippetButton key={s.id} snippet={s} />
-        ))}
-      </div>
-    </div>
-  )
 }
 
 function ExcludedByReasonList({
@@ -194,7 +86,7 @@ export function IndexDiagnosisPanel({
   const topCauses = verdict.topCauses
   const [expandedFix, setExpandedFix] = useState<Record<string, boolean>>({})
   const [urlLookup, setUrlLookup] = useState('')
-  const [lookupFix, setLookupFix] = useState<ManualFixPayload | null>(null)
+  const [lookupFix, setLookupFix] = useState<ReturnType<typeof lookupManualFixForUrl>>(null)
   const [lookupMessage, setLookupMessage] = useState<string | null>(null)
 
   function toggleFix(taskId: string) {
@@ -262,9 +154,7 @@ export function IndexDiagnosisPanel({
         </div>
         <p className="text-xs text-[#6B6B6B] mb-2">{coverage.terminationEvidence}</p>
         <p className="text-xs text-[#6B6B6B] mb-2">{coverage.robotsTxtEvidence}</p>
-
         <ExcludedByReasonList coverage={coverage} />
-
         <div className="grid sm:grid-cols-2 gap-3 text-xs">
           {coverage.sitemapOnlyUrls.length > 0 && (
             <div>
@@ -298,7 +188,7 @@ export function IndexDiagnosisPanel({
 
           <div className="mb-4 p-3 rounded-lg bg-white border border-blue-100">
             <div className="text-xs font-medium text-[#0F0F0F] mb-1">Manual fix lookup</div>
-            <p className="text-xs text-[#6B6B6B] mb-2">Paste any URL from this crawl to get its manual fix snippet.</p>
+            <p className="text-xs text-[#6B6B6B] mb-2">Paste any URL from this crawl to get step-by-step or paste-and-fix guidance.</p>
             <div className="flex flex-wrap gap-2">
               <input
                 type="text"

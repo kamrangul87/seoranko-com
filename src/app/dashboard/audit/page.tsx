@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { DashboardNav } from '@/components/DashboardNav'
 import { IndexDiagnosisPanel } from '@/components/IndexDiagnosisPanel'
+import { AuditPasteFix } from '@/components/AuditPasteFix'
 import type { IndexDiagnosisResult } from '@/lib/index-diagnosis/types'
 
 interface AuditIssue {
@@ -590,6 +591,7 @@ export default function AuditPage() {
                             What to do: {fixability.hint || issue.remediation}
                           </div>
                         )}
+                        <AuditPasteFix issueTitle={issue.title} issueDescription={issue.description} />
                       </li>
                     )
                   })}

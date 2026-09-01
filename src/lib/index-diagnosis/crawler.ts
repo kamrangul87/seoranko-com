@@ -29,6 +29,8 @@ export interface FetchedPage {
   metaRobots: string
   canonicalUrl: string
   canonicalTags: string[]
+  pageTitle: string
+  pageH1: string
   fetchError: string | null
   timedOut: boolean
 }
@@ -135,6 +137,13 @@ function parseMetaRobots(html: string): string {
     html.match(/<meta\s+name=["']robots["']\s+content=["']([^"']+)["']/i) ||
     html.match(/<meta\s+content=["']([^"']+)["']\s+name=["']robots["']/i)
   return m?.[1]?.trim() || ''
+}
+
+function parsePageHead(html: string): { pageTitle: string; pageH1: string } {
+  const pageTitle = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g, ' ').trim() || ''
+  const h1Match = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1]
+  const pageH1 = h1Match?.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() || ''
+  return { pageTitle, pageH1 }
 }
 
 function parseCanonicalTags(html: string): { urls: string[]; primary: string } {
@@ -278,6 +287,7 @@ export async function runIndexCrawl(seedUrl: string): Promise<CrawlResult> {
 
     const metaRobots = parseMetaRobots(fetchResult.html)
     const canon = parseCanonicalTags(fetchResult.html)
+    const head = parsePageHead(fetchResult.html)
 
     const page: FetchedPage = {
       url,
@@ -290,6 +300,8 @@ export async function runIndexCrawl(seedUrl: string): Promise<CrawlResult> {
       metaRobots,
       canonicalUrl: canon.primary,
       canonicalTags: canon.urls,
+      pageTitle: head.pageTitle,
+      pageH1: head.pageH1,
       fetchError: null,
       timedOut: false,
     }

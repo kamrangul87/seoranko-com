@@ -8,6 +8,7 @@ import {
   type CitationGapContext,
 } from '@/lib/ai-visibility/citation-gap-brief'
 import type { DuplicateCohortBriefContext } from '@/lib/index-diagnosis/types'
+import { duplicateCohortBriefBadgeText } from '@/lib/index-diagnosis/duplicate-cohort-brief'
 
 function authClient() {
   const cookieStore = cookies()
@@ -119,7 +120,7 @@ export async function POST(req: NextRequest) {
 
     if (indexCohort?.cohortLabel && indexCohort?.cohortId) {
       duplicateCohort = indexCohort
-      seed = seed || indexCohort.exampleUrls[0]?.replace(/^https?:\/\/[^/]+/, '').replace(/^\//, '') || indexCohort.cohortLabel
+      seed = seed || indexCohort.sharedTopic || indexCohort.suggestedBriefTitle || indexCohort.cohortLabel
     }
 
     if (resultId) {
@@ -163,6 +164,14 @@ export async function POST(req: NextRequest) {
       indexDiagnosisCohort: duplicateCohort,
     })
 
+    const indexDiagnosisCohortMeta = duplicateCohort
+      ? {
+          sharedTopic: duplicateCohort.sharedTopic,
+          suggestedBriefTitle: duplicateCohort.suggestedBriefTitle,
+          badge: duplicateCohortBriefBadgeText(duplicateCohort),
+        }
+      : null
+
     const insertRow = {
       user_id: user.id,
       site_id: siteId,
@@ -199,11 +208,15 @@ export async function POST(req: NextRequest) {
               badge: citationGapBadgeText(citationGap.prompt, citationGap.engine),
             }
           : null,
+        indexDiagnosisCohort: indexDiagnosisCohortMeta,
         persistError: saveErr?.message || 'Could not save brief',
       })
     }
 
-    return NextResponse.json(briefResponse(saved as Parameters<typeof briefResponse>[0]))
+    return NextResponse.json({
+      ...briefResponse(saved as Parameters<typeof briefResponse>[0]),
+      indexDiagnosisCohort: indexDiagnosisCohortMeta,
+    })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Brief failed'
     return NextResponse.json({ error: message }, { status: 400 })

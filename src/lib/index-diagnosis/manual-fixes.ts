@@ -1,15 +1,16 @@
 /**
- * Deterministic manual-fix snippets from Index Diagnosis crawl evidence.
- * No model calls — never invent URLs, dates, or content.
+ * Deterministic manual-fix payloads from Index Diagnosis crawl evidence.
  */
 
 import { normalizeUrl } from '@/lib/supabase/audit-db'
 import type { FetchedPage } from './crawler'
+import { buildDuplicateCohortBriefContext } from './cohort-topic'
 import type {
   CohortMetrics,
   IndexDiagnosisResult,
   InboundLinkEvidence,
   ManualFixPayload,
+  ManualFixRedirectTarget,
   ManualFixSnippet,
   SiteFollowUpTask,
   SiteFollowUpTaskKind,
@@ -17,19 +18,17 @@ import type {
 
 function pathFromUrl(url: string): string {
   try {
-    const p = new URL(url).pathname
-    return p || '/'
+    return new URL(url).pathname || '/'
   } catch {
     return '/'
   }
 }
 
-/** Escape a path segment for use in nginx/htaccess regex. */
 function regexEscapePath(path: string): string {
   return path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\//g, '\\/')
 }
 
-function redirectSnippets(fromUrl: string, toUrl: string, evidence: string): ManualFixSnippet[] {
+function developerRedirectSnippets(fromUrl: string, toUrl: string, evidence: string): ManualFixSnippet[] {
   const fromPath = pathFromUrl(fromUrl)
   const toPath = pathFromUrl(toUrl)
   const fromRegex = regexEscapePath(fromPath)
@@ -130,40 +129,52 @@ function canonicalManualFix(
   const targetMatch = canonEvidence.match(/Canonical points to different same-host URL: ([^\s]+)/)
   const redirectTarget = targetMatch?.[1] || pageUrl.replace(/\/index\.html?$/i, '/')
 
-  const snippets: ManualFixSnippet[] = [
-    canonicalTagSnippet(
-      pageUrl,
-      `Based on canonical tag found at ${pageUrl} during this crawl (${canonEvidence})`,
-    ),
-    ...redirectSnippets(
-      pageUrl,
-      redirectTarget,
-      `Based on canonical misconfiguration at ${pageUrl} during this crawl`,
-    ),
-  ]
-
   return {
     taskId: task.id,
     fixType: 'canonical',
+    fixMode: 'hybrid',
     evidenceCitation: `Based on the canonical tag found at ${pageUrl} during this crawl: ${canonEvidence}`,
-    snippets,
+    contentFixKind: 'canonical_tag',
+    canonicalSelfUrl: pageUrl,
+    redirectTargets: [
+      {
+        fromUrl: pageUrl,
+        toUrl: redirectTarget,
+        evidence: `Canonical misconfiguration at ${pageUrl}`,
+      },
+    ],
+    snippets: [
+      canonicalTagSnippet(
+        pageUrl,
+        `Based on canonical tag found at ${pageUrl} during this crawl (${canonEvidence})`,
+      ),
+      ...developerRedirectSnippets(
+        pageUrl,
+        redirectTarget,
+        `Based on canonical misconfiguration at ${pageUrl} during this crawl`,
+      ),
+    ],
   }
 }
 
 function sitemapGapManualFix(task: SiteFollowUpTask, coverage: IndexDiagnosisResult['coverage']): ManualFixPayload {
   const urls = task.affectedUrls.length > 0 ? task.affectedUrls : coverage.linkedOnlyUrls
   const blocks = urls.map(sitemapUrlBlock).join('\n')
+  const raw = `<!-- ${urls.length} linked-only URL(s) from crawl — no lastmod/priority invented -->\n${blocks}`
+
   return {
     taskId: task.id,
     fixType: 'sitemap_gap',
+    fixMode: 'content',
     evidenceCitation: `Based on ${urls.length} URL(s) linked internally but absent from sitemap.xml during this crawl (${coverage.robotsTxtEvidence})`,
+    contentFixKind: 'sitemap_entries',
+    sitemapEntriesRaw: blocks,
     snippets: [
       {
         id: 'sitemap-xml-blocks',
         label: 'Sitemap XML entries (paste inside <urlset>)',
         kind: 'sitemap-xml',
-        content: `<!-- ${urls.length} linked-only URL(s) from crawl — no lastmod/priority invented -->
-${blocks}`,
+        content: raw,
       },
     ],
   }
@@ -177,38 +188,41 @@ function non200ManualFix(
   const non200 = coverage.excluded.filter((e) => e.reason === 'NON_200')
   const urls = task.affectedUrls.length > 0 ? task.affectedUrls : non200.map((e) => e.url)
 
-  const perUrlSections: string[] = []
-  const allSnippets: ManualFixSnippet[] = []
+  const redirectTargets: ManualFixRedirectTarget[] = []
+  const snippets: ManualFixSnippet[] = []
 
   for (const url of urls) {
     const record = non200.find((e) => e.url === url)
-    const status = record?.httpStatus ?? 'unknown'
+    const status = record?.httpStatus ?? undefined
     const inbound = inboundMap.get(normalizeUrl(url)) || []
-    const evidence = record?.evidence || `HTTP ${status} at ${url}`
+    const evidence = record?.evidence || `HTTP ${status ?? 'error'} at ${url}`
 
-    perUrlSections.push(
-      `=== ${url} (HTTP ${status}) ===
+    redirectTargets.push({
+      fromUrl: url,
+      toUrl: '/',
+      evidence,
+      httpStatus: status,
+      inboundFrom: inbound.map((i) => i.fromUrl),
+    })
+
+    snippets.push({
+      id: `non200-guidance-${url}`,
+      label: `${url} — affected pages & options`,
+      kind: 'guidance',
+      content: `${url} (HTTP ${status ?? 'unknown'})
 Evidence: ${evidence}
 Linked from ${inbound.length} crawled page(s):${
         inbound.length > 0
-          ? `\n${inbound.map((i) => `  • ${i.fromUrl} (depth ${i.fromDepth})`).join('\n')}`
-          : '\n  (no inbound links captured in fetched pages — may be linked from uncrawled URLs)'
+          ? `\n${inbound.map((i) => `  • ${i.fromUrl}`).join('\n')}`
+          : '\n  (no inbound links captured — may be linked from uncrawled pages)'
       }
 
-Option A — remove the dead link from the source page(s) above if this URL should not exist.
-
-Option B — create the missing page, or add a redirect if the URL moved (pick a real destination):`,
-    )
-
-    allSnippets.push({
-      id: `non200-guidance-${url}`,
-      label: `${url} — source pages + guidance`,
-      kind: 'guidance',
-      content: perUrlSections[perUrlSections.length - 1]!,
+Option A — remove the dead link on the source page(s) if this URL should not exist.
+Option B — create the page, or add a redirect (pick the correct live destination).`,
     })
 
-    allSnippets.push(
-      ...redirectSnippets(
+    snippets.push(
+      ...developerRedirectSnippets(
         url,
         '/',
         `Example redirect for ${url} — replace destination with the correct live URL (${evidence})`,
@@ -223,8 +237,10 @@ Option B — create the missing page, or add a redirect if the URL moved (pick a
   return {
     taskId: task.id,
     fixType: 'non_200',
+    fixMode: 'infrastructure',
     evidenceCitation: `Based on non-200 responses during this crawl: ${non200.map((e) => e.evidence).join(' | ')}`,
-    snippets: allSnippets,
+    redirectTargets,
+    snippets,
     removeLinkGuidance:
       'If the destination should not exist, remove or update the internal link on each source page listed above.',
   }
@@ -237,27 +253,22 @@ function duplicateCohortManualFix(
 ): ManualFixPayload {
   const cohortId = task.id.replace(/^cohort-dup-/, '')
   const cohort = cohorts.find((c) => c.cohortId === cohortId)
-  const label = cohort?.label || task.title.replace(/^Near-duplicate cohort: /, '')
-  const exampleUrls = pages
-    .filter((p) => p.pathPattern === label || (cohort && p.pathPattern === cohort.label))
-    .map((p) => p.url)
-    .slice(0, 5)
-  const seedKeyword =
-    exampleUrls[0]?.replace(/^https?:\/\/[^/]+/, '').replace(/^\//, '') || label
+  const briefContext = buildDuplicateCohortBriefContext(
+    cohortId,
+    cohort?.label || task.title.replace(/^Near-duplicate cohort: /, ''),
+    cohort?.flagEvidence || task.evidence,
+    pages,
+    cohort?.duplicateClusterDensity,
+  )
 
   return {
     taskId: task.id,
     fixType: 'duplicate_cohort',
-    evidenceCitation: cohort?.flagEvidence || task.evidence,
+    fixMode: 'content',
+    evidenceCitation: briefContext.flagEvidence,
     snippets: [],
-    briefSeedKeyword: seedKeyword,
-    briefContext: {
-      cohortLabel: label,
-      cohortId,
-      flagEvidence: cohort?.flagEvidence || task.evidence,
-      exampleUrls,
-      duplicateDensity: cohort?.duplicateClusterDensity,
-    },
+    briefSeedKeyword: briefContext.sharedTopic,
+    briefContext,
   }
 }
 
@@ -295,7 +306,6 @@ export function buildManualFixesForResult(
   return out
 }
 
-/** Lookup manual fix for any URL from this crawl (canonical page, sitemap gap, or non-200). */
 export function lookupManualFixForUrl(
   rawUrl: string,
   result: IndexDiagnosisResult,
@@ -308,7 +318,6 @@ export function lookupManualFixForUrl(
     return null
   }
 
-  // Canonical index.html page
   const canonPage = result.pages.find((p) => p.url === url)
   if (canonPage) {
     const canonStep = canonPage.steps.find((s) => s.step === 'canonical')
@@ -325,7 +334,6 @@ export function lookupManualFixForUrl(
     }
   }
 
-  // Non-200 (check before sitemap gap — a URL can be both linked-only and return 404)
   const non200 = result.coverage.excluded.find((e) => e.url === url && e.reason === 'NON_200')
   if (non200) {
     const task: SiteFollowUpTask = {
@@ -339,7 +347,6 @@ export function lookupManualFixForUrl(
     return non200ManualFix(task, result.coverage, inboundMap)
   }
 
-  // Sitemap gap
   if (result.coverage.linkedOnlyUrls.includes(url)) {
     const task: SiteFollowUpTask = {
       id: 'sitemap-missing-linked-urls',
@@ -353,4 +360,10 @@ export function lookupManualFixForUrl(
   }
 
   return null
+}
+
+export function developerSnippetsFromFix(fix: ManualFixPayload): ManualFixSnippet[] {
+  return fix.snippets.filter((s) =>
+    ['redirect-nextjs', 'redirect-htaccess', 'redirect-nginx', 'html', 'sitemap-xml'].includes(s.kind),
+  )
 }

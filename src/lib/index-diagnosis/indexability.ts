@@ -232,6 +232,8 @@ export function evaluatePageIndexability(
     mainContentFingerprint: contentFingerprintHash(mainText),
     pathPattern: pathPatternForUrl(page.finalUrl),
     depthBand: depthBand(page.depth),
+    pageTitle: page.pageTitle,
+    pageH1: page.pageH1,
   }
 }
 

@@ -25,6 +25,8 @@ function mockPage(overrides: Partial<FetchedPage> & { url: string }): FetchedPag
     metaRobots: '',
     canonicalUrl: overrides.url,
     canonicalTags: [overrides.url],
+    pageTitle: '',
+    pageH1: '',
     fetchError: null,
     timedOut: false,
     ...overrides,
@@ -133,6 +135,8 @@ describe('verdict', () => {
         mainContentFingerprint: 'fp-1',
         pathPattern: '/',
         depthBand: '0-home',
+        pageTitle: '',
+        pageH1: '',
       },
     ]
     const v = buildIndexDiagnosisVerdict(coverage, pages)
@@ -160,6 +164,8 @@ describe('cohorts', () => {
       mainContentFingerprint: `fp-${i}`,
       pathPattern: '/p/:slug',
       depthBand: '2',
+      pageTitle: '',
+      pageH1: '',
     }))
     const cohorts = buildCohortComparison(pages)
     const flagged = cohorts.filter((c) => c.flagged)

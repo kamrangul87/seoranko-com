@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { DashboardNav } from '@/components/DashboardNav'
+import { briefToMarkdown, copyToClipboard, downloadTextFile } from '@/lib/copy-export'
 
 type BriefMode = 'content' | 'product' | 'category'
 
@@ -37,6 +38,11 @@ interface BriefPayload {
     strippedInventedClaims: boolean
   }
   citationGap?: CitationGapMeta | null
+  indexDiagnosisCohort?: {
+    sharedTopic: string
+    suggestedBriefTitle: string
+    badge: string
+  } | null
 }
 
 interface RecentBrief {
@@ -186,10 +192,52 @@ function BriefsPageInner() {
 
           {data && (
             <div className="space-y-6">
+              <div className="flex flex-wrap gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={() => void copyToClipboard(briefToMarkdown({
+                    seedKeyword: data.brief.seedKeyword || data.seedKeyword,
+                    suggestedTitle: data.brief.suggestedTitle,
+                    intent: data.brief.intent,
+                    mode: data.brief.mode,
+                    strategistNotes: data.brief.strategistNotes,
+                    sections: data.brief.sections,
+                    badge: data.citationGap?.badge || data.indexDiagnosisCohort?.badge,
+                  }))}
+                  className="text-sm px-3 py-1.5 rounded-lg border border-[#E5E5E5] bg-white hover:bg-[#FAFAFA]"
+                >
+                  Copy as markdown
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    downloadTextFile(
+                      `brief-${(data.brief.seedKeyword || 'export').replace(/\s+/g, '-').slice(0, 40)}.md`,
+                      briefToMarkdown({
+                        seedKeyword: data.brief.seedKeyword || data.seedKeyword,
+                        suggestedTitle: data.brief.suggestedTitle,
+                        intent: data.brief.intent,
+                        mode: data.brief.mode,
+                        strategistNotes: data.brief.strategistNotes,
+                        sections: data.brief.sections,
+                        badge: data.citationGap?.badge || data.indexDiagnosisCohort?.badge,
+                      }),
+                    )
+                  }
+                  className="text-sm px-3 py-1.5 rounded-lg border border-[#E5E5E5] bg-white hover:bg-[#FAFAFA]"
+                >
+                  Download .md
+                </button>
+              </div>
               <div className="border border-[#E5E5E5] rounded-xl p-4 bg-white">
                 {data.citationGap?.badge && (
                   <p className="text-xs text-amber-800 bg-amber-50 rounded px-2 py-1.5 mb-3">
                     {data.citationGap.badge}
+                  </p>
+                )}
+                {data.indexDiagnosisCohort?.badge && (
+                  <p className="text-xs text-blue-800 bg-blue-50 rounded px-2 py-1.5 mb-3">
+                    {data.indexDiagnosisCohort.badge}
                   </p>
                 )}
                 <div className="text-xs uppercase text-[#9B9B9B]">
@@ -207,7 +255,20 @@ function BriefsPageInner() {
                 <div className="mt-6 space-y-4">
                   {data.brief.sections.map((s) => (
                     <div key={s.heading + s.level} className="border-t border-[#F0F0F0] pt-3">
-                      <div className="text-xs text-[#9B9B9B] uppercase">{s.level}</div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="text-xs text-[#9B9B9B] uppercase">{s.level}</div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void copyToClipboard(
+                              `${s.level === 'h1' ? '# ' : s.level === 'h3' ? '### ' : '## '}${s.heading}\n\n${s.guidance}`,
+                            )
+                          }
+                          className="text-xs text-[#FF6B2C] underline shrink-0"
+                        >
+                          Copy
+                        </button>
+                      </div>
                       <div className="font-medium">{s.heading}</div>
                       <p className="text-sm text-[#6B6B6B] mt-1">{s.guidance}</p>
                       {(s.primaryKeywordPlacement || s.secondaryKeywordPlacement) && (

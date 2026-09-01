@@ -22,6 +22,8 @@ function mockPage(overrides: Partial<FetchedPage> & { url: string; html?: string
     metaRobots: '',
     canonicalUrl: url,
     canonicalTags: [url],
+    pageTitle: '',
+    pageH1: '',
     fetchError: null,
     timedOut: false,
     ...overrides,
@@ -53,6 +55,8 @@ describe('manual-fixes', () => {
         mainContentFingerprint: 'fp',
         pathPattern: '/blog/index.html',
         depthBand: '2',
+        pageTitle: 'Blog index',
+        pageH1: 'Blog',
       },
     ]
     const task = buildSiteFollowUpTasks({
@@ -171,7 +175,7 @@ describe('manual-fixes', () => {
 
   it('duplicate cohort fix routes to brief context, not fabricated snippets', () => {
     const task = {
-      id: 'cohort-dup-path-blog-slug-html',
+      id: 'cohort-dup-path:/blog/:slug.html',
       kind: 'duplicate_cohort' as const,
       title: 'Near-duplicate cohort: /blog/:slug.html',
       detail: '',
@@ -181,14 +185,22 @@ describe('manual-fixes', () => {
     const result = {
       pages: [
         {
-          url: 'https://autodun.com/blog/foo.html',
+          url: 'https://autodun.com/blog/mot-history-check-uk.html',
           pathPattern: '/blog/:slug.html',
+          pageTitle: 'MOT History Check UK',
+          pageH1: 'MOT History Check UK',
+        },
+        {
+          url: 'https://autodun.com/blog/electric-car-charger-map-uk.html',
+          pathPattern: '/blog/:slug.html',
+          pageTitle: 'Electric Car Charger Map UK',
+          pageH1: 'Electric Car Charger Map UK',
         },
       ],
       cohorts: [
         {
-          cohortId: 'path-blog-slug-html',
-          label: '/blog/:slug.html',
+          cohortId: 'path:/blog/:slug.html',
+          label: 'Path /blog/:slug.html',
           kind: 'path_pattern',
           duplicateClusterDensity: 0.33,
           flagEvidence: '33% vs median',
@@ -198,7 +210,8 @@ describe('manual-fixes', () => {
     const fix = generateManualFixForTask(task, result, new Map())
     expect(fix?.fixType).toBe('duplicate_cohort')
     expect(fix?.snippets).toHaveLength(0)
-    expect(fix?.briefSeedKeyword).toBeTruthy()
-    expect(fix?.briefContext?.cohortLabel).toBe('/blog/:slug.html')
+    expect(fix?.briefSeedKeyword).toMatch(/UK|EV|MOT/i)
+    expect(fix?.briefContext?.sharedTopic).not.toMatch(/Path \//)
+    expect(fix?.briefContext?.pageSummaries.length).toBeGreaterThan(0)
   })
 })
