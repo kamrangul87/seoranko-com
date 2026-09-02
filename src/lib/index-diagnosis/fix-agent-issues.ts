@@ -88,7 +88,9 @@ export function buildIndexDiagnosisFixAgentIssues(
 
   if (drift?.hasDrift) {
     const parts: string[] = []
-    if (drift.missingFromLive.length > 0) parts.push(`${drift.missingFromLive.length} indexable page(s) missing from live sitemap`)
+    if (drift.missingFromLive.length > 0) {
+      parts.push(`${drift.missingFromLive.length} sitemap URL(s) missing from live (${drift.missingFromLive.slice(0, 3).join(', ')}${drift.missingFromLive.length > 3 ? '…' : ''})`)
+    }
     if (drift.deadInLive.length > 0) parts.push(`${drift.deadInLive.length} dead/stale URL(s) still listed`)
     if (drift.liveHealthFailures.length > 0) {
       parts.push(`${drift.liveHealthFailures.length} live sitemap URL(s) not returning HTTP 200`)
@@ -103,7 +105,7 @@ export function buildIndexDiagnosisFixAgentIssues(
       severity: 'warning',
       category: 'index-diagnosis',
       title: `Sitemap out of date: ${parts.join('; ')}`,
-      description: `Live sitemap (${drift.liveSitemapEvidence}) does not match the current crawl. Expected ${drift.expectedIndexableCount} indexable URL(s).${
+      description: `Live sitemap (${drift.liveSitemapEvidence}) does not match the generated sitemap from this crawl. Expected ${drift.expectedIndexableCount} URL(s) in sitemap.xml.${
         drift.liveHealthFailures.length > 0
           ? ` ${drift.liveHealthFailures.length} deployed URL(s) failed live HTTP check.`
           : ''

@@ -54,7 +54,7 @@ export function driftReportToSitemapChecks(drift: SitemapDriftReport): SitemapCh
   if (drift.hasDrift) {
     const parts: string[] = []
     if (drift.missingFromLive.length > 0) {
-      parts.push(`${drift.missingFromLive.length} indexable page(s) missing from live sitemap`)
+      parts.push(`${drift.missingFromLive.length} URL(s) missing from live sitemap`)
     }
     if (drift.deadInLive.length > 0) {
       parts.push(`${drift.deadInLive.length} dead/stale URL(s) still listed`)

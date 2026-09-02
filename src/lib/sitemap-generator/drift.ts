@@ -1,5 +1,6 @@
 import { discoverSitemapUrls } from '@/lib/index-diagnosis/sitemap-discovery'
 import { normalizeUrl } from '@/lib/supabase/audit-db'
+import { filterPagesForSitemapInclusion } from './canonical-inclusion'
 import { generateSitemap } from './generate'
 import { checkLiveSitemapUrlHealth, type LiveSitemapUrlHealth } from './live-health'
 import { findNoindexInSitemapContradictions, type NoindexInSitemapContradiction } from './noindex-contradiction'
@@ -7,9 +8,20 @@ import type { SitemapCrawlInput } from './types'
 
 export type { LiveSitemapUrlHealth, NoindexInSitemapContradiction }
 
+export interface SitemapExcludedUrl {
+  url: string
+  keptUrl: string
+  reason: string
+}
+
 export interface SitemapDriftReport {
   liveSitemapFetched: boolean
   liveSitemapEvidence: string
+  /** URLs in the generated sitemap (same source as Preview / Sitemap Generator). */
+  expectedSitemapUrls: string[]
+  /** Indexable crawl URLs omitted from sitemap on purpose (e.g. canonical duplicate of another entry). */
+  sitemapExcludedUrls: SitemapExcludedUrl[]
+  /** Expected sitemap URLs absent from the live deployed sitemap.xml. */
   missingFromLive: string[]
   deadInLive: string[]
   expectedIndexableCount: number
@@ -30,21 +42,26 @@ function normSet(urls: string[]): Set<string> {
   return new Set(urls.map((u) => normalizeUrl(u)))
 }
 
-/** Compare live sitemap.xml against INDEXABLE URLs from the current crawl. */
+function extractLocsFromXml(xml: string): string[] {
+  return Array.from(
+    new Set(
+      (xml.match(/<loc>([^<]+)<\/loc>/g) || []).map((m) => m.replace(/<\/?loc>/g, '').trim()),
+    ),
+  )
+}
+
+/** Compare live sitemap.xml against the generated sitemap from the same crawl input. */
 export async function detectSitemapDrift(input: SitemapCrawlInput): Promise<SitemapDriftReport> {
   const generated = generateSitemap(input)
   const primary = generated.files.find((f) => f.filename === 'sitemap.xml') || generated.files[0]
-  const expectedUrls = primary
-    ? Array.from(
-        new Set(
-          (primary.content.match(/<loc>([^<]+)<\/loc>/g) || []).map((m) =>
-            m.replace(/<\/?loc>/g, '').trim(),
-          ),
-        ),
-      )
-    : []
+  const expectedSitemapUrls = primary ? extractLocsFromXml(primary.content) : []
+  const expectedSet = normSet(expectedSitemapUrls)
 
-  const expectedSet = normSet(expectedUrls)
+  const { exclusions: sitemapExcludedUrls } = filterPagesForSitemapInclusion(
+    input.pages,
+    input.htmlByUrl,
+  )
+
   const indexableNorm = normSet(
     input.pages
       .filter((p) => p.verdict === 'INDEXABLE' && p.httpStatus >= 200 && p.httpStatus < 300)
@@ -54,7 +71,9 @@ export async function detectSitemapDrift(input: SitemapCrawlInput): Promise<Site
   const live = await discoverSitemapUrls(input.seedUrl, input.robotsTxt || '')
   const liveSet = normSet(live.urls)
 
-  const missingFromLive = Array.from(indexableNorm).filter((u) => !liveSet.has(u))
+  // Compare live sitemap to generated expected URLs — never raw indexable crawl pages.
+  const missingFromLive = expectedSitemapUrls.filter((u) => !liveSet.has(normalizeUrl(u)))
+
   const deadInLive = live.urls.filter((u) => {
     const n = normalizeUrl(u)
     if (!expectedSet.has(n) && !indexableNorm.has(n)) {
@@ -85,16 +104,19 @@ export async function detectSitemapDrift(input: SitemapCrawlInput): Promise<Site
     deadInLive.length > 0 ||
     liveHealthFailures.length > 0 ||
     noindexContradictions.length > 0 ||
-    (live.urls.length > 0 && expectedIndexableCountDiff(indexableNorm.size, live.urls.length))
+    (live.urls.length > 0 && expectedSet.size !== liveSet.size) ||
+    (live.urls.length === 0 && expectedSitemapUrls.length > 0)
 
   return {
     liveSitemapFetched: live.urls.length > 0,
     liveSitemapEvidence: live.evidence,
+    expectedSitemapUrls,
+    sitemapExcludedUrls,
     missingFromLive,
     deadInLive: Array.from(new Set(deadInLive.map(normalizeUrl))),
-    expectedIndexableCount: indexableNorm.size,
+    expectedIndexableCount: expectedSitemapUrls.length,
     liveUrlCount: live.urls.length,
-    hasDrift: hasDrift || (live.urls.length === 0 && indexableNorm.size > 0),
+    hasDrift,
     generatedSitemapXml: primary?.content || null,
     generatedSitemapPath: 'public/sitemap.xml',
     liveHealthChecked,
@@ -102,9 +124,4 @@ export async function detectSitemapDrift(input: SitemapCrawlInput): Promise<Site
     liveHealthFailures,
     noindexContradictions,
   }
-}
-
-function expectedIndexableCountDiff(expected: number, live: number): boolean {
-  if (expected === 0) return false
-  return Math.abs(expected - live) >= 1
 }

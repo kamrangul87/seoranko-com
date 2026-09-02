@@ -154,7 +154,10 @@ export function IndexDiagnosisPanel({
           <p className="text-sm text-[#6B6B6B] mb-2">
             Your live sitemap ({sitemapDrift.liveSitemapEvidence}) does not match this crawl.
             {sitemapDrift.missingFromLive.length > 0 && (
-              <> {sitemapDrift.missingFromLive.length} indexable page(s) missing.</>
+              <>
+                {' '}
+                {sitemapDrift.missingFromLive.length} URL(s) in the generated sitemap missing from live:
+              </>
             )}
             {sitemapDrift.deadInLive.length > 0 && (
               <> {sitemapDrift.deadInLive.length} dead/stale URL(s) still listed.</>
@@ -167,6 +170,25 @@ export function IndexDiagnosisPanel({
             )}
             {!sitemapDrift.liveSitemapFetched && <> No live sitemap found.</>}
           </p>
+          {sitemapDrift.missingFromLive.length > 0 && (
+            <ul className="text-xs font-mono text-amber-900 mb-2 max-h-24 overflow-y-auto space-y-0.5">
+              {sitemapDrift.missingFromLive.map((u) => (
+                <li key={u} className="break-all">
+                  {u}
+                </li>
+              ))}
+            </ul>
+          )}
+          {sitemapDrift.sitemapExcludedUrls && sitemapDrift.sitemapExcludedUrls.length > 0 && (
+            <p className="text-xs text-[#6B6B6B] mb-2">
+              Not a drift issue: {sitemapDrift.sitemapExcludedUrls.length} indexable URL(s) omitted from the sitemap
+              as canonical duplicates (e.g.{' '}
+              {sitemapDrift.sitemapExcludedUrls
+                .map((e) => `${e.url.replace(/^https?:\/\/[^/]+/, '')} → ${e.keptUrl.replace(/^https?:\/\/[^/]+/, '')}`)
+                .join(', ')}
+              ).
+            </p>
+          )}
           {sitemapDrift.liveHealthFailures.length > 0 && (
             <ul className="text-xs font-mono text-red-800 mb-2 max-h-24 overflow-y-auto space-y-0.5">
               {sitemapDrift.liveHealthFailures.slice(0, 8).map((f) => (
@@ -234,6 +256,20 @@ export function IndexDiagnosisPanel({
             <div className="text-sm font-medium">{coverage.terminationReason.replace(/_/g, ' ').toLowerCase()}</div>
           </div>
         </div>
+        <p className="text-xs text-[#6B6B6B] mb-2">
+          {coverage.fetchedCount} URL{coverage.fetchedCount !== 1 ? 's' : ''} fetched and analysed above.
+          {coverage.discoveredCount > coverage.fetchedCount && (
+            <>
+              {' '}
+              {coverage.discoveredCount - coverage.fetchedCount} additional URL
+              {coverage.discoveredCount - coverage.fetchedCount !== 1 ? 's' : ''} discovered but not fetched
+              {coverage.excludedByReason.NON_200 > 0
+                ? ` (${coverage.excludedByReason.NON_200} returned non-200)`
+                : ''}
+              .
+            </>
+          )}
+        </p>
         <p className="text-xs text-[#6B6B6B] mb-2">{coverage.terminationEvidence}</p>
         <p className="text-xs text-[#6B6B6B] mb-2">{coverage.robotsTxtEvidence}</p>
         <ExcludedByReasonList coverage={coverage} />
