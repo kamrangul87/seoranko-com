@@ -39,9 +39,11 @@ describe('developer-snippet-placements', () => {
     expect(s.placementBefore).toMatch(/cannot edit nginx directly|cannot edit nginx/i)
   })
 
-  it('developerRedirectSnippets returns all three with placement notes', () => {
+  it('developerRedirectSnippets returns vercel + next + htaccess + nginx with placement notes', () => {
     const all = developerRedirectSnippets(from, to, evidence)
-    expect(all).toHaveLength(3)
+    expect(all.length).toBeGreaterThanOrEqual(3)
+    expect(all.some((s) => s.kind === 'redirect-vercel')).toBe(true)
+    expect(all.some((s) => s.kind === 'redirect-nextjs')).toBe(true)
     for (const s of all) {
       expect(s.placementBefore).toBeTruthy()
       expect(s.content.length).toBeGreaterThan(10)

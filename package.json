@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
+    "test:fixtures": "vitest run src/lib/__fixtures__/audit-sites/suite.test.ts",
     "qg:regress": "vitest run src/lib/quality-gate/__tests__/regression.test.ts"
   },
   "dependencies": {

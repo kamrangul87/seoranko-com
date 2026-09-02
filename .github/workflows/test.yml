@@ -1,0 +1,35 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Permanent audit-site fixture suite
+        run: npm run test:fixtures
+      - name: Index Diagnosis / Sitemap / Link Graph / Fix Agent
+        run: >
+          npm test -- --run
+          src/lib/__fixtures__/audit-sites/
+          src/lib/index-diagnosis/
+          src/lib/sitemap-generator/
+          src/lib/link-graph/
+          src/lib/fix-agent-classification.ts
+          src/lib/fix-agent-issues
+          src/lib/developer-snippet-placements.test.ts
+          src/lib/manual-paste-fix.test.ts

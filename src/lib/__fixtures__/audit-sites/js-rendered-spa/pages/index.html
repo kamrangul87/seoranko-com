@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>SPA Shell</title>
+  <link rel="canonical" href="https://fixture-d.test/" />
+</head>
+<body>
+  <div id="root">
+    <noscript>This application requires JavaScript.</noscript>
+    <p>
+      Loading application shell with substantial body text so the HTTP crawler sees real content
+      while discovering almost no internal anchors from served HTML. Client-side navigation is
+      injected after hydration and is invisible to fetch-only crawlers. This paragraph exists so
+      L00_JS_SUSPECTED fires instead of falsely accusing the site of having zero links or thin
+      content as a structural defect. Repeat: authentic SPA bootstrap page for regression only.
+    </p>
+  </div>
+  <script>
+    // Simulated SPA bootstrap — anchors here must NOT be extracted (script stripped).
+    var root = document.getElementById('root');
+    var nav = document.createElement('nav');
+    ;['/dashboard', '/settings', '/help'].forEach(function (path) {
+      var a = document.createElement('a');
+      a.setAttribute('href', path);
+      a.textContent = path;
+      nav.appendChild(a);
+    });
+    root.appendChild(nav);
+  </script>
+</body>
+</html>

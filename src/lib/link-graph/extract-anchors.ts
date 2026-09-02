@@ -77,17 +77,23 @@ export function extractAnchorsFromHtml(
   html: string,
   opts: ExtractAnchorsOptions,
 ): LinkEdge[] {
+  // Served <script> bodies often contain string literals that look like <a href>
+  // (SPA bootstraps). Do not treat those as real anchors — matches crawl-only HTML.
+  const htmlNoScript = html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+
   const edges: LinkEdge[] = []
   const anchorRe = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi
   let match: RegExpExecArray | null
   let domIndex = 0
 
-  while ((match = anchorRe.exec(html)) !== null) {
+  while ((match = anchorRe.exec(htmlNoScript)) !== null) {
     const attrs = match[1] || ''
     const inner = match[2] || ''
     const hrefMatch = attrs.match(/\bhref=["']([^"']*)["']/i)
     const hrefRaw = hrefMatch ? hrefMatch[1]! : ''
-    const before = html.slice(0, match.index)
+    const before = htmlNoScript.slice(0, match.index)
     const domRegion = inferDomRegion(before)
     const rel = parseRel(attrs)
     const anchorText = stripTags(inner)
