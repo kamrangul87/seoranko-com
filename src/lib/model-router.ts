@@ -30,4 +30,6 @@ export const MODEL_FOR = {
   cannibalizationJudge: MODELS.HAIKU,
   topicalMapCluster: MODELS.HAIKU,
   timeAnchoredClaimRepair: MODELS.HAIKU,
+  /** Phrases link-graph verdict from already-computed findings only (never invents findings). */
+  linkGraphVerdict: MODELS.HAIKU,
 } as const

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { DashboardNav } from '@/components/DashboardNav'
 import { IndexDiagnosisPanel } from '@/components/IndexDiagnosisPanel'
+import { LinkGraphPanel } from '@/components/LinkGraphPanel'
 import { AuditPasteFix } from '@/components/AuditPasteFix'
 import type { IndexDiagnosisResult } from '@/lib/index-diagnosis/types'
 
@@ -423,6 +424,13 @@ export default function AuditPage() {
                       : undefined
                   }
                   fixRunning={fixRunning}
+                />
+              )}
+
+              {audit.indexDiagnosis && (
+                <LinkGraphPanel
+                  diagnosis={audit.indexDiagnosis}
+                  domain={audit.indexDiagnosis.coverage.domain}
                 />
               )}
 
