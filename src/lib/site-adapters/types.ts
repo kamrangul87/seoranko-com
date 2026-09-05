@@ -29,6 +29,12 @@ export interface FixApplyResult {
    * Verification should report "pending", not "failed".
    */
   pending?: boolean
+  /**
+   * Why the write is pending:
+   * - deploy — committed to the default branch; awaiting host rebuild (e.g. Vercel)
+   * - merge — opened a PR (direct push blocked); awaiting human merge
+   */
+  pendingKind?: 'deploy' | 'merge'
   /** Human-readable note for a successful outcome (e.g. "Pull Request opened"). */
   detail?: string
   /** Link for the user to follow (e.g. the PR). */

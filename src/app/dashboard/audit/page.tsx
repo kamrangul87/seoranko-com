@@ -101,11 +101,26 @@ interface FixAttempt {
   verification_detail?: string | null
   errorMessage?: string | null
   error_message?: string | null
+  pendingKind?: 'deploy' | 'merge' | null
+  pendingUrl?: string | null
   revertible: boolean
   scoreBefore?: number | null
   score_before?: number | null
   scoreAfter?: number | null
   score_after?: number | null
+}
+
+function formatAttemptStatus(status: string): string {
+  if (status === 'pending_deploy') return 'awaiting Vercel deploy'
+  if (status === 'pending_merge') return 'awaiting PR merge'
+  if (status === 'handed_off') return 'handed off'
+  return status
+}
+
+function extractPrUrl(text: string | null | undefined): string | null {
+  if (!text) return null
+  const m = text.match(/https:\/\/github\.com\/[^\s)]+\/pull\/\d+/i)
+  return m ? m[0] : null
 }
 
 interface HumanTask {
@@ -546,7 +561,19 @@ export default function AuditPage() {
                     </Link>
                   </div>
                 )}
-                {fixMessage && <p className="text-sm mt-3 text-[#0F0F0F]">{fixMessage}</p>}
+                {fixMessage && (
+                  <div
+                    className={`text-sm mt-3 rounded-lg px-3 py-2 border ${
+                      /failed \(see errors\)/i.test(fixMessage)
+                        ? 'border-red-200 bg-red-50 text-red-900'
+                        : /awaiting Vercel|awaiting merge|PR\(s\)/i.test(fixMessage)
+                          ? 'border-sky-200 bg-sky-50 text-sky-900'
+                          : 'border-[#E5E5E5] bg-white text-[#0F0F0F]'
+                    }`}
+                  >
+                    {fixMessage}
+                  </div>
+                )}
               </div>
 
               <div>
@@ -654,6 +681,9 @@ export default function AuditPage() {
               {humanTasks.length > 0 && (
                 <div>
                   <h2 className="font-medium mb-2">Human tasks from Fix Agent</h2>
+                  <p className="text-xs text-[#6B6B6B] mb-2">
+                    These need editorial work — they are separate from commits awaiting deploy or PR merge.
+                  </p>
                   <ul className="space-y-2">
                     {humanTasks.map((t) => (
                       <li key={`${t.kind}-${t.title}`} className="border border-amber-200 rounded-lg px-3 py-2 bg-amber-50">
@@ -680,15 +710,36 @@ export default function AuditPage() {
                       const id = a.id
                       const title = a.issueTitle || a.issue_title || a.issueId || a.issue_id
                       const summary = a.diffSummary || a.diff_summary
-                      const detail = a.verificationDetail || a.verification_detail || a.errorMessage || a.error_message
+                      const err = a.errorMessage || a.error_message
+                      const detail = a.verificationDetail || a.verification_detail
+                      const status = a.status || ''
+                      const isFailed = status === 'failed' || status === 'handed_off'
+                      const isPending =
+                        status === 'pending_deploy' ||
+                        status === 'pending_merge' ||
+                        a.pendingKind === 'deploy' ||
+                        a.pendingKind === 'merge'
+                      const prUrl = a.pendingUrl || extractPrUrl(detail) || extractPrUrl(summary)
                       return (
-                        <li key={`${id}-${a.strategy}-${a.attemptNumber || a.attempt_number}`} className="border border-[#E5E5E5] rounded-lg px-3 py-2 bg-white text-sm">
+                        <li
+                          key={`${id}-${a.strategy}-${a.attemptNumber || a.attempt_number}`}
+                          className={`border rounded-lg px-3 py-2 text-sm ${
+                            isFailed
+                              ? 'border-red-200 bg-red-50'
+                              : isPending
+                                ? 'border-sky-200 bg-sky-50'
+                                : 'border-[#E5E5E5] bg-white'
+                          }`}
+                        >
                           <div className="flex justify-between gap-2">
                             <div>
                               <span className="font-medium">{title}</span>
-                              <span className="text-[#9B9B9B]"> · {a.autoKind || a.auto_kind} · {a.strategy} · {a.status}</span>
+                              <span className="text-[#9B9B9B]">
+                                {' '}
+                                · {a.autoKind || a.auto_kind} · {a.strategy} · {formatAttemptStatus(status)}
+                              </span>
                             </div>
-                            {a.revertible && !a.status.includes('revert') && (
+                            {a.revertible && !status.includes('revert') && (
                               <button
                                 type="button"
                                 disabled={fixRunning}
@@ -700,7 +751,24 @@ export default function AuditPage() {
                             )}
                           </div>
                           {summary && <div className="text-[#6B6B6B] mt-1">{summary}</div>}
-                          {detail && <div className="text-xs text-[#9B9B9B] mt-0.5">{detail}</div>}
+                          {err && (
+                            <div className="text-xs text-red-700 mt-1 font-medium">
+                              Error: {err}
+                            </div>
+                          )}
+                          {detail && detail !== err && (
+                            <div className="text-xs text-[#6B6B6B] mt-0.5">{detail}</div>
+                          )}
+                          {prUrl && (
+                            <a
+                              href={prUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs text-[#FF6B2C] underline mt-1 inline-block"
+                            >
+                              Open pull request
+                            </a>
+                          )}
                         </li>
                       )
                     })}

@@ -73,6 +73,10 @@ export interface FixAgentAttemptView {
   diffSummary: string | null
   verificationDetail: string | null
   errorMessage: string | null
+  /** deploy = awaiting host rebuild; merge = awaiting PR merge */
+  pendingKind?: 'deploy' | 'merge' | null
+  /** PR URL when pendingKind is merge */
+  pendingUrl?: string | null
   revertible: boolean
   scoreBefore: number | null
   scoreAfter: number | null
@@ -97,6 +101,38 @@ export interface FixAgentRunResult {
   applied: FixAgentAttemptView[]
   humanTasks: FixAgentHumanTask[]
   deferred?: boolean
+  /** Successful writes awaiting host rebuild (e.g. Vercel). */
+  pendingDeployCount?: number
+  /** Successful writes awaiting PR merge. */
+  pendingMergeCount?: number
+  /** Auto attempts that failed with an error (not human-classified issues). */
+  failedCount?: number
+}
+
+/** Build the user-facing Fix Agent summary — never conflate awaiting-deploy with human tasks. */
+export function buildFixAgentRunSummary(opts: {
+  liveCount: number
+  pendingDeployCount: number
+  pendingMergeCount: number
+  failedCount: number
+  humanTaskCount: number
+}): string {
+  const parts: string[] = []
+  if (opts.liveCount > 0) parts.push(`${opts.liveCount} live`)
+  if (opts.pendingDeployCount > 0) {
+    parts.push(`${opts.pendingDeployCount} committed, awaiting Vercel deploy`)
+  }
+  if (opts.pendingMergeCount > 0) {
+    parts.push(`${opts.pendingMergeCount} PR(s) awaiting merge`)
+  }
+  if (opts.failedCount > 0) parts.push(`${opts.failedCount} failed (see errors)`)
+  if (opts.humanTaskCount > 0) parts.push(`${opts.humanTaskCount} human task(s)`)
+  if (parts.length === 0) return 'Fix Agent finished: nothing applied.'
+  return `Fix Agent finished: ${parts.join(', ')}.`
+}
+
+function pendingStatusFromApply(apply: FixApplyResult): 'pending_deploy' | 'pending_merge' {
+  return apply.pendingKind === 'merge' ? 'pending_merge' : 'pending_deploy'
 }
 
 interface StrategyPlan {
@@ -953,8 +989,12 @@ export async function runFixAgent(opts: {
         status = 'failed'
         verificationDetail = apply.error || 'Write failed'
       } else if ((apply.pending || adapter.deferredVerification) && !SITE_WIDE_AUTO_KINDS.has(kind)) {
-        status = 'applied'
-        verificationDetail = apply.detail || 'Applied — pending rebuild/merge before live verification.'
+        status = apply.pending ? pendingStatusFromApply(apply) : 'pending_deploy'
+        verificationDetail =
+          apply.detail ||
+          (status === 'pending_merge'
+            ? 'Applied — PR opened; awaiting merge before live.'
+            : 'Applied — committed; awaiting Vercel deploy before live verification.')
         anyPending = true
         resolved = true
         if (workingPage && outcome.after) workingPage.bodyHtml = outcome.after
@@ -1051,12 +1091,17 @@ export async function runFixAgent(opts: {
             v = verifyLiveHtml(kind, liveHtml, schemaType, item.issue)
           }
 
-          verificationDetail = v.detail
+          verificationDetail = apply.detail ? `${apply.detail} ${v.detail}` : v.detail
           if (v.ok) {
-            status = apply.pending || adapter.deferredVerification ? 'applied' : 'verified'
+            if (apply.pending || adapter.deferredVerification) {
+              status = pendingStatusFromApply(apply)
+              anyPending = true
+            } else {
+              status = 'verified'
+            }
             resolved = true
             if (workingPage && outcome.after) workingPage.bodyHtml = outcome.after
-            if (!SITE_WIDE_AUTO_KINDS.has(kind)) {
+            if (!SITE_WIDE_AUTO_KINDS.has(kind) && status === 'verified') {
               try {
                 const re = await runPageAudit(opts.auditUrl)
                 scoreAfter = re.score
@@ -1066,7 +1111,7 @@ export async function runFixAgent(opts: {
               } catch {
                 /* ignore re-audit errors */
               }
-            } else if (!issueStillPresent([], item)) {
+            } else if (!issueStillPresent([], item) && status === 'verified') {
               verificationDetail += ' Site-wide fix applied.'
             }
           } else {
@@ -1074,11 +1119,17 @@ export async function runFixAgent(opts: {
             verificationDetail = `${v.detail} (strategy: ${strategy.name})`
           }
         } catch {
-          status = apply.success ? 'applied' : 'failed'
-          verificationDetail = apply.success
-            ? 'Wrote fix but could not re-fetch live to verify.'
-            : 'Verification fetch failed.'
-          if (apply.success) resolved = true
+          if (apply.success) {
+            status = apply.pending ? pendingStatusFromApply(apply) : 'applied'
+            verificationDetail = apply.detail
+              ? `${apply.detail} Could not re-fetch live to verify yet.`
+              : 'Wrote fix but could not re-fetch live to verify.'
+            if (apply.pending) anyPending = true
+            resolved = true
+          } else {
+            status = 'failed'
+            verificationDetail = 'Verification fetch failed.'
+          }
         }
       }
 
@@ -1127,6 +1178,8 @@ export async function runFixAgent(opts: {
             detail: verificationDetail,
             attemptId: id,
             pending: !!apply.pending,
+            pendingKind: apply.pendingKind || null,
+            pendingUrl: apply.url || null,
           },
         })
       }
@@ -1141,7 +1194,17 @@ export async function runFixAgent(opts: {
         status,
         diffSummary: outcome.summary,
         verificationDetail,
-        errorMessage: apply.success ? null : apply.error || null,
+        errorMessage:
+          status === 'failed' || status === 'handed_off'
+            ? apply.error || verificationDetail || 'Failed'
+            : null,
+        pendingKind:
+          status === 'pending_merge'
+            ? 'merge'
+            : status === 'pending_deploy'
+              ? 'deploy'
+              : apply.pendingKind || null,
+        pendingUrl: apply.url || null,
         revertible,
         scoreBefore,
         scoreAfter,
@@ -1151,6 +1214,12 @@ export async function runFixAgent(opts: {
     }
 
     if (!resolved) {
+      const lastError =
+        applied
+          .filter((a) => a.issueId === item.issue.id && a.errorMessage)
+          .map((a) => a.errorMessage)
+          .filter(Boolean)
+          .slice(-1)[0] || 'Max retries reached'
       await insertAttempt(opts.supabase, {
         user_id: opts.userId,
         site_id: owned.siteId,
@@ -1163,14 +1232,31 @@ export async function runFixAgent(opts: {
         attempt_number: MAX_ATTEMPTS_PER_ISSUE,
         status: 'handed_off',
         diff_summary: `Tried ${strategies.length} strategies; still failing. Handing to human.`,
+        verification_detail: String(lastError),
+        error_message: String(lastError),
         human_task: {
           kind: 'retry-exhausted',
           title: item.issue.title,
-          reason: 'Max retries reached',
+          reason: String(lastError),
           suggestedAction: 'Review attempt log and fix manually.',
         },
         revertible: false,
         score_before: scoreBefore,
+      })
+      applied.push({
+        id: '',
+        issueId: item.issue.id,
+        issueTitle: item.issue.title,
+        autoKind: kind,
+        strategy: 'exhausted',
+        attemptNumber: MAX_ATTEMPTS_PER_ISSUE,
+        status: 'handed_off',
+        diffSummary: `Tried ${strategies.length} strategies; still failing. Handing to human.`,
+        verificationDetail: String(lastError),
+        errorMessage: String(lastError),
+        revertible: false,
+        scoreBefore,
+        scoreAfter: null,
       })
     }
   }
@@ -1183,7 +1269,33 @@ export async function runFixAgent(opts: {
     scoreAfter = undefined
   }
 
-  const verifiedCount = applied.filter((a) => a.status === 'verified' || a.status === 'applied').length
+  const liveCount = applied.filter((a) => a.status === 'verified').length
+  const pendingDeployCount = applied.filter(
+    (a) => a.status === 'pending_deploy' || a.pendingKind === 'deploy',
+  ).length
+  const pendingMergeCount = applied.filter(
+    (a) => a.status === 'pending_merge' || a.pendingKind === 'merge',
+  ).length
+  // Count one failure outcome per issue (last failed/handed_off attempt), not every retry.
+  const failedIssueIds = new Set(
+    applied
+      .filter((a) => a.status === 'failed' || a.status === 'handed_off')
+      .map((a) => a.issueId),
+  )
+  // Exclude issues that later succeeded
+  for (const a of applied) {
+    if (
+      a.status === 'verified' ||
+      a.status === 'applied' ||
+      a.status === 'pending_deploy' ||
+      a.status === 'pending_merge' ||
+      a.status === 'skipped'
+    ) {
+      failedIssueIds.delete(a.issueId)
+    }
+  }
+  const failedCount = failedIssueIds.size
+
   return {
     ok: true,
     connected: true,
@@ -1193,13 +1305,20 @@ export async function runFixAgent(opts: {
     fixableScope: describeFixableScope(owned.cmsType),
     scoreBefore,
     scoreAfter,
-    message: anyPending
-      ? `Applied ${verifiedCount} fix(es); some await rebuild/merge before live verification.`
-      : `Fix Agent finished: ${verifiedCount} applied/verified, ${humanTasks.length} human task(s).`,
+    message: buildFixAgentRunSummary({
+      liveCount,
+      pendingDeployCount,
+      pendingMergeCount,
+      failedCount,
+      humanTaskCount: humanTasks.length,
+    }),
     classified: { auto: autoIssues.length, human: humanIssues.length, skip: skipCount },
     applied,
     humanTasks,
     deferred: anyPending,
+    pendingDeployCount,
+    pendingMergeCount,
+    failedCount,
   }
 }
 
