@@ -80,16 +80,16 @@ describe('GitHub writeStaticFile PR fallback', () => {
   })
 
   it('opens seoranko-fix-* PR when direct push returns 403', async () => {
-    const calls: Array<{ url: string; method: string; body?: any }> = []
+    const calls: Array<{ url: string; method: string; body?: Record<string, unknown> | string }> = []
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input)
         const method = (init?.method || 'GET').toUpperCase()
-        let body: any
+        let body: Record<string, unknown> | string | undefined
         if (init?.body && typeof init.body === 'string') {
           try {
-            body = JSON.parse(init.body)
+            body = JSON.parse(init.body) as Record<string, unknown>
           } catch {
             body = init.body
           }
@@ -102,7 +102,8 @@ describe('GitHub writeStaticFile PR fallback', () => {
         if (method === 'GET' && url.includes('/contents/')) {
           return new Response(JSON.stringify({ message: 'Not Found' }), { status: 404 })
         }
-        if (method === 'PUT' && url.includes('/contents/') && body?.branch === 'main') {
+        const bodyObj = body && typeof body === 'object' ? body : undefined
+        if (method === 'PUT' && url.includes('/contents/') && bodyObj?.branch === 'main') {
           return new Response(
             JSON.stringify({ message: 'Resource not accessible by integration' }),
             { status: 403 },
@@ -112,19 +113,19 @@ describe('GitHub writeStaticFile PR fallback', () => {
           return new Response(JSON.stringify({ object: { sha: 'abc123base' } }), { status: 200 })
         }
         if (method === 'POST' && url.endsWith('/git/refs')) {
-          expect(body.ref).toMatch(/^refs\/heads\/seoranko-fix-/)
-          return new Response(JSON.stringify({ ref: body.ref }), { status: 201 })
+          expect(String(bodyObj?.ref || '')).toMatch(/^refs\/heads\/seoranko-fix-/)
+          return new Response(JSON.stringify({ ref: bodyObj?.ref }), { status: 201 })
         }
         if (
           method === 'PUT' &&
           url.includes('/contents/') &&
-          String(body?.branch || '').startsWith('seoranko-fix-')
+          String(bodyObj?.branch || '').startsWith('seoranko-fix-')
         ) {
           return new Response(JSON.stringify({ content: { path: 'llms.txt' } }), { status: 201 })
         }
         if (method === 'POST' && url.endsWith('/pulls')) {
-          expect(body.head).toMatch(/^seoranko-fix-/)
-          expect(body.base).toBe('main')
+          expect(String(bodyObj?.head || '')).toMatch(/^seoranko-fix-/)
+          expect(bodyObj?.base).toBe('main')
           return new Response(
             JSON.stringify({ html_url: 'https://github.com/acme/site/pull/42' }),
             { status: 201 },
@@ -148,7 +149,14 @@ describe('GitHub writeStaticFile PR fallback', () => {
     expect(result.pendingKind).toBe('merge')
     expect(result.url).toBe('https://github.com/acme/site/pull/42')
     expect(result.detail).toMatch(/Pull Request opened/i)
-    expect(calls.some((c) => c.method === 'PUT' && c.body?.branch === 'main')).toBe(true)
+    expect(
+      calls.some(
+        (c) =>
+          c.method === 'PUT' &&
+          typeof c.body === 'object' &&
+          c.body?.branch === 'main',
+      ),
+    ).toBe(true)
     expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/pulls'))).toBe(true)
   })
 
