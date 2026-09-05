@@ -129,7 +129,7 @@ function classifyClientSide(
   const isCms = cmsType === 'wordpress' || cmsType === 'shopify' || cmsType === 'webflow' || cmsType === 'github'
 
   if (meta === 'missing-page-content') return { label: 'human' }
-  if (meta === 'redirect-canonical' || meta === 'remove-dead-link' || meta === 'sitemap-regenerate') {
+  if (meta === 'redirect-canonical' || meta === 'remove-dead-link' || meta === 'sitemap-regenerate' || meta === 'rewrite-link-href') {
     if (isCms) return { label: 'auto' }
     return { label: 'server', hint: SERVER_REQUIRED_HINT }
   }
@@ -326,9 +326,16 @@ export default function AuditPage() {
     }
   }
 
-  async function runFixAgent(issueFilter?: (i: AuditIssue) => boolean) {
+  async function runFixAgent(
+    issueFilter?: (i: AuditIssue) => boolean,
+    overrideIssues?: AuditIssue[],
+  ) {
     if (!audit || !connection?.connected || !connection.siteId) return
-    const issuesToFix = issueFilter ? audit.issues.filter(issueFilter) : audit.issues
+    const issuesToFix = overrideIssues
+      ? overrideIssues
+      : issueFilter
+        ? audit.issues.filter(issueFilter)
+        : audit.issues
     const ok = window.confirm(buildFixConfirmMessage(connection, issuesToFix))
     if (!ok) return
 
@@ -431,6 +438,11 @@ export default function AuditPage() {
                 <LinkGraphPanel
                   diagnosis={audit.indexDiagnosis}
                   domain={audit.indexDiagnosis.coverage.domain}
+                  siteId={connection?.siteId}
+                  cmsConnected={!!connection?.connected}
+                  auditUrl={audit.url}
+                  fixRunning={fixRunning}
+                  onRunFixAgent={(issues) => void runFixAgent(undefined, issues as AuditIssue[])}
                 />
               )}
 

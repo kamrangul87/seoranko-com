@@ -30,8 +30,20 @@ import { buildIndexDiagnosisFixAgentIssues } from '@/lib/index-diagnosis/fix-age
 import { detectSitemapDrift } from '@/lib/sitemap-generator/drift'
 import type { IndexDiagnosisResult } from '@/lib/index-diagnosis/types'
 
+export interface PageAuditHrefFix {
+  sourceUrl: string
+  fromHref: string
+  toHref: string
+  ruleId?: string
+}
+
 export interface PageAuditFixMetadata {
-  kind: 'redirect-canonical' | 'remove-dead-link' | 'sitemap-regenerate' | 'missing-page-content'
+  kind:
+    | 'redirect-canonical'
+    | 'remove-dead-link'
+    | 'sitemap-regenerate'
+    | 'missing-page-content'
+    | 'rewrite-link-href'
   fromUrl?: string
   toUrl?: string
   deadUrl?: string
@@ -39,6 +51,8 @@ export interface PageAuditFixMetadata {
   sitemapContent?: string
   sitemapPath?: string
   evidence?: string
+  /** Link Graph: one or more href rewrites (bulk or single). */
+  hrefFixes?: PageAuditHrefFix[]
 }
 
 export interface PageAuditIssue {

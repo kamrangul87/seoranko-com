@@ -32,3 +32,12 @@ Connection type is passed into `classifyAuditIssues({ connectionType })`. The au
 
 ## Billing
 Audit-only free vs Fix Agent premium is **flagged only** in `docs/BILLING_PIVOT_NOTES.md` — not enforced in this pass.
+
+## Link Graph fixes
+
+Link Graph findings with a computed `suggestedTarget` (L04/L05 redirect-hop, L06 non-canonical, plus L17–L19 URL-normalization rules) map to Fix Agent kind `rewrite-link-href`.
+
+- **Auto-fix (GitHub / server CMS):** locate source-page `<a href>` and rewrite to the suggested destination; re-fetch the source page to verify.
+- **Bulk:** “Fix all redirect-hop links” applies every L04/L05 rewrite in one Fix Agent run with a before/after summary (still revertible).
+- **Manual fix:** paste source HTML — only the flagged href(s) are rewritten (`link_href` paste kind).
+- **L01 4xx:** uses existing `remove-dead-link` (strip the dead anchor; never invent a destination page).

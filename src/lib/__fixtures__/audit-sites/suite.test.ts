@@ -16,6 +16,8 @@ import { buildIndexDiagnosisFixAgentIssues } from '@/lib/index-diagnosis/fix-age
 import { classifyAuditIssue } from '@/lib/fix-agent-classification'
 import { generateSitemap } from '@/lib/sitemap-generator/generate'
 import { runLinkGraphAudit } from '@/lib/link-graph/run'
+import { buildLinkGraphFixAgentIssues } from '@/lib/link-graph/fix-agent-issues'
+import { rewriteHrefsInHtml } from '@/lib/fix-agent-href-rewrite'
 import type { TargetFetcher } from '@/lib/link-graph/resolve-targets'
 import type { IndexDiagnosisResult } from '@/lib/index-diagnosis/types'
 import {
@@ -233,6 +235,45 @@ describe('audit-sites fixture suite (permanent regression)', () => {
               result.findings.filter((f) => f.ruleId === ruleId),
               `must NOT find ${ruleId}`,
             ).toHaveLength(0)
+          }
+
+          // Link Graph → Fix Agent bridge (redirect-hop / non-canonical href rewrites)
+          {
+            const issues = buildLinkGraphFixAgentIssues(result)
+            const rewriteIssues = issues.filter((i) => i.fixMetadata?.kind === 'rewrite-link-href')
+            const hasRedirect = result.findings.some((f) => f.ruleId === 'L04' || f.ruleId === 'L05')
+            if (hasRedirect) {
+              expect(rewriteIssues.length).toBeGreaterThan(0)
+              const bulk = issues.find((i) => i.id === 'link-bulk-redirect-hops')
+              expect(bulk).toBeTruthy()
+              const gh = classifyAuditIssue(bulk!, { connectionType: 'github' })
+              expect(gh.fixability).toBe('auto')
+              expect(gh.autoKind).toBe('rewrite-link-href')
+              const tag = classifyAuditIssue(bulk!, { connectionType: 'universal-tag' })
+              expect(tag.fixability).not.toBe('auto')
+
+              const homeKey = Object.keys(htmlByUrl).find(
+                (u) => new URL(u).pathname === '/' || u === `${manifest.origin}/` || u === manifest.origin,
+              )
+              const homeHtml = homeKey ? htmlByUrl[homeKey] : undefined
+              const fixes = bulk!.fixMetadata?.hrefFixes || []
+              if (homeHtml && fixes.length > 0) {
+                const applicable = fixes.filter((f) => {
+                  try {
+                    return homeHtml.includes(new URL(f.fromHref).pathname)
+                  } catch {
+                    return homeHtml.includes(f.fromHref)
+                  }
+                })
+                if (applicable.length > 0) {
+                  const mut = rewriteHrefsInHtml(
+                    homeHtml,
+                    applicable.map((f) => ({ fromHref: f.fromHref, toHref: f.toHref })),
+                  )
+                  expect(mut.changed).toBe(true)
+                }
+              }
+            }
           }
 
           if (manifest.expectations.spa) {

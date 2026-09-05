@@ -26,6 +26,7 @@ export type AutoFixKind =
   | 'redirect-canonical'
   | 'remove-dead-link'
   | 'sitemap-regenerate'
+  | 'rewrite-link-href'
 
 export type HumanFixKind =
   | 'thin-content'
@@ -131,6 +132,7 @@ const SERVER_AUTO_KINDS = new Set<AutoFixKind>([
   'redirect-canonical',
   'remove-dead-link',
   'sitemap-regenerate',
+  'rewrite-link-href',
 ])
 
 const SERVER_REQUIRED_HINT =
@@ -200,6 +202,13 @@ export function classifyAuditIssue(
       fixability: 'auto',
       autoKind: 'redirect-canonical',
       reason: 'Mechanical 301 redirect from crawl-derived canonical mismatch evidence.',
+    }
+  } else if (issue.fixMetadata?.kind === 'rewrite-link-href' || /link-href-|link-bulk-redirect|link-bulk-non-canonical|rewrite-link-href/i.test(hay)) {
+    base = {
+      issue,
+      fixability: 'auto',
+      autoKind: 'rewrite-link-href',
+      reason: 'Mechanical <a href> rewrite to Link Graph suggested destination.',
     }
   } else if (issue.fixMetadata?.kind === 'remove-dead-link' || DEAD_LINK_REMOVE_RE.test(hay)) {
     base = {

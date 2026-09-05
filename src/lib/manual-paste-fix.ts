@@ -15,6 +15,7 @@ import {
   mutateMetaTitle,
   mutateMissingH1,
 } from './fix-agent-html-mutations'
+import { rewriteHrefsInHtml } from './fix-agent-href-rewrite'
 
 export interface PasteFixRequest {
   html: string
@@ -23,6 +24,8 @@ export interface PasteFixRequest {
   canonicalUrl?: string
   /** Sitemap XML blocks to merge when fixKind is sitemap_entries. */
   sitemapEntries?: string
+  /** Link Graph: href rewrites to apply on pasted HTML. */
+  hrefFixes?: Array<{ fromHref: string; toHref: string }>
 }
 
 export interface PasteFixResult {
@@ -165,6 +168,32 @@ export function applyPasteAndFix(req: PasteFixRequest): PasteFixResult {
         html: next,
         summary: 'Inserted crawl-derived <url> blocks into your sitemap (no lastmod/priority invented).',
         fixKind,
+      }
+    }
+
+    case 'link_href': {
+      const fixes = req.hrefFixes || []
+      if (fixes.length === 0) {
+        return {
+          ok: false,
+          html,
+          summary: '',
+          fixKind,
+          error: 'No href rewrite targets provided for this finding.',
+        }
+      }
+      const result = rewriteHrefsInHtml(html, fixes)
+      return {
+        ok: result.changed,
+        html: result.html,
+        summary: result.changed
+          ? `${result.summary} ${result.replacements
+              .slice(0, 10)
+              .map((r) => `${r.from} → ${r.to}`)
+              .join('; ')}`
+          : result.summary,
+        fixKind,
+        error: result.changed ? undefined : result.summary,
       }
     }
     default:

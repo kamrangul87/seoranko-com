@@ -62,6 +62,7 @@ export type ContentPasteFixKind =
   | 'missing_h1'
   | 'canonical_tag'
   | 'sitemap_entries'
+  | 'link_href'
 
 export function detectContentFixKind(
   html: string,

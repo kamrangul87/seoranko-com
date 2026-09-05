@@ -40,6 +40,7 @@ import { runPageAudit } from './page-audit-engine'
 import { validateSchema } from './schema-validator'
 import { verifyRedirectLive } from './fix-agent-redirect'
 import { removeDeadLinkFromHtml } from './fix-agent-dead-links'
+import { rewriteHrefsInHtml, verifyHrefRewriteInHtml } from './fix-agent-href-rewrite'
 
 const MAX_ATTEMPTS_PER_ISSUE = 3
 const RATE_LIMIT_PER_HOUR = 20
@@ -50,6 +51,7 @@ const SITE_WIDE_AUTO_KINDS = new Set<AutoFixKind>([
   'redirect-canonical',
   'remove-dead-link',
   'sitemap-regenerate',
+  'rewrite-link-href',
 ])
 
 export interface FixAgentHumanTask {
@@ -212,6 +214,19 @@ function verifyLiveHtml(
     }
     case 'security-headers':
       return { ok: false, detail: 'Security headers require host config; not verifiable via HTML body alone.' }
+
+    case 'rewrite-link-href': {
+      const fixes = auditIssue?.fixMetadata?.hrefFixes || []
+      if (fixes.length === 0) {
+        const fromUrl = auditIssue?.fixMetadata?.fromUrl
+        const toUrl = auditIssue?.fixMetadata?.toUrl
+        if (!fromUrl || !toUrl) return { ok: false, detail: 'No href rewrite metadata to verify.' }
+        return verifyHrefRewriteInHtml(html, fromUrl, toUrl)
+      }
+      // Verify first fix on this HTML (caller fetches the right source page)
+      const first = fixes[0]!
+      return verifyHrefRewriteInHtml(html, first.fromHref, first.toHref)
+    }
     case 'remove-dead-link': {
       const deadUrl = auditIssue?.fixMetadata?.deadUrl
       if (!deadUrl) return { ok: false, detail: 'No dead URL to verify.' }
@@ -512,7 +527,83 @@ function buildStrategies(
       })
       break
     }
-    case 'remove-dead-link': {
+    
+    case 'rewrite-link-href': {
+      const meta = auditIssue.fixMetadata
+      const fixes = [...(meta?.hrefFixes || [])]
+      if (fixes.length === 0 && meta?.fromUrl && meta?.toUrl && meta?.sourceUrls?.[0]) {
+        fixes.push({
+          sourceUrl: meta.sourceUrls[0],
+          fromHref: meta.fromUrl,
+          toHref: meta.toUrl,
+          ruleId: meta.evidence,
+        })
+      }
+      if (fixes.length === 0) break
+      plans.push({
+        name: 'rewrite-link-hrefs',
+        run: async () => {
+          if (!adapter.rewritePageHtml) {
+            return {
+              apply: { success: false, error: 'Adapter cannot rewrite source pages.' },
+              before: '',
+              after: '',
+              summary: 'Link href rewrite unsupported on this connection.',
+            }
+          }
+          const bySource = new Map<string, typeof fixes>()
+          for (const fix of fixes) {
+            const list = bySource.get(fix.sourceUrl) || []
+            list.push(fix)
+            bySource.set(fix.sourceUrl, list)
+          }
+          let lastApply: FixApplyResult = { success: false, error: 'No sources edited' }
+          let totalReplaced = 0
+          const beforeSnaps: string[] = []
+          const afterSnaps: string[] = []
+          const diffLines: string[] = []
+          for (const [sourceUrl, sourceFixes] of Array.from(bySource.entries()).slice(0, 20)) {
+            const sourcePage = await adapter.findPageContent(creds, sourceUrl)
+            if (!sourcePage) continue
+            const mut = rewriteHrefsInHtml(
+              sourcePage.bodyHtml,
+              sourceFixes.map((f) => ({ fromHref: f.fromHref, toHref: f.toHref })),
+            )
+            if (!mut.changed) continue
+            beforeSnaps.push(`<!-- ${sourceUrl} -->\n${sourcePage.bodyHtml}`)
+            lastApply = await adapter.rewritePageHtml(creds, sourcePage, mut.html, {
+              riskLevel: 'review-required',
+              commitMessage: `SEORANKO Fix Agent: rewrite ${mut.replaced} link href(s) on ${sourcePage.id}`,
+            })
+            afterSnaps.push(`<!-- ${sourceUrl} -->\n${mut.html}`)
+            totalReplaced += mut.replaced
+            for (const r of mut.replacements) {
+              diffLines.push(`${sourceUrl}: ${r.from} → ${r.to}`)
+            }
+          }
+          if (totalReplaced === 0) {
+            return {
+              apply: {
+                success: true,
+                skipped: true,
+                detail: 'Matching href not found in editable source files.',
+              },
+              before: beforeSnaps[0] || '',
+              after: afterSnaps[0] || '',
+              summary: 'No editable source file contained the flagged href(s).',
+            }
+          }
+          return {
+            apply: lastApply,
+            before: beforeSnaps.join('\n=====\n'),
+            after: afterSnaps.join('\n=====\n'),
+            summary: `Updated ${totalReplaced} href(s) across ${afterSnaps.length} file(s).\n${diffLines.slice(0, 30).join('\n')}`,
+          }
+        },
+      })
+      break
+    }
+case 'remove-dead-link': {
       const meta = auditIssue.fixMetadata
       const deadUrl = meta?.deadUrl
       const sourceUrls = meta?.sourceUrls || []
@@ -910,6 +1001,34 @@ export async function runFixAgent(opts: {
             })
             const liveHtml = await liveRes.text()
             v = verifyLiveHtml(kind, liveHtml, undefined, item.issue)
+            if (!v.ok && (apply.pending || adapter.deferredVerification)) {
+              v = { ok: true, detail: `${v.detail} Committed — source page may require rebuild/deploy.` }
+            }
+          
+          } else if (kind === 'rewrite-link-href') {
+            const fixes = item.issue.fixMetadata?.hrefFixes || []
+            const sourceUrl =
+              fixes[0]?.sourceUrl ||
+              item.issue.fixMetadata?.sourceUrls?.[0] ||
+              opts.auditUrl
+            const liveRes = await fetch(sourceUrl, {
+              headers: { 'User-Agent': 'SEORANKO-FixAgent/1.0', 'Cache-Control': 'no-cache' },
+              signal: AbortSignal.timeout(20000),
+            })
+            const liveHtml = await liveRes.text()
+            if (fixes.length > 0) {
+              let allOk = true
+              const details: string[] = []
+              for (const fix of fixes.slice(0, 15)) {
+                if (fix.sourceUrl && fix.sourceUrl !== sourceUrl) continue
+                const one = verifyHrefRewriteInHtml(liveHtml, fix.fromHref, fix.toHref)
+                details.push(one.detail)
+                if (!one.ok) allOk = false
+              }
+              v = { ok: allOk, detail: details.join(' ') || 'Href rewrite verification complete.' }
+            } else {
+              v = verifyLiveHtml(kind, liveHtml, undefined, item.issue)
+            }
             if (!v.ok && (apply.pending || adapter.deferredVerification)) {
               v = { ok: true, detail: `${v.detail} Committed — source page may require rebuild/deploy.` }
             }
