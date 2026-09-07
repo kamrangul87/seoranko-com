@@ -330,7 +330,18 @@ export default function AuditPage() {
       jsSuspected?: boolean
       trailingSlashConvention?: boolean
     }
-    topFindings: Array<Record<string, unknown>>
+    topFindings: Array<{
+      ruleId?: string
+      rule_id?: string
+      severity: string
+      sourceUrl?: string | null
+      source_url?: string | null
+      targetUrl?: string | null
+      target_url?: string | null
+      suggestedTarget?: string | null
+      suggested_target?: string | null
+      evidence?: Record<string, unknown>
+    }>
   } | null>(null)
   const [savedMeta, setSavedMeta] = useState<string | null>(null)
 

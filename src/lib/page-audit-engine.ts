@@ -102,6 +102,10 @@ export interface PageAuditResult {
   }
   /** Domain crawl coverage + per-URL indexability (same crawl pass). */
   indexDiagnosis?: IndexDiagnosisResult | null
+  /** Persisted index_diagnosis_runs.id when insert succeeded. */
+  indexDiagnosisRunId?: string | null
+  indexDiagnosisPersistOk?: boolean
+  indexDiagnosisPersistError?: string | null
   /** Denominator for site-wide checks — URLs actually fetched in index diagnosis. */
   auditScope?: {
     urlsDiscovered: number
