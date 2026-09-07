@@ -52,7 +52,6 @@ import {
   newOriginsNotInAllowlist,
 } from '@/lib/csp/build-policy'
 import { findBlockingAttempt } from '@/lib/fix-agent-idempotency'
-import { findOpenDuplicateFixPr } from '@/lib/site-adapters/github-adapter'
 
 const MAX_ATTEMPTS_PER_ISSUE = 3
 const RATE_LIMIT_PER_HOUR = 20
@@ -165,7 +164,10 @@ export function inferFixWritePath(
   strategy?: string | null,
 ): FixWritePath {
   const t = `${errorOrDetail || ''} ${strategy || ''}`
-  if (/Direct push blocked[\s\S]*PR fallback/i.test(t)) return 'direct_then_pr'
+  // Legacy: direct push blocked then PR fallback also failed.
+  if (/Direct push blocked[\s\S]*PR fallback also failed/i.test(t)) return 'direct_then_pr'
+  // Current policy: blocked write with PR fallback disabled — still a direct-push attempt.
+  if (/PR fallback is disabled/i.test(t)) return 'direct_push'
   if (
     /seoranko-fix|review branch|commit to review branch|Pull Request could not be opened|viaPr|pendingKind['"]?\s*:\s*['"]merge/i.test(
       t,
@@ -492,7 +494,7 @@ function buildStrategies(
       plans.push(applyMutation('set-html-lang', (h) => mutateLangAttribute(h, langHint)))
       break
     case 'image-alt':
-      plans.push(applyMutation('filename-alt', (h) => mutateImageAlt(h), { riskLevel: 'review-required' }))
+      plans.push(applyMutation('filename-alt', (h) => mutateImageAlt(h), { riskLevel: 'safe' }))
       break
     case 'html-structure':
       plans.push(applyMutation('strip-wrappers', (h) => mutateHtmlStructure(h)))
@@ -1104,69 +1106,6 @@ export async function runFixAgent(opts: {
         scoreAfter: null,
       })
       continue
-    }
-
-    // GitHub: if an open PR already has this exact Fix Agent title, skip without writing.
-    if (owned.cmsType === 'github' && (kind === 'rewrite-link-href' || kind === 'remove-dead-link')) {
-      const meta = item.issue.fixMetadata
-      const samplePath =
-        meta?.hrefFixes?.[0]?.sourceUrl ||
-        meta?.sourceUrls?.[0] ||
-        opts.auditUrl
-      // Title pattern matches what rewritePageHtml commits — approximate from path id
-      // after findPageContent; here we only catch exact prior commit titles stored in attempts.
-      const priorTitle = priorAttempts.find(
-        (a: { auto_kind?: string; status?: string; diff_summary?: string | null }) =>
-          a.auto_kind === kind &&
-          (a.status === 'pending_merge' || a.status === 'pending_deploy') &&
-          typeof a.diff_summary === 'string' &&
-          /SEORANKO Fix Agent:/i.test(a.diff_summary),
-      )?.diff_summary
-      if (priorTitle && typeof priorTitle === 'string') {
-        const firstLine = priorTitle.split('\n')[0]
-        try {
-          const dupPr = await findOpenDuplicateFixPr(creds, firstLine)
-          if (dupPr) {
-            const id = await logAttempt(opts.supabase, {
-              user_id: opts.userId,
-              site_id: owned.siteId,
-              connection_id: owned.connectionId,
-              target_url: samplePath,
-              issue_id: item.issue.id,
-              issue_key: issueKey,
-              issue_title: item.issue.title,
-              auto_kind: kind,
-              strategy: 'idempotency-open-pr',
-              attempt_number: 1,
-              status: 'skipped',
-              verification_detail: `Open PR #${dupPr.number} already covers this fix: ${dupPr.htmlUrl}`,
-              score_before: scoreBefore,
-              score_after: null,
-            })
-            applied.push({
-              id: id || '',
-              issueId: item.issue.id,
-              issueTitle: item.issue.title,
-              autoKind: kind,
-              strategy: 'idempotency-open-pr',
-              attemptNumber: 1,
-              status: 'skipped',
-              diffSummary: null,
-              verificationDetail: `Open PR #${dupPr.number} already covers this fix.`,
-              errorMessage: null,
-              issueKey,
-              pendingKind: 'merge',
-              pendingUrl: dupPr.htmlUrl,
-              revertible: false,
-              scoreBefore,
-              scoreAfter: null,
-            })
-            continue
-          }
-        } catch {
-          /* ignore — write path still has PR-title dedupe */
-        }
-      }
     }
 
     const strategies = buildStrategies(

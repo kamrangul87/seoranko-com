@@ -73,13 +73,13 @@ describe('isDirectPushBlocked', () => {
   })
 })
 
-describe('GitHub writeStaticFile PR fallback', () => {
+describe('GitHub writeStaticFile direct-push only', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
 
-  it('opens seoranko-fix-* PR when direct push returns 403', async () => {
+  it('fails with an explicit error when direct push returns 403 (no PR fallback)', async () => {
     const calls: Array<{ url: string; method: string; body?: Record<string, unknown> | string }> = []
     vi.stubGlobal(
       'fetch',
@@ -99,9 +99,6 @@ describe('GitHub writeStaticFile PR fallback', () => {
         if (method === 'GET' && /\/git\/trees\//.test(url)) {
           return new Response(JSON.stringify({ tree: [] }), { status: 200 })
         }
-        if (method === 'GET' && url.includes('/pulls')) {
-          return new Response(JSON.stringify([]), { status: 200 })
-        }
         if (method === 'GET' && url.includes('/contents/')) {
           return new Response(JSON.stringify({ message: 'Not Found' }), { status: 404 })
         }
@@ -112,27 +109,11 @@ describe('GitHub writeStaticFile PR fallback', () => {
             { status: 403 },
           )
         }
-        if (method === 'GET' && /\/git\/ref\/heads\//.test(url)) {
-          return new Response(JSON.stringify({ object: { sha: 'abc123base' } }), { status: 200 })
+        if (method === 'POST' && url.endsWith('/pulls')) {
+          throw new Error('must not open a PR when PR fallback is disabled')
         }
         if (method === 'POST' && url.endsWith('/git/refs')) {
-          expect(String(bodyObj?.ref || '')).toMatch(/^refs\/heads\/seoranko-fix-/)
-          return new Response(JSON.stringify({ ref: bodyObj?.ref }), { status: 201 })
-        }
-        if (
-          method === 'PUT' &&
-          url.includes('/contents/') &&
-          String(bodyObj?.branch || '').startsWith('seoranko-fix-')
-        ) {
-          return new Response(JSON.stringify({ content: { path: 'llms.txt' } }), { status: 201 })
-        }
-        if (method === 'POST' && url.endsWith('/pulls')) {
-          expect(String(bodyObj?.head || '')).toMatch(/^seoranko-fix-/)
-          expect(bodyObj?.base).toBe('main')
-          return new Response(
-            JSON.stringify({ html_url: 'https://github.com/acme/site/pull/42' }),
-            { status: 201 },
-          )
+          throw new Error('must not create a review branch when PR fallback is disabled')
         }
         return new Response(JSON.stringify({ message: `unexpected ${method} ${url}` }), {
           status: 500,
@@ -147,20 +128,10 @@ describe('GitHub writeStaticFile PR fallback', () => {
       { commitMessage: 'SEORANKO Fix Agent: add llms.txt' },
     )
 
-    expect(result.success).toBe(true)
-    expect(result.pending).toBe(true)
-    expect(result.pendingKind).toBe('merge')
-    expect(result.url).toBe('https://github.com/acme/site/pull/42')
-    expect(result.detail).toMatch(/Pull Request opened/i)
-    expect(
-      calls.some(
-        (c) =>
-          c.method === 'PUT' &&
-          typeof c.body === 'object' &&
-          c.body?.branch === 'main',
-      ),
-    ).toBe(true)
-    expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/pulls'))).toBe(true)
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/Direct push blocked/i)
+    expect(result.error).toMatch(/PR fallback is disabled/i)
+    expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/pulls'))).toBe(false)
   })
 
   it('marks direct-push success as awaiting deploy', async () => {
@@ -188,87 +159,6 @@ describe('GitHub writeStaticFile PR fallback', () => {
     expect(result.pending).toBe(true)
     expect(result.pendingKind).toBe('deploy')
     expect(result.detail).toMatch(/Committed|Awaiting host rebuild/i)
-  })
-
-  it('reuses an identical open Fix Agent PR instead of opening a duplicate', async () => {
-    const commitMessage = 'SEORANKO Fix Agent: rewrite 2 link href(s) on public/blog/index.html'
-    let putOnMain = 0
-    let prCreates = 0
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input)
-        const method = (init?.method || 'GET').toUpperCase()
-        let body: Record<string, unknown> | undefined
-        if (init?.body && typeof init.body === 'string') {
-          try {
-            body = JSON.parse(init.body) as Record<string, unknown>
-          } catch {
-            body = undefined
-          }
-        }
-
-        if (method === 'GET' && url.includes('/pulls')) {
-          return new Response(
-            JSON.stringify([
-              {
-                number: 8,
-                title: commitMessage,
-                html_url: 'https://github.com/acme/site/pull/8',
-              },
-            ]),
-            { status: 200 },
-          )
-        }
-        if (method === 'GET' && url.includes('/contents/public/blog/index.html')) {
-          return new Response(
-            JSON.stringify({
-              content: Buffer.from('<a href="/old">x</a>', 'utf-8').toString('base64'),
-              sha: 'sha-old',
-              encoding: 'base64',
-            }),
-            { status: 200 },
-          )
-        }
-        if (method === 'PUT' && url.includes('/contents/') && body?.branch === 'main') {
-          putOnMain += 1
-          return new Response(
-            JSON.stringify({ message: 'Resource not accessible by integration' }),
-            { status: 403 },
-          )
-        }
-        if (method === 'POST' && url.endsWith('/pulls')) {
-          prCreates += 1
-          return new Response(JSON.stringify({ html_url: 'https://github.com/acme/site/pull/99' }), {
-            status: 201,
-          })
-        }
-        return new Response(JSON.stringify({ message: `unexpected ${method} ${url}` }), {
-          status: 500,
-        })
-      }),
-    )
-
-    const result = await githubAdapter.rewritePageHtml!(
-      testCreds,
-      {
-        id: 'public/blog/index.html',
-        url: 'https://example.com/blog/',
-        title: 'Blog',
-        bodyHtml: '<a href="/new">x</a>',
-        hasSchema: false,
-      },
-      '<a href="/new">x</a>',
-      { riskLevel: 'safe', commitMessage },
-    )
-
-    expect(putOnMain).toBe(1)
-    expect(prCreates).toBe(0)
-    expect(result.success).toBe(true)
-    expect(result.skipped).toBe(true)
-    expect(result.pendingKind).toBe('merge')
-    expect(result.url).toBe('https://github.com/acme/site/pull/8')
-    expect(result.detail).toMatch(/already exists|skipped duplicate/i)
   })
 
   it('link-href style rewrite with riskLevel safe direct-pushes when Contents write works', async () => {
@@ -325,6 +215,65 @@ describe('GitHub writeStaticFile PR fallback', () => {
         riskLevel: 'safe',
         commitMessage: 'SEORANKO Fix Agent: rewrite 1 link href(s) on public/blog/index.html',
       },
+    )
+
+    expect(result.success).toBe(true)
+    expect(result.pendingKind).toBe('deploy')
+    expect(puts).toHaveLength(1)
+    expect(puts[0]?.branch).toBe('main')
+  })
+
+  it('review-required riskLevel still direct-pushes (no PR path)', async () => {
+    const puts: Array<Record<string, unknown> | undefined> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        const method = (init?.method || 'GET').toUpperCase()
+        let body: Record<string, unknown> | undefined
+        if (init?.body && typeof init.body === 'string') {
+          try {
+            body = JSON.parse(init.body) as Record<string, unknown>
+          } catch {
+            body = undefined
+          }
+        }
+        if (method === 'GET' && url.includes('/contents/')) {
+          return new Response(
+            JSON.stringify({
+              content: Buffer.from('<p>old</p>', 'utf-8').toString('base64'),
+              sha: 'sha1',
+              encoding: 'base64',
+            }),
+            { status: 200 },
+          )
+        }
+        if (method === 'PUT' && url.includes('/contents/')) {
+          puts.push(body)
+          return new Response(JSON.stringify({ content: { path: 'public/about/index.html' } }), {
+            status: 201,
+          })
+        }
+        if (method === 'POST' && url.endsWith('/pulls')) {
+          throw new Error('must not open PR for review-required')
+        }
+        return new Response(JSON.stringify({ message: `unexpected ${method} ${url}` }), {
+          status: 500,
+        })
+      }),
+    )
+
+    const result = await githubAdapter.rewritePageHtml!(
+      testCreds,
+      {
+        id: 'public/about/index.html',
+        url: 'https://example.com/about/',
+        title: 'About',
+        bodyHtml: '<p>old</p>',
+        hasSchema: false,
+      },
+      '<p>new</p>',
+      { riskLevel: 'review-required', commitMessage: 'SEORANKO Fix Agent: update about' },
     )
 
     expect(result.success).toBe(true)

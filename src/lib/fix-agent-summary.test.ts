@@ -56,7 +56,7 @@ describe('buildFixAgentRunSummary', () => {
 })
 
 describe('inferFixWritePath', () => {
-  it('detects direct-then-PR fallback failures', () => {
+  it('detects direct-then-PR fallback failures (legacy messages)', () => {
     expect(
       inferFixWritePath(
         'Direct push blocked (Resource not accessible (HTTP 403)). PR fallback also failed: Could not create review branch (403).',
@@ -64,7 +64,15 @@ describe('inferFixWritePath', () => {
     ).toBe('direct_then_pr')
   })
 
-  it('detects PR-fallback-only errors', () => {
+  it('classifies new no-PR-fallback block as direct_push', () => {
+    expect(
+      inferFixWritePath(
+        'Direct push blocked (Resource not accessible by integration (HTTP 403)). Fix Agent requires Contents write on the default branch (PR fallback is disabled).',
+      ),
+    ).toBe('direct_push')
+  })
+
+  it('detects PR-fallback-only errors (legacy)', () => {
     expect(inferFixWritePath('GitHub commit to review branch failed (422)')).toBe('pr_fallback')
     expect(inferFixWritePath('Change committed to branch "seoranko-fix-abc" but the Pull Request could not be opened: 422')).toBe(
       'pr_fallback',
