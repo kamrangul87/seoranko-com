@@ -17,6 +17,7 @@ import {
   alreadyHasSchemaType, schemaScriptTag
 } from './types'
 import { mergeNextConfigRedirect, mergeVercelJsonRedirect } from '../fix-agent-redirect'
+import { mergeNextConfigHeaders, mergeVercelJsonHeaders } from '../fix-agent-headers'
 
 const GH = 'https://api.github.com'
 
@@ -589,6 +590,64 @@ export const githubAdapter: CMSAdapter = {
       merged.content,
       fileData.sha,
       opts?.commitMessage || `SEORANKO: redirect ${fromUrl} → ${toUrl}`,
+      'safe',
+      String(fileData.sha).slice(0, 8),
+    )
+    const mapped = applyResultFromCommit(result, {
+      branch: creds.branch || 'main',
+      path: configFile.path,
+    })
+    if (mapped.success && mapped.detail) {
+      mapped.detail = `${merged.summary} ${mapped.detail}`
+    }
+    return mapped
+  },
+
+  async mergeSecurityHeaders(creds, headers, opts): Promise<FixApplyResult> {
+    const invalid = validCreds(creds)
+    if (invalid) return { success: false, error: invalid }
+    if (!headers?.length) return { success: false, error: 'No security headers to merge' }
+
+    const tree = await getRepoTree(creds)
+    const vercelFile = tree.find((f) => f.path === 'vercel.json')
+    const nextConfigFile = tree.find((f) =>
+      /^next\.config\.(js|mjs|ts)$/i.test(f.path.split('/').pop() || ''),
+    )
+    const configFile = vercelFile || nextConfigFile
+
+    if (!configFile) {
+      const created = mergeNextConfigHeaders('', headers)
+      const path = 'next.config.js'
+      const result = await commitFileChange(
+        creds,
+        path,
+        created.content,
+        '',
+        opts?.commitMessage || 'SEORANKO Fix Agent: add security headers',
+        'safe',
+        `sec-headers-${Date.now().toString(36).slice(-6)}`,
+      )
+      return applyResultFromCommit(result, { branch: creds.branch || 'main', path })
+    }
+
+    const fileData = await getFileContent(creds, configFile.path)
+    if (!fileData) return { success: false, error: `Could not read ${configFile.path}` }
+
+    const merged =
+      configFile.path === 'vercel.json'
+        ? mergeVercelJsonHeaders(fileData.content, headers)
+        : mergeNextConfigHeaders(fileData.content, headers)
+
+    if (!merged.changed) {
+      return { success: true, skipped: true, detail: merged.summary }
+    }
+
+    const result = await commitFileChange(
+      creds,
+      configFile.path,
+      merged.content,
+      fileData.sha,
+      opts?.commitMessage || 'SEORANKO Fix Agent: security headers',
       'safe',
       String(fileData.sha).slice(0, 8),
     )

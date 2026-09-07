@@ -210,6 +210,7 @@ export function buildBreadcrumbSchema(pageUrl: string): Record<string, unknown> 
   } catch {
     return null
   }
+  if (isRootPagePath(u.pathname)) return null
   const segs = u.pathname.split('/').filter(Boolean)
   if (segs.length === 0) return null
   const items = [
@@ -225,6 +226,20 @@ export function buildBreadcrumbSchema(pageUrl: string): Record<string, unknown> 
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
     itemListElement: items,
+  }
+}
+
+/** Homepage / index paths — Google does not usefully show breadcrumb rich results here. */
+export function isRootPagePath(pathname: string): boolean {
+  const p = (pathname || '/').replace(/\/+$/, '') || '/'
+  return p === '/' || /^\/index(?:\.(?:html?|php|aspx?))?$/i.test(p)
+}
+
+export function isRootPageUrl(pageUrl: string): boolean {
+  try {
+    return isRootPagePath(new URL(pageUrl).pathname)
+  } catch {
+    return false
   }
 }
 

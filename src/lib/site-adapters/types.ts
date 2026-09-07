@@ -97,6 +97,16 @@ export interface CMSAdapter {
     toUrl: string,
     opts?: { commitMessage?: string },
   ): Promise<FixApplyResult>
+
+  /**
+   * Optional: merge HTTP security headers into vercel.json or next.config headers().
+   * Used for X-Frame-Options / X-Content-Type-Options / CSP-Report-Only.
+   */
+  mergeSecurityHeaders?(
+    creds: SiteCredentials,
+    headers: Array<{ key: string; value: string }>,
+    opts?: { commitMessage?: string },
+  ): Promise<FixApplyResult>
 }
 
 /** Shared idempotency check — don't append a second block of the same @type. */

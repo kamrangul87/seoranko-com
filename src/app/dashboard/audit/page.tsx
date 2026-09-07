@@ -104,6 +104,10 @@ interface FixAttempt {
   verification_detail?: string | null
   errorMessage?: string | null
   error_message?: string | null
+  targetUrl?: string | null
+  target_url?: string | null
+  issueKey?: string | null
+  issue_key?: string | null
   pendingKind?: 'deploy' | 'merge' | null
   pendingUrl?: string | null
   revertible: boolean
@@ -293,6 +297,15 @@ export default function AuditPage() {
   const [failedAttemptsOpen, setFailedAttemptsOpen] = useState(true)
   const [scoreAfterFix, setScoreAfterFix] = useState<number | null>(null)
   const [cwvLoading, setCwvLoading] = useState(false)
+  const [persistenceWarning, setPersistenceWarning] = useState<string | null>(null)
+  const [cspProposal, setCspProposal] = useState<{
+    policyHeader: string
+    origins: string[]
+    newOrigins: string[]
+    status: string
+    message: string
+  } | null>(null)
+  const [cspBusy, setCspBusy] = useState(false)
 
   const failedAttempts = collectFailedAttempts(attempts)
 
@@ -440,6 +453,15 @@ export default function AuditPage() {
       setFixMessage(data.message || 'Done')
       setHumanTasks(data.humanTasks || [])
       if (typeof data.scoreAfter === 'number') setScoreAfterFix(data.scoreAfter)
+      if (data.persistenceOk === false) {
+        setPersistenceWarning(
+          data.persistenceError ||
+            'Attempts were not saved to the database. Apply the fix_agent_attempts migration on hosted Supabase.',
+        )
+      } else {
+        setPersistenceWarning(null)
+      }
+      if (data.cspProposal) setCspProposal(data.cspProposal)
       if (Array.isArray(data.applied)) {
         setAttempts((prev) => [...data.applied, ...prev])
         const failedNow = collectFailedAttempts(data.applied as FixAttempt[])
@@ -638,6 +660,60 @@ export default function AuditPage() {
                     </Link>
                   </div>
                 )}
+                {persistenceWarning && (
+                  <div className="border border-amber-300 bg-amber-50 text-amber-950 rounded-lg px-3 py-2 text-sm mt-3">
+                    Persistence warning: {persistenceWarning}
+                  </div>
+                )}
+
+                {cspProposal && cspProposal.status === 'pending_approval' && connection?.siteId && (
+                  <div className="border border-sky-200 bg-sky-50 text-sky-950 rounded-lg px-3 py-3 text-sm mt-3 space-y-2">
+                    <div className="font-medium">CSP report-only — approval required</div>
+                    <p>{cspProposal.message}</p>
+                    <pre className="text-xs whitespace-pre-wrap break-all bg-white border border-sky-100 rounded p-2 max-h-40 overflow-auto">
+                      {cspProposal.policyHeader}
+                    </pre>
+                    <p className="text-xs text-sky-900/80">
+                      Origins: {cspProposal.origins.join(', ') || '—'}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={cspBusy}
+                      className="px-3 py-1.5 rounded-lg bg-[#0F0F0F] text-white text-sm disabled:opacity-50"
+                      onClick={() => {
+                        void (async () => {
+                          if (!connection.siteId) return
+                          setCspBusy(true)
+                          try {
+                            const res = await fetch('/api/copilot/csp', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                siteId: connection.siteId,
+                                action: 'approve_report_only',
+                              }),
+                            })
+                            const data = await res.json()
+                            if (!res.ok) throw new Error(data.error || 'CSP approve failed')
+                            setCspProposal({
+                              ...cspProposal,
+                              status: 'report_only',
+                              message: data.message || 'Report-only CSP shipped.',
+                            })
+                            setFixMessage(data.message || 'Report-only CSP shipped.')
+                          } catch (err) {
+                            setError(err instanceof Error ? err.message : 'CSP approve failed')
+                          } finally {
+                            setCspBusy(false)
+                          }
+                        })()
+                      }}
+                    >
+                      {cspBusy ? 'Shipping…' : 'Approve & ship report-only CSP'}
+                    </button>
+                  </div>
+                )}
+
                 {fixMessage && (
                   <div
                     id="fix-agent-summary"
@@ -697,9 +773,15 @@ export default function AuditPage() {
                               {kind || 'auto-fix'} · {formatAttemptStatus(a.status)}
                             </div>
                             <div className="font-medium text-[#0F0F0F] mt-0.5">{title}</div>
+                            {(a.targetUrl || a.target_url) && (
+                              <div className="text-xs text-[#6B6B6B] mt-1 break-all">
+                                URL: {a.targetUrl || a.target_url}
+                              </div>
+                            )}
                             <div className="text-xs text-[#6B6B6B] mt-1">
                               Write path: <span className="text-[#0F0F0F]">{writePath}</span>
                               {strategy ? ` · strategy: ${strategy}` : ''}
+                              {(a.issueKey || a.issue_key) ? ` · key: ${a.issueKey || a.issue_key}` : ''}
                             </div>
                             {err && (
                               <div className="text-sm text-red-800 mt-2 whitespace-pre-wrap break-words">

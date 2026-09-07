@@ -47,6 +47,8 @@ export type SiteConnectionType =
 export interface ClassifyOptions {
   /** Active site connection platform. Omit / unknown → conservative (no header auto-fix). */
   connectionType?: SiteConnectionType | null
+  /** Audited page URL — used to skip root-path breadcrumb false positives. */
+  pageUrl?: string | null
 }
 
 export interface ClassifiedIssue {
@@ -261,7 +263,31 @@ export function classifyAuditIssue(
   } else if (SCHEMA_PRODUCT_RE.test(hay) || /ecom-product|ecom-offer/i.test(issue.id)) {
     base = { issue, fixability: 'auto', autoKind: 'schema-product', reason: 'Product JSON-LD from existing page fields.' }
   } else if (SCHEMA_BREADCRUMB_RE.test(hay)) {
-    base = { issue, fixability: 'auto', autoKind: 'schema-breadcrumb', reason: 'BreadcrumbList from URL/nav structure.' }
+    const pathIsRoot = (() => {
+      const raw = options?.pageUrl || ''
+      if (!raw) return false
+      try {
+        const p = new URL(raw).pathname.replace(/\/+$/, '') || '/'
+        return p === '/' || /^\/index(?:\.(?:html?|php|aspx?))?$/i.test(p)
+      } catch {
+        return false
+      }
+    })()
+    if (pathIsRoot) {
+      base = {
+        issue,
+        fixability: 'skip',
+        reason:
+          'Homepage breadcrumb gaps are not actionable — Google does not show breadcrumb rich results for `/`.',
+      }
+    } else {
+      base = {
+        issue,
+        fixability: 'auto',
+        autoKind: 'schema-breadcrumb',
+        reason: 'BreadcrumbList from URL/nav structure.',
+      }
+    }
   } else if (SCHEMA_ARTICLE_RE.test(hay)) {
     base = { issue, fixability: 'auto', autoKind: 'schema-article', reason: 'Article JSON-LD from existing title.' }
   } else if (SCHEMA_ORG_RE.test(hay) || (issue.category === 'schema' && /organization/i.test(hay))) {
@@ -301,7 +327,18 @@ export function classifyAuditIssues(
   issues: PageAuditIssue[],
   options?: ClassifyOptions,
 ): ClassifiedIssue[] {
-  return issues.map((issue) => classifyAuditIssue(issue, options))
+  const classified = issues.map((issue) => classifyAuditIssue(issue, options))
+  // One Fix Agent attempt per structural kind — schema+AI breadcrumb duplicates and
+  // the three security-header messages must not run the same strategy N times.
+  const seenAuto = new Set<string>()
+  return classified.filter((c) => {
+    if (c.fixability !== 'auto' || !c.autoKind) return true
+    if (c.autoKind === 'schema-breadcrumb' || c.autoKind === 'security-headers') {
+      if (seenAuto.has(c.autoKind)) return false
+      seenAuto.add(c.autoKind)
+    }
+    return true
+  })
 }
 
 /** Annotate audit issues with connection-aware fix-path copy for the report UI. */

@@ -752,11 +752,22 @@ export function scorePage(
   }
 
   // ── SCHEMA ───────────────────────────────────────────────────────────────
+  const isRootPath = (() => {
+    try {
+      const p = new URL(page.url).pathname.replace(/\/+$/, '') || '/'
+      return p === '/' || /^\/index(?:\.(?:html?|php|aspx?))?$/i.test(p)
+    } catch {
+      return false
+    }
+  })()
+
   if (!page.hasSchema) {
     sCrit('schema', 'No structured data — missing rich result eligibility');
     opportunities.push('Add Article and FAQ JSON-LD schema to unlock rich snippets');
   } else {
-    if (!page.hasBreadcrumbSchema) {
+    // Homepage: Google does not render breadcrumb rich results for `/` — missing
+    // BreadcrumbList there is not a real SERP gap (Fix Agent correctly has no strategy).
+    if (!page.hasBreadcrumbSchema && !isRootPath) {
       sNote('schema', 'No BreadcrumbList schema — missing breadcrumb in SERPs');
       opportunities.push('Add BreadcrumbList schema to show site navigation in Google results');
     }
@@ -957,8 +968,8 @@ export function scorePage(
     opportunities.push('Add SpeakableSpecification schema to key answer paragraphs');
   }
 
-  // 14. Breadcrumb schema for AI context
-  if (!page.hasBreadcrumbSchema) {
+  // 14. Breadcrumb schema for AI context (skip root — same false-positive as SERP note)
+  if (!page.hasBreadcrumbSchema && !isRootPath) {
     aNote('Missing breadcrumb schema — reduces site structure clarity for AI crawlers', 2);
   }
 

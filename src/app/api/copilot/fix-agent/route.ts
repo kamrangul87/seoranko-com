@@ -95,7 +95,7 @@ export async function GET(req: NextRequest) {
     let query = supabase
       .from('fix_agent_attempts')
       .select(
-        'id, site_id, issue_id, issue_title, auto_kind, strategy, attempt_number, status, diff_summary, verification_detail, error_message, revertible, score_before, score_after, created_at, human_task, reverted_at, target_url',
+        'id, site_id, issue_id, issue_key, issue_title, auto_kind, strategy, attempt_number, status, diff_summary, verification_detail, error_message, revertible, score_before, score_after, created_at, human_task, reverted_at, target_url',
       )
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })

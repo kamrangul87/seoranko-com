@@ -42,6 +42,15 @@ import { verifyRedirectLive } from './fix-agent-redirect'
 import { removeDeadLinkFromHtml } from './fix-agent-dead-links'
 import { rewriteHrefsInHtml, verifyHrefRewriteInHtml } from './fix-agent-href-rewrite'
 import { normalizeUrl } from '@/lib/supabase/audit-db'
+import { deriveIssueKey } from '@/lib/seo-workshop/issue-key'
+import {
+  IMMEDIATE_SECURITY_HEADERS,
+} from '@/lib/fix-agent-headers'
+import {
+  buildReportOnlyCsp,
+  harvestOriginsFromHtml,
+  newOriginsNotInAllowlist,
+} from '@/lib/csp/build-policy'
 
 const MAX_ATTEMPTS_PER_ISSUE = 3
 const RATE_LIMIT_PER_HOUR = 20
@@ -74,6 +83,8 @@ export interface FixAgentAttemptView {
   diffSummary: string | null
   verificationDetail: string | null
   errorMessage: string | null
+  targetUrl?: string | null
+  issueKey?: string | null
   /** deploy = awaiting host rebuild; merge = awaiting PR merge */
   pendingKind?: 'deploy' | 'merge' | null
   /** PR URL when pendingKind is merge */
@@ -81,6 +92,14 @@ export interface FixAgentAttemptView {
   revertible: boolean
   scoreBefore: number | null
   scoreAfter: number | null
+}
+
+export interface FixAgentCspProposal {
+  policyHeader: string
+  origins: string[]
+  newOrigins: string[]
+  status: 'pending_approval' | 'report_only' | 'unchanged'
+  message: string
 }
 
 export interface FixAgentRunResult {
@@ -108,6 +127,10 @@ export interface FixAgentRunResult {
   pendingMergeCount?: number
   /** Auto attempts that failed with an error (not human-classified issues). */
   failedCount?: number
+  /** False when fix_agent_attempts inserts failed (hosted migration missing). */
+  persistenceOk?: boolean
+  persistenceError?: string | null
+  cspProposal?: FixAgentCspProposal | null
 }
 
 /** Build the user-facing Fix Agent summary — never conflate awaiting-deploy with human tasks. */
@@ -204,7 +227,7 @@ async function countRecentAttempts(supabase: any, userId: string, siteId: string
 async function insertAttempt(
   supabase: any,
   row: Record<string, unknown>,
-): Promise<string | null> {
+): Promise<{ id: string | null; error: string | null }> {
   if (typeof row.target_url === 'string' && row.target_url) {
     try {
       row = { ...row, target_url: normalizeUrl(row.target_url) }
@@ -212,12 +235,36 @@ async function insertAttempt(
       /* keep original */
     }
   }
+  if (!row.issue_key && typeof row.issue_title === 'string') {
+    try {
+      row = {
+        ...row,
+        issue_key: deriveIssueKey({
+          category: typeof row.auto_kind === 'string' ? row.auto_kind : 'auto',
+          message: row.issue_title,
+        }),
+      }
+    } catch {
+      /* optional */
+    }
+  }
   const { data, error } = await supabase.from('fix_agent_attempts').insert(row).select('id').maybeSingle()
   if (error) {
     console.error('[fix-agent] log insert failed', error.message)
-    return null
+    return { id: null, error: error.message }
   }
-  return data?.id || null
+  return { id: data?.id || null, error: null }
+}
+
+let activePersistenceErrors: string[] | null = null
+
+async function logAttempt(
+  supabase: any,
+  row: Record<string, unknown>,
+): Promise<string | null> {
+  const result = await insertAttempt(supabase, row)
+  if (result.error && activePersistenceErrors) activePersistenceErrors.push(result.error)
+  return result.id
 }
 
 function issueStillPresent(issues: PageAuditIssue[], classified: ClassifiedIssue): boolean {
@@ -292,7 +339,8 @@ function verifyLiveHtml(
       return { ok: !bad, detail: bad ? 'Stray wrappers still present.' : 'Structure check passed or full document.' }
     }
     case 'security-headers':
-      return { ok: false, detail: 'Security headers require host config; not verifiable via HTML body alone.' }
+      // Headers are host-config; live verify is deferred until after deploy.
+      return { ok: true, detail: 'Security headers written to host config — verify after deploy.' }
 
     case 'rewrite-link-href': {
       const fixes = auditIssue?.fixMetadata?.hrefFixes || []
@@ -561,17 +609,63 @@ function buildStrategies(
       break
     case 'security-headers':
       plans.push({
-        name: 'headers-unsupported',
-        run: async () => ({
-          apply: {
-            success: false,
-            error:
-              'Security headers require hosting config (e.g. vercel.json / CDN). Fix Agent cannot safely invent a CSP; handing off to human.',
-          },
-          before: '',
-          after: '',
-          summary: 'Security headers not auto-applied.',
-        }),
+        name: 'ship-frame-nosniff-propose-csp',
+        run: async () => {
+          if (!adapter.mergeSecurityHeaders) {
+            return {
+              apply: {
+                success: false,
+                error: `${adapter.platform} cannot write host headers — connect GitHub (vercel.json / next.config) or set headers in your CDN.`,
+              },
+              before: '',
+              after: '',
+              summary: 'Security headers require a GitHub-connected host config.',
+            }
+          }
+
+          // 1) Immediate deterministic headers — no discovery needed.
+          const immediate = await adapter.mergeSecurityHeaders(creds, IMMEDIATE_SECURITY_HEADERS, {
+            commitMessage: 'SEORANKO Fix Agent: X-Frame-Options + X-Content-Type-Options',
+          })
+
+          // 2) Harvest static origins + build report-only CSP candidate (do not enforce / do not ship yet).
+          let htmlForCsp = page.bodyHtml || ''
+          const fetchUrl = page.url || owned.siteUrl
+          try {
+            const live = await fetch(fetchUrl, {
+              headers: { 'User-Agent': 'SEORANKO-FixAgent/1.0' },
+              signal: AbortSignal.timeout(15000),
+            })
+            if (live.ok) htmlForCsp = await live.text()
+          } catch {
+            /* use page body */
+          }
+
+          let pageOrigin = owned.siteUrl
+          try {
+            pageOrigin = new URL(fetchUrl).origin
+          } catch {
+            /* keep */
+          }
+          const harvested = harvestOriginsFromHtml(htmlForCsp, fetchUrl)
+          const built = buildReportOnlyCsp(pageOrigin, harvested)
+          const payload = {
+            immediateHeaders: IMMEDIATE_SECURITY_HEADERS,
+            cspReportOnlyCandidate: built.headerValue,
+            origins: built.origins,
+            harvested,
+          }
+
+          return {
+            apply: immediate,
+            before: '',
+            after: JSON.stringify(payload, null, 2),
+            summary: immediate.success
+              ? `Shipped X-Frame-Options + nosniff. CSP report-only candidate ready for approval (${built.origins.length} origins observed in static HTML).`
+              : immediate.error || 'Security header write failed.',
+            needsHumanReview: true,
+          }
+        },
       })
       break
     case 'redirect-canonical': {
@@ -821,6 +915,8 @@ export async function runFixAgent(opts: {
   scoreBefore?: number
   langHint?: string
 }): Promise<FixAgentRunResult> {
+  activePersistenceErrors = []
+  let cspProposal: FixAgentCspProposal | null = null
   const owned = await findOwnedSiteConnection(opts.supabase, opts.userId, opts.auditUrl)
   if (!owned) {
     return {
@@ -861,14 +957,17 @@ export async function runFixAgent(opts: {
     }
   }
 
-  const classified = classifyAuditIssues(opts.issues, { connectionType: owned.cmsType })
+  const classified = classifyAuditIssues(opts.issues, {
+    connectionType: owned.cmsType,
+    pageUrl: opts.auditUrl,
+  })
   const autoIssues = classified.filter((c) => c.fixability === 'auto' && c.autoKind)
   const humanIssues = classified.filter((c) => c.fixability === 'human')
   const skipCount = classified.filter((c) => c.fixability === 'skip').length
 
   const humanTasks = humanIssues.map(humanTaskFrom)
   for (const task of humanTasks) {
-    await insertAttempt(opts.supabase, {
+    await logAttempt(opts.supabase, {
       user_id: opts.userId,
       site_id: owned.siteId,
       connection_id: owned.connectionId,
@@ -965,7 +1064,7 @@ export async function runFixAgent(opts: {
     )
 
     if (strategies.length === 0) {
-      const id = await insertAttempt(opts.supabase, {
+      const id = await logAttempt(opts.supabase, {
         user_id: opts.userId,
         site_id: owned.siteId,
         connection_id: owned.connectionId,
@@ -1177,12 +1276,101 @@ export async function runFixAgent(opts: {
       }
 
       const revertible = !!(apply.success && !apply.skipped && outcome.before !== undefined)
-      const id = await insertAttempt(opts.supabase, {
+
+      if (
+        kind === 'security-headers' &&
+        apply.success &&
+        outcome.after &&
+        outcome.after.trim().startsWith('{')
+      ) {
+        try {
+          const payload = JSON.parse(outcome.after) as {
+            cspReportOnlyCandidate?: string
+            origins?: string[]
+          }
+          if (payload.cspReportOnlyCandidate && Array.isArray(payload.origins)) {
+            const { data: existing } = await opts.supabase
+              .from('site_csp_policies')
+              .select('status, origins, policy_header')
+              .eq('site_id', owned.siteId)
+              .maybeSingle()
+
+            const approvedOrigins: string[] = Array.isArray(existing?.origins)
+              ? (existing.origins as string[])
+              : []
+            const novel = newOriginsNotInAllowlist(payload.origins, approvedOrigins)
+
+            if (existing?.status === 'report_only' || existing?.status === 'enforced') {
+              if (novel.length === 0) {
+                cspProposal = {
+                  policyHeader: existing.policy_header || payload.cspReportOnlyCandidate,
+                  origins: approvedOrigins,
+                  newOrigins: [],
+                  status: 'unchanged',
+                  message: 'Approved CSP allowlist still covers observed origins — no re-approval needed.',
+                }
+              } else {
+                cspProposal = {
+                  policyHeader: payload.cspReportOnlyCandidate,
+                  origins: payload.origins,
+                  newOrigins: novel,
+                  status: 'pending_approval',
+                  message: `New external origin(s) observed: ${novel.join(', ')}. Approve an updated report-only CSP.`,
+                }
+                await opts.supabase.from('site_csp_policies').upsert(
+                  {
+                    user_id: opts.userId,
+                    site_id: owned.siteId,
+                    status: 'pending_approval',
+                    policy_header: payload.cspReportOnlyCandidate,
+                    origins: payload.origins,
+                    observed_origins: payload.origins,
+                    last_harvest_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                  },
+                  { onConflict: 'site_id' },
+                )
+              }
+            } else {
+              cspProposal = {
+                policyHeader: payload.cspReportOnlyCandidate,
+                origins: payload.origins,
+                newOrigins: payload.origins,
+                status: 'pending_approval',
+                message:
+                  'Approve this report-only CSP once. It will not enforce until after a clean observation window.',
+              }
+              await opts.supabase.from('site_csp_policies').upsert(
+                {
+                  user_id: opts.userId,
+                  site_id: owned.siteId,
+                  status: 'pending_approval',
+                  policy_header: payload.cspReportOnlyCandidate,
+                  origins: payload.origins,
+                  observed_origins: payload.origins,
+                  last_harvest_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                },
+                { onConflict: 'site_id' },
+              )
+            }
+          }
+        } catch (err) {
+          console.error('[fix-agent] csp proposal', err instanceof Error ? err.message : err)
+        }
+      }
+
+      const issueKey = deriveIssueKey({
+        category: item.issue.category || kind,
+        message: item.issue.title || item.issue.description || kind,
+      })
+      const id = await logAttempt(opts.supabase, {
         user_id: opts.userId,
         site_id: owned.siteId,
         connection_id: owned.connectionId,
         target_url: opts.auditUrl,
         issue_id: item.issue.id,
+        issue_key: issueKey,
         issue_title: item.issue.title,
         auto_kind: kind,
         strategy: strategy.name,
@@ -1199,14 +1387,23 @@ export async function runFixAgent(opts: {
         score_before: scoreBefore,
         score_after: scoreAfter,
         revertible,
-        human_task: outcome.needsHumanReview
-          ? {
-              kind: 'alt-review',
-              title: 'Review auto-filled image alt text',
-              reason: 'Alt derived from filename; confirm accuracy.',
-              suggestedAction: 'Edit alt text on images flagged data-seoranko-alt-review.',
-            }
-          : null,
+        human_task:
+          kind === 'security-headers' && cspProposal?.status === 'pending_approval'
+            ? {
+                kind: 'csp-approval',
+                title: 'Approve report-only Content-Security-Policy',
+                reason: cspProposal.message,
+                suggestedAction:
+                  'Review the generated CSP on Audit, then approve report-only. Enforce only after a clean observation window.',
+              }
+            : outcome.needsHumanReview
+              ? {
+                  kind: 'alt-review',
+                  title: 'Review auto-filled image alt text',
+                  reason: 'Alt derived from filename; confirm accuracy.',
+                  suggestedAction: 'Edit alt text on images flagged data-seoranko-alt-review.',
+                }
+              : null,
       })
 
       // Also mirror into legacy site_autofix_log for washout continuity
@@ -1226,6 +1423,7 @@ export async function runFixAgent(opts: {
             pending: !!apply.pending,
             pendingKind: apply.pendingKind || null,
             pendingUrl: apply.url || null,
+            issueKey,
           },
         })
       }
@@ -1244,6 +1442,8 @@ export async function runFixAgent(opts: {
           status === 'failed' || status === 'handed_off'
             ? apply.error || verificationDetail || 'Failed'
             : null,
+        targetUrl: opts.auditUrl,
+        issueKey,
         pendingKind:
           status === 'pending_merge'
             ? 'merge'
@@ -1266,7 +1466,7 @@ export async function runFixAgent(opts: {
           .map((a) => a.errorMessage)
           .filter(Boolean)
           .slice(-1)[0] || 'Max retries reached'
-      await insertAttempt(opts.supabase, {
+      await logAttempt(opts.supabase, {
         user_id: opts.userId,
         site_id: owned.siteId,
         connection_id: owned.connectionId,
@@ -1342,6 +1542,14 @@ export async function runFixAgent(opts: {
   }
   const failedCount = failedIssueIds.size
 
+  const persistenceErrors = activePersistenceErrors || []
+  activePersistenceErrors = null
+  const persistenceOk = persistenceErrors.length === 0
+  const persistenceError = persistenceOk
+    ? null
+    : persistenceErrors[0] ||
+      'fix_agent_attempts insert failed — apply migration 20260907160000_fix_agent_attempts_ensure_csp.sql on hosted Supabase.'
+
   return {
     ok: true,
     connected: true,
@@ -1351,13 +1559,14 @@ export async function runFixAgent(opts: {
     fixableScope: describeFixableScope(owned.cmsType),
     scoreBefore,
     scoreAfter,
-    message: buildFixAgentRunSummary({
-      liveCount,
-      pendingDeployCount,
-      pendingMergeCount,
-      failedCount,
-      humanTaskCount: humanTasks.length,
-    }),
+    message:
+      buildFixAgentRunSummary({
+        liveCount,
+        pendingDeployCount,
+        pendingMergeCount,
+        failedCount,
+        humanTaskCount: humanTasks.length,
+      }) + (persistenceOk ? '' : ' WARNING: attempts were not persisted to the database.'),
     classified: { auto: autoIssues.length, human: humanIssues.length, skip: skipCount },
     applied,
     humanTasks,
@@ -1365,6 +1574,9 @@ export async function runFixAgent(opts: {
     pendingDeployCount,
     pendingMergeCount,
     failedCount,
+    persistenceOk,
+    persistenceError,
+    cspProposal,
   }
 }
 
@@ -1415,7 +1627,7 @@ export async function revertFixAttempt(opts: {
     })
     .eq('id', attempt.id)
 
-  await insertAttempt(opts.supabase, {
+  await logAttempt(opts.supabase, {
     user_id: opts.userId,
     site_id: owned.siteId,
     connection_id: owned.connectionId,
