@@ -35,7 +35,13 @@ async function requireUser() {
   return user
 }
 
-/** GET ?siteId= — start OAuth; or status for a site */
+/**
+ * GET — start OAuth or return status.
+ * - No siteId + action=connect → account-level onboarding OAuth
+ * - siteId + action=connect → reconnect / attach for one existing site
+ * - No siteId + action=status → gsc_accounts status
+ * - siteId + action=status (default) → per-site gsc_connections status
+ */
 export async function GET(req: NextRequest) {
   try {
     const user = await requireUser()
@@ -43,22 +49,7 @@ export async function GET(req: NextRequest) {
 
     const siteId = req.nextUrl.searchParams.get('siteId') || ''
     const action = req.nextUrl.searchParams.get('action') || 'status'
-
-    if (!siteId) {
-      return NextResponse.json({ error: 'siteId is required' }, { status: 400 })
-    }
-
     const supabase = serviceClient()
-    const { data: site } = await supabase
-      .from('connected_sites')
-      .select('id, domain, brand, user_id')
-      .eq('id', siteId)
-      .eq('user_id', user.id)
-      .maybeSingle()
-
-    if (!site) {
-      return NextResponse.json({ error: 'Site not found' }, { status: 404 })
-    }
 
     if (action === 'connect') {
       try {
@@ -69,14 +60,59 @@ export async function GET(req: NextRequest) {
           { status: 503 },
         )
       }
+
+      if (siteId) {
+        const { data: site } = await supabase
+          .from('connected_sites')
+          .select('id')
+          .eq('id', siteId)
+          .eq('user_id', user.id)
+          .maybeSingle()
+        if (!site) {
+          return NextResponse.json({ error: 'Site not found' }, { status: 404 })
+        }
+        const state = signGscOAuthState({
+          userId: user.id,
+          mode: 'site',
+          siteId,
+          nonce: randomBytes(8).toString('hex'),
+          exp: Date.now() + 15 * 60 * 1000,
+        })
+        return NextResponse.json({ ok: true, authorizeUrl: buildGscAuthorizeUrl(state), mode: 'site' })
+      }
+
       const state = signGscOAuthState({
         userId: user.id,
-        siteId,
+        mode: 'account',
         nonce: randomBytes(8).toString('hex'),
         exp: Date.now() + 15 * 60 * 1000,
       })
-      const url = buildGscAuthorizeUrl(state)
-      return NextResponse.json({ ok: true, authorizeUrl: url })
+      return NextResponse.json({
+        ok: true,
+        authorizeUrl: buildGscAuthorizeUrl(state),
+        mode: 'account',
+      })
+    }
+
+    // Status
+    if (!siteId) {
+      const { data: account } = await supabase
+        .from('gsc_accounts')
+        .select('id, status, connected_at, last_error')
+        .eq('user_id', user.id)
+        .maybeSingle()
+      return NextResponse.json({ ok: true, account: account || null })
+    }
+
+    const { data: site } = await supabase
+      .from('connected_sites')
+      .select('id, domain, brand, user_id')
+      .eq('id', siteId)
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    if (!site) {
+      return NextResponse.json({ error: 'Site not found' }, { status: 404 })
     }
 
     const { data: conn } = await supabase
@@ -97,7 +133,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/** POST — save selected property_url and kick off backfill */
+/** POST — save selected property_url on an existing site and kick off backfill */
 export async function POST(req: NextRequest) {
   try {
     const user = await requireUser()

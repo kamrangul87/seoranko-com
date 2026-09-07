@@ -4,7 +4,6 @@ import { Suspense, useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { DashboardNav } from '@/components/DashboardNav'
 import { createClient } from '@/lib/supabase/client'
-import type { User } from '@supabase/supabase-js'
 
 interface Site {
   id: string
@@ -18,6 +17,13 @@ interface GscConnection {
   status: string
   connected_at: string
   last_sync_at: string | null
+  last_error: string | null
+}
+
+interface GscAccount {
+  id: string
+  status: string
+  connected_at: string
   last_error: string | null
 }
 
@@ -63,6 +69,10 @@ interface MetricsSummary {
 interface GscProperty {
   siteUrl: string
   permissionLevel: string
+  domain?: string | null
+  alreadyTracked?: boolean
+  siteExists?: boolean
+  trackedSiteId?: string | null
 }
 
 export default function ExperimentsPage() {
@@ -87,15 +97,38 @@ function ExperimentsPageInner() {
   const searchParams = useSearchParams()
   const [sites, setSites] = useState<Site[]>([])
   const [siteId, setSiteId] = useState('')
+  const [account, setAccount] = useState<GscAccount | null>(null)
   const [connection, setConnection] = useState<GscConnection | null>(null)
   const [readiness, setReadiness] = useState<Readiness | null>(null)
   const [metricsSummary, setMetricsSummary] = useState<MetricsSummary | null>(null)
   const [properties, setProperties] = useState<GscProperty[]>([])
+  const [selectedProperties, setSelectedProperties] = useState<Set<string>>(new Set())
+  const [pickingProperties, setPickingProperties] = useState(false)
   const [pickingProperty, setPickingProperty] = useState(false)
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+
+  const reloadSites = useCallback(async () => {
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return [] as Site[]
+    const { data } = await supabase
+      .from('connected_sites')
+      .select('id, domain, brand')
+      .eq('user_id', user.id)
+      .order('is_primary', { ascending: false })
+    const list = (data || []) as Site[]
+    setSites(list)
+    return list
+  }, [])
+
+  const loadAccount = useCallback(async () => {
+    const res = await fetch('/api/gsc/connect?action=status')
+    const data = await res.json()
+    if (res.ok) setAccount(data.account || null)
+  }, [])
 
   const loadStatus = useCallback(async (id: string) => {
     if (!id) return
@@ -115,22 +148,35 @@ function ExperimentsPageInner() {
     }
   }, [])
 
+  const loadAccountProperties = useCallback(async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/gsc/properties')
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Could not list properties')
+      const list = (data.properties || []) as GscProperty[]
+      setProperties(list)
+      setSelectedProperties(
+        new Set(list.filter((p) => !p.alreadyTracked).map((p) => p.siteUrl)),
+      )
+      setPickingProperties(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not list properties')
+    } finally {
+      setBusy(false)
+    }
+  }, [])
+
   useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getUser().then(async ({ data: { user } }: { data: { user: User | null } }) => {
-      if (!user) return
-      const { data } = await supabase
-        .from('connected_sites')
-        .select('id, domain, brand')
-        .eq('user_id', user.id)
-        .order('is_primary', { ascending: false })
-      const list = (data || []) as Site[]
-      setSites(list)
+    void (async () => {
+      const list = await reloadSites()
+      await loadAccount()
       const fromQuery = searchParams.get('siteId') || ''
       const initial = fromQuery && list.some((s) => s.id === fromQuery) ? fromQuery : list[0]?.id || ''
       setSiteId(initial)
-    })
-  }, [searchParams])
+    })()
+  }, [searchParams, reloadSites, loadAccount])
 
   useEffect(() => {
     if (siteId) void loadStatus(siteId)
@@ -139,6 +185,11 @@ function ExperimentsPageInner() {
   useEffect(() => {
     const gscError = searchParams.get('gsc_error')
     if (gscError) setError(gscError)
+
+    if (searchParams.get('gsc') === 'pick_properties') {
+      void loadAccountProperties()
+    }
+
     if (searchParams.get('gsc') === 'pick_property' && siteId) {
       setPickingProperty(true)
       void (async () => {
@@ -152,9 +203,23 @@ function ExperimentsPageInner() {
         }
       })()
     }
-  }, [searchParams, siteId])
+  }, [searchParams, siteId, loadAccountProperties])
 
-  async function startConnect() {
+  async function startAccountConnect() {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/gsc/connect?action=connect')
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Could not start Google connection')
+      window.location.href = data.authorizeUrl
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Connect failed')
+      setBusy(false)
+    }
+  }
+
+  async function startSiteConnect() {
     if (!siteId) return
     setBusy(true)
     setError(null)
@@ -167,6 +232,52 @@ function ExperimentsPageInner() {
       window.location.href = data.authorizeUrl
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Connect failed')
+      setBusy(false)
+    }
+  }
+
+  async function registerSelectedProperties() {
+    const urls = Array.from(selectedProperties)
+    if (urls.length === 0) {
+      setError('Select at least one Search Console property to track.')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setMessage('Creating sites and attaching Search Console mappings…')
+    try {
+      const res = await fetch('/api/gsc/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ propertyUrls: urls }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Could not register properties')
+
+      const created = (data.registered || []).filter((r: { createdSite: boolean }) => r.createdSite)
+      const mapped = data.registered || []
+      setPickingProperties(false)
+      setMessage(
+        [
+          `Tracking ${mapped.length} propert${mapped.length === 1 ? 'y' : 'ies'}`,
+          created.length ? `(${created.length} new site${created.length === 1 ? '' : 's'} created)` : null,
+          data.syncNote || null,
+          data.sync?.error ? `Sync note: ${data.sync.error}` : null,
+        ]
+          .filter(Boolean)
+          .join(' — '),
+      )
+      const list = await reloadSites()
+      await loadAccount()
+      const prefer =
+        mapped[0]?.siteId && list.some((s: Site) => s.id === mapped[0].siteId)
+          ? mapped[0].siteId
+          : list[0]?.id || ''
+      setSiteId(prefer)
+      if (prefer) await loadStatus(prefer)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Register failed')
+    } finally {
       setBusy(false)
     }
   }
@@ -222,6 +333,17 @@ function ExperimentsPageInner() {
     }
   }
 
+  function toggleProperty(siteUrl: string, alreadyTracked: boolean) {
+    if (alreadyTracked) return
+    setSelectedProperties((prev) => {
+      const next = new Set(prev)
+      if (next.has(siteUrl)) next.delete(siteUrl)
+      else next.add(siteUrl)
+      return next
+    })
+  }
+
+  const accountConnected = !!(account && account.status !== 'revoked')
   const connected = !!(connection && connection.status !== 'revoked')
   const hasProperty = !!(connection?.property_url)
   const statusLabel =
@@ -250,16 +372,120 @@ function ExperimentsPageInner() {
             </p>
           </div>
 
-          {sites.length === 0 ? (
-            <div className="border border-[#E5E5E5] rounded-lg px-4 py-3 bg-white text-sm space-y-2">
-              <p>Add a site in Settings → Your Sites before connecting Search Console.</p>
-              <p className="text-[#6B6B6B]">
-                Each host is its own site — register apex and subdomains separately
-                (e.g. example.com and app.example.com) so each gets its own GSC property,
-                baseline, and readiness check.
+          {/* Account-level GSC entry — primary onboarding path */}
+          <div className="border border-[#E5E5E5] rounded-lg px-4 py-4 bg-white space-y-3">
+            <h2 className="font-medium">Connect Google Search Console</h2>
+            <p className="text-sm text-[#6B6B6B]">
+              Start here. After you connect, we list every Search Console property on that Google
+              account — pick the ones to track and we create a site for each host with GSC already
+              attached. GitHub, WordPress, and Shopify stay a separate per-site step.
+            </p>
+            {accountConnected ? (
+              <div className="flex flex-wrap gap-2 items-center">
+                <span className="text-sm text-[#6B6B6B]">
+                  Google account: {account?.status === 'expired' ? 'Expired' : 'Connected'}
+                  {account?.connected_at
+                    ? ` · since ${new Date(account.connected_at).toLocaleDateString()}`
+                    : ''}
+                </span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void loadAccountProperties()}
+                  className="px-3 py-1.5 rounded-lg bg-[#0F0F0F] text-white text-sm disabled:opacity-50"
+                >
+                  {busy ? 'Loading…' : 'Choose properties to track'}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void startAccountConnect()}
+                  className="text-sm underline text-[#6B6B6B]"
+                >
+                  Reconnect Google
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void startAccountConnect()}
+                className="px-4 py-2 rounded-lg bg-[#0F0F0F] text-white disabled:opacity-50"
+              >
+                {busy ? 'Redirecting…' : 'Connect Google Search Console'}
+              </button>
+            )}
+            <p className="text-xs text-[#9B9B9B]">
+              Sites without a Google property can still be added manually in Settings → Your Sites.
+            </p>
+          </div>
+
+          {pickingProperties && (
+            <div className="border border-[#E5E5E5] rounded-lg px-4 py-4 bg-white space-y-3">
+              <h2 className="font-medium">Select properties to track</h2>
+              <p className="text-sm text-[#6B6B6B]">
+                Each selected property becomes its own site (exact host). Already-tracked properties
+                stay checked off.
               </p>
+              {properties.length === 0 ? (
+                <p className="text-sm text-[#6B6B6B]">No properties found on this Google account.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {properties.map((p) => {
+                    const checked = p.alreadyTracked || selectedProperties.has(p.siteUrl)
+                    return (
+                      <li key={p.siteUrl}>
+                        <label
+                          className={`flex gap-3 items-start border border-[#E5E5E5] rounded-lg px-3 py-2 ${
+                            p.alreadyTracked ? 'bg-[#FAFAF8] opacity-80' : 'hover:bg-[#FAFAF8] cursor-pointer'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={checked}
+                            disabled={busy || !!p.alreadyTracked}
+                            onChange={() => toggleProperty(p.siteUrl, !!p.alreadyTracked)}
+                          />
+                          <span className="min-w-0">
+                            <span className="block font-medium text-sm break-all">{p.siteUrl}</span>
+                            <span className="block text-xs text-[#6B6B6B]">
+                              {p.permissionLevel}
+                              {p.domain ? ` · ${p.domain}` : ''}
+                              {p.alreadyTracked ? ' · already tracking' : ''}
+                              {p.siteExists && !p.alreadyTracked ? ' · site exists — will attach GSC' : ''}
+                            </span>
+                          </span>
+                        </label>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={busy || selectedProperties.size === 0}
+                  onClick={() => void registerSelectedProperties()}
+                  className="px-4 py-2 rounded-lg bg-[#0F0F0F] text-white disabled:opacity-50"
+                >
+                  {busy
+                    ? 'Saving…'
+                    : `Track ${selectedProperties.size} propert${selectedProperties.size === 1 ? 'y' : 'ies'}`}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setPickingProperties(false)}
+                  className="px-3 py-2 rounded-lg border border-[#E5E5E5] text-sm"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
-          ) : (
+          )}
+
+          {sites.length > 0 && (
             <div className="flex flex-wrap gap-2 items-center">
               <label className="text-sm text-[#6B6B6B]">Site</label>
               <select
@@ -279,8 +505,8 @@ function ExperimentsPageInner() {
                 ))}
               </select>
               <p className="text-xs text-[#9B9B9B] w-full">
-                {sites.length} registered site{sites.length === 1 ? '' : 's'} — each can connect its
-                own Search Console property.
+                {sites.length} registered site{sites.length === 1 ? '' : 's'} — each has its own
+                baseline and readiness check.
               </p>
             </div>
           )}
@@ -296,27 +522,22 @@ function ExperimentsPageInner() {
             </div>
           )}
 
-          {loading && <p className="text-sm text-[#6B6B6B]">Loading…</p>}
+          {loading && siteId && <p className="text-sm text-[#6B6B6B]">Loading site…</p>}
 
-          {!loading && siteId && !connected && (
+          {!loading && siteId && !connected && !pickingProperties && (
             <div className="border border-[#E5E5E5] rounded-lg px-4 py-4 bg-white space-y-3">
-              <h2 className="font-medium">Connect Google Search Console</h2>
+              <h2 className="font-medium">This site has no Search Console mapping</h2>
               <p className="text-sm text-[#6B6B6B]">
-                Connecting lets SEORANKO read per-URL clicks, impressions, CTR, and average position
-                so we can establish a baseline before any experiment. We request read-only access
-                (`webmasters.readonly`) — no write permission to your listings.
-              </p>
-              <p className="text-sm text-[#6B6B6B]">
-                You must be a verified owner of the Search Console property for this domain. If you
-                are not, Google will deny access and we will show that explicitly.
+                Prefer &quot;Choose properties to track&quot; above if you just connected Google.
+                Or reconnect Search Console for this site alone.
               </p>
               <button
                 type="button"
                 disabled={busy || !siteId}
-                onClick={() => void startConnect()}
-                className="px-4 py-2 rounded-lg bg-[#0F0F0F] text-white disabled:opacity-50"
+                onClick={() => void startSiteConnect()}
+                className="px-4 py-2 rounded-lg border border-[#E5E5E5] bg-white text-sm disabled:opacity-50"
               >
-                {busy ? 'Redirecting…' : 'Connect Google Search Console'}
+                {busy ? 'Redirecting…' : 'Connect GSC for this site'}
               </button>
             </div>
           )}
@@ -366,7 +587,7 @@ function ExperimentsPageInner() {
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => void startConnect()}
+                  onClick={() => void startSiteConnect()}
                   className="text-sm underline"
                 >
                   Reconnect Google account

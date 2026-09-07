@@ -47,7 +47,7 @@ export async function addConnectedSite(
   userId: string,
   domain: string,
   brand: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; siteId?: string }> {
   const cleanDomain = normaliseDomain(domain)
 
   // Reject anything that isn't plausibly a hostname.
@@ -62,7 +62,7 @@ export async function addConnectedSite(
 
   const isFirst = existing.length === 0
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('connected_sites')
     .insert({
       user_id: userId,
@@ -70,6 +70,8 @@ export async function addConnectedSite(
       brand,
       is_primary: isFirst   // first site added becomes primary automatically
     })
+    .select('id')
+    .single()
 
   if (error) {
     // The UNIQUE(user_id, domain) constraint is the backstop for a race.
@@ -78,7 +80,7 @@ export async function addConnectedSite(
     }
     return { success: false, error: error.message }
   }
-  return { success: true }
+  return { success: true, siteId: data?.id as string | undefined }
 }
 
 export async function setPrimarySite(

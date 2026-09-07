@@ -32,13 +32,43 @@ describe('Causal Experiment Engine PR1 wiring', () => {
   })
 
   it('does not hardcode autodun or UK market defaults in new GSC code', () => {
-    const files = ['oauth.ts', 'client.ts', 'sync.ts', 'baseline-readiness.ts', 'known-urls.ts']
+    const files = [
+      'oauth.ts',
+      'client.ts',
+      'sync.ts',
+      'baseline-readiness.ts',
+      'known-urls.ts',
+      'property-domain.ts',
+      'register-properties.ts',
+    ]
     for (const f of files) {
       const src = readFileSync(join(__dirname, f), 'utf8')
       expect(src).not.toMatch(/autodun/i)
       expect(src).not.toMatch(/United Kingdom/)
       expect(src).not.toMatch(/locationCode\s*=\s*2826/)
     }
+  })
+
+  it('ships gsc_accounts migration and account-mode OAuth onboarding', () => {
+    const sql = readFileSync(
+      join(root, 'supabase/migrations/20260907140000_gsc_accounts_onboarding.sql'),
+      'utf8',
+    )
+    expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS gsc_accounts/)
+    expect(sql).toMatch(/ENABLE ROW LEVEL SECURITY/)
+    expect(sql).toMatch(/refresh_token_encrypted/)
+
+    const oauth = readFileSync(join(__dirname, 'oauth.ts'), 'utf8')
+    expect(oauth).toMatch(/mode: GscOAuthMode/)
+    expect(oauth).toMatch(/'account'/)
+
+    const experiments = readFileSync(
+      join(root, 'src/app/dashboard/experiments/page.tsx'),
+      'utf8',
+    )
+    expect(experiments).toMatch(/pick_properties/)
+    expect(experiments).toMatch(/\/api\/gsc\/register/)
+    expect(experiments).toMatch(/Choose properties to track/)
   })
 
   it('scopes url_metrics_daily upserts to crawl/sitemap known URLs', () => {

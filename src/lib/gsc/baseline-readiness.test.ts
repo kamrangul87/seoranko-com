@@ -116,7 +116,7 @@ describe('evaluateBaselineReadiness', () => {
       const day = new Date(start)
       day.setUTCDate(start.getUTCDate() + d)
       const date = day.toISOString().slice(0, 10)
-      // Day 20 collapses and stays down
+      // Day 20 collapses and stays down (per-URL so site totals are well above floors)
       const impressions = d < 20 ? 100 : 20
       for (let u = 0; u < 35; u++) {
         rows.push(row(`https://example.com/p-${u}`, date, impressions))
@@ -126,6 +126,25 @@ describe('evaluateBaselineReadiness', () => {
     expect(result.passed).toBe(false)
     expect(result.reasonCode).toBe('traffic_discontinuity')
     expect(result.evidence.discontinuity?.dropDate).toBeTruthy()
+  })
+
+  it('does not trip discontinuity on a low-volume 10→1 drop (below floors)', () => {
+    // Site-day totals are exactly 10 then 1 (ratio looks like a cliff).
+    // Prior day < 100 and absolute drop < 50 → must not flag discontinuity.
+    const rows: DailyUrlMetric[] = []
+    const start = new Date('2026-06-01T00:00:00.000Z')
+    for (let d = 0; d < 60; d++) {
+      const day = new Date(start)
+      day.setUTCDate(start.getUTCDate() + d)
+      const date = day.toISOString().slice(0, 10)
+      const siteTotal = d < 20 ? 10 : 1
+      for (let u = 0; u < 35; u++) {
+        rows.push(row(`https://example.com/p-${u}`, date, u < siteTotal ? 1 : 0))
+      }
+    }
+    const result = evaluateBaselineReadiness(rows)
+    expect(result.evidence.discontinuity).toBeNull()
+    expect(result.reasonCode).not.toBe('traffic_discontinuity')
   })
 
   it('ignores provisional rows for readiness', () => {

@@ -113,9 +113,9 @@ export function SitesManager() {
         <div>
           <h3 className="text-base font-semibold text-gray-900">Your Sites</h3>
           <p className="text-xs text-gray-500 mt-0.5">
-            Each host is its own site — add apex and subdomains separately (example.com,
-            app.example.com). Connect GitHub/WordPress/Shopify per site so Audit Fix Agent and
-            Experiments (GSC) stay independent.
+            Prefer Experiments → Connect Google Search Console to discover and track multiple
+            properties at once. Use Add site here for hosts without a Google property. Connect
+            GitHub/WordPress/Shopify per site separately.
           </p>
         </div>
         <button

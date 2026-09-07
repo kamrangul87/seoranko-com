@@ -46,14 +46,22 @@ function stateKey(): Buffer {
   return Buffer.from(raw)
 }
 
+export type GscOAuthMode = 'account' | 'site'
+
 export type GscOAuthState = {
   userId: string
-  siteId: string
+  /** account = multi-property onboarding; site = reconnect a single site mapping */
+  mode: GscOAuthMode
+  /** Required when mode is `site`. Absent for account-level connect. */
+  siteId?: string
   nonce: string
   exp: number
 }
 
 export function signGscOAuthState(payload: GscOAuthState): string {
+  if (payload.mode === 'site' && !payload.siteId) {
+    throw new Error('siteId is required for site-mode GSC OAuth state')
+  }
   const body = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
   const sig = createHmac('sha256', stateKey()).update(body).digest('base64url')
   return `${body}.${sig}`
@@ -68,12 +76,32 @@ export function verifyGscOAuthState(token: string): GscOAuthState {
   if (a.length !== b.length || !timingSafeEqual(a, b)) {
     throw new Error('Invalid OAuth state signature')
   }
-  const parsed = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as GscOAuthState
-  if (!parsed.userId || !parsed.siteId || !parsed.exp) {
+  const raw = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as Partial<GscOAuthState> & {
+    siteId?: string
+  }
+  if (!raw.userId || !raw.exp) {
     throw new Error('OAuth state missing required fields')
   }
-  if (Date.now() > parsed.exp) throw new Error('OAuth state expired — try connecting again')
-  return parsed
+  // Legacy payloads (pre-account onboarding) always carried siteId and implied site mode.
+  const mode: GscOAuthMode =
+    raw.mode === 'account' || raw.mode === 'site'
+      ? raw.mode
+      : raw.siteId
+        ? 'site'
+        : (() => {
+            throw new Error('OAuth state missing required fields')
+          })()
+  if (mode === 'site' && !raw.siteId) {
+    throw new Error('OAuth state missing required fields')
+  }
+  if (Date.now() > raw.exp) throw new Error('OAuth state expired — try connecting again')
+  return {
+    userId: raw.userId,
+    mode,
+    siteId: raw.siteId,
+    nonce: typeof raw.nonce === 'string' ? raw.nonce : '',
+    exp: raw.exp,
+  }
 }
 
 export function buildGscAuthorizeUrl(state: string): string {

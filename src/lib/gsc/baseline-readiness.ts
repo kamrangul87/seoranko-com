@@ -53,6 +53,10 @@ const MIN_URLS = 30
 const MIN_DAYS = 56
 const MAX_ZERO_RATIO = 0.4
 const DROP_THRESHOLD = 0.5
+/** Ignore day-over-day drops when the prior day was too small to be meaningful. */
+const DISCONTINUITY_MIN_PREV_IMPRESSIONS = 100
+/** Require an absolute impression drop — ratio alone fires on noise (e.g. 10→1). */
+const DISCONTINUITY_MIN_ABSOLUTE_DROP = 50
 const RECOVERY_DAYS = 7
 const RECOVERY_LEVEL = 0.8
 
@@ -69,7 +73,9 @@ function findTrafficDiscontinuity(
   for (let i = 1; i < dayTotals.length; i++) {
     const prev = dayTotals[i - 1]
     const cur = dayTotals[i]
-    if (prev.impressions <= 0) continue
+    if (prev.impressions < DISCONTINUITY_MIN_PREV_IMPRESSIONS) continue
+    const absoluteDrop = prev.impressions - cur.impressions
+    if (absoluteDrop < DISCONTINUITY_MIN_ABSOLUTE_DROP) continue
     if (cur.impressions >= prev.impressions * DROP_THRESHOLD) continue
 
     const window = dayTotals.slice(i + 1, i + 1 + RECOVERY_DAYS)
@@ -174,7 +180,7 @@ export function reasonCodeLabel(code: BaselineReasonCode): string {
     case 'too_many_zero_impression_urls':
       return 'More than 40% of candidate URLs have zero impressions across the window'
     case 'traffic_discontinuity':
-      return 'Site-wide traffic discontinuity detected (day-over-day drop >50% without recovery in 7 days)'
+      return 'Site-wide traffic discontinuity detected (prior day ≥100 impressions, absolute drop ≥50, and day-over-day drop >50% without recovery in 7 days)'
     case 'ready':
       return 'Baseline ready'
     default:

@@ -17,8 +17,8 @@ function appOrigin(req: NextRequest): string {
 
 /**
  * Google OAuth redirect target.
- * Exchanges code → stores encrypted refresh token → redirects to Experiments UI
- * to pick a property.
+ * Account mode → store token on gsc_accounts → pick properties checklist.
+ * Site mode → store token on gsc_connections → pick one property for that site.
  */
 export async function GET(req: NextRequest) {
   const origin = appOrigin(req)
@@ -47,17 +47,57 @@ export async function GET(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )
 
+    if (parsed.mode === 'account') {
+      if (!tokens.refreshToken) {
+        const { data: existing } = await supabase
+          .from('gsc_accounts')
+          .select('id, refresh_token_encrypted')
+          .eq('user_id', parsed.userId)
+          .maybeSingle()
+
+        if (!existing?.refresh_token_encrypted) {
+          return NextResponse.redirect(
+            `${origin}/dashboard/experiments?gsc_error=${encodeURIComponent(
+              'Google did not return a refresh token. Revoke SEORANKO access in your Google Account and connect again with consent.',
+            )}`,
+          )
+        }
+
+        await supabase
+          .from('gsc_accounts')
+          .update({ status: 'active', last_error: null, connected_at: new Date().toISOString() })
+          .eq('id', existing.id)
+      } else {
+        const encrypted = encryptGscRefreshToken(tokens.refreshToken)
+        const { error } = await supabase.from('gsc_accounts').upsert(
+          {
+            user_id: parsed.userId,
+            refresh_token_encrypted: encrypted,
+            status: 'active',
+            connected_at: new Date().toISOString(),
+            last_error: null,
+          },
+          { onConflict: 'user_id' },
+        )
+        if (error) throw new Error(error.message)
+      }
+
+      return NextResponse.redirect(`${origin}/dashboard/experiments?gsc=pick_properties`)
+    }
+
+    // Site mode (reconnect / attach to one existing connected_sites row)
+    const siteId = parsed.siteId!
     if (!tokens.refreshToken) {
       const { data: existing } = await supabase
         .from('gsc_connections')
         .select('id, refresh_token_encrypted')
-        .eq('site_id', parsed.siteId)
+        .eq('site_id', siteId)
         .eq('user_id', parsed.userId)
         .maybeSingle()
 
       if (!existing?.refresh_token_encrypted) {
         return NextResponse.redirect(
-          `${origin}/dashboard/experiments?siteId=${encodeURIComponent(parsed.siteId)}&gsc_error=${encodeURIComponent(
+          `${origin}/dashboard/experiments?siteId=${encodeURIComponent(siteId)}&gsc_error=${encodeURIComponent(
             'Google did not return a refresh token. Revoke SEORANKO access in your Google Account and connect again with consent.',
           )}`,
         )
@@ -72,7 +112,7 @@ export async function GET(req: NextRequest) {
       const { error } = await supabase.from('gsc_connections').upsert(
         {
           user_id: parsed.userId,
-          site_id: parsed.siteId,
+          site_id: siteId,
           refresh_token_encrypted: encrypted,
           status: 'active',
           connected_at: new Date().toISOString(),
@@ -85,7 +125,7 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.redirect(
-      `${origin}/dashboard/experiments?siteId=${encodeURIComponent(parsed.siteId)}&gsc=pick_property`,
+      `${origin}/dashboard/experiments?siteId=${encodeURIComponent(siteId)}&gsc=pick_property`,
     )
   } catch (err) {
     const message = err instanceof Error ? err.message : 'GSC OAuth failed'
