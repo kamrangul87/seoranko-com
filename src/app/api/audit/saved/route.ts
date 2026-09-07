@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import { loadLatestIndexDiagnosisRun } from '@/lib/index-diagnosis/persist'
 import { loadLatestLinkGraphForDomain } from '@/lib/link-graph/persist'
 import { normalizeDomain } from '@/lib/supabase/audit-db'
+import { buildSavedAuditPayload } from '@/lib/audit-saved-payload'
 
 function authClient() {
   const cookieStore = cookies()
@@ -47,30 +48,12 @@ export async function GET(req: NextRequest) {
       return Boolean(probe.error?.message?.match(/does not exist|schema cache|PGRST/i))
     })())
 
-  return NextResponse.json({
-    ok: true,
-    domain,
-    saved: Boolean(diagnosis || linkGraph),
-    tablesMissing,
-    indexDiagnosisRunId: diagnosis?.row.id ?? null,
-    indexDiagnosis: diagnosis?.result ?? null,
-    indexDiagnosisCreatedAt: diagnosis?.row.created_at ?? null,
-    linkGraph: linkGraph
-      ? {
-          auditId: linkGraph.audit.id,
-          createdAt: linkGraph.audit.created_at,
-          summary: {
-            verdictHeadline: linkGraph.audit.verdict_headline,
-            topCauses: linkGraph.audit.top_causes,
-            findingCount: linkGraph.findingCount,
-            criticalCount: linkGraph.criticalCount,
-            failCount: linkGraph.failCount,
-            warnCount: linkGraph.warnCount,
-            jsSuspected: linkGraph.audit.js_suspected,
-            trailingSlashConvention: linkGraph.audit.trailing_slash_convention,
-          },
-          topFindings: linkGraph.topFindings,
-        }
-      : null,
-  })
+  return NextResponse.json(
+    buildSavedAuditPayload({
+      domain,
+      diagnosis,
+      linkGraph,
+      tablesMissing,
+    }),
+  )
 }
