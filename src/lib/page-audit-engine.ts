@@ -280,8 +280,17 @@ export async function runPageAudit(
     crawlNotes.push(`History persist skipped: ${err instanceof Error ? err.message : 'unknown'}`)
   }
 
+  let indexDiagnosisRunId: string | null = null
+  let indexDiagnosisPersistError: string | null = null
   if (indexDiagnosis && opts?.userId) {
-    void persistIndexDiagnosisRun(opts.userId, indexDiagnosis)
+    const persisted = await persistIndexDiagnosisRun(opts.userId, indexDiagnosis)
+    indexDiagnosisRunId = persisted.id
+    indexDiagnosisPersistError = persisted.error
+    if (persisted.error) {
+      crawlNotes.push(
+        `Index Diagnosis persist failed: ${persisted.error} — apply index_diagnosis_runs migration if the table is missing.`,
+      )
+    }
   }
 
   const history = await loadScoreHistory(url)
@@ -312,6 +321,9 @@ export async function runPageAudit(
     crawlNotes,
     coreWebVitalsPending: true,
     indexDiagnosis,
+    indexDiagnosisRunId,
+    indexDiagnosisPersistOk: !indexDiagnosis || !indexDiagnosisPersistError,
+    indexDiagnosisPersistError,
     auditScope: indexDiagnosis
       ? {
           urlsDiscovered: indexDiagnosis.coverage.discoveredCount,

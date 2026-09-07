@@ -1,0 +1,39 @@
+name: Supabase migrations
+
+# Apply supabase/migrations to hosted Postgres whenever they land on main.
+# Prevents the recurring failure mode where migration files merge but are
+# never applied (Index Diagnosis / Link Graph / Fix Agent tables, etc.).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      - 'scripts/ci-supabase-db-push.sh'
+      - '.github/workflows/supabase-migrate.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: supabase-migrate-main
+  cancel-in-progress: false
+
+jobs:
+  db-push:
+    name: supabase db push
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Apply pending migrations to hosted Supabase
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          chmod +x scripts/ci-supabase-db-push.sh
+          ./scripts/ci-supabase-db-push.sh

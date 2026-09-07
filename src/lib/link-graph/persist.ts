@@ -113,9 +113,50 @@ export async function loadLinkGraphSummary(supabase: SupabaseClient, auditId: st
     .order('severity', { ascending: true })
     .limit(20)
 
+  const { count: criticalCount } = await supabase
+    .from('link_findings')
+    .select('id', { count: 'exact', head: true })
+    .eq('audit_id', auditId)
+    .eq('severity', 'CRITICAL')
+
+  const { count: failCount } = await supabase
+    .from('link_findings')
+    .select('id', { count: 'exact', head: true })
+    .eq('audit_id', auditId)
+    .eq('severity', 'FAIL')
+
+  const { count: warnCount } = await supabase
+    .from('link_findings')
+    .select('id', { count: 'exact', head: true })
+    .eq('audit_id', auditId)
+    .eq('severity', 'WARN')
+
   return {
     audit,
     findingCount: findingCount ?? 0,
+    criticalCount: criticalCount ?? 0,
+    failCount: failCount ?? 0,
+    warnCount: warnCount ?? 0,
     topFindings: topFindings || [],
   }
+}
+
+/** Latest Link Graph audit for a domain owned by the signed-in user (RLS). */
+export async function loadLatestLinkGraphForDomain(
+  supabase: SupabaseClient,
+  domain: string,
+): Promise<Awaited<ReturnType<typeof loadLinkGraphSummary>> | null> {
+  const { data: audit, error } = await supabase
+    .from('link_graph_audits')
+    .select('id')
+    .eq('domain', domain)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error || !audit?.id) {
+    if (error) console.warn('[link-graph] load latest failed', error.message)
+    return null
+  }
+  return loadLinkGraphSummary(supabase, audit.id as string)
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { IndexDiagnosisResult } from '@/lib/index-diagnosis/types'
 import type { PageAuditIssue } from '@/lib/page-audit-engine'
 import type { LinkFinding, LinkGraphResult } from '@/lib/link-graph/types'
@@ -156,6 +156,7 @@ export function LinkGraphPanel({
   auditUrl,
   fixRunning,
   onRunFixAgent,
+  initialSaved,
 }: {
   diagnosis: IndexDiagnosisResult
   domain?: string
@@ -164,14 +165,33 @@ export function LinkGraphPanel({
   auditUrl?: string
   fixRunning?: boolean
   onRunFixAgent?: (issues: PageAuditIssue[]) => void
+  /** Hydrated from GET /api/audit/saved — shown without re-running. */
+  initialSaved?: {
+    auditId: string
+    createdAt?: string
+    summary: LinkGraphSummary
+    topFindings: LinkFindingRow[]
+  } | null
 }) {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [summary, setSummary] = useState<LinkGraphSummary | null>(null)
-  const [findings, setFindings] = useState<LinkFindingRow[]>([])
-  const [auditId, setAuditId] = useState<string | null>(null)
+  const [summary, setSummary] = useState<LinkGraphSummary | null>(initialSaved?.summary ?? null)
+  const [findings, setFindings] = useState<LinkFindingRow[]>(initialSaved?.topFindings ?? [])
+  const [auditId, setAuditId] = useState<string | null>(initialSaved?.auditId ?? null)
+  const [savedAt, setSavedAt] = useState<string | null>(initialSaved?.createdAt ?? null)
+  const [persistWarning, setPersistWarning] = useState<string | null>(null)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
   const [diffPreview, setDiffPreview] = useState<string | null>(null)
+  const resolvedDomain = domain || diagnosis.coverage.domain
+
+  // Parent may hydrate saved Link Graph after mount (session restore).
+  useEffect(() => {
+    if (!initialSaved) return
+    setAuditId(initialSaved.auditId)
+    setSummary(initialSaved.summary)
+    setFindings(initialSaved.topFindings || [])
+    setSavedAt(initialSaved.createdAt || null)
+  }, [initialSaved])
 
   const result = useMemo(() => toResult(findings), [findings])
   const allFixIssues = useMemo(() => buildLinkGraphFixAgentIssues(result), [result])
@@ -185,16 +205,40 @@ export function LinkGraphPanel({
     [findings],
   )
 
+  // Restore latest saved Link Graph for this domain when parent didn't pass one.
+  useEffect(() => {
+    if (initialSaved || !resolvedDomain) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/audit/saved?domain=${encodeURIComponent(resolvedDomain)}`)
+        if (!res.ok) return
+        const json = await res.json()
+        if (cancelled || !json.linkGraph) return
+        setAuditId(json.linkGraph.auditId)
+        setSummary(json.linkGraph.summary)
+        setFindings(json.linkGraph.topFindings || [])
+        setSavedAt(json.linkGraph.createdAt || null)
+      } catch {
+        /* ignore */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [resolvedDomain, initialSaved])
+
   async function run() {
     setRunning(true)
     setError(null)
     setDiffPreview(null)
+    setPersistWarning(null)
     try {
       const res = await fetch('/api/audit/new/links/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          domain: domain || diagnosis.coverage.domain,
+          domain: resolvedDomain,
           diagnosis,
           resolveExternal: false,
         }),
@@ -204,6 +248,12 @@ export function LinkGraphPanel({
       setAuditId(json.auditId)
       setSummary(json.summary)
       setFindings(json.topFindings || json.findings || [])
+      setSavedAt(new Date().toISOString())
+      if (!json.auditId) {
+        setPersistWarning(
+          'Link Graph ran but was not saved. Apply the link_graph_audit migration on hosted Supabase.',
+        )
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Link graph failed')
     } finally {
@@ -240,6 +290,11 @@ export function LinkGraphPanel({
             Finds broken, redirected, and non-canonical internal links — and pages Google can&apos;t
             reach through your own links. Uses the Index Diagnosis crawl (no second paid API).
           </p>
+          {savedAt && summary && (
+            <p className="text-[11px] text-[#9B9B9B] mt-1">
+              Showing saved run from {new Date(savedAt).toLocaleString()} — re-run to refresh.
+            </p>
+          )}
         </div>
         <button
           type="button"
@@ -252,6 +307,7 @@ export function LinkGraphPanel({
       </div>
 
       {error && <p className="text-xs text-red-700">{error}</p>}
+      {persistWarning && <p className="text-xs text-amber-800">{persistWarning}</p>}
 
       {summary && (
         <div className="space-y-3">
