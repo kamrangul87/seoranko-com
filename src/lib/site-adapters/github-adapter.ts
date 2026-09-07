@@ -2,8 +2,11 @@
 // src/lib/site-adapters/github-adapter.ts
 // Credentials: { siteUrl, owner, repo, branch, accessToken }
 //   accessToken — fine-grained GitHub PAT scoped to this one repo with
-//                 Contents: Read & Write (and Pull requests: Read & Write for
-//                 the review-required path).
+//                 Contents: Read & Write on the default branch.
+//
+// POLICY: Fix Agent always commits directly to the default branch. There is
+// no PR-fallback path — if the push is blocked, the attempt fails so the
+// operator can fix token/branch permissions.
 //
 // SAFETY: this adapter commits to a real repository that a real site builds
 // from. Two rules keep it from breaking a live site:
@@ -18,10 +21,6 @@ import {
 } from './types'
 import { mergeNextConfigRedirect, mergeVercelJsonRedirect } from '../fix-agent-redirect'
 import { mergeNextConfigHeaders, mergeVercelJsonHeaders } from '../fix-agent-headers'
-import {
-  fixContentFingerprint,
-  isDuplicateFixPrTitle,
-} from '../fix-agent-idempotency'
 
 const GH = 'https://api.github.com'
 
@@ -177,170 +176,17 @@ async function getFileContent(
   return { content: Buffer.from(data.content, 'base64').toString('utf-8'), sha: data.sha }
 }
 
-/** Direct push to default branch blocked — fall back to seoranko-fix-* + PR. */
+/** True when a Contents API write to the default branch was rejected by auth/policy. */
 export function isDirectPushBlocked(status: number, message: string): boolean {
-  // Auth / policy failures only — not "we prefer PRs". 401 = bad token (no point
-  // falling back to PR with the same token); caller treats that as hard fail.
   if ([403, 404, 409, 422].includes(status)) return true
   return /protected branch|cannot be updated|not authorized|resource not accessible|required status checks?|pull request|refusing to allow|enforcing policies/i.test(
     message,
   )
 }
 
-/** List open Fix Agent PRs and return one that already covers this commit title/path. */
-export async function findOpenDuplicateFixPr(
-  creds: SiteCredentials,
-  commitMessage: string,
-): Promise<{ htmlUrl: string; number: number; title: string } | null> {
-  const headers = ghHeaders(creds.accessToken!)
-  const res = await fetch(
-    `${GH}/repos/${creds.owner}/${creds.repo}/pulls?state=open&per_page=50`,
-    { headers, signal: AbortSignal.timeout(15000) },
-  )
-  if (!res.ok) return null
-  const prs = (await res.json().catch(() => [])) as Array<{
-    html_url?: string
-    number?: number
-    title?: string
-  }>
-  if (!Array.isArray(prs)) return null
-  for (const pr of prs) {
-    if (!pr.title || !pr.html_url || !pr.number) continue
-    if (!isDuplicateFixPrTitle(pr.title, commitMessage)) continue
-    return { htmlUrl: pr.html_url, number: pr.number, title: pr.title }
-  }
-  return null
-}
-
 type CommitFileResult = {
   success: boolean
   error?: string
-  prUrl?: string
-  /** true when write landed via seoranko-fix-* branch + PR instead of default branch */
-  viaPr?: boolean
-  /** true when an existing open PR was reused instead of opening a new one */
-  skippedDuplicate?: boolean
-}
-
-async function commitViaPullRequest(
-  creds: SiteCredentials,
-  path: string,
-  newContent: string,
-  currentSha: string,
-  commitMessage: string,
-  branchSuffix: string,
-): Promise<CommitFileResult> {
-  const branch = creds.branch || 'main'
-  const targetBranch = `seoranko-fix-${branchSuffix}`
-  const headers = ghHeaders(creds.accessToken!)
-
-  // Idempotency: identical open PR already covers this fix.
-  const dup = await findOpenDuplicateFixPr(creds, commitMessage)
-  if (dup) {
-    return {
-      success: true,
-      prUrl: dup.htmlUrl,
-      viaPr: true,
-      skippedDuplicate: true,
-    }
-  }
-
-  const refRes = await fetch(
-    `${GH}/repos/${creds.owner}/${creds.repo}/git/ref/heads/${encodeURIComponent(branch)}`,
-    { headers, signal: AbortSignal.timeout(15000) },
-  )
-  if (!refRes.ok) {
-    return { success: false, error: `Could not read branch "${branch}" (${refRes.status}).` }
-  }
-  const refData = await refRes.json()
-
-  const createRes = await fetch(`${GH}/repos/${creds.owner}/${creds.repo}/git/refs`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ ref: `refs/heads/${targetBranch}`, sha: refData.object.sha }),
-    signal: AbortSignal.timeout(15000),
-  })
-  if (!createRes.ok && createRes.status !== 422) {
-    // 422 = branch already exists; reuse it
-    const err = await createRes.json().catch(() => ({}))
-    return {
-      success: false,
-      error: err.message || `Could not create review branch (${createRes.status}).`,
-    }
-  }
-
-  // If branch already existed, refresh file sha from that branch when possible
-  let shaForPut = currentSha
-  if (createRes.status === 422) {
-    const existing = await fetch(
-      `${GH}/repos/${creds.owner}/${creds.repo}/contents/${path}?ref=${encodeURIComponent(targetBranch)}`,
-      { headers, signal: AbortSignal.timeout(15000) },
-    )
-    if (existing.ok) {
-      const body = await existing.json().catch(() => ({}))
-      if (body.sha) shaForPut = body.sha
-    }
-  }
-
-  const commitRes = await fetch(`${GH}/repos/${creds.owner}/${creds.repo}/contents/${path}`, {
-    method: 'PUT',
-    headers,
-    body: JSON.stringify({
-      message: commitMessage,
-      content: Buffer.from(newContent, 'utf-8').toString('base64'),
-      ...(shaForPut ? { sha: shaForPut } : {}),
-      branch: targetBranch,
-    }),
-    signal: AbortSignal.timeout(20000),
-  })
-  if (!commitRes.ok) {
-    const err = await commitRes.json().catch(() => ({}))
-    return {
-      success: false,
-      error: err.message || `GitHub commit to review branch failed (${commitRes.status})`,
-    }
-  }
-
-  const prRes = await fetch(`${GH}/repos/${creds.owner}/${creds.repo}/pulls`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      title: commitMessage,
-      head: targetBranch,
-      base: branch,
-      body:
-        'Opened automatically by SEORANKO Fix Agent after a direct push to the default branch was blocked ' +
-        '(branch protection or missing push permission). Review and merge to apply the fix to your live site.',
-    }),
-    signal: AbortSignal.timeout(15000),
-  })
-  if (!prRes.ok) {
-    // PR may already exist for this head
-    if (prRes.status === 422) {
-      const listRes = await fetch(
-        `${GH}/repos/${creds.owner}/${creds.repo}/pulls?head=${encodeURIComponent(`${creds.owner}:${targetBranch}`)}&state=open`,
-        { headers, signal: AbortSignal.timeout(15000) },
-      )
-      if (listRes.ok) {
-        const prs = await listRes.json().catch(() => [])
-        if (Array.isArray(prs) && prs[0]?.html_url) {
-          return { success: true, prUrl: prs[0].html_url, viaPr: true, skippedDuplicate: true }
-        }
-      }
-      // Title collision on a different head — reuse that open PR rather than failing.
-      const byTitle = await findOpenDuplicateFixPr(creds, commitMessage)
-      if (byTitle) {
-        return { success: true, prUrl: byTitle.htmlUrl, viaPr: true, skippedDuplicate: true }
-      }
-    }
-    const err = await prRes.json().catch(() => ({}))
-    return {
-      success: false,
-      error: `Change committed to branch "${targetBranch}" but the Pull Request could not be opened: ${err.message || prRes.status}. Open it manually on GitHub.`,
-    }
-  }
-  const prData = await prRes.json()
-  return { success: true, prUrl: prData.html_url, viaPr: true }
 }
 
 async function putContentsFile(
@@ -370,29 +216,10 @@ async function commitFileChange(
   newContent: string,
   currentSha: string,
   commitMessage: string,
-  riskLevel: 'safe' | 'review-required',
 ): Promise<CommitFileResult> {
   const branch = creds.branch || 'main'
-  // Deterministic branch id from path+content so retries reuse the same branch/PR.
-  const contentSuffix = fixContentFingerprint({
-    autoKind: 'github-write',
-    targetPath: path,
-    content: newContent,
-  })
 
   try {
-    if (riskLevel !== 'safe') {
-      return commitViaPullRequest(
-        creds,
-        path,
-        newContent,
-        currentSha,
-        commitMessage,
-        contentSuffix,
-      )
-    }
-
-    // Prefer direct push to default branch (goes live after rebuild).
     let sha = currentSha
     let commitRes = await putContentsFile(creds, path, newContent, sha, commitMessage, branch)
 
@@ -401,7 +228,7 @@ async function commitFileChange(
       const fresh = await getFileContent(creds, path)
       if (fresh) {
         if (fresh.content === newContent) {
-          return { success: true, viaPr: false }
+          return { success: true }
         }
         sha = fresh.sha
         commitRes = await putContentsFile(creds, path, newContent, sha, commitMessage, branch)
@@ -409,27 +236,19 @@ async function commitFileChange(
     }
 
     if (commitRes.ok) {
-      return { success: true, viaPr: false }
+      return { success: true }
     }
 
     const err = await commitRes.json().catch(() => ({}))
     const message = String(err.message || `GitHub commit failed (${commitRes.status})`)
     const withStatus = /\(\d{3}\)/.test(message) ? message : `${message} (HTTP ${commitRes.status})`
 
-    // Genuine block (auth / branch protection) → PR fallback. Not a default path.
     if (isDirectPushBlocked(commitRes.status, message)) {
-      const viaPr = await commitViaPullRequest(
-        creds,
-        path,
-        newContent,
-        sha,
-        commitMessage,
-        contentSuffix,
-      )
-      if (viaPr.success) return viaPr
       return {
         success: false,
-        error: `Direct push blocked (${withStatus}). PR fallback also failed: ${viaPr.error || 'unknown error'}`,
+        error:
+          `Direct push blocked (${withStatus}). Fix Agent requires Contents write on the default branch ` +
+          `(PR fallback is disabled).`,
       }
     }
 
@@ -449,26 +268,12 @@ function guardEditable(path: string): string | null {
   return null
 }
 
-/** Map a commit result into FixApplyResult with deploy vs merge pendingKind. */
+/** Map a commit result into FixApplyResult (always awaiting host rebuild). */
 function applyResultFromCommit(
   result: CommitFileResult,
   opts: { branch: string; path: string },
 ): FixApplyResult {
   if (!result.success) return { success: false, error: result.error }
-  if (result.viaPr) {
-    return {
-      success: true,
-      pending: true,
-      pendingKind: 'merge',
-      url: result.prUrl,
-      skipped: result.skippedDuplicate === true,
-      detail: result.skippedDuplicate
-        ? `Identical open PR already exists: ${result.prUrl} — skipped duplicate.`
-        : result.prUrl
-          ? `Pull Request opened (direct push blocked): ${result.prUrl} — merge to apply. Counted as applied, pending merge.`
-          : `Committed to review branch for ${opts.path} — open/merge the PR to apply.`,
-    }
-  }
   return {
     success: true,
     pending: true,
@@ -480,8 +285,7 @@ function applyResultFromCommit(
 export const githubAdapter: CMSAdapter = {
   platform: 'github',
   serverVerifiable: true,
-  // Commits trigger a rebuild (Vercel/Pages/Netlify) that takes minutes, and
-  // review-required fixes wait on a human merge.
+  // Commits trigger a rebuild (Vercel/Pages/Netlify) that takes minutes.
   deferredVerification: true,
 
   async verifyConnection(creds) {
@@ -551,7 +355,6 @@ export const githubAdapter: CMSAdapter = {
     const result = await commitFileChange(
       creds, page.id, newContent, fileData.sha,
       `RANKO: add JSON-LD schema to ${page.id}`,
-      'safe',
     )
 
     return applyResultFromCommit(result, { branch: creds.branch || 'main', path: page.id })
@@ -570,12 +373,9 @@ export const githubAdapter: CMSAdapter = {
 
     const newContent = position === 'start' ? html + fileData.content : fileData.content + html
 
-    // Visible content changes open a PR — Git's own review flow as RANKO's
-    // "propose" step, rather than committing straight to the live branch.
     const result = await commitFileChange(
       creds, page.id, newContent, fileData.sha,
       `RANKO: content fix for ${page.id}`,
-      'review-required',
     )
 
     return applyResultFromCommit(result, { branch: creds.branch || 'main', path: page.id })
@@ -589,14 +389,12 @@ export const githubAdapter: CMSAdapter = {
     if (!fileData) return { success: false, error: 'Could not re-read the file before committing.' }
     if (fileData.content === newHtml) return { success: true, skipped: true }
 
-    const risk = opts?.riskLevel || 'safe'
     const result = await commitFileChange(
       creds,
       page.id,
       newHtml,
       fileData.sha,
       opts?.commitMessage || `SEORANKO Fix Agent: update ${page.id}`,
-      risk,
     )
     return applyResultFromCommit(result, { branch: creds.branch || 'main', path: page.id })
   },
@@ -626,7 +424,6 @@ export const githubAdapter: CMSAdapter = {
       content,
       sha,
       opts?.commitMessage || `SEORANKO Fix Agent: add ${path}`,
-      'safe',
     )
     return applyResultFromCommit(result, { branch: creds.branch || 'main', path })
   },
@@ -649,7 +446,6 @@ export const githubAdapter: CMSAdapter = {
         created.content,
         '',
         opts?.commitMessage || `SEORANKO: redirect ${fromUrl} → ${toUrl}`,
-        'safe',
       )
       return applyResultFromCommit(result, { branch: creds.branch || 'main', path })
     }
@@ -671,7 +467,6 @@ export const githubAdapter: CMSAdapter = {
       merged.content,
       fileData.sha,
       opts?.commitMessage || `SEORANKO: redirect ${fromUrl} → ${toUrl}`,
-      'safe',
     )
     const mapped = applyResultFromCommit(result, {
       branch: creds.branch || 'main',
@@ -704,7 +499,6 @@ export const githubAdapter: CMSAdapter = {
         created.content,
         '',
         opts?.commitMessage || 'SEORANKO Fix Agent: add security headers',
-        'safe',
       )
       return applyResultFromCommit(result, { branch: creds.branch || 'main', path })
     }
@@ -727,7 +521,6 @@ export const githubAdapter: CMSAdapter = {
       merged.content,
       fileData.sha,
       opts?.commitMessage || 'SEORANKO Fix Agent: security headers',
-      'safe',
     )
     const mapped = applyResultFromCommit(result, {
       branch: creds.branch || 'main',

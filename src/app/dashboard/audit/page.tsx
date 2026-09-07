@@ -157,8 +157,11 @@ function attemptWritePathLabel(a: FixAttempt): string {
   ]
     .filter(Boolean)
     .join(' ')
-  if (/Direct push blocked[\s\S]*PR fallback/i.test(blob)) {
+  if (/Direct push blocked[\s\S]*PR fallback also failed/i.test(blob)) {
     return 'Direct push blocked → PR-fallback attempt'
+  }
+  if (/PR fallback is disabled/i.test(blob)) {
+    return 'Direct-push attempt'
   }
   if (/seoranko-fix|review branch|commit to review branch|Pull Request could not be opened/i.test(blob)) {
     return 'PR-fallback attempt'

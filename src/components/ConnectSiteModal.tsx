@@ -86,7 +86,7 @@ const PLATFORM_FIELDS: Record<Exclude<ConnectPlatform, 'universal-tag'>, { help:
           github.com/settings/tokens
         </a>{' '}
         scoped to the repository that builds this live site, with{' '}
-        <strong>Contents: Read and write</strong> (and Pull requests: Read and write for review-required fixes).
+        <strong>Contents: Read and write</strong> on the default branch (Fix Agent pushes directly — no PR fallback).
       </>
     ),
     fields: [
@@ -95,7 +95,7 @@ const PLATFORM_FIELDS: Record<Exclude<ConnectPlatform, 'universal-tag'>, { help:
       { key: 'branch', label: 'Branch', placeholder: 'main', optional: true },
       { key: 'accessToken', label: 'Access token', placeholder: 'github_pat_…', secret: true },
     ],
-    footnote: 'Safe fixes (schema, llms.txt) commit directly. Visible content changes open a Pull Request for review.',
+    footnote: 'All Fix Agent changes commit directly to the default branch. Do not enable “require a pull request” branch protection on that branch for the connected token.',
   },
   webflow: {
     help: (
