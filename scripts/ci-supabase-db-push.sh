@@ -1,36 +1,49 @@
 #!/usr/bin/env bash
 # Apply pending Supabase migrations to the hosted project (merge-to-main CI).
-# Required GitHub Actions secrets:
-#   SUPABASE_ACCESS_TOKEN  — https://supabase.com/dashboard/account/tokens
-#   SUPABASE_PROJECT_REF   — e.g. ddfboapzwclecbdjoqex
-#   SUPABASE_DB_PASSWORD   — database password for the project
+#
+# Preferred (fewest secrets): SUPABASE_DB_PASSWORD only.
+# Optional overrides: SUPABASE_PROJECT_REF, SUPABASE_DB_URL / DATABASE_URL,
+# SUPABASE_ACCESS_TOKEN (only if using `supabase link` instead of --db-url).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-missing=()
-[[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]] || missing+=(SUPABASE_ACCESS_TOKEN)
-[[ -n "${SUPABASE_PROJECT_REF:-}" ]] || missing+=(SUPABASE_PROJECT_REF)
-[[ -n "${SUPABASE_DB_PASSWORD:-}" ]] || missing+=(SUPABASE_DB_PASSWORD)
+# Public project ref for this repo's hosted Supabase (also in docs/).
+PROJECT_REF="${SUPABASE_PROJECT_REF:-ddfboapzwclecbdjoqex}"
 
-if ((${#missing[@]} > 0)); then
-  echo "::error::Missing required secrets for hosted migration apply: ${missing[*]}"
-  echo "Add them under GitHub → Settings → Secrets and variables → Actions,"
-  echo "then re-run this workflow. Until then, migrations can still land in git"
-  echo "without being applied — the failure mode this job exists to prevent."
+DB_URL="${SUPABASE_DB_URL:-${DATABASE_URL:-}}"
+if [[ -z "$DB_URL" && -n "${SUPABASE_DB_PASSWORD:-}" ]]; then
+  # Direct Postgres connection (Supabase hosted). Password must be URL-encoded if special chars.
+  enc_pass=$(
+    python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["SUPABASE_DB_PASSWORD"], safe=""))'
+  )
+  DB_URL="postgresql://postgres:${enc_pass}@db.${PROJECT_REF}.supabase.co:5432/postgres"
+fi
+
+if [[ -z "$DB_URL" && -z "${SUPABASE_ACCESS_TOKEN:-}" ]]; then
+  echo "::error::Missing credentials for hosted migration apply."
+  echo "Set repo Actions secret SUPABASE_DB_PASSWORD (Database settings → Database password)"
+  echo "OR set SUPABASE_DB_URL / DATABASE_URL to a Postgres connection string,"
+  echo "OR set SUPABASE_ACCESS_TOKEN + SUPABASE_DB_PASSWORD for supabase link."
+  echo "Optional: SUPABASE_PROJECT_REF (defaults to ${PROJECT_REF})."
   exit 1
 fi
 
-export SUPABASE_ACCESS_TOKEN
+npx --yes supabase@2.116.0 --version
 
-npx --yes supabase@2.116.0 link --project-ref "$SUPABASE_PROJECT_REF" -p "$SUPABASE_DB_PASSWORD"
-echo "Linked project $SUPABASE_PROJECT_REF — migration list before push:"
-npx --yes supabase@2.116.0 migration list || true
+if [[ -n "$DB_URL" ]]; then
+  echo "Applying migrations via --db-url (project ${PROJECT_REF})"
+  npx --yes supabase@2.116.0 db push --yes --db-url "$DB_URL"
+else
+  export SUPABASE_ACCESS_TOKEN
+  echo "Linking project ${PROJECT_REF} via access token…"
+  npx --yes supabase@2.116.0 link --project-ref "$PROJECT_REF" -p "$SUPABASE_DB_PASSWORD"
+  echo "Migration list before push:"
+  npx --yes supabase@2.116.0 migration list || true
+  npx --yes supabase@2.116.0 db push --yes -p "$SUPABASE_DB_PASSWORD"
+  echo "Migration list after push:"
+  npx --yes supabase@2.116.0 migration list || true
+fi
 
-# Push only migrations not yet recorded in schema_migrations.
-npx --yes supabase@2.116.0 db push --yes -p "$SUPABASE_DB_PASSWORD"
-
-echo "Migration list after push:"
-npx --yes supabase@2.116.0 migration list || true
-echo "Hosted schema is now in sync with supabase/migrations."
+echo "Hosted schema sync attempted for ${PROJECT_REF}."

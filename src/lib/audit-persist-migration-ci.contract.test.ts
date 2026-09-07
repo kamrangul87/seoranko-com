@@ -13,22 +13,20 @@ describe('migration CI contract (merge-to-main auto-apply)', () => {
     expect(yml).toMatch(/branches:\s*\[main\]/)
     expect(yml).toMatch(/workflow_dispatch/)
     expect(yml).toMatch(/scripts\/ci-supabase-db-push\.sh/)
-    expect(yml).toMatch(/secrets\.SUPABASE_ACCESS_TOKEN/)
-    expect(yml).toMatch(/secrets\.SUPABASE_PROJECT_REF/)
     expect(yml).toMatch(/secrets\.SUPABASE_DB_PASSWORD/)
     expect(yml).toMatch(/db push|ci-supabase-db-push/)
     // Must not be path-filtered away — every merge to main re-syncs schema.
     expect(yml).not.toMatch(/paths:/)
   })
 
-  it('fails loudly when required secrets are missing (no silent skip)', () => {
+  it('fails loudly when DB password / URL credentials are missing', () => {
     const sh = readFileSync(join(root, 'scripts/ci-supabase-db-push.sh'), 'utf8')
-    expect(sh).toMatch(/SUPABASE_ACCESS_TOKEN/)
-    expect(sh).toMatch(/SUPABASE_PROJECT_REF/)
     expect(sh).toMatch(/SUPABASE_DB_PASSWORD/)
-    expect(sh).toMatch(/exit 1/)
     expect(sh).toMatch(/db push/)
-    expect(sh).toMatch(/Missing required secrets/)
+    expect(sh).toMatch(/--db-url/)
+    expect(sh).toMatch(/ddfboapzwclecbdjoqex/)
+    expect(sh).toMatch(/exit 1/)
+    expect(sh).toMatch(/Missing credentials/)
   })
 })
 
