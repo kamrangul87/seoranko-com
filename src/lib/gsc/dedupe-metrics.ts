@@ -100,7 +100,8 @@ export function buildDedupedUrlMetricsUpserts(
 
   const collisions: MetricsDedupeCollision[] = []
   const out: UrlMetricsUpsertRow[] = []
-  for (const acc of map.values()) {
+  const merged = Array.from(map.values())
+  for (const acc of merged) {
     const avg_position =
       acc.impressions > 0 ? acc.positionWeighted / acc.impressions : 0
     const ctr = acc.impressions > 0 ? acc.clicks / acc.impressions : 0
