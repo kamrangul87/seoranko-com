@@ -99,6 +99,9 @@ describe('GitHub writeStaticFile PR fallback', () => {
         if (method === 'GET' && /\/git\/trees\//.test(url)) {
           return new Response(JSON.stringify({ tree: [] }), { status: 200 })
         }
+        if (method === 'GET' && url.includes('/pulls')) {
+          return new Response(JSON.stringify([]), { status: 200 })
+        }
         if (method === 'GET' && url.includes('/contents/')) {
           return new Response(JSON.stringify({ message: 'Not Found' }), { status: 404 })
         }
@@ -185,6 +188,149 @@ describe('GitHub writeStaticFile PR fallback', () => {
     expect(result.pending).toBe(true)
     expect(result.pendingKind).toBe('deploy')
     expect(result.detail).toMatch(/Committed|Awaiting host rebuild/i)
+  })
+
+  it('reuses an identical open Fix Agent PR instead of opening a duplicate', async () => {
+    const commitMessage = 'SEORANKO Fix Agent: rewrite 2 link href(s) on public/blog/index.html'
+    let putOnMain = 0
+    let prCreates = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        const method = (init?.method || 'GET').toUpperCase()
+        let body: Record<string, unknown> | undefined
+        if (init?.body && typeof init.body === 'string') {
+          try {
+            body = JSON.parse(init.body) as Record<string, unknown>
+          } catch {
+            body = undefined
+          }
+        }
+
+        if (method === 'GET' && url.includes('/pulls')) {
+          return new Response(
+            JSON.stringify([
+              {
+                number: 8,
+                title: commitMessage,
+                html_url: 'https://github.com/acme/site/pull/8',
+              },
+            ]),
+            { status: 200 },
+          )
+        }
+        if (method === 'GET' && url.includes('/contents/public/blog/index.html')) {
+          return new Response(
+            JSON.stringify({
+              content: Buffer.from('<a href="/old">x</a>', 'utf-8').toString('base64'),
+              sha: 'sha-old',
+              encoding: 'base64',
+            }),
+            { status: 200 },
+          )
+        }
+        if (method === 'PUT' && url.includes('/contents/') && body?.branch === 'main') {
+          putOnMain += 1
+          return new Response(
+            JSON.stringify({ message: 'Resource not accessible by integration' }),
+            { status: 403 },
+          )
+        }
+        if (method === 'POST' && url.endsWith('/pulls')) {
+          prCreates += 1
+          return new Response(JSON.stringify({ html_url: 'https://github.com/acme/site/pull/99' }), {
+            status: 201,
+          })
+        }
+        return new Response(JSON.stringify({ message: `unexpected ${method} ${url}` }), {
+          status: 500,
+        })
+      }),
+    )
+
+    const result = await githubAdapter.rewritePageHtml!(
+      testCreds,
+      {
+        id: 'public/blog/index.html',
+        url: 'https://example.com/blog/',
+        title: 'Blog',
+        bodyHtml: '<a href="/new">x</a>',
+        hasSchema: false,
+      },
+      '<a href="/new">x</a>',
+      { riskLevel: 'safe', commitMessage },
+    )
+
+    expect(putOnMain).toBe(1)
+    expect(prCreates).toBe(0)
+    expect(result.success).toBe(true)
+    expect(result.skipped).toBe(true)
+    expect(result.pendingKind).toBe('merge')
+    expect(result.url).toBe('https://github.com/acme/site/pull/8')
+    expect(result.detail).toMatch(/already exists|skipped duplicate/i)
+  })
+
+  it('link-href style rewrite with riskLevel safe direct-pushes when Contents write works', async () => {
+    const puts: Array<Record<string, unknown> | undefined> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        const method = (init?.method || 'GET').toUpperCase()
+        let body: Record<string, unknown> | undefined
+        if (init?.body && typeof init.body === 'string') {
+          try {
+            body = JSON.parse(init.body) as Record<string, unknown>
+          } catch {
+            body = undefined
+          }
+        }
+        if (method === 'GET' && url.includes('/contents/')) {
+          return new Response(
+            JSON.stringify({
+              content: Buffer.from('<a href="/old">x</a>', 'utf-8').toString('base64'),
+              sha: 'sha1',
+              encoding: 'base64',
+            }),
+            { status: 200 },
+          )
+        }
+        if (method === 'PUT' && url.includes('/contents/')) {
+          puts.push(body)
+          return new Response(JSON.stringify({ content: { path: 'public/blog/index.html' } }), {
+            status: 201,
+          })
+        }
+        if (method === 'POST' && url.endsWith('/pulls')) {
+          throw new Error('must not open PR when direct push succeeds')
+        }
+        return new Response(JSON.stringify({ message: `unexpected ${method} ${url}` }), {
+          status: 500,
+        })
+      }),
+    )
+
+    const result = await githubAdapter.rewritePageHtml!(
+      testCreds,
+      {
+        id: 'public/blog/index.html',
+        url: 'https://example.com/blog/',
+        title: 'Blog',
+        bodyHtml: '<a href="/old">x</a>',
+        hasSchema: false,
+      },
+      '<a href="/new">x</a>',
+      {
+        riskLevel: 'safe',
+        commitMessage: 'SEORANKO Fix Agent: rewrite 1 link href(s) on public/blog/index.html',
+      },
+    )
+
+    expect(result.success).toBe(true)
+    expect(result.pendingKind).toBe('deploy')
+    expect(puts).toHaveLength(1)
+    expect(puts[0]?.branch).toBe('main')
   })
 })
 

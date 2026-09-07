@@ -51,6 +51,8 @@ import {
   harvestOriginsFromHtml,
   newOriginsNotInAllowlist,
 } from '@/lib/csp/build-policy'
+import { findBlockingAttempt } from '@/lib/fix-agent-idempotency'
+import { findOpenDuplicateFixPr } from '@/lib/site-adapters/github-adapter'
 
 const MAX_ATTEMPTS_PER_ISSUE = 3
 const RATE_LIMIT_PER_HOUR = 20
@@ -745,7 +747,8 @@ function buildStrategies(
             if (!mut.changed) continue
             beforeSnaps.push(`<!-- ${sourceUrl} -->\n${sourcePage.bodyHtml}`)
             lastApply = await adapter.rewritePageHtml(creds, sourcePage, mut.html, {
-              riskLevel: 'review-required',
+              // Mechanical href rewrite — try direct push; PR only if GitHub blocks it.
+              riskLevel: 'safe',
               commitMessage: `SEORANKO Fix Agent: rewrite ${mut.replaced} link href(s) on ${sourcePage.id}`,
             })
             afterSnaps.push(`<!-- ${sourceUrl} -->\n${mut.html}`)
@@ -803,7 +806,7 @@ case 'remove-dead-link': {
             if (!mut.changed) continue
             beforeSnaps.push(sourcePage.bodyHtml)
             lastApply = await adapter.rewritePageHtml(creds, sourcePage, mut.html, {
-              riskLevel: 'review-required',
+              riskLevel: 'safe',
               commitMessage: `SEORANKO Fix Agent: remove dead link to ${deadUrl} from ${sourcePage.id}`,
             })
             afterSnaps.push(mut.html)
@@ -1042,9 +1045,129 @@ export async function runFixAgent(opts: {
     ? { ...page, bodyHtml: page.bodyHtml }
     : null
 
+  // Recent attempts for this site — used to skip identical in-flight / verified fixes.
+  const { data: recentAttempts } = await opts.supabase
+    .from('fix_agent_attempts')
+    .select(
+      'id, issue_key, issue_id, auto_kind, status, target_url, diff_summary, verification_detail, created_at',
+    )
+    .eq('site_id', owned.siteId)
+    .order('created_at', { ascending: false })
+    .limit(100)
+  const priorAttempts = Array.isArray(recentAttempts) ? recentAttempts : []
+
   for (const item of autoIssues) {
     const kind = item.autoKind!
     if (!workingPage && !SITE_WIDE_AUTO_KINDS.has(kind)) continue
+
+    const issueKey = deriveIssueKey({
+      category: item.issue.category || kind,
+      message: item.issue.title || item.issue.description || kind,
+    })
+    const blocking = findBlockingAttempt(priorAttempts, {
+      issueKey,
+      issueId: item.issue.id,
+      autoKind: kind,
+      targetPath: item.issue.fixMetadata?.sourceUrls?.[0] || opts.auditUrl,
+    })
+    if (blocking) {
+      const id = await logAttempt(opts.supabase, {
+        user_id: opts.userId,
+        site_id: owned.siteId,
+        connection_id: owned.connectionId,
+        target_url: opts.auditUrl,
+        issue_id: item.issue.id,
+        issue_key: issueKey,
+        issue_title: item.issue.title,
+        auto_kind: kind,
+        strategy: 'idempotency-skip',
+        attempt_number: 1,
+        status: 'skipped',
+        verification_detail: `Identical fix already ${blocking.status} (attempt ${blocking.id || 'prior'}) — not re-opening.`,
+        score_before: scoreBefore,
+        score_after: null,
+      })
+      applied.push({
+        id: id || '',
+        issueId: item.issue.id,
+        issueTitle: item.issue.title,
+        autoKind: kind,
+        strategy: 'idempotency-skip',
+        attemptNumber: 1,
+        status: 'skipped',
+        diffSummary: null,
+        verificationDetail: `Identical fix already ${blocking.status} — skipped duplicate.`,
+        errorMessage: null,
+        issueKey,
+        revertible: false,
+        scoreBefore,
+        scoreAfter: null,
+      })
+      continue
+    }
+
+    // GitHub: if an open PR already has this exact Fix Agent title, skip without writing.
+    if (owned.cmsType === 'github' && (kind === 'rewrite-link-href' || kind === 'remove-dead-link')) {
+      const meta = item.issue.fixMetadata
+      const samplePath =
+        meta?.hrefFixes?.[0]?.sourceUrl ||
+        meta?.sourceUrls?.[0] ||
+        opts.auditUrl
+      // Title pattern matches what rewritePageHtml commits — approximate from path id
+      // after findPageContent; here we only catch exact prior commit titles stored in attempts.
+      const priorTitle = priorAttempts.find(
+        (a: { auto_kind?: string; status?: string; diff_summary?: string | null }) =>
+          a.auto_kind === kind &&
+          (a.status === 'pending_merge' || a.status === 'pending_deploy') &&
+          typeof a.diff_summary === 'string' &&
+          /SEORANKO Fix Agent:/i.test(a.diff_summary),
+      )?.diff_summary
+      if (priorTitle && typeof priorTitle === 'string') {
+        const firstLine = priorTitle.split('\n')[0]
+        try {
+          const dupPr = await findOpenDuplicateFixPr(creds, firstLine)
+          if (dupPr) {
+            const id = await logAttempt(opts.supabase, {
+              user_id: opts.userId,
+              site_id: owned.siteId,
+              connection_id: owned.connectionId,
+              target_url: samplePath,
+              issue_id: item.issue.id,
+              issue_key: issueKey,
+              issue_title: item.issue.title,
+              auto_kind: kind,
+              strategy: 'idempotency-open-pr',
+              attempt_number: 1,
+              status: 'skipped',
+              verification_detail: `Open PR #${dupPr.number} already covers this fix: ${dupPr.htmlUrl}`,
+              score_before: scoreBefore,
+              score_after: null,
+            })
+            applied.push({
+              id: id || '',
+              issueId: item.issue.id,
+              issueTitle: item.issue.title,
+              autoKind: kind,
+              strategy: 'idempotency-open-pr',
+              attemptNumber: 1,
+              status: 'skipped',
+              diffSummary: null,
+              verificationDetail: `Open PR #${dupPr.number} already covers this fix.`,
+              errorMessage: null,
+              issueKey,
+              pendingKind: 'merge',
+              pendingUrl: dupPr.htmlUrl,
+              revertible: false,
+              scoreBefore,
+              scoreAfter: null,
+            })
+            continue
+          }
+        } catch {
+          /* ignore — write path still has PR-title dedupe */
+        }
+      }
+    }
 
     const strategies = buildStrategies(
       kind,

@@ -18,6 +18,10 @@ import {
 } from './types'
 import { mergeNextConfigRedirect, mergeVercelJsonRedirect } from '../fix-agent-redirect'
 import { mergeNextConfigHeaders, mergeVercelJsonHeaders } from '../fix-agent-headers'
+import {
+  fixContentFingerprint,
+  isDuplicateFixPrTitle,
+} from '../fix-agent-idempotency'
 
 const GH = 'https://api.github.com'
 
@@ -175,10 +179,37 @@ async function getFileContent(
 
 /** Direct push to default branch blocked — fall back to seoranko-fix-* + PR. */
 export function isDirectPushBlocked(status: number, message: string): boolean {
+  // Auth / policy failures only — not "we prefer PRs". 401 = bad token (no point
+  // falling back to PR with the same token); caller treats that as hard fail.
   if ([403, 404, 409, 422].includes(status)) return true
   return /protected branch|cannot be updated|not authorized|resource not accessible|required status checks?|pull request|refusing to allow|enforcing policies/i.test(
     message,
   )
+}
+
+/** List open Fix Agent PRs and return one that already covers this commit title/path. */
+export async function findOpenDuplicateFixPr(
+  creds: SiteCredentials,
+  commitMessage: string,
+): Promise<{ htmlUrl: string; number: number; title: string } | null> {
+  const headers = ghHeaders(creds.accessToken!)
+  const res = await fetch(
+    `${GH}/repos/${creds.owner}/${creds.repo}/pulls?state=open&per_page=50`,
+    { headers, signal: AbortSignal.timeout(15000) },
+  )
+  if (!res.ok) return null
+  const prs = (await res.json().catch(() => [])) as Array<{
+    html_url?: string
+    number?: number
+    title?: string
+  }>
+  if (!Array.isArray(prs)) return null
+  for (const pr of prs) {
+    if (!pr.title || !pr.html_url || !pr.number) continue
+    if (!isDuplicateFixPrTitle(pr.title, commitMessage)) continue
+    return { htmlUrl: pr.html_url, number: pr.number, title: pr.title }
+  }
+  return null
 }
 
 type CommitFileResult = {
@@ -187,6 +218,8 @@ type CommitFileResult = {
   prUrl?: string
   /** true when write landed via seoranko-fix-* branch + PR instead of default branch */
   viaPr?: boolean
+  /** true when an existing open PR was reused instead of opening a new one */
+  skippedDuplicate?: boolean
 }
 
 async function commitViaPullRequest(
@@ -200,6 +233,17 @@ async function commitViaPullRequest(
   const branch = creds.branch || 'main'
   const targetBranch = `seoranko-fix-${branchSuffix}`
   const headers = ghHeaders(creds.accessToken!)
+
+  // Idempotency: identical open PR already covers this fix.
+  const dup = await findOpenDuplicateFixPr(creds, commitMessage)
+  if (dup) {
+    return {
+      success: true,
+      prUrl: dup.htmlUrl,
+      viaPr: true,
+      skippedDuplicate: true,
+    }
+  }
 
   const refRes = await fetch(
     `${GH}/repos/${creds.owner}/${creds.repo}/git/ref/heads/${encodeURIComponent(branch)}`,
@@ -280,8 +324,13 @@ async function commitViaPullRequest(
       if (listRes.ok) {
         const prs = await listRes.json().catch(() => [])
         if (Array.isArray(prs) && prs[0]?.html_url) {
-          return { success: true, prUrl: prs[0].html_url, viaPr: true }
+          return { success: true, prUrl: prs[0].html_url, viaPr: true, skippedDuplicate: true }
         }
+      }
+      // Title collision on a different head — reuse that open PR rather than failing.
+      const byTitle = await findOpenDuplicateFixPr(creds, commitMessage)
+      if (byTitle) {
+        return { success: true, prUrl: byTitle.htmlUrl, viaPr: true, skippedDuplicate: true }
       }
     }
     const err = await prRes.json().catch(() => ({}))
@@ -294,6 +343,27 @@ async function commitViaPullRequest(
   return { success: true, prUrl: prData.html_url, viaPr: true }
 }
 
+async function putContentsFile(
+  creds: SiteCredentials,
+  path: string,
+  newContent: string,
+  sha: string,
+  commitMessage: string,
+  branch: string,
+): Promise<Response> {
+  return fetch(`${GH}/repos/${creds.owner}/${creds.repo}/contents/${path}`, {
+    method: 'PUT',
+    headers: ghHeaders(creds.accessToken!),
+    body: JSON.stringify({
+      message: commitMessage,
+      content: Buffer.from(newContent, 'utf-8').toString('base64'),
+      ...(sha ? { sha } : {}),
+      branch,
+    }),
+    signal: AbortSignal.timeout(20000),
+  })
+}
+
 async function commitFileChange(
   creds: SiteCredentials,
   path: string,
@@ -301,29 +371,42 @@ async function commitFileChange(
   currentSha: string,
   commitMessage: string,
   riskLevel: 'safe' | 'review-required',
-  branchSuffix: string,
 ): Promise<CommitFileResult> {
   const branch = creds.branch || 'main'
-  const headers = ghHeaders(creds.accessToken!)
-  const uniqueSuffix = `${branchSuffix}-${Date.now().toString(36).slice(-4)}`
+  // Deterministic branch id from path+content so retries reuse the same branch/PR.
+  const contentSuffix = fixContentFingerprint({
+    autoKind: 'github-write',
+    targetPath: path,
+    content: newContent,
+  })
 
   try {
     if (riskLevel !== 'safe') {
-      return commitViaPullRequest(creds, path, newContent, currentSha, commitMessage, uniqueSuffix)
+      return commitViaPullRequest(
+        creds,
+        path,
+        newContent,
+        currentSha,
+        commitMessage,
+        contentSuffix,
+      )
     }
 
     // Prefer direct push to default branch (goes live after rebuild).
-    const commitRes = await fetch(`${GH}/repos/${creds.owner}/${creds.repo}/contents/${path}`, {
-      method: 'PUT',
-      headers,
-      body: JSON.stringify({
-        message: commitMessage,
-        content: Buffer.from(newContent, 'utf-8').toString('base64'),
-        ...(currentSha ? { sha: currentSha } : {}),
-        branch,
-      }),
-      signal: AbortSignal.timeout(20000),
-    })
+    let sha = currentSha
+    let commitRes = await putContentsFile(creds, path, newContent, sha, commitMessage, branch)
+
+    // SHA race / conflict — refresh once, then decide.
+    if (!commitRes.ok && (commitRes.status === 409 || commitRes.status === 422)) {
+      const fresh = await getFileContent(creds, path)
+      if (fresh) {
+        if (fresh.content === newContent) {
+          return { success: true, viaPr: false }
+        }
+        sha = fresh.sha
+        commitRes = await putContentsFile(creds, path, newContent, sha, commitMessage, branch)
+      }
+    }
 
     if (commitRes.ok) {
       return { success: true, viaPr: false }
@@ -333,15 +416,15 @@ async function commitFileChange(
     const message = String(err.message || `GitHub commit failed (${commitRes.status})`)
     const withStatus = /\(\d{3}\)/.test(message) ? message : `${message} (HTTP ${commitRes.status})`
 
-    // Branch protection / missing push → open seoranko-fix-* PR instead of silent failure.
+    // Genuine block (auth / branch protection) → PR fallback. Not a default path.
     if (isDirectPushBlocked(commitRes.status, message)) {
       const viaPr = await commitViaPullRequest(
         creds,
         path,
         newContent,
-        currentSha,
+        sha,
         commitMessage,
-        uniqueSuffix,
+        contentSuffix,
       )
       if (viaPr.success) return viaPr
       return {
@@ -378,9 +461,12 @@ function applyResultFromCommit(
       pending: true,
       pendingKind: 'merge',
       url: result.prUrl,
-      detail: result.prUrl
-        ? `Pull Request opened (direct push blocked): ${result.prUrl} — merge to apply. Counted as applied, pending merge.`
-        : `Committed to review branch for ${opts.path} — open/merge the PR to apply.`,
+      skipped: result.skippedDuplicate === true,
+      detail: result.skippedDuplicate
+        ? `Identical open PR already exists: ${result.prUrl} — skipped duplicate.`
+        : result.prUrl
+          ? `Pull Request opened (direct push blocked): ${result.prUrl} — merge to apply. Counted as applied, pending merge.`
+          : `Committed to review branch for ${opts.path} — open/merge the PR to apply.`,
     }
   }
   return {
@@ -466,7 +552,6 @@ export const githubAdapter: CMSAdapter = {
       creds, page.id, newContent, fileData.sha,
       `RANKO: add JSON-LD schema to ${page.id}`,
       'safe',
-      String(fileData.sha).slice(0, 8)
     )
 
     return applyResultFromCommit(result, { branch: creds.branch || 'main', path: page.id })
@@ -491,7 +576,6 @@ export const githubAdapter: CMSAdapter = {
       creds, page.id, newContent, fileData.sha,
       `RANKO: content fix for ${page.id}`,
       'review-required',
-      String(fileData.sha).slice(0, 8)
     )
 
     return applyResultFromCommit(result, { branch: creds.branch || 'main', path: page.id })
@@ -513,7 +597,6 @@ export const githubAdapter: CMSAdapter = {
       fileData.sha,
       opts?.commitMessage || `SEORANKO Fix Agent: update ${page.id}`,
       risk,
-      String(fileData.sha).slice(0, 8),
     )
     return applyResultFromCommit(result, { branch: creds.branch || 'main', path: page.id })
   },
@@ -544,7 +627,6 @@ export const githubAdapter: CMSAdapter = {
       sha,
       opts?.commitMessage || `SEORANKO Fix Agent: add ${path}`,
       'safe',
-      `${path.replace(/[^\w]+/g, '-').slice(0, 24)}-${(sha || 'new').slice(0, 6)}`,
     )
     return applyResultFromCommit(result, { branch: creds.branch || 'main', path })
   },
@@ -568,7 +650,6 @@ export const githubAdapter: CMSAdapter = {
         '',
         opts?.commitMessage || `SEORANKO: redirect ${fromUrl} → ${toUrl}`,
         'safe',
-        `redirect-${Date.now().toString(36).slice(-6)}`,
       )
       return applyResultFromCommit(result, { branch: creds.branch || 'main', path })
     }
@@ -591,7 +672,6 @@ export const githubAdapter: CMSAdapter = {
       fileData.sha,
       opts?.commitMessage || `SEORANKO: redirect ${fromUrl} → ${toUrl}`,
       'safe',
-      String(fileData.sha).slice(0, 8),
     )
     const mapped = applyResultFromCommit(result, {
       branch: creds.branch || 'main',
@@ -625,7 +705,6 @@ export const githubAdapter: CMSAdapter = {
         '',
         opts?.commitMessage || 'SEORANKO Fix Agent: add security headers',
         'safe',
-        `sec-headers-${Date.now().toString(36).slice(-6)}`,
       )
       return applyResultFromCommit(result, { branch: creds.branch || 'main', path })
     }
@@ -649,7 +728,6 @@ export const githubAdapter: CMSAdapter = {
       fileData.sha,
       opts?.commitMessage || 'SEORANKO Fix Agent: security headers',
       'safe',
-      String(fileData.sha).slice(0, 8),
     )
     const mapped = applyResultFromCommit(result, {
       branch: creds.branch || 'main',
