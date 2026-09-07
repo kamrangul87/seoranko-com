@@ -4,6 +4,8 @@ import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { getSiteConnectionStatus } from '@/lib/site-connection-lookup'
 
+export const dynamic = 'force-dynamic'
+
 /** GET ?url= — whether the audited URL has an active owned site connection (no secrets). */
 export async function GET(req: NextRequest) {
   try {

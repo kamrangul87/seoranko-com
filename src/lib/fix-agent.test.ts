@@ -231,4 +231,21 @@ describe('site-connection-crypto', () => {
     const wrapped = loadConnectionCredentials({ credentials: { __ciphertext: enc } })
     expect(wrapped.accessToken).toBe('x')
   })
+
+  it('throws when SITE_CONNECTION_ENCRYPTION_KEY is missing (no service-role fallback)', () => {
+    const prevEnc = process.env.SITE_CONNECTION_ENCRYPTION_KEY
+    const prevSr = process.env.SUPABASE_SERVICE_ROLE_KEY
+    delete process.env.SITE_CONNECTION_ENCRYPTION_KEY
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-must-not-be-used-as-crypto-key'
+    try {
+      expect(() => encryptCredentialsJson({ refresh_token: 'x' })).toThrow(
+        /SITE_CONNECTION_ENCRYPTION_KEY is required/,
+      )
+    } finally {
+      if (prevEnc === undefined) delete process.env.SITE_CONNECTION_ENCRYPTION_KEY
+      else process.env.SITE_CONNECTION_ENCRYPTION_KEY = prevEnc
+      if (prevSr === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY
+      else process.env.SUPABASE_SERVICE_ROLE_KEY = prevSr
+    }
+  })
 })

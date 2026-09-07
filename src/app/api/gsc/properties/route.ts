@@ -5,6 +5,8 @@ import { cookies } from 'next/headers'
 import { decryptGscRefreshToken, refreshGscAccessToken } from '@/lib/gsc/oauth'
 import { listGscSites } from '@/lib/gsc/client'
 
+export const dynamic = 'force-dynamic'
+
 /** GET ?siteId= — list Search Console properties the connected account can access. */
 export async function GET(req: NextRequest) {
   try {

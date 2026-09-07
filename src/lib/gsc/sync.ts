@@ -16,6 +16,7 @@ import {
   GscApiError,
 } from '@/lib/gsc/client'
 import { evaluateBaselineReadiness } from '@/lib/gsc/baseline-readiness'
+import { filterRowsToKnownUrls, loadKnownUrlsForSite } from '@/lib/gsc/known-urls'
 
 export type GscSyncResult = {
   siteId: string
@@ -24,6 +25,10 @@ export type GscSyncResult = {
   endDate: string
   rowsUpserted: number
   pagesFetched: number
+  /** GSC rows dropped because the page was not in the crawl/sitemap allowlist. */
+  rowsDroppedOutsideCrawl?: number
+  knownUrlSource?: string
+  knownUrlCount?: number
   readinessPassed: boolean
   readinessReason: string
   error?: string
@@ -149,29 +154,60 @@ export async function syncGscConnection(
     }
   }
 
+  const known = await loadKnownUrlsForSite(supabase, {
+    siteId: conn.site_id,
+    userId: conn.user_id,
+  })
+
+  if (known.urls.size === 0) {
+    const message =
+      'No crawl/sitemap URL set found for this site. Run Site Audit (Index Diagnosis) before syncing Search Console metrics.'
+    await supabase
+      .from('gsc_connections')
+      .update({ last_error: message })
+      .eq('id', conn.id)
+    return {
+      siteId: conn.site_id,
+      propertyUrl: conn.property_url,
+      startDate: range.startDate,
+      endDate: range.endDate,
+      rowsUpserted: 0,
+      pagesFetched,
+      rowsDroppedOutsideCrawl: rows.length,
+      knownUrlSource: known.source,
+      knownUrlCount: 0,
+      readinessPassed: false,
+      readinessReason: 'no_crawl_url_set',
+      error: message,
+    }
+  }
+
+  const { kept, dropped } = filterRowsToKnownUrls(
+    rows.filter((r) => r.page && r.date),
+    known.urls,
+  )
+
   const nowIso = new Date().toISOString()
-  const upserts = rows
-    .filter((r) => r.page && r.date)
-    .map((r) => {
-      let url: string
-      try {
-        url = normalizeUrl(r.page)
-      } catch {
-        url = r.page
-      }
-      return {
-        site_id: conn.site_id,
-        url,
-        date: r.date,
-        clicks: Math.round(r.clicks),
-        impressions: Math.round(r.impressions),
-        ctr: r.ctr,
-        avg_position: r.position,
-        query_count: 0,
-        is_final: isGscDateFinal(r.date),
-        ingested_at: nowIso,
-      }
-    })
+  const upserts = kept.map((r) => {
+    let url: string
+    try {
+      url = normalizeUrl(r.page)
+    } catch {
+      url = r.page
+    }
+    return {
+      site_id: conn.site_id,
+      url,
+      date: r.date,
+      clicks: Math.round(r.clicks),
+      impressions: Math.round(r.impressions),
+      ctr: r.ctr,
+      avg_position: r.position,
+      query_count: 0,
+      is_final: isGscDateFinal(r.date),
+      ingested_at: nowIso,
+    }
+  })
 
   let rowsUpserted = 0
   for (const batch of chunk(upserts, 500)) {
@@ -228,6 +264,9 @@ export async function syncGscConnection(
     endDate: range.endDate,
     rowsUpserted,
     pagesFetched,
+    rowsDroppedOutsideCrawl: dropped,
+    knownUrlSource: known.source,
+    knownUrlCount: known.urls.size,
     readinessPassed: readiness.passed,
     readinessReason: readiness.reasonCode,
   }

@@ -1,7 +1,7 @@
 /**
  * Encrypt site-connection credentials at rest (AES-256-GCM).
- * Key: SITE_CONNECTION_ENCRYPTION_KEY (32+ byte secret) or a SHA-256
- * derivation of SUPABASE_SERVICE_ROLE_KEY as fallback (logged once).
+ * Key: SITE_CONNECTION_ENCRYPTION_KEY only (32+ byte secret, SHA-256-hashed to 32 bytes).
+ * Never falls back to SUPABASE_SERVICE_ROLE_KEY.
  */
 
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto'
@@ -9,9 +9,11 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypt
 const PREFIX = 'enc:v1:'
 
 function getKey(): Buffer {
-  const raw = process.env.SITE_CONNECTION_ENCRYPTION_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
+  const raw = process.env.SITE_CONNECTION_ENCRYPTION_KEY?.trim()
   if (!raw) {
-    throw new Error('SITE_CONNECTION_ENCRYPTION_KEY (or SUPABASE_SERVICE_ROLE_KEY) is required to store site credentials')
+    throw new Error(
+      'SITE_CONNECTION_ENCRYPTION_KEY is required to encrypt/decrypt site credentials (including GSC refresh tokens). Set a dedicated 32+ character secret — do not reuse SUPABASE_SERVICE_ROLE_KEY.',
+    )
   }
   return createHash('sha256').update(raw).digest()
 }

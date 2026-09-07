@@ -32,13 +32,30 @@ describe('Causal Experiment Engine PR1 wiring', () => {
   })
 
   it('does not hardcode autodun or UK market defaults in new GSC code', () => {
-    const files = ['oauth.ts', 'client.ts', 'sync.ts', 'baseline-readiness.ts']
+    const files = ['oauth.ts', 'client.ts', 'sync.ts', 'baseline-readiness.ts', 'known-urls.ts']
     for (const f of files) {
       const src = readFileSync(join(__dirname, f), 'utf8')
       expect(src).not.toMatch(/autodun/i)
       expect(src).not.toMatch(/United Kingdom/)
       expect(src).not.toMatch(/locationCode\s*=\s*2826/)
     }
+  })
+
+  it('scopes url_metrics_daily upserts to crawl/sitemap known URLs', () => {
+    const sync = readFileSync(join(__dirname, 'sync.ts'), 'utf8')
+    expect(sync).toMatch(/filterRowsToKnownUrls/)
+    expect(sync).toMatch(/loadKnownUrlsForSite/)
+    expect(sync).toMatch(/no_crawl_url_set/)
+  })
+
+  it('requires SITE_CONNECTION_ENCRYPTION_KEY with no service-role crypto fallback', () => {
+    const crypto = readFileSync(join(root, 'src/lib/site-connection-crypto.ts'), 'utf8')
+    expect(crypto).toMatch(/SITE_CONNECTION_ENCRYPTION_KEY is required/)
+    expect(crypto).toMatch(/Never falls back to SUPABASE_SERVICE_ROLE_KEY/)
+    // getKey must not OR in the service-role key
+    expect(crypto).not.toMatch(
+      /SITE_CONNECTION_ENCRYPTION_KEY\s*\|\|\s*process\.env\.SUPABASE_SERVICE_ROLE_KEY/,
+    )
   })
 
   it('Experiments nav entry exists', () => {

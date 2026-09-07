@@ -12,7 +12,7 @@ Webflow, and Universal Tag (script fallback). Existing connections can be switch
 before upserting `site_connections`.
 
 Stored as AES-256-GCM (`credentials_ciphertext` / `enc:v1:…`). Set
-`SITE_CONNECTION_ENCRYPTION_KEY` (or rely on service-role key derivation).
+`SITE_CONNECTION_ENCRYPTION_KEY` (required — no service-role key fallback).
 
 **GitHub tip:** use the repository that builds the live domain (not this SEORANKO
 app repo). For example, a Vercel-hosted marketing site usually has its own repo

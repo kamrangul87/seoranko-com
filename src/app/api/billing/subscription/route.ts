@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import { DEFAULT_SEORANKO_PLAN_ID, getSeorankoPlan } from '@/lib/stripe/plans'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 
+export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 /**
