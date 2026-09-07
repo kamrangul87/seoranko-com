@@ -46,6 +46,7 @@ describe('Causal Experiment Engine PR1 wiring', () => {
     expect(sync).toMatch(/filterRowsToKnownUrls/)
     expect(sync).toMatch(/loadKnownUrlsForSite/)
     expect(sync).toMatch(/no_crawl_url_set/)
+    expect(sync).toMatch(/buildDedupedUrlMetricsUpserts/)
   })
 
   it('requires SITE_CONNECTION_ENCRYPTION_KEY with no service-role crypto fallback', () => {

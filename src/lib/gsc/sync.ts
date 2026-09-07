@@ -3,7 +3,6 @@
  * GSC → url_metrics_daily sync (idempotent upsert).
  */
 
-import { normalizeUrl } from '@/lib/supabase/audit-db'
 import {
   decryptGscRefreshToken,
   refreshGscAccessToken,
@@ -12,11 +11,11 @@ import {
   fetchSearchAnalyticsPageDate,
   gscAvailableEndDate,
   gscBackfillDateRange,
-  isGscDateFinal,
   GscApiError,
 } from '@/lib/gsc/client'
 import { evaluateBaselineReadiness } from '@/lib/gsc/baseline-readiness'
 import { filterRowsToKnownUrls, loadKnownUrlsForSite } from '@/lib/gsc/known-urls'
+import { buildDedupedUrlMetricsUpserts } from '@/lib/gsc/dedupe-metrics'
 
 export type GscSyncResult = {
   siteId: string
@@ -27,6 +26,14 @@ export type GscSyncResult = {
   pagesFetched: number
   /** GSC rows dropped because the page was not in the crawl/sitemap allowlist. */
   rowsDroppedOutsideCrawl?: number
+  /** Rows collapsed because normalizeUrl mapped multiple GSC pages onto one (url, date). */
+  rowsDeduped?: number
+  /** Sample of colliding raw GSC page strings (capped). */
+  dedupeCollisionsSample?: Array<{
+    url: string
+    date: string
+    rawPages: string[]
+  }>
   knownUrlSource?: string
   knownUrlCount?: number
   readinessPassed: boolean
@@ -188,26 +195,20 @@ export async function syncGscConnection(
   )
 
   const nowIso = new Date().toISOString()
-  const upserts = kept.map((r) => {
-    let url: string
-    try {
-      url = normalizeUrl(r.page)
-    } catch {
-      url = r.page
-    }
-    return {
-      site_id: conn.site_id,
-      url,
-      date: r.date,
-      clicks: Math.round(r.clicks),
-      impressions: Math.round(r.impressions),
-      ctr: r.ctr,
-      avg_position: r.position,
-      query_count: 0,
-      is_final: isGscDateFinal(r.date),
-      ingested_at: nowIso,
-    }
-  })
+  const deduped = buildDedupedUrlMetricsUpserts(conn.site_id, kept, nowIso)
+  const upserts = deduped.rows
+
+  if (deduped.collisions.length > 0) {
+    console.warn(
+      `[gsc/sync] collapsed ${deduped.collisions.length} duplicate (url,date) key(s) after normalizeUrl ` +
+        `(${deduped.inputCount} → ${deduped.outputCount}). sample:`,
+      deduped.collisions.slice(0, 10).map((c) => ({
+        url: c.url,
+        date: c.date,
+        rawPages: c.rawPages,
+      })),
+    )
+  }
 
   let rowsUpserted = 0
   for (const batch of chunk(upserts, 500)) {
@@ -265,6 +266,12 @@ export async function syncGscConnection(
     rowsUpserted,
     pagesFetched,
     rowsDroppedOutsideCrawl: dropped,
+    rowsDeduped: deduped.inputCount - deduped.outputCount,
+    dedupeCollisionsSample: deduped.collisions.slice(0, 25).map((c) => ({
+      url: c.url,
+      date: c.date,
+      rawPages: c.rawPages,
+    })),
     knownUrlSource: known.source,
     knownUrlCount: known.urls.size,
     readinessPassed: readiness.passed,
