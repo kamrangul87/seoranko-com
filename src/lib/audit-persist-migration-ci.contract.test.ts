@@ -47,7 +47,9 @@ describe('migration CI contract (merge-to-main auto-apply)', () => {
     expect(sh).toMatch(/VERCEL_ENV/)
     expect(sh).toMatch(/production/)
     expect(sh).toMatch(/ci-supabase-db-push\.sh/)
-    expect(sh).toMatch(/exit 1/)
+    // Missing creds must not brick deploys — warn + skip; push failures still fail the build.
+    expect(sh).toMatch(/::warning::/)
+    expect(sh).toMatch(/skipping db push/)
   })
 })
 

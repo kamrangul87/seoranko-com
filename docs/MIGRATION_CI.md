@@ -20,12 +20,11 @@ Requires repo Actions secret `SUPABASE_DB_PASSWORD`.
 ### 2) Vercel production build (every merge-to-main deploy)
 
 `package.json` `build` runs `scripts/vercel-production-migrate.sh` first.
-On `VERCEL_ENV=production` it calls the same `ci-supabase-db-push.sh`.
-Preview/local builds skip migrate.
-
-Requires Vercel **Production** env `SUPABASE_DB_PASSWORD` (or a DB URL).
-If missing, the production build **fails loudly** so schema drift cannot ship
-silently.
+On `VERCEL_ENV=production` it calls the same `ci-supabase-db-push.sh` when
+credentials are present. If `SUPABASE_DB_PASSWORD` is missing, the build
+**warns and continues** (so a missing secret cannot brick the site); once the
+env is set, every production deploy applies pending SQL and **fails the build**
+if `db push` errors. Preview/local builds skip migrate.
 
 ## Required secrets
 
