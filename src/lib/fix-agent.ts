@@ -131,6 +131,41 @@ export function buildFixAgentRunSummary(opts: {
   return `Fix Agent finished: ${parts.join(', ')}.`
 }
 
+/** How far the GitHub write path got for a failed attempt. */
+export type FixWritePath = 'direct_push' | 'pr_fallback' | 'direct_then_pr' | 'no_github_write'
+
+export function inferFixWritePath(
+  errorOrDetail: string | null | undefined,
+  strategy?: string | null,
+): FixWritePath {
+  const t = `${errorOrDetail || ''} ${strategy || ''}`
+  if (/Direct push blocked[\s\S]*PR fallback/i.test(t)) return 'direct_then_pr'
+  if (
+    /seoranko-fix|review branch|commit to review branch|Pull Request could not be opened|viaPr|pendingKind['"]?\s*:\s*['"]merge/i.test(
+      t,
+    )
+  ) {
+    return 'pr_fallback'
+  }
+  if (/GitHub|commit failed|Contents|protected branch|Resource not accessible|422|403|409/i.test(t)) {
+    return 'direct_push'
+  }
+  return 'no_github_write'
+}
+
+export function formatFixWritePath(path: FixWritePath): string {
+  switch (path) {
+    case 'direct_push':
+      return 'Direct-push attempt'
+    case 'pr_fallback':
+      return 'PR-fallback attempt'
+    case 'direct_then_pr':
+      return 'Direct push blocked → PR-fallback attempt'
+    default:
+      return 'Did not reach GitHub write'
+  }
+}
+
 function pendingStatusFromApply(apply: FixApplyResult): 'pending_deploy' | 'pending_merge' {
   return apply.pendingKind === 'merge' ? 'pending_merge' : 'pending_deploy'
 }
@@ -1149,7 +1184,10 @@ export async function runFixAgent(opts: {
         after_snapshot: outcome.after?.slice(0, 200_000) || null,
         diff_summary: outcome.summary + (outcome.needsHumanReview ? ' [needs human review]' : ''),
         verification_detail: verificationDetail,
-        error_message: apply.success ? null : apply.error || null,
+        error_message:
+          status === 'failed' || status === 'handed_off'
+            ? apply.error || verificationDetail || 'Failed'
+            : null,
         score_before: scoreBefore,
         score_after: scoreAfter,
         revertible,

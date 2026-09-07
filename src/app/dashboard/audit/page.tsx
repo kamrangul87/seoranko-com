@@ -123,6 +123,58 @@ function extractPrUrl(text: string | null | undefined): string | null {
   return m ? m[0] : null
 }
 
+function attemptErrorText(a: FixAttempt): string | null {
+  const err = a.errorMessage || a.error_message
+  if (err) return err
+  const status = a.status || ''
+  if (status === 'failed' || status === 'handed_off') {
+    return a.verificationDetail || a.verification_detail || 'Failed (no error detail recorded)'
+  }
+  return null
+}
+
+function attemptWritePathLabel(a: FixAttempt): string {
+  const blob = [
+    a.errorMessage,
+    a.error_message,
+    a.verificationDetail,
+    a.verification_detail,
+    a.diffSummary,
+    a.diff_summary,
+    a.strategy,
+  ]
+    .filter(Boolean)
+    .join(' ')
+  if (/Direct push blocked[\s\S]*PR fallback/i.test(blob)) {
+    return 'Direct push blocked → PR-fallback attempt'
+  }
+  if (/seoranko-fix|review branch|commit to review branch|Pull Request could not be opened/i.test(blob)) {
+    return 'PR-fallback attempt'
+  }
+  if (/GitHub|commit failed|Contents|protected branch|Resource not accessible|HTTP 40[0-9]|HTTP 42[0-9]/i.test(blob)) {
+    return 'Direct-push attempt'
+  }
+  return 'Did not reach GitHub write'
+}
+
+/** One card per failed issue — prefer handed_off, else newest failed (list is newest-first). */
+function collectFailedAttempts(attempts: FixAttempt[]): FixAttempt[] {
+  const map = new Map<string, FixAttempt>()
+  for (const a of attempts) {
+    if (a.status !== 'failed' && a.status !== 'handed_off') continue
+    const key = String(a.issueId || a.issue_id || a.issueTitle || a.issue_title || a.id)
+    const prev = map.get(key)
+    if (!prev) {
+      map.set(key, a)
+      continue
+    }
+    if (prev.status !== 'handed_off' && a.status === 'handed_off') {
+      map.set(key, a)
+    }
+  }
+  return Array.from(map.values())
+}
+
 interface HumanTask {
   kind: string
   title: string
@@ -233,8 +285,11 @@ export default function AuditPage() {
   const [fixMessage, setFixMessage] = useState<string | null>(null)
   const [attempts, setAttempts] = useState<FixAttempt[]>([])
   const [humanTasks, setHumanTasks] = useState<HumanTask[]>([])
+  const [failedAttemptsOpen, setFailedAttemptsOpen] = useState(true)
   const [scoreAfterFix, setScoreAfterFix] = useState<number | null>(null)
   const [cwvLoading, setCwvLoading] = useState(false)
+
+  const failedAttempts = collectFailedAttempts(attempts)
 
   const fetchCoreWebVitalsAsync = useCallback(async (auditUrl: string) => {
     setCwvLoading(true)
@@ -377,6 +432,8 @@ export default function AuditPage() {
       if (typeof data.scoreAfter === 'number') setScoreAfterFix(data.scoreAfter)
       if (Array.isArray(data.applied)) {
         setAttempts((prev) => [...data.applied, ...prev])
+        const failedNow = collectFailedAttempts(data.applied as FixAttempt[])
+        if (failedNow.length > 0) setFailedAttemptsOpen(true)
       }
       await refreshAttempts(audit.url)
     } catch (err) {
@@ -563,6 +620,7 @@ export default function AuditPage() {
                 )}
                 {fixMessage && (
                   <div
+                    id="fix-agent-summary"
                     className={`text-sm mt-3 rounded-lg px-3 py-2 border ${
                       /failed \(see errors\)/i.test(fixMessage)
                         ? 'border-red-200 bg-red-50 text-red-900'
@@ -571,8 +629,69 @@ export default function AuditPage() {
                           : 'border-[#E5E5E5] bg-white text-[#0F0F0F]'
                     }`}
                   >
-                    {fixMessage}
+                    <div>{fixMessage}</div>
+                    {failedAttempts.length > 0 && (
+                      <button
+                        type="button"
+                        className="text-xs underline mt-1 text-red-800"
+                        onClick={() => {
+                          setFailedAttemptsOpen(true)
+                          document
+                            .getElementById('fix-agent-failed-attempts')
+                            ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                        }}
+                      >
+                        View {failedAttempts.length} failed attempt
+                        {failedAttempts.length === 1 ? '' : 's'} below
+                      </button>
+                    )}
                   </div>
+                )}
+
+                {failedAttempts.length > 0 && (
+                  <details
+                    id="fix-agent-failed-attempts"
+                    className="mt-3 rounded-lg border border-red-200 bg-red-50"
+                    open={failedAttemptsOpen}
+                    onToggle={(e) => setFailedAttemptsOpen((e.target as HTMLDetailsElement).open)}
+                  >
+                    <summary className="cursor-pointer select-none px-3 py-2 font-medium text-red-900">
+                      Failed attempts ({failedAttempts.length})
+                      <span className="font-normal text-red-800/80 text-xs ml-2">
+                        — expand for issue, error, and GitHub write path
+                      </span>
+                    </summary>
+                    <ul className="space-y-2 px-3 pb-3">
+                      {failedAttempts.map((a) => {
+                        const title = a.issueTitle || a.issue_title || a.issueId || a.issue_id || 'Unknown issue'
+                        const err = attemptErrorText(a)
+                        const writePath = attemptWritePathLabel(a)
+                        const strategy = a.strategy || 'unknown'
+                        const kind = a.autoKind || a.auto_kind || ''
+                        return (
+                          <li
+                            key={`failed-${a.id || title}-${strategy}-${a.attemptNumber || a.attempt_number}`}
+                            className="border border-red-200 rounded-lg px-3 py-2 bg-white text-sm"
+                          >
+                            <div className="text-xs uppercase tracking-wide text-red-800">
+                              {kind || 'auto-fix'} · {formatAttemptStatus(a.status)}
+                            </div>
+                            <div className="font-medium text-[#0F0F0F] mt-0.5">{title}</div>
+                            <div className="text-xs text-[#6B6B6B] mt-1">
+                              Write path: <span className="text-[#0F0F0F]">{writePath}</span>
+                              {strategy ? ` · strategy: ${strategy}` : ''}
+                            </div>
+                            {err && (
+                              <div className="text-sm text-red-800 mt-2 whitespace-pre-wrap break-words">
+                                <span className="font-medium">Error: </span>
+                                {err}
+                              </div>
+                            )}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </details>
                 )}
               </div>
 

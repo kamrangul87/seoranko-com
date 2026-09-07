@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildFixAgentRunSummary } from './fix-agent'
+import { buildFixAgentRunSummary, inferFixWritePath } from './fix-agent'
 
 describe('buildFixAgentRunSummary', () => {
   it('distinguishes awaiting Vercel deploy from human tasks', () => {
@@ -52,5 +52,34 @@ describe('buildFixAgentRunSummary', () => {
         humanTaskCount: 0,
       }),
     ).toBe('Fix Agent finished: nothing applied.')
+  })
+})
+
+describe('inferFixWritePath', () => {
+  it('detects direct-then-PR fallback failures', () => {
+    expect(
+      inferFixWritePath(
+        'Direct push blocked (Resource not accessible (HTTP 403)). PR fallback also failed: Could not create review branch (403).',
+      ),
+    ).toBe('direct_then_pr')
+  })
+
+  it('detects PR-fallback-only errors', () => {
+    expect(inferFixWritePath('GitHub commit to review branch failed (422)')).toBe('pr_fallback')
+    expect(inferFixWritePath('Change committed to branch "seoranko-fix-abc" but the Pull Request could not be opened: 422')).toBe(
+      'pr_fallback',
+    )
+  })
+
+  it('detects direct-push GitHub errors', () => {
+    expect(inferFixWritePath('GitHub commit failed (HTTP 401)')).toBe('direct_push')
+    expect(inferFixWritePath('Resource not accessible by integration (HTTP 403)')).toBe('direct_push')
+  })
+
+  it('marks strategy failures that never reached GitHub', () => {
+    expect(inferFixWritePath('Security headers require host config', 'headers-unsupported')).toBe(
+      'no_github_write',
+    )
+    expect(inferFixWritePath('No strategy available')).toBe('no_github_write')
   })
 })

@@ -330,6 +330,7 @@ async function commitFileChange(
 
     const err = await commitRes.json().catch(() => ({}))
     const message = String(err.message || `GitHub commit failed (${commitRes.status})`)
+    const withStatus = /\(\d{3}\)/.test(message) ? message : `${message} (HTTP ${commitRes.status})`
 
     // Branch protection / missing push → open seoranko-fix-* PR instead of silent failure.
     if (isDirectPushBlocked(commitRes.status, message)) {
@@ -344,11 +345,11 @@ async function commitFileChange(
       if (viaPr.success) return viaPr
       return {
         success: false,
-        error: `Direct push blocked (${message}). PR fallback also failed: ${viaPr.error || 'unknown error'}`,
+        error: `Direct push blocked (${withStatus}). PR fallback also failed: ${viaPr.error || 'unknown error'}`,
       }
     }
 
-    return { success: false, error: message }
+    return { success: false, error: withStatus }
   } catch {
     return { success: false, error: 'GitHub API request failed' }
   }
