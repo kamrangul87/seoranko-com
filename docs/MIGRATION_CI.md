@@ -6,21 +6,37 @@ Migration SQL files were repeatedly merged to `main` without being applied on
 hosted Supabase (`ddfboapzwclecbdjoqex`). That caused silent empty UI after
 reload for Index Diagnosis, Link Graph Audit, Fix Agent attempts, etc.
 
-## Automatic apply
+## Automatic apply (two paths)
 
-On **every** push to `main`, GitHub Actions runs
+### 1) GitHub Actions (every push to `main`)
+
 `.github/workflows/supabase-migrate.yml` → `scripts/ci-supabase-db-push.sh`
 → `supabase db push` (idempotent when schema is already current).
 
 Manual re-run: Actions → **Supabase migrations** → Run workflow.
 
-## Required GitHub Actions secrets
+Requires repo Actions secret `SUPABASE_DB_PASSWORD`.
 
-**Minimum (recommended):**
+### 2) Vercel production build (every merge-to-main deploy)
 
-| Secret | Where to get it |
-|--------|-----------------|
-| `SUPABASE_DB_PASSWORD` | Project settings → Database → Database password |
+`package.json` `build` runs `scripts/vercel-production-migrate.sh` first.
+On `VERCEL_ENV=production` it calls the same `ci-supabase-db-push.sh`.
+Preview/local builds skip migrate.
+
+Requires Vercel **Production** env `SUPABASE_DB_PASSWORD` (or a DB URL).
+If missing, the production build **fails loudly** so schema drift cannot ship
+silently.
+
+## Required secrets
+
+**Minimum (recommended) — set in BOTH places:**
+
+| Where | Secret | Purpose |
+|--------|--------|---------|
+| GitHub Actions | `SUPABASE_DB_PASSWORD` | `supabase-migrate.yml` on every `main` push |
+| Vercel → Production | `SUPABASE_DB_PASSWORD` | production `build` migrate step |
+
+Get the value from Supabase → Project settings → Database → Database password.
 
 The script defaults:
 

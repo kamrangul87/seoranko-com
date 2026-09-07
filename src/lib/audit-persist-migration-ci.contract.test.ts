@@ -37,6 +37,18 @@ describe('migration CI contract (merge-to-main auto-apply)', () => {
     // Direct DB host is IPv6-only — must not be the default CI target.
     expect(sh).not.toMatch(/@db\.\$\{PROJECT_REF\}\.supabase\.co/)
   })
+
+  it('wires Vercel production builds to db push (merge-to-main deploy path)', () => {
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    expect(pkg.scripts.build).toMatch(/vercel-production-migrate\.sh/)
+    const sh = readFileSync(join(root, 'scripts/vercel-production-migrate.sh'), 'utf8')
+    expect(sh).toMatch(/VERCEL_ENV/)
+    expect(sh).toMatch(/production/)
+    expect(sh).toMatch(/ci-supabase-db-push\.sh/)
+    expect(sh).toMatch(/exit 1/)
+  })
 })
 
 describe('Audit saved payload (reload without re-crawl)', () => {
