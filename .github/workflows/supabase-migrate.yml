@@ -27,9 +27,10 @@ jobs:
 
       - name: Apply pending migrations to hosted Supabase
         env:
-          # Minimum: SUPABASE_DB_PASSWORD. Project ref defaults in the script.
+          # Minimum: SUPABASE_DB_PASSWORD. Project ref + IPv4 pooler default in the script.
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_POOLER_HOST: ${{ secrets.SUPABASE_POOLER_HOST }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

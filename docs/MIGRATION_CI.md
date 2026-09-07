@@ -22,8 +22,17 @@ Manual re-run: Actions → **Supabase migrations** → Run workflow.
 |--------|-----------------|
 | `SUPABASE_DB_PASSWORD` | Project settings → Database → Database password |
 
-The script defaults `SUPABASE_PROJECT_REF` to `ddfboapzwclecbdjoqex` and builds
-`postgresql://postgres:…@db.<ref>.supabase.co:5432/postgres`.
+The script defaults:
+
+- `SUPABASE_PROJECT_REF` → `ddfboapzwclecbdjoqex`
+- `SUPABASE_POOLER_HOST` → `aws-1-eu-west-2.pooler.supabase.com`
+
+and builds a **Session-mode (port 5432) IPv4 pooler** URL:
+
+`postgresql://postgres.<ref>:<password>@aws-1-eu-west-2.pooler.supabase.com:5432/postgres`
+
+Do **not** use `db.<ref>.supabase.co` in CI — that host is IPv6-only and
+GitHub-hosted runners cannot reach it (`network is unreachable`).
 
 **Optional alternatives:**
 
@@ -31,6 +40,7 @@ The script defaults `SUPABASE_PROJECT_REF` to `ddfboapzwclecbdjoqex` and builds
 |--------|---------|
 | `SUPABASE_DB_URL` / `DATABASE_URL` | Full Postgres URL (skips password+ref construction) |
 | `SUPABASE_PROJECT_REF` | Override default project ref |
+| `SUPABASE_POOLER_HOST` | Override pooler host if Supabase moves the tenant |
 | `SUPABASE_ACCESS_TOKEN` | Use `supabase link` instead of `--db-url` |
 
 Until `SUPABASE_DB_PASSWORD` (or a DB URL) exists, the workflow **fails loudly**
@@ -44,16 +54,20 @@ files and fail. Mark them applied without re-running:
 
 ```bash
 export SUPABASE_ACCESS_TOKEN=…
-npx supabase link --project-ref ddfboapzwclecbdjoqex
-npx supabase migration list
+export SUPABASE_DB_PASSWORD=…
+# Use the same IPv4 session pooler URL as CI
+npx supabase migration list --db-url "$DB_URL"
 # For each version that is already live but missing from remote history:
-npx supabase migration repair --status applied <version>
+npx supabase migration repair --status applied <version> --db-url "$DB_URL"
+# For dashboard-only remote versions with no local file:
+npx supabase migration repair --status reverted <version> --db-url "$DB_URL"
 ```
 
-After remote history matches reality, CI `db push` only applies **new** files.
+After remote history matches the repo’s `supabase/migrations/` files, CI
+`db push` only applies **new** files.
 
 ## Local check before merge
 
 ```bash
-npx supabase db push --dry-run   # when linked
+npx supabase db push --dry-run --db-url "$DB_URL"
 ```
