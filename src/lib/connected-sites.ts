@@ -52,7 +52,7 @@ export async function addConnectedSite(
 
   // Reject anything that isn't plausibly a hostname.
   if (!cleanDomain || !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(cleanDomain)) {
-    return { success: false, error: 'Enter a valid domain, e.g. autodun.com' }
+    return { success: false, error: 'Enter a valid domain, e.g. example.com or app.example.com' }
   }
 
   const existing = await getConnectedSites(supabase, userId)

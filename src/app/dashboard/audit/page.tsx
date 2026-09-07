@@ -81,6 +81,9 @@ interface ConnectionStatus {
   fixableScope?: string
   isUniversalTag?: boolean
   canFixHeaders?: boolean
+  needsExactSiteRegistration?: boolean
+  suggestedDomain?: string
+  parentDomain?: string
 }
 
 interface FixAttempt {
@@ -157,11 +160,13 @@ function attemptWritePathLabel(a: FixAttempt): string {
   return 'Did not reach GitHub write'
 }
 
-/** One card per failed issue — prefer handed_off, else newest failed (list is newest-first). */
+/** One card per failed auto-fix issue — prefer handed_off, else newest failed (list is newest-first).
+ * Human-handoff rows have their own "Human tasks" section and are excluded here. */
 function collectFailedAttempts(attempts: FixAttempt[]): FixAttempt[] {
   const map = new Map<string, FixAttempt>()
   for (const a of attempts) {
     if (a.status !== 'failed' && a.status !== 'handed_off') continue
+    if (a.strategy === 'human-handoff') continue
     const key = String(a.issueId || a.issue_id || a.issueTitle || a.issue_title || a.id)
     const prev = map.get(key)
     if (!prev) {
@@ -354,12 +359,16 @@ export default function AuditPage() {
     }
   }, [])
 
-  const refreshAttempts = useCallback(async (auditUrl: string) => {
+  const refreshAttempts = useCallback(async (auditUrl: string, siteId?: string | null) => {
     try {
-      const res = await fetch(`/api/copilot/fix-agent?url=${encodeURIComponent(auditUrl)}`)
+      const params = new URLSearchParams({ url: auditUrl })
+      if (siteId) params.set('siteId', siteId)
+      const res = await fetch(`/api/copilot/fix-agent?${params.toString()}`)
       if (!res.ok) return
       const data = await res.json()
-      setAttempts(data.attempts || [])
+      if (!Array.isArray(data.attempts)) return
+      // Never wipe in-memory POST results with an empty refetch (URL-match miss).
+      setAttempts((prev) => (data.attempts.length > 0 ? data.attempts : prev))
     } catch {
       /* ignore */
     }
@@ -368,14 +377,15 @@ export default function AuditPage() {
   useEffect(() => {
     if (!audit?.url) return
     void refreshConnection(audit.url)
-    void refreshAttempts(audit.url)
-  }, [audit?.url, refreshConnection, refreshAttempts])
+    void refreshAttempts(audit.url, connection?.siteId)
+  }, [audit?.url, connection?.siteId, refreshConnection, refreshAttempts])
 
   async function runAudit() {
     setLoading(true)
     setError(null)
     setFixMessage(null)
     setHumanTasks([])
+    setAttempts([])
     setScoreAfterFix(null)
     try {
       const res = await fetch('/api/copilot/audit', {
@@ -435,7 +445,7 @@ export default function AuditPage() {
         const failedNow = collectFailedAttempts(data.applied as FixAttempt[])
         if (failedNow.length > 0) setFailedAttemptsOpen(true)
       }
-      await refreshAttempts(audit.url)
+      await refreshAttempts(audit.url, connection.siteId)
     } catch (err) {
       setFixMessage(err instanceof Error ? err.message : 'Fix Agent failed')
     } finally {
@@ -454,7 +464,7 @@ export default function AuditPage() {
       })
       const data = await res.json()
       setFixMessage(data.message || (data.ok ? 'Reverted' : 'Revert failed'))
-      if (audit?.url) await refreshAttempts(audit.url)
+      if (audit?.url) await refreshAttempts(audit.url, connection?.siteId)
     } catch (err) {
       setFixMessage(err instanceof Error ? err.message : 'Revert failed')
     } finally {
@@ -613,8 +623,18 @@ export default function AuditPage() {
                       {connection?.prompt ||
                         'This URL is not linked to an active site connection. You can view the audit report below — auto-fix is unavailable.'}
                     </p>
+                    {connection?.needsExactSiteRegistration && connection.suggestedDomain ? (
+                      <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        Register <span className="font-medium">{connection.suggestedDomain}</span> as its
+                        own site
+                        {connection.parentDomain ? ` (separate from ${connection.parentDomain})` : ''}
+                        , then connect GitHub and Search Console for that host.
+                      </p>
+                    ) : null}
                     <Link href="/dashboard/settings" className="text-sm text-[#FF6B2C] underline">
-                      Connect your site in Settings → Your Sites
+                      {connection?.needsExactSiteRegistration
+                        ? 'Add this host in Settings → Your Sites'
+                        : 'Connect your site in Settings → Your Sites'}
                     </Link>
                   </div>
                 )}

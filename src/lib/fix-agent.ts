@@ -41,6 +41,7 @@ import { validateSchema } from './schema-validator'
 import { verifyRedirectLive } from './fix-agent-redirect'
 import { removeDeadLinkFromHtml } from './fix-agent-dead-links'
 import { rewriteHrefsInHtml, verifyHrefRewriteInHtml } from './fix-agent-href-rewrite'
+import { normalizeUrl } from '@/lib/supabase/audit-db'
 
 const MAX_ATTEMPTS_PER_ISSUE = 3
 const RATE_LIMIT_PER_HOUR = 20
@@ -204,6 +205,13 @@ async function insertAttempt(
   supabase: any,
   row: Record<string, unknown>,
 ): Promise<string | null> {
+  if (typeof row.target_url === 'string' && row.target_url) {
+    try {
+      row = { ...row, target_url: normalizeUrl(row.target_url) }
+    } catch {
+      /* keep original */
+    }
+  }
   const { data, error } = await supabase.from('fix_agent_attempts').insert(row).select('id').maybeSingle()
   if (error) {
     console.error('[fix-agent] log insert failed', error.message)

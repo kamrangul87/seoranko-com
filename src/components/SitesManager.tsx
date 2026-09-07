@@ -113,7 +113,9 @@ export function SitesManager() {
         <div>
           <h3 className="text-base font-semibold text-gray-900">Your Sites</h3>
           <p className="text-xs text-gray-500 mt-0.5">
-            Connect via GitHub, WordPress, Shopify, Webflow, or Universal Tag so Audit Fix Agent can apply changes on sites you own.
+            Each host is its own site — add apex and subdomains separately (example.com,
+            app.example.com). Connect GitHub/WordPress/Shopify per site so Audit Fix Agent and
+            Experiments (GSC) stay independent.
           </p>
         </div>
         <button
@@ -129,7 +131,7 @@ export function SitesManager() {
         <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-3">
           <input
             type="text"
-            placeholder="autodun.com"
+            placeholder="example.com or app.example.com"
             value={domain}
             onChange={e => setDomain(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && domain) handleAdd() }}

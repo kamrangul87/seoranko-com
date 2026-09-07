@@ -251,8 +251,13 @@ function ExperimentsPageInner() {
           </div>
 
           {sites.length === 0 ? (
-            <div className="border border-[#E5E5E5] rounded-lg px-4 py-3 bg-white text-sm">
-              Add a site in Settings → Your Sites before connecting Search Console.
+            <div className="border border-[#E5E5E5] rounded-lg px-4 py-3 bg-white text-sm space-y-2">
+              <p>Add a site in Settings → Your Sites before connecting Search Console.</p>
+              <p className="text-[#6B6B6B]">
+                Each host is its own site — register apex and subdomains separately
+                (e.g. example.com and app.example.com) so each gets its own GSC property,
+                baseline, and readiness check.
+              </p>
             </div>
           ) : (
             <div className="flex flex-wrap gap-2 items-center">
@@ -273,6 +278,10 @@ function ExperimentsPageInner() {
                   </option>
                 ))}
               </select>
+              <p className="text-xs text-[#9B9B9B] w-full">
+                {sites.length} registered site{sites.length === 1 ? '' : 's'} — each can connect its
+                own Search Console property.
+              </p>
             </div>
           )}
 
