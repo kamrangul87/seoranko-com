@@ -28,6 +28,15 @@ describe('migration CI contract (merge-to-main auto-apply)', () => {
     expect(sh).toMatch(/exit 1/)
     expect(sh).toMatch(/Missing credentials/)
   })
+
+  it('uses IPv4 session pooler (not IPv6-only db.<ref>.supabase.co)', () => {
+    const sh = readFileSync(join(root, 'scripts/ci-supabase-db-push.sh'), 'utf8')
+    expect(sh).toMatch(/aws-1-eu-west-2\.pooler\.supabase\.com/)
+    expect(sh).toMatch(/postgres\.\$\{PROJECT_REF\}/)
+    expect(sh).toMatch(/5432\/postgres/)
+    // Direct DB host is IPv6-only — must not be the default CI target.
+    expect(sh).not.toMatch(/@db\.\$\{PROJECT_REF\}\.supabase\.co/)
+  })
 })
 
 describe('Audit saved payload (reload without re-crawl)', () => {
