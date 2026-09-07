@@ -8,16 +8,17 @@ import type { CrawlCoverage, PageIndexability } from './index-diagnosis/types'
 const root = join(__dirname, '../..')
 
 describe('migration CI contract (merge-to-main auto-apply)', () => {
-  it('ships a main-branch workflow that runs supabase db push', () => {
+  it('ships a main-branch workflow that runs supabase db push on every main push', () => {
     const yml = readFileSync(join(root, '.github/workflows/supabase-migrate.yml'), 'utf8')
     expect(yml).toMatch(/branches:\s*\[main\]/)
-    expect(yml).toMatch(/supabase\/migrations/)
     expect(yml).toMatch(/workflow_dispatch/)
     expect(yml).toMatch(/scripts\/ci-supabase-db-push\.sh/)
     expect(yml).toMatch(/secrets\.SUPABASE_ACCESS_TOKEN/)
     expect(yml).toMatch(/secrets\.SUPABASE_PROJECT_REF/)
     expect(yml).toMatch(/secrets\.SUPABASE_DB_PASSWORD/)
     expect(yml).toMatch(/db push|ci-supabase-db-push/)
+    // Must not be path-filtered away — every merge to main re-syncs schema.
+    expect(yml).not.toMatch(/paths:/)
   })
 
   it('fails loudly when required secrets are missing (no silent skip)', () => {

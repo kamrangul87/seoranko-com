@@ -436,6 +436,27 @@ export default function AuditPage() {
     }
   }, [loadSavedAudits])
 
+  // Surface missing Index Diagnosis / Link Graph tables before the user re-scans.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/audit/health')
+        if (!res.ok || cancelled) return
+        const data = await res.json()
+        if (cancelled) return
+        if (data.ok === false && data.migration) {
+          setPersistenceWarning(data.migration)
+        }
+      } catch {
+        /* ignore */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const fetchCoreWebVitalsAsync = useCallback(async (auditUrl: string) => {
     setCwvLoading(true)
     try {

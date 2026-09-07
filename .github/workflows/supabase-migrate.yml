@@ -1,16 +1,12 @@
 name: Supabase migrations
 
-# Apply supabase/migrations to hosted Postgres whenever they land on main.
+# Apply supabase/migrations to hosted Postgres on every push to main.
 # Prevents the recurring failure mode where migration files merge but are
 # never applied (Index Diagnosis / Link Graph / Fix Agent tables, etc.).
 
 on:
   push:
     branches: [main]
-    paths:
-      - 'supabase/migrations/**'
-      - 'scripts/ci-supabase-db-push.sh'
-      - '.github/workflows/supabase-migrate.yml'
   workflow_dispatch:
 
 concurrency:

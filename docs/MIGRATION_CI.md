@@ -8,9 +8,9 @@ reload for Index Diagnosis, Link Graph Audit, Fix Agent attempts, etc.
 
 ## Automatic apply
 
-On every push to `main` that touches `supabase/migrations/**`, GitHub Actions
-runs `.github/workflows/supabase-migrate.yml` → `scripts/ci-supabase-db-push.sh`
-→ `supabase db push`.
+On **every** push to `main`, GitHub Actions runs
+`.github/workflows/supabase-migrate.yml` → `scripts/ci-supabase-db-push.sh`
+→ `supabase db push` (idempotent when schema is already current).
 
 Manual re-run: Actions → **Supabase migrations** → Run workflow.
 
