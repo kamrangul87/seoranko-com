@@ -7,7 +7,7 @@ import { cookies } from 'next/headers'
  * GET — diagnose whether fix_agent_attempts (and site_csp_policies) exist on hosted DB.
  * Used when Failed attempts vanish after reload — usually the migration was never applied.
  */
-export async function GET(_req: NextRequest) {
+export async function GET() {
   try {
     const cookieStore = cookies()
     const authClient = createServerClient(
