@@ -16,14 +16,25 @@ Manual re-run: Actions → **Supabase migrations** → Run workflow.
 
 ## Required GitHub Actions secrets
 
+**Minimum (recommended):**
+
 | Secret | Where to get it |
 |--------|-----------------|
-| `SUPABASE_ACCESS_TOKEN` | [Account tokens](https://supabase.com/dashboard/account/tokens) |
-| `SUPABASE_PROJECT_REF` | Project settings → Reference ID (`ddfboapzwclecbdjoqex`) |
 | `SUPABASE_DB_PASSWORD` | Project settings → Database → Database password |
 
-Until these three secrets exist, the workflow **fails loudly** (by design) so
-unapplied migrations cannot look “green”.
+The script defaults `SUPABASE_PROJECT_REF` to `ddfboapzwclecbdjoqex` and builds
+`postgresql://postgres:…@db.<ref>.supabase.co:5432/postgres`.
+
+**Optional alternatives:**
+
+| Secret | Purpose |
+|--------|---------|
+| `SUPABASE_DB_URL` / `DATABASE_URL` | Full Postgres URL (skips password+ref construction) |
+| `SUPABASE_PROJECT_REF` | Override default project ref |
+| `SUPABASE_ACCESS_TOKEN` | Use `supabase link` instead of `--db-url` |
+
+Until `SUPABASE_DB_PASSWORD` (or a DB URL) exists, the workflow **fails loudly**
+so unapplied migrations cannot look “green”.
 
 ## One-time history bootstrap
 
