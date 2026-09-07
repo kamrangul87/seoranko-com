@@ -29,6 +29,7 @@ jobs:
           src/lib/index-diagnosis/
           src/lib/sitemap-generator/
           src/lib/link-graph/
+          src/lib/audit-persist-migration-ci.contract.test.ts
           src/lib/fix-agent-classification.ts
           src/lib/fix-agent-issues
           src/lib/developer-snippet-placements.test.ts

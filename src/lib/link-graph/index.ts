@@ -2,7 +2,11 @@ export { runLinkGraphAudit } from './run'
 export { linkGraphInputFromDiagnosis } from './from-diagnosis'
 export { buildFixList, fixListToCsv } from './fix-list'
 export { assertReportOnlyUsesComputedRules, buildVerdictHeadline, buildTopCauses } from './score'
-export { persistLinkGraphResult, loadLinkGraphSummary } from './persist'
+export {
+  persistLinkGraphResult,
+  loadLinkGraphSummary,
+  loadLatestLinkGraphForDomain,
+} from './persist'
 export type { LinkGraphResult, LinkFinding, LinkGraphInput, FixListRow } from './types'
 export {
   buildLinkGraphFixAgentIssues,

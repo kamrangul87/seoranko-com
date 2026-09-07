@@ -64,10 +64,15 @@ interface AuditResult {
     }>
   }
   indexDiagnosis?: IndexDiagnosisResult | null
+  indexDiagnosisRunId?: string | null
+  indexDiagnosisPersistOk?: boolean
+  indexDiagnosisPersistError?: string | null
   auditScope?: {
     urlsDiscovered: number
     urlsFetched: number
   }
+  /** True when panels were restored from DB without a fresh Quality Gate scan. */
+  restoredFromSaved?: boolean
 }
 
 interface ConnectionStatus {
@@ -306,8 +311,151 @@ export default function AuditPage() {
     message: string
   } | null>(null)
   const [cspBusy, setCspBusy] = useState(false)
+  const [savedLinkGraph, setSavedLinkGraph] = useState<{
+    auditId: string
+    createdAt?: string
+    summary: {
+      verdictHeadline: string
+      topCauses: Array<{
+        ruleId: string
+        title: string
+        affectedCount: number
+        whyItMatters: string
+        whatToChange: string
+      }>
+      findingCount: number
+      criticalCount: number
+      failCount: number
+      warnCount: number
+      jsSuspected?: boolean
+      trailingSlashConvention?: boolean
+    }
+    topFindings: Array<{
+      ruleId?: string
+      rule_id?: string
+      severity: string
+      sourceUrl?: string | null
+      source_url?: string | null
+      targetUrl?: string | null
+      target_url?: string | null
+      suggestedTarget?: string | null
+      suggested_target?: string | null
+      evidence?: Record<string, unknown>
+    }>
+  } | null>(null)
+  const [savedMeta, setSavedMeta] = useState<string | null>(null)
 
   const failedAttempts = collectFailedAttempts(attempts)
+
+  const loadSavedAudits = useCallback(async (domainOrUrl: string, opts?: { hydrateDiagnosis?: boolean }) => {
+    const hydrateDiagnosis = opts?.hydrateDiagnosis !== false
+    try {
+      const res = await fetch(`/api/audit/saved?url=${encodeURIComponent(domainOrUrl)}`)
+      if (!res.ok) return
+      const data = await res.json()
+      if (data.tablesMissing) {
+        setPersistenceWarning(
+          'Index Diagnosis / Link Graph tables are missing on hosted Supabase — apply migrations, then re-scan.',
+        )
+        return
+      }
+      if (data.linkGraph) setSavedLinkGraph(data.linkGraph)
+      if (!hydrateDiagnosis || !data.indexDiagnosis) return
+
+      setSavedMeta(
+        data.indexDiagnosisCreatedAt
+          ? `Showing saved Index Diagnosis from ${new Date(data.indexDiagnosisCreatedAt).toLocaleString()}. Scan to refresh.`
+          : 'Showing saved Index Diagnosis. Scan to refresh.',
+      )
+      setAudit((prev) => {
+        if (prev && !prev.restoredFromSaved) {
+          // Keep a live scan's richer payload (htmlByUrl / sitemapDrift); only fill if missing.
+          if (prev.indexDiagnosis) return prev
+          return {
+            ...prev,
+            indexDiagnosis: data.indexDiagnosis,
+            indexDiagnosisRunId: data.indexDiagnosisRunId,
+          }
+        }
+        return {
+          url: data.indexDiagnosis.coverage.seedUrl || domainOrUrl,
+          score: prev?.score ?? 0,
+          searchScore: prev?.searchScore ?? 0,
+          aiScore: prev?.aiScore ?? 0,
+          httpStatus: prev?.httpStatus ?? 0,
+          siteType: prev?.siteType ?? {
+            siteType: 'unknown',
+            confidence: 'low',
+            signals: [],
+            pageRole: null,
+          },
+          issues: prev?.issues ?? [],
+          opportunities: prev?.opportunities ?? [],
+          explainable: prev?.explainable ?? {
+            dimensions: [],
+            score: 0,
+            scoreExplanation: 'Re-scan for Quality Gate.',
+            publishDecision: 'review',
+            publishDecisionReason: 'Restored Index Diagnosis only — page Quality Gate not loaded.',
+          },
+          signals: prev?.signals ?? {
+            title: '',
+            h1: '',
+            wordCount: 0,
+            hasSchema: false,
+            hasProductSchema: false,
+          },
+          history: prev?.history ?? [],
+          crawlNotes: [
+            'Restored last saved Index Diagnosis from the database (no re-crawl).',
+            ...(prev?.crawlNotes || []),
+          ],
+          indexDiagnosis: data.indexDiagnosis,
+          indexDiagnosisRunId: data.indexDiagnosisRunId,
+          restoredFromSaved: true,
+          auditScope: {
+            urlsDiscovered: data.indexDiagnosis.coverage.discoveredCount,
+            urlsFetched: data.indexDiagnosis.coverage.fetchedCount,
+          },
+        }
+      })
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      const last = sessionStorage.getItem('seoranko:last-audit-url')
+      if (last) {
+        setUrl(last)
+        void loadSavedAudits(last)
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [loadSavedAudits])
+
+  // Surface missing Index Diagnosis / Link Graph tables before the user re-scans.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/audit/health')
+        if (!res.ok || cancelled) return
+        const data = await res.json()
+        if (cancelled) return
+        if (data.ok === false && data.migration) {
+          setPersistenceWarning(data.migration)
+        }
+      } catch {
+        /* ignore */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const fetchCoreWebVitalsAsync = useCallback(async (auditUrl: string) => {
     setCwvLoading(true)
@@ -409,6 +557,22 @@ export default function AuditPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Audit failed')
       setAudit(data.audit)
+      setSavedMeta(null)
+      try {
+        sessionStorage.setItem('seoranko:last-audit-url', data.audit.url)
+      } catch {
+        /* ignore */
+      }
+      if (data.audit?.indexDiagnosisPersistOk === false) {
+        setPersistenceWarning(
+          data.audit.indexDiagnosisPersistError ||
+            'Index Diagnosis was not saved. Apply the index_diagnosis_runs migration on hosted Supabase.',
+        )
+      }
+      // Refresh Link Graph panel from DB only — keep live crawl htmlByUrl intact.
+      if (data.audit?.indexDiagnosis?.coverage?.domain) {
+        void loadSavedAudits(data.audit.indexDiagnosis.coverage.domain, { hydrateDiagnosis: false })
+      }
       if (data.audit?.coreWebVitalsPending !== false) {
         void fetchCoreWebVitalsAsync(data.audit.url)
       }
@@ -521,6 +685,7 @@ export default function AuditPage() {
           </div>
 
           {error && <p className="text-red-600 mb-4">{error}</p>}
+          {savedMeta && <p className="text-sm text-[#6B6B6B] mb-4">{savedMeta}</p>}
 
           {audit && (
             <div className="space-y-6">
@@ -547,6 +712,7 @@ export default function AuditPage() {
                   auditUrl={audit.url}
                   fixRunning={fixRunning}
                   onRunFixAgent={(issues) => void runFixAgent(undefined, issues as AuditIssue[])}
+                  initialSaved={savedLinkGraph}
                 />
               )}
 
