@@ -745,7 +745,10 @@ function ExperimentsPageInner() {
               <div className="border border-[#E5E5E5] rounded-lg px-4 py-4 bg-white space-y-3">
                 <h2 className="font-medium">Interventions</h2>
                 {interventions.length === 0 ? (
-                  <p className="text-sm text-[#6B6B6B]">insufficient evidence</p>
+                  <p className="text-sm text-[#6B6B6B]">
+                    No interventions recorded yet (Fix Agent has not persisted an
+                    intervention_events row for this site).
+                  </p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">

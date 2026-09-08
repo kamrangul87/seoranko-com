@@ -37,3 +37,15 @@ jobs:
         run: |
           chmod +x scripts/ci-supabase-db-push.sh
           ./scripts/ci-supabase-db-push.sh
+
+      - name: Intervention dataset prod status (read-only)
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_POOLER_HOST: ${{ secrets.SUPABASE_POOLER_HOST }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PROBE_WRITE: 'false'
+        run: |
+          npm install --no-save pg@8.16.3
+          node scripts/intervention-pr2-prod-status.mjs
