@@ -122,7 +122,14 @@ export async function runLinkGraphAudit(
   const targetByUrl = new Map<string, LinkTarget>()
   for (const t of targets) {
     targetByUrl.set(t.urlNormalized, t)
-    if (t.finalUrl !== t.urlNormalized) targetByUrl.set(t.finalUrl, t)
+  }
+  // Alias finalUrl only when that URL was not itself resolved. Otherwise a
+  // redirect from / → /ai-assistant would overwrite the zero-hop entry for
+  // /ai-assistant and falsely flag every direct link to the final URL as L05.
+  for (const t of targets) {
+    if (t.finalUrl !== t.urlNormalized && !targetByUrl.has(t.finalUrl)) {
+      targetByUrl.set(t.finalUrl, t)
+    }
   }
 
   // S7 rules

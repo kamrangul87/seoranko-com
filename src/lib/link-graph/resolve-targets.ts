@@ -3,6 +3,7 @@
  * Spec §4 S4 — HEAD first, GET fallback, max 10 hops, cache per audit.
  */
 
+import { crawlFetchInit } from '@/lib/crawl-fetch'
 import type { LinkTarget, RedirectHop } from './types'
 
 const MAX_HOPS = 10
@@ -17,15 +18,17 @@ export type TargetFetcher = (url: string, method: 'HEAD' | 'GET') => Promise<{
 
 export function createDefaultFetcher(): TargetFetcher {
   return async (url, method) => {
-    const res = await fetch(url, {
-      method,
-      redirect: 'manual',
-      headers: {
-        'User-Agent': USER_AGENT,
-        'Cache-Control': 'no-cache',
-      },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    })
+    const res = await fetch(
+      url,
+      crawlFetchInit({
+        method,
+        redirect: 'manual',
+        headers: {
+          'User-Agent': USER_AGENT,
+        },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      }),
+    )
     return {
       status: res.status,
       location: res.headers.get('location'),
