@@ -71,6 +71,8 @@ export async function GET(req: NextRequest) {
       provisionalRowCount: number
     } | null = null
 
+    let liveReadiness: ReturnType<typeof evaluateBaselineReadiness> | null = null
+
     if (connection?.property_url) {
       const { data: metrics } = await supabase
         .from('url_metrics_daily')
@@ -103,31 +105,80 @@ export async function GET(req: NextRequest) {
         provisionalRowCount: (metrics || []).filter((m) => !m.is_final).length,
       }
 
-      // If no stored readiness yet but we have metrics, compute live (do not insert here).
       if (!readiness && finalRows.length > 0) {
-        const live = evaluateBaselineReadiness(finalRows)
-        return NextResponse.json({
-          ok: true,
-          site,
-          connection,
-          readiness: {
-            passed: live.passed,
-            reason_code: live.reasonCode,
-            reasonLabel: reasonCodeLabel(live.reasonCode),
-            evidence: live.evidence,
-            checked_at: null,
-            persisted: false,
-          },
-          metricsSummary,
-        })
+        liveReadiness = evaluateBaselineReadiness(finalRows)
       }
     }
 
-    return NextResponse.json({
-      ok: true,
-      site,
-      connection: connection || null,
-      readiness: readiness
+    const { data: interventions } = await supabase
+      .from('intervention_events')
+      .select(
+        'id, url_id, intervention_type, intervention_subtype, interference_scope, lifecycle_state, applied_at, verified_at, experiment_id, is_isolated',
+      )
+      .eq('site_id', siteId)
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(50)
+
+    const interventionIds = (interventions || []).map((i) => i.id)
+    let causalResults: Array<{
+      id: string
+      intervention_id: string
+      metric: string
+      is_exploratory: boolean
+      effect_estimate: number | null
+      validity_status: string
+      result_direction: string | null
+      calculated_at: string
+      treatment_n: number | null
+      control_n: number | null
+    }> = []
+
+    if (interventionIds.length > 0) {
+      const { data: cr } = await supabase
+        .from('causal_results')
+        .select(
+          'id, intervention_id, metric, is_exploratory, effect_estimate, validity_status, result_direction, calculated_at, treatment_n, control_n',
+        )
+        .eq('site_id', siteId)
+        .eq('user_id', user.id)
+        .eq('is_exploratory', false)
+        .in('intervention_id', interventionIds)
+        .order('calculated_at', { ascending: false })
+      causalResults = cr || []
+    }
+
+    const baselinePassed = liveReadiness
+      ? liveReadiness.passed
+      : readiness
+        ? !!readiness.passed
+        : false
+
+    const pipelineStatus = {
+      baseline: baselinePassed,
+      intervention: (interventions || []).length > 0,
+      verified: (interventions || []).some(
+        (i) =>
+          i.lifecycle_state === 'verified' ||
+          i.lifecycle_state === 'measuring' ||
+          i.lifecycle_state === 'completed',
+      ),
+      measuring: (interventions || []).some(
+        (i) => i.lifecycle_state === 'measuring' || i.lifecycle_state === 'completed',
+      ),
+      result: causalResults.some((r) => r.validity_status === 'valid'),
+    }
+
+    const readinessPayload = liveReadiness
+      ? {
+          passed: liveReadiness.passed,
+          reason_code: liveReadiness.reasonCode,
+          reasonLabel: reasonCodeLabel(liveReadiness.reasonCode),
+          evidence: liveReadiness.evidence,
+          checked_at: null as string | null,
+          persisted: false,
+        }
+      : readiness
         ? {
             passed: readiness.passed,
             reason_code: readiness.reason_code,
@@ -136,8 +187,17 @@ export async function GET(req: NextRequest) {
             checked_at: readiness.checked_at,
             persisted: true,
           }
-        : null,
+        : null
+
+    return NextResponse.json({
+      ok: true,
+      site,
+      connection: connection || null,
+      readiness: readinessPayload,
       metricsSummary,
+      interventions: interventions || [],
+      causalResults,
+      pipelineStatus,
     })
   } catch (err) {
     console.error('[experiments GET]', err instanceof Error ? err.message : err)

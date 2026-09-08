@@ -52,6 +52,7 @@ import {
   newOriginsNotInAllowlist,
 } from '@/lib/csp/build-policy'
 import { findBlockingAttempt } from '@/lib/fix-agent-idempotency'
+import { recordInterventionFromVerify } from '@/lib/intervention/record'
 
 const MAX_ATTEMPTS_PER_ISSUE = 3
 const RATE_LIMIT_PER_HOUR = 20
@@ -1215,6 +1216,8 @@ export async function runFixAgent(opts: {
         resolved = true
       } else {
         // Re-fetch live and check. A successful write is never "done" until this passes.
+        let capturedLiveHtml: string | null = null
+        let capturedLiveStatus: number | null = null
         try {
           await new Promise((r) => setTimeout(r, adapter.deferredVerification ? 2500 : 1200))
           let v: { ok: boolean; detail: string }
@@ -1232,7 +1235,9 @@ export async function runFixAgent(opts: {
               headers: { 'User-Agent': 'SEORANKO-FixAgent/1.0', 'Cache-Control': 'no-cache' },
               signal: AbortSignal.timeout(20000),
             })
+            capturedLiveStatus = liveRes.status
             const liveHtml = await liveRes.text()
+            capturedLiveHtml = liveHtml
             v = verifyLiveHtml(kind, liveHtml, undefined, item.issue)
           } else if (kind === 'remove-dead-link') {
             const sourceUrl = item.issue.fixMetadata?.sourceUrls?.[0]
@@ -1241,7 +1246,9 @@ export async function runFixAgent(opts: {
               headers: { 'User-Agent': 'SEORANKO-FixAgent/1.0', 'Cache-Control': 'no-cache' },
               signal: AbortSignal.timeout(20000),
             })
+            capturedLiveStatus = liveRes.status
             const liveHtml = await liveRes.text()
+            capturedLiveHtml = liveHtml
             v = verifyLiveHtml(kind, liveHtml, undefined, item.issue)
           } else if (kind === 'rewrite-link-href') {
             const fixes = item.issue.fixMetadata?.hrefFixes || []
@@ -1253,7 +1260,9 @@ export async function runFixAgent(opts: {
               headers: { 'User-Agent': 'SEORANKO-FixAgent/1.0', 'Cache-Control': 'no-cache' },
               signal: AbortSignal.timeout(20000),
             })
+            capturedLiveStatus = liveRes.status
             const liveHtml = await liveRes.text()
+            capturedLiveHtml = liveHtml
             if (fixes.length > 0) {
               let allOk = true
               const details: string[] = []
@@ -1272,7 +1281,9 @@ export async function runFixAgent(opts: {
               headers: { 'User-Agent': 'SEORANKO-FixAgent/1.0', 'Cache-Control': 'no-cache' },
               signal: AbortSignal.timeout(20000),
             })
+            capturedLiveStatus = liveRes.status
             const liveHtml = await liveRes.text()
+            capturedLiveHtml = liveHtml
             const schemaType =
               kind === 'schema-organization'
                 ? 'Organization'
@@ -1317,6 +1328,37 @@ export async function runFixAgent(opts: {
             ]
               .filter(Boolean)
               .join(' ')
+          }
+
+          // Intervention Dataset: only `verified` after independent re-crawl state-hash match.
+          // Never trust the Fix Agent success report alone for intervention lifecycle.
+          if (capturedLiveHtml && outcome.before !== undefined && outcome.after) {
+            try {
+              const intervention = await recordInterventionFromVerify({
+                supabase: opts.supabase,
+                userId: opts.userId,
+                siteId: owned.siteId,
+                url: opts.auditUrl,
+                autoKind: kind,
+                beforeHtml: outcome.before,
+                expectedAfterHtml: outcome.after,
+                liveHtml: capturedLiveHtml,
+                liveStatusCode: capturedLiveStatus,
+                actor: 'fix_agent',
+              })
+              if (intervention.recorded && intervention.lifecycleState === 'verified') {
+                verificationDetail = `${verificationDetail || ''} Intervention recorded as verified.`.trim()
+              } else if (intervention.recorded && intervention.lifecycleState === 'implemented') {
+                // Presence check may have passed while normalised state hash did not —
+                // keep Fix Agent attempt status, but intervention stays implemented.
+                verificationDetail = `${verificationDetail || ''} Intervention recorded as implemented (live state hash mismatch).`.trim()
+              }
+            } catch (err) {
+              console.error(
+                '[fix-agent] intervention record',
+                err instanceof Error ? err.message : err,
+              )
+            }
           }
         } catch {
           status = unverifiedStatusFromApply(apply)
