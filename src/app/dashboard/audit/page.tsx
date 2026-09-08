@@ -123,8 +123,14 @@ interface FixAttempt {
 }
 
 function formatAttemptStatus(status: string): string {
-  if (status === 'pending_deploy') return 'awaiting Vercel deploy'
-  if (status === 'pending_merge') return 'awaiting PR merge'
+  if (status === 'verified') return 'verified (live)'
+  if (status === 'unverified' || status === 'pending_deploy') {
+    return 'unverified — not confirmed live'
+  }
+  if (status === 'pr_pending' || status === 'pending_merge') {
+    return 'pr_pending — not confirmed live'
+  }
+  if (status === 'applied') return 'unverified (legacy applied)'
   if (status === 'handed_off') return 'handed off'
   return status
 }
@@ -1107,6 +1113,9 @@ export default function AuditPage() {
                       const isPending =
                         status === 'pending_deploy' ||
                         status === 'pending_merge' ||
+                        status === 'unverified' ||
+                        status === 'pr_pending' ||
+                        status === 'applied' ||
                         a.pendingKind === 'deploy' ||
                         a.pendingKind === 'merge'
                       const prUrl = a.pendingUrl || extractPrUrl(detail) || extractPrUrl(summary)

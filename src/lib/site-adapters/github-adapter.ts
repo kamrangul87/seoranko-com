@@ -33,6 +33,20 @@ function ghHeaders(token: string) {
   }
 }
 
+/** Classify token shape for error messages — never log the secret itself. */
+export function githubTokenKindHint(token: string): string {
+  if (token.startsWith('ghs_')) {
+    return 'token_kind=github_app_installation (ghs_) — Contents:write on the default branch is required; App tokens often return “Resource not accessible by integration” when that permission is missing'
+  }
+  if (token.startsWith('github_pat_')) {
+    return 'token_kind=fine_grained_pat (github_pat_) — confirm Contents: Read and write on this repo and that the token is not expired'
+  }
+  if (token.startsWith('ghp_')) {
+    return 'token_kind=classic_pat (ghp_) — confirm the repo scope includes this repository'
+  }
+  return 'token_kind=unknown'
+}
+
 // owner/repo/branch are interpolated into API URLs — validate their shape.
 const OWNER_RE  = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,38})$/
 const REPO_RE   = /^[a-zA-Z0-9._-]{1,100}$/
@@ -239,20 +253,26 @@ async function commitFileChange(
       return { success: true }
     }
 
-    const err = await commitRes.json().catch(() => ({}))
+    const err = await commitRes.json().catch(() => ({})) as {
+      message?: string
+      documentation_url?: string
+    }
     const message = String(err.message || `GitHub commit failed (${commitRes.status})`)
     const withStatus = /\(\d{3}\)/.test(message) ? message : `${message} (HTTP ${commitRes.status})`
+    const docs = err.documentation_url ? ` docs=${err.documentation_url}` : ''
+    const kind = githubTokenKindHint(creds.accessToken || '')
+    const detail = `${withStatus}${docs}; ${kind}; repo=${creds.owner}/${creds.repo} branch=${branch} path=${path}`
 
     if (isDirectPushBlocked(commitRes.status, message)) {
       return {
         success: false,
         error:
-          `Direct push blocked (${withStatus}). Fix Agent requires Contents write on the default branch ` +
+          `Direct push blocked (${detail}). Fix Agent requires Contents write on the default branch ` +
           `(PR fallback is disabled).`,
       }
     }
 
-    return { success: false, error: withStatus }
+    return { success: false, error: detail }
   } catch {
     return { success: false, error: 'GitHub API request failed' }
   }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildFixAgentRunSummary, inferFixWritePath } from './fix-agent'
 
 describe('buildFixAgentRunSummary', () => {
-  it('distinguishes awaiting Vercel deploy from human tasks', () => {
+  it('only counts verified as live; pending is unverified not applied', () => {
     expect(
       buildFixAgentRunSummary({
         liveCount: 0,
@@ -12,22 +12,23 @@ describe('buildFixAgentRunSummary', () => {
         humanTaskCount: 5,
       }),
     ).toBe(
-      'Fix Agent finished: 4 committed, awaiting Vercel deploy, 5 human task(s).',
+      'Fix Agent finished: 4 unverified (written, not confirmed live), 5 human task(s).',
     )
   })
 
-  it('reports PR merge pending and failures with see-errors cue', () => {
-    expect(
-      buildFixAgentRunSummary({
-        liveCount: 1,
-        pendingDeployCount: 2,
-        pendingMergeCount: 3,
-        failedCount: 4,
-        humanTaskCount: 5,
-      }),
-    ).toBe(
-      'Fix Agent finished: 1 live, 2 committed, awaiting Vercel deploy, 3 PR(s) awaiting merge, 4 failed (see errors), 5 human task(s).',
+  it('reports live + unverified + failures without Applied language', () => {
+    const msg = buildFixAgentRunSummary({
+      liveCount: 1,
+      pendingDeployCount: 2,
+      pendingMergeCount: 3,
+      failedCount: 4,
+      humanTaskCount: 5,
+    })
+    expect(msg).toBe(
+      'Fix Agent finished: 1 live (re-crawl confirmed), 5 unverified (written, not confirmed live), 4 failed (see errors), 5 human task(s).',
     )
+    expect(msg).not.toMatch(/applied/i)
+    expect(msg).not.toMatch(/awaiting PR merge/i)
   })
 
   it('never returns a silent zero-applied line when only human tasks exist', () => {
@@ -42,7 +43,7 @@ describe('buildFixAgentRunSummary', () => {
     expect(msg).not.toMatch(/0 applied/i)
   })
 
-  it('reports empty run clearly', () => {
+  it('reports empty run as nothing confirmed live', () => {
     expect(
       buildFixAgentRunSummary({
         liveCount: 0,
@@ -51,7 +52,7 @@ describe('buildFixAgentRunSummary', () => {
         failedCount: 0,
         humanTaskCount: 0,
       }),
-    ).toBe('Fix Agent finished: nothing applied.')
+    ).toBe('Fix Agent finished: nothing confirmed live.')
   })
 })
 

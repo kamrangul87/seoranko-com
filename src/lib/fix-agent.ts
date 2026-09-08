@@ -134,25 +134,27 @@ export interface FixAgentRunResult {
   cspProposal?: FixAgentCspProposal | null
 }
 
-/** Build the user-facing Fix Agent summary — never conflate awaiting-deploy with human tasks. */
+/** Build the user-facing Fix Agent summary — only `verified` (live re-crawl) counts as done. */
 export function buildFixAgentRunSummary(opts: {
   liveCount: number
   pendingDeployCount: number
   pendingMergeCount: number
   failedCount: number
   humanTaskCount: number
+  unverifiedCount?: number
 }): string {
+  const unverified =
+    (opts.unverifiedCount ?? 0) + opts.pendingDeployCount + opts.pendingMergeCount
   const parts: string[] = []
-  if (opts.liveCount > 0) parts.push(`${opts.liveCount} live`)
-  if (opts.pendingDeployCount > 0) {
-    parts.push(`${opts.pendingDeployCount} committed, awaiting Vercel deploy`)
+  if (opts.liveCount > 0) {
+    parts.push(`${opts.liveCount} live (re-crawl confirmed)`)
   }
-  if (opts.pendingMergeCount > 0) {
-    parts.push(`${opts.pendingMergeCount} PR(s) awaiting merge`)
+  if (unverified > 0) {
+    parts.push(`${unverified} unverified (written, not confirmed live)`)
   }
   if (opts.failedCount > 0) parts.push(`${opts.failedCount} failed (see errors)`)
   if (opts.humanTaskCount > 0) parts.push(`${opts.humanTaskCount} human task(s)`)
-  if (parts.length === 0) return 'Fix Agent finished: nothing applied.'
+  if (parts.length === 0) return 'Fix Agent finished: nothing confirmed live.'
   return `Fix Agent finished: ${parts.join(', ')}.`
 }
 
@@ -194,9 +196,21 @@ export function formatFixWritePath(path: FixWritePath): string {
   }
 }
 
-function pendingStatusFromApply(apply: FixApplyResult): 'pending_deploy' | 'pending_merge' {
-  return apply.pendingKind === 'merge' ? 'pending_merge' : 'pending_deploy'
+/**
+ * Status while a write may exist in git/CMS but live HTML is not confirmed.
+ * Legacy pending_merge → pr_pending. Never "applied" / "verified".
+ */
+function unverifiedStatusFromApply(apply: FixApplyResult): 'unverified' | 'pr_pending' {
+  return apply.pendingKind === 'merge' ? 'pr_pending' : 'unverified'
 }
+
+const UNVERIFIED_STATUSES = new Set([
+  'unverified',
+  'pr_pending',
+  'pending_deploy',
+  'pending_merge',
+  'applied', // legacy: treat as not-yet-confirmed
+])
 
 interface StrategyPlan {
   name: string
@@ -1192,22 +1206,15 @@ export async function runFixAgent(opts: {
       } else if (!apply.success) {
         status = 'failed'
         verificationDetail = apply.error || 'Write failed'
-      } else if ((apply.pending || adapter.deferredVerification) && !SITE_WIDE_AUTO_KINDS.has(kind)) {
-        status = apply.pending ? pendingStatusFromApply(apply) : 'pending_deploy'
+      } else if (!adapter.serverVerifiable) {
+        status = 'unverified'
         verificationDetail =
           apply.detail ||
-          (status === 'pending_merge'
-            ? 'Applied — PR opened; awaiting merge before live.'
-            : 'Applied — committed; awaiting Vercel deploy before live verification.')
+          'Write queued (connector is not server-verifiable) — not confirmed live.'
         anyPending = true
         resolved = true
-        if (workingPage && outcome.after) workingPage.bodyHtml = outcome.after
-      } else if (!adapter.serverVerifiable) {
-        status = 'applied'
-        verificationDetail = 'Queued (not server-verifiable).'
-        resolved = true
       } else {
-        // Re-fetch live and check (URL varies by fix kind)
+        // Re-fetch live and check. A successful write is never "done" until this passes.
         try {
           await new Promise((r) => setTimeout(r, adapter.deferredVerification ? 2500 : 1200))
           let v: { ok: boolean; detail: string }
@@ -1216,12 +1223,6 @@ export async function runFixAgent(opts: {
             const meta = item.issue.fixMetadata
             if (meta?.fromUrl && meta?.toUrl) {
               v = await verifyRedirectLive(meta.fromUrl, new URL(meta.toUrl).pathname)
-              if (!v.ok && (apply.pending || adapter.deferredVerification)) {
-                v = {
-                  ok: true,
-                  detail: `${v.detail} Committed — live redirect may require rebuild/deploy.`,
-                }
-              }
             } else {
               v = { ok: false, detail: 'Missing redirect metadata.' }
             }
@@ -1233,9 +1234,6 @@ export async function runFixAgent(opts: {
             })
             const liveHtml = await liveRes.text()
             v = verifyLiveHtml(kind, liveHtml, undefined, item.issue)
-            if (!v.ok && (apply.pending || adapter.deferredVerification)) {
-              v = { ok: true, detail: `${v.detail} Committed — sitemap may require rebuild/deploy.` }
-            }
           } else if (kind === 'remove-dead-link') {
             const sourceUrl = item.issue.fixMetadata?.sourceUrls?.[0]
             const verifyUrl = sourceUrl || opts.auditUrl
@@ -1245,10 +1243,6 @@ export async function runFixAgent(opts: {
             })
             const liveHtml = await liveRes.text()
             v = verifyLiveHtml(kind, liveHtml, undefined, item.issue)
-            if (!v.ok && (apply.pending || adapter.deferredVerification)) {
-              v = { ok: true, detail: `${v.detail} Committed — source page may require rebuild/deploy.` }
-            }
-          
           } else if (kind === 'rewrite-link-href') {
             const fixes = item.issue.fixMetadata?.hrefFixes || []
             const sourceUrl =
@@ -1273,9 +1267,6 @@ export async function runFixAgent(opts: {
             } else {
               v = verifyLiveHtml(kind, liveHtml, undefined, item.issue)
             }
-            if (!v.ok && (apply.pending || adapter.deferredVerification)) {
-              v = { ok: true, detail: `${v.detail} Committed — source page may require rebuild/deploy.` }
-            }
           } else {
             const liveRes = await fetch(opts.auditUrl, {
               headers: { 'User-Agent': 'SEORANKO-FixAgent/1.0', 'Cache-Control': 'no-cache' },
@@ -1295,17 +1286,12 @@ export async function runFixAgent(opts: {
             v = verifyLiveHtml(kind, liveHtml, schemaType, item.issue)
           }
 
-          verificationDetail = apply.detail ? `${apply.detail} ${v.detail}` : v.detail
           if (v.ok) {
-            if (apply.pending || adapter.deferredVerification) {
-              status = pendingStatusFromApply(apply)
-              anyPending = true
-            } else {
-              status = 'verified'
-            }
+            status = 'verified'
+            verificationDetail = apply.detail ? `${apply.detail} ${v.detail}` : v.detail
             resolved = true
             if (workingPage && outcome.after) workingPage.bodyHtml = outcome.after
-            if (!SITE_WIDE_AUTO_KINDS.has(kind) && status === 'verified') {
+            if (!SITE_WIDE_AUTO_KINDS.has(kind)) {
               try {
                 const re = await runPageAudit(opts.auditUrl)
                 scoreAfter = re.score
@@ -1315,25 +1301,30 @@ export async function runFixAgent(opts: {
               } catch {
                 /* ignore re-audit errors */
               }
-            } else if (!issueStillPresent([], item) && status === 'verified') {
-              verificationDetail += ' Site-wide fix applied.'
+            } else {
+              verificationDetail += ' Site-wide fix confirmed live.'
             }
           } else {
-            status = 'failed'
-            verificationDetail = `${v.detail} (strategy: ${strategy.name})`
+            // Write may have landed in the repo/CMS, but live HTML has not changed yet.
+            status = unverifiedStatusFromApply(apply)
+            anyPending = true
+            resolved = true
+            if (workingPage && outcome.after) workingPage.bodyHtml = outcome.after
+            verificationDetail = [
+              apply.detail,
+              `Live re-crawl did not confirm the change — status=${status}, not done.`,
+              v.detail,
+            ]
+              .filter(Boolean)
+              .join(' ')
           }
         } catch {
-          if (apply.success) {
-            status = apply.pending ? pendingStatusFromApply(apply) : 'applied'
-            verificationDetail = apply.detail
-              ? `${apply.detail} Could not re-fetch live to verify yet.`
-              : 'Wrote fix but could not re-fetch live to verify.'
-            if (apply.pending) anyPending = true
-            resolved = true
-          } else {
-            status = 'failed'
-            verificationDetail = 'Verification fetch failed.'
-          }
+          status = unverifiedStatusFromApply(apply)
+          anyPending = true
+          resolved = true
+          verificationDetail = apply.detail
+            ? `${apply.detail} Could not re-fetch live to verify — status=${status}, not done.`
+            : `Wrote fix but could not re-fetch live to verify — status=${status}, not done.`
         }
       }
 
@@ -1507,9 +1498,9 @@ export async function runFixAgent(opts: {
         targetUrl: opts.auditUrl,
         issueKey,
         pendingKind:
-          status === 'pending_merge'
+          status === 'pr_pending' || status === 'pending_merge'
             ? 'merge'
-            : status === 'pending_deploy'
+            : status === 'unverified' || status === 'pending_deploy'
               ? 'deploy'
               : apply.pendingKind || null,
         pendingUrl: apply.url || null,
@@ -1579,10 +1570,16 @@ export async function runFixAgent(opts: {
 
   const liveCount = applied.filter((a) => a.status === 'verified').length
   const pendingDeployCount = applied.filter(
-    (a) => a.status === 'pending_deploy' || a.pendingKind === 'deploy',
+    (a) =>
+      a.status === 'unverified' ||
+      a.status === 'pending_deploy' ||
+      a.pendingKind === 'deploy',
   ).length
   const pendingMergeCount = applied.filter(
-    (a) => a.status === 'pending_merge' || a.pendingKind === 'merge',
+    (a) =>
+      a.status === 'pr_pending' ||
+      a.status === 'pending_merge' ||
+      a.pendingKind === 'merge',
   ).length
   // Count one failure outcome per issue (last failed/handed_off attempt), not every retry.
   const failedIssueIds = new Set(
@@ -1590,14 +1587,12 @@ export async function runFixAgent(opts: {
       .filter((a) => a.status === 'failed' || a.status === 'handed_off')
       .map((a) => a.issueId),
   )
-  // Exclude issues that later succeeded
+  // Exclude issues that later succeeded or are still in-flight (not confirmed live).
   for (const a of applied) {
     if (
       a.status === 'verified' ||
-      a.status === 'applied' ||
-      a.status === 'pending_deploy' ||
-      a.status === 'pending_merge' ||
-      a.status === 'skipped'
+      a.status === 'skipped' ||
+      UNVERIFIED_STATUSES.has(a.status)
     ) {
       failedIssueIds.delete(a.issueId)
     }
