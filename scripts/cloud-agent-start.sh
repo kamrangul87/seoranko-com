@@ -103,6 +103,18 @@ start_supabase() {
     mv /tmp/seoranko-migrations-aside supabase/migrations
   fi
 
+  # CLI can exit before health settles — poll status briefly.
+  if [[ "$rc" -ne 0 ]]; then
+    log "supabase start returned rc=$rc — waiting for services to become ready"
+    for _ in $(seq 1 60); do
+      if supabase status >/dev/null 2>&1; then
+        rc=0
+        break
+      fi
+      sleep 2
+    done
+  fi
+
   if [[ "$rc" -ne 0 ]]; then
     log "supabase start failed (rc=$rc)"
     return "$rc"
