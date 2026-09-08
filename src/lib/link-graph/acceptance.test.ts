@@ -58,6 +58,37 @@ describe('link-graph acceptance (§8)', () => {
     expect(result.findings.filter((f) => f.ruleId === 'L04')).toHaveLength(0)
   })
 
+  it('1b. direct links to a final URL are not L05 just because another URL redirects there', async () => {
+    // /ai → 307 /ai-assistant, while pages already link straight to /ai-assistant.
+    const html = {
+      'https://example.com/blog': `<html><body><main><a href="https://ai.example.com/ai-assistant">AI</a></main></body></html>`,
+      'https://example.com/other': `<html><body><main><a href="https://ai.example.com/">AI home</a></main></body></html>`,
+    }
+    const result = await runLinkGraphAudit(
+      baseInput({
+        siteHost: 'example.com',
+        htmlByUrl: html,
+        pages: [
+          { url: 'https://example.com/blog', httpStatus: 200, crawlDepth: 1, verdict: 'INDEXABLE', steps: [] },
+          { url: 'https://example.com/other', httpStatus: 200, crawlDepth: 1, verdict: 'INDEXABLE', steps: [] },
+        ],
+      }),
+      {
+        fetcher: mockFetcher({
+          'https://example.com/blog': { status: 200 },
+          'https://example.com/other': { status: 200 },
+          'https://ai.example.com/': { status: 307, location: 'https://ai.example.com/ai-assistant' },
+          'https://ai.example.com/ai-assistant': { status: 200 },
+        }),
+      },
+    )
+    const l05 = result.findings.filter((f) => f.ruleId === 'L05')
+    // Only the bare / link should flag — not the direct /ai-assistant links.
+    expect(l05).toHaveLength(1)
+    expect(l05[0]!.targetUrl).toBe('https://ai.example.com/')
+    expect(l05[0]!.suggestedTarget).toBe('https://ai.example.com/ai-assistant')
+  })
+
   it('2. 3-hop chain produces L04, not three separate L05s', async () => {
     const html = {
       'https://example.com/': `<html><body><main><a href="/a">A</a></main></body></html>`,

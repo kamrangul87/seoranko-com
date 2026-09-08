@@ -1,4 +1,5 @@
 import { normalizeUrl } from '@/lib/supabase/audit-db'
+import { crawlFetchInit } from '@/lib/crawl-fetch'
 import { extractSitemapUrlsFromRobots } from './robots-parser'
 
 function parseSitemapUrls(xml: string): string[] {
@@ -31,11 +32,11 @@ export async function discoverSitemapUrls(baseUrl: string, robotsTxt: string): P
     if (seen.has(sitemapUrl)) continue
     seen.add(sitemapUrl)
     try {
-      const res = await fetch(sitemapUrl, {
+      const res = await fetch(sitemapUrl, crawlFetchInit({
         headers: { 'User-Agent': 'SEORANKO-IndexDiagnosis/1.0' },
         signal: AbortSignal.timeout(8000),
         redirect: 'follow',
-      })
+      }))
       if (!res.ok) continue
       const xml = await res.text()
 
@@ -43,10 +44,10 @@ export async function discoverSitemapUrls(baseUrl: string, robotsTxt: string): P
         const childLocs = parseSitemapUrls(xml).filter((u) => /sitemap/i.test(u))
         for (const childUrl of childLocs.slice(0, 5)) {
           try {
-            const childRes = await fetch(childUrl, {
+            const childRes = await fetch(childUrl, crawlFetchInit({
               headers: { 'User-Agent': 'SEORANKO-IndexDiagnosis/1.0' },
               signal: AbortSignal.timeout(6000),
-            })
+            }))
             if (!childRes.ok) continue
             const childXml = await childRes.text()
             all.push(...parseSitemapUrls(childXml).filter((u) => !/sitemap/i.test(u)))

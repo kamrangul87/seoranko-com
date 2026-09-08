@@ -4,6 +4,7 @@
  */
 
 import { isSafePublicUrl } from '@/lib/fetch-page-content'
+import { crawlFetchInit } from '@/lib/crawl-fetch'
 import {
   canonicalConsolidationOk,
   isIndexHtmlCanonicalMisconfiguration,
@@ -48,15 +49,16 @@ export async function verifyCanonicalMisconfigurationLive(
   }
 
   try {
-    const res = await fetch(pageUrl, {
-      headers: {
-        'User-Agent': USER_AGENT,
-        'Cache-Control': 'no-cache',
-        Pragma: 'no-cache',
-      },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      redirect: 'follow',
-    })
+    const res = await fetch(
+      pageUrl,
+      crawlFetchInit({
+        headers: {
+          'User-Agent': USER_AGENT,
+        },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        redirect: 'follow',
+      }),
+    )
     const html = await res.text()
     const finalUrl = res.url || pageUrl
     const liveCanonical = parseCanonicalHref(html)

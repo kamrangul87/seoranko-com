@@ -239,7 +239,9 @@ export function LinkGraphPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           domain: resolvedDomain,
-          diagnosis,
+          // Never send the in-memory Index Diagnosis — it is often a saved
+          // stale crawl. The API always re-crawls when auditId is "new".
+          forceFresh: true,
           resolveExternal: false,
         }),
       })
@@ -288,7 +290,8 @@ export function LinkGraphPanel({
           <h2 className="font-medium text-[#0F0F0F]">Link Graph</h2>
           <p className="text-xs text-[#6B6B6B] mt-0.5">
             Finds broken, redirected, and non-canonical internal links — and pages Google can&apos;t
-            reach through your own links. Uses the Index Diagnosis crawl (no second paid API).
+            reach through your own links. Each run crawls the live site fresh (not the saved Index
+            Diagnosis snapshot).
           </p>
           {savedAt && summary && (
             <p className="text-[11px] text-[#9B9B9B] mt-1">

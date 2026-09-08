@@ -1,5 +1,6 @@
 import { normalizeDomain, normalizeUrl } from '@/lib/supabase/audit-db'
 import { isSafePublicUrl } from '@/lib/fetch-page-content'
+import { crawlFetchInit } from '@/lib/crawl-fetch'
 import { matchRobotsForUrl } from './robots-parser'
 import { discoverSitemapUrls, extractInternalLinks } from './sitemap-discovery'
 import { filterLinkedOnlyUrls, buildSitemapGapFilterContext } from './sitemap-gap-filter'
@@ -54,10 +55,10 @@ function hostOf(url: string): string {
 
 async function fetchRobotsTxt(baseUrl: string): Promise<{ text: string; evidence: string }> {
   try {
-    const res = await fetch(`${baseUrl.replace(/\/$/, '')}/robots.txt`, {
+    const res = await fetch(`${baseUrl.replace(/\/$/, '')}/robots.txt`, crawlFetchInit({
       headers: { 'User-Agent': USER_AGENT },
       signal: AbortSignal.timeout(5000),
-    })
+    }))
     if (!res.ok) return { text: '', evidence: `robots.txt HTTP ${res.status}` }
     const text = await res.text()
     return { text, evidence: `robots.txt fetched (${text.length} bytes)` }
@@ -82,11 +83,11 @@ async function fetchWithRedirects(url: string): Promise<{
 
   try {
     while (redirectCount <= MAX_REDIRECTS) {
-      const res = await fetch(current, {
+      const res = await fetch(current, crawlFetchInit({
         headers: { 'User-Agent': USER_AGENT },
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         redirect: 'manual',
-      })
+      }))
       lastStatus = res.status
       xRobotsTag = res.headers.get('x-robots-tag') || ''
 

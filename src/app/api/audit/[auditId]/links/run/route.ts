@@ -6,6 +6,7 @@ import { runIndexDiagnosis } from '@/lib/index-diagnosis/run'
 import { linkGraphInputFromDiagnosis } from '@/lib/link-graph/from-diagnosis'
 import { runLinkGraphAudit } from '@/lib/link-graph/run'
 import { persistLinkGraphResult } from '@/lib/link-graph/persist'
+import { selectDiagnosisForLinkGraphRun } from '@/lib/link-graph/select-diagnosis'
 import type { IndexDiagnosisResult } from '@/lib/index-diagnosis/types'
 
 export const maxDuration = 300
@@ -22,8 +23,8 @@ function authClient() {
 /**
  * POST /api/audit/[auditId]/links/run
  * auditId may be:
- * - an index_diagnosis_runs id (preferred — second reader over that crawl)
- * - or "new" with body.domain to run a fresh diagnosis first
+ * - "new" (or body.forceFresh) — always run a fresh Index Diagnosis crawl
+ * - an index_diagnosis_runs id — re-analyse that run (may use body.diagnosis htmlByUrl)
  */
 export async function POST(
   req: NextRequest,
@@ -36,22 +37,37 @@ export async function POST(
 
     const body = await req.json().catch(() => ({}))
     const auditId = params.auditId
+    const forceFresh = body.forceFresh === true || auditId === 'new'
 
-    let diagnosis: IndexDiagnosisResult | null = null
+    let crawled: IndexDiagnosisResult | null = null
     let diagnosisRunId: string | null = null
+    const bodyDiagnosis =
+      body.diagnosis && typeof body.diagnosis === 'object'
+        ? (body.diagnosis as IndexDiagnosisResult)
+        : null
 
-    if (auditId === 'new' || body.forceFresh === true) {
+    if (forceFresh) {
       const domainOrUrl =
         typeof body.domain === 'string'
           ? body.domain.trim()
           : typeof body.url === 'string'
             ? body.url.trim()
-            : ''
+            : typeof bodyDiagnosis?.coverage?.seedUrl === 'string'
+              ? bodyDiagnosis.coverage.seedUrl
+              : typeof bodyDiagnosis?.coverage?.domain === 'string'
+                ? bodyDiagnosis.coverage.domain
+                : ''
       if (!domainOrUrl) {
-        return NextResponse.json({ error: 'domain or url required when auditId is new' }, { status: 400 })
+        return NextResponse.json(
+          { error: 'domain or url required for a fresh Link Graph run' },
+          { status: 400 },
+        )
       }
-      const seed = domainOrUrl.startsWith('http') ? domainOrUrl : `https://${normalizeDomain(domainOrUrl)}/`
-      diagnosis = await runIndexDiagnosis(seed)
+      const seed = domainOrUrl.startsWith('http')
+        ? domainOrUrl
+        : `https://${normalizeDomain(domainOrUrl)}/`
+      // Always crawl now — never trust client diagnosis (often a saved stale crawl).
+      crawled = await runIndexDiagnosis(seed)
     } else {
       const { data: run, error } = await supabase
         .from('index_diagnosis_runs')
@@ -65,20 +81,20 @@ export async function POST(
       }
       diagnosisRunId = run.id
       // Persisted runs may lack htmlByUrl — fall back to fresh crawl for same seed
-      if (body.diagnosis && body.diagnosis.htmlByUrl) {
-        diagnosis = body.diagnosis as IndexDiagnosisResult
-      } else {
-        diagnosis = await runIndexDiagnosis(run.seed_url || `https://${run.domain}/`)
+      if (!(bodyDiagnosis?.htmlByUrl && bodyDiagnosis?.pages)) {
+        crawled = await runIndexDiagnosis(run.seed_url || `https://${run.domain}/`)
       }
     }
 
+    const diagnosis = selectDiagnosisForLinkGraphRun({
+      auditId,
+      forceFresh,
+      crawled,
+      bodyDiagnosis,
+    })
+
     if (!diagnosis) {
       return NextResponse.json({ error: 'Could not load crawl data' }, { status: 400 })
-    }
-
-    // Client may pass live Index Diagnosis result (includes htmlByUrl) from the audit page
-    if (body.diagnosis?.htmlByUrl && body.diagnosis?.pages) {
-      diagnosis = body.diagnosis as IndexDiagnosisResult
     }
 
     const input = linkGraphInputFromDiagnosis(diagnosis)
@@ -94,9 +110,11 @@ export async function POST(
       result,
     })
 
+    const redirectRules = new Set(['L04', 'L05'])
     return NextResponse.json({
       ok: true,
       auditId: linkAuditId,
+      crawlSource: forceFresh ? 'fresh' : bodyDiagnosis?.htmlByUrl ? 'client' : 'fresh',
       summary: {
         verdictHeadline: result.verdictHeadline,
         topCauses: result.topCauses,
@@ -108,10 +126,12 @@ export async function POST(
         criticalCount: result.findings.filter((f) => f.severity === 'CRITICAL').length,
         failCount: result.findings.filter((f) => f.severity === 'FAIL').length,
         warnCount: result.findings.filter((f) => f.severity === 'WARN').length,
+        redirectHopCount: result.findings.filter((f) => redirectRules.has(f.ruleId)).length,
       },
-      // Return findings for immediate UI (even if persist failed)
       findings: result.rankedFindings.slice(0, 100),
-      topFindings: result.rankedFindings.filter((f) => f.severity === 'CRITICAL' || f.severity === 'FAIL').slice(0, 30),
+      topFindings: result.rankedFindings
+        .filter((f) => f.severity === 'CRITICAL' || f.severity === 'FAIL')
+        .slice(0, 30),
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Link graph run failed'
