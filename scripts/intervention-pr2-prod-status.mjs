@@ -136,6 +136,40 @@ async function main() {
   }
   out.schema = byTable
 
+  const ieCols = await client.query(`
+    SELECT column_name, is_nullable, data_type, column_default
+    FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='intervention_events'
+    ORDER BY ordinal_position
+  `)
+  out.interventionEventsColumns = ieCols.rows
+
+  // Diagnoses why Fix Agent inserts may fail against a stub+aligned table.
+  const notNullNoDefault = ieCols.rows.filter(
+    (c) => c.is_nullable === 'NO' && !c.column_default && c.column_name !== 'id',
+  )
+  out.interventionInsertRequiredColumns = notNullNoDefault.map((c) => c.column_name)
+
+  const attemptStatus = await client.query(`
+    SELECT status, COUNT(*)::int AS n
+    FROM fix_agent_attempts
+    GROUP BY status
+    ORDER BY n DESC
+  `)
+  out.fixAgentAttemptStatuses = attemptStatus.rows
+
+  const verifiedTaxonomy = await client.query(`
+    SELECT id, site_id, auto_kind, status, target_url, created_at,
+           (before_snapshot IS NOT NULL AND length(before_snapshot) > 20) AS has_before,
+           (after_snapshot IS NOT NULL AND length(after_snapshot) > 20) AS has_after
+    FROM fix_agent_attempts
+    WHERE status = 'verified'
+    ORDER BY created_at DESC
+    LIMIT 20
+  `)
+  out.verifiedAttemptsAnywhere = verifiedTaxonomy.rows
+
+
   for (const t of [
     'intervention_events',
     'causal_results',
@@ -409,3 +443,4 @@ main().catch((err) => {
   console.error(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }))
   process.exit(1)
 })
+

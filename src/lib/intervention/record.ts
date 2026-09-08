@@ -125,6 +125,9 @@ export async function recordInterventionFromVerify(
     user_id: input.userId,
     experiment_id: input.experimentId ?? null,
     url_id: input.url,
+    // Hosted stub from an earlier MCP apply had NOT NULL `url` (no url_id).
+    // Keep both populated so inserts succeed against either shape.
+    url: input.url,
     intervention_type: taxonomy.intervention_type,
     intervention_subtype: taxonomy.intervention_subtype,
     interference_scope: taxonomy.interference_scope,
