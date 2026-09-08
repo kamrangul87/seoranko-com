@@ -66,6 +66,40 @@ interface MetricsSummary {
   provisionalRowCount: number
 }
 
+interface InterventionRow {
+  id: string
+  url_id: string
+  intervention_type: string
+  intervention_subtype: string
+  interference_scope: string
+  lifecycle_state: string
+  applied_at: string | null
+  verified_at: string | null
+  experiment_id: string | null
+  is_isolated: boolean
+}
+
+interface CausalResultRow {
+  id: string
+  intervention_id: string
+  metric: string
+  is_exploratory: boolean
+  effect_estimate: number | null
+  validity_status: string
+  result_direction: string | null
+  calculated_at: string
+  treatment_n: number | null
+  control_n: number | null
+}
+
+interface PipelineStatus {
+  baseline: boolean
+  intervention: boolean
+  verified: boolean
+  measuring: boolean
+  result: boolean
+}
+
 interface GscProperty {
   siteUrl: string
   permissionLevel: string
@@ -101,6 +135,9 @@ function ExperimentsPageInner() {
   const [connection, setConnection] = useState<GscConnection | null>(null)
   const [readiness, setReadiness] = useState<Readiness | null>(null)
   const [metricsSummary, setMetricsSummary] = useState<MetricsSummary | null>(null)
+  const [interventions, setInterventions] = useState<InterventionRow[]>([])
+  const [causalResults, setCausalResults] = useState<CausalResultRow[]>([])
+  const [pipelineStatus, setPipelineStatus] = useState<PipelineStatus | null>(null)
   const [properties, setProperties] = useState<GscProperty[]>([])
   const [selectedProperties, setSelectedProperties] = useState<Set<string>>(new Set())
   const [pickingProperties, setPickingProperties] = useState(false)
@@ -141,6 +178,9 @@ function ExperimentsPageInner() {
       setConnection(data.connection || null)
       setReadiness(data.readiness || null)
       setMetricsSummary(data.metricsSummary || null)
+      setInterventions(data.interventions || [])
+      setCausalResults(data.causalResults || [])
+      setPipelineStatus(data.pipelineStatus || null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load')
     } finally {
@@ -598,6 +638,37 @@ function ExperimentsPageInner() {
 
           {!loading && connected && hasProperty && (
             <div className="space-y-4">
+              <div className="border border-[#E5E5E5] rounded-lg px-4 py-3 bg-white">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  {(
+                    [
+                      ['Baseline', pipelineStatus?.baseline],
+                      ['Intervention', pipelineStatus?.intervention],
+                      ['Verified', pipelineStatus?.verified],
+                      ['Measuring', pipelineStatus?.measuring],
+                      ['Result', pipelineStatus?.result],
+                    ] as const
+                  ).map(([label, done], idx, arr) => (
+                    <div key={label} className="flex items-center gap-2">
+                      <span
+                        className={
+                          done
+                            ? 'font-medium text-[#0F0F0F]'
+                            : 'text-[#9B9B9B]'
+                        }
+                      >
+                        {label}
+                      </span>
+                      {idx < arr.length - 1 && (
+                        <span className="text-[#C4C4C4]" aria-hidden>
+                          →
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               <div className="border border-[#E5E5E5] rounded-lg px-4 py-4 bg-white space-y-2">
                 <div className="flex flex-wrap justify-between gap-2 items-start">
                   <div>
@@ -639,8 +710,94 @@ function ExperimentsPageInner() {
                     >
                       Recheck readiness
                     </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        void (async () => {
+                          setBusy(true)
+                          setError(null)
+                          try {
+                            const res = await fetch('/api/experiments/analyze', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ siteId }),
+                            })
+                            const data = await res.json()
+                            if (!res.ok) throw new Error(data.error || 'Analyze failed')
+                            setMessage(data.message || 'Analysis complete')
+                            await loadStatus(siteId)
+                          } catch (err) {
+                            setError(err instanceof Error ? err.message : 'Analyze failed')
+                          } finally {
+                            setBusy(false)
+                          }
+                        })()
+                      }}
+                      className="px-3 py-1.5 rounded-lg border border-[#E5E5E5] bg-white text-sm disabled:opacity-50"
+                    >
+                      Run analysis
+                    </button>
                   </div>
                 </div>
+              </div>
+
+              <div className="border border-[#E5E5E5] rounded-lg px-4 py-4 bg-white space-y-3">
+                <h2 className="font-medium">Interventions</h2>
+                {interventions.length === 0 ? (
+                  <p className="text-sm text-[#6B6B6B]">insufficient evidence</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="text-xs text-[#6B6B6B] border-b border-[#E5E5E5]">
+                        <tr>
+                          <th className="py-2 pr-3 font-medium">Type</th>
+                          <th className="py-2 pr-3 font-medium">Applied</th>
+                          <th className="py-2 pr-3 font-medium">Treatment / control</th>
+                          <th className="py-2 pr-3 font-medium">Lifecycle</th>
+                          <th className="py-2 pr-3 font-medium">Validity</th>
+                          <th className="py-2 font-medium">Effect</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {interventions.map((row) => {
+                          const result = causalResults.find(
+                            (r) => r.intervention_id === row.id && !r.is_exploratory,
+                          )
+                          const splitOk = row.interference_scope === 'url'
+                          const effectLabel =
+                            result?.validity_status === 'valid' && result.effect_estimate != null
+                              ? result.effect_estimate.toFixed(3)
+                              : 'insufficient evidence'
+                          return (
+                            <tr key={row.id} className="border-b border-[#F0F0F0]">
+                              <td className="py-2 pr-3">
+                                {row.intervention_type}/{row.intervention_subtype}
+                              </td>
+                              <td className="py-2 pr-3">
+                                {row.applied_at
+                                  ? new Date(row.applied_at).toLocaleDateString()
+                                  : '—'}
+                              </td>
+                              <td className="py-2 pr-3">
+                                {splitOk
+                                  ? result
+                                    ? `${result.treatment_n ?? 0} / ${result.control_n ?? 0}`
+                                    : '—'
+                                  : 'pre/post only'}
+                              </td>
+                              <td className="py-2 pr-3">{row.lifecycle_state}</td>
+                              <td className="py-2 pr-3">
+                                {result?.validity_status || 'insufficient evidence'}
+                              </td>
+                              <td className="py-2">{effectLabel}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
               {readiness && !readiness.passed && (
@@ -678,7 +835,7 @@ function ExperimentsPageInner() {
                   </ul>
                   <p className="text-xs text-amber-800">
                     Rank movement is slow — keep collecting weeks of clean baseline before starting an
-                    experiment. Creating experiments lands in the next release.
+                    experiment.
                   </p>
                 </div>
               )}
