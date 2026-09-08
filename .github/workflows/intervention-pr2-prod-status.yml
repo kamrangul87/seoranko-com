@@ -1,0 +1,38 @@
+name: Intervention PR2 prod status
+
+# Read-only probe by default. Set probe_write=true to backfill intervention_events
+# from real verified fix_agent_attempts (no synthetic experiments).
+
+on:
+  workflow_dispatch:
+    inputs:
+      probe_write:
+        description: 'Backfill from verified Fix Agent attempts + upsert causal_results when prereg exists'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+jobs:
+  probe:
+    name: intervention-pr2-prod-status
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pg client
+        run: npm install --no-save pg@8.16.3
+      - name: Run prod status probe
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_POOLER_HOST: ${{ secrets.SUPABASE_POOLER_HOST }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PROBE_WRITE: ${{ inputs.probe_write }}
+        run: node scripts/intervention-pr2-prod-status.mjs
