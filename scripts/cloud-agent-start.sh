@@ -34,8 +34,13 @@ ensure_docker_daemon() {
 
   ensure_iptables_legacy
   sudo rm -f /var/run/docker.pid
+  # Ensure the agent user can talk to the socket before readiness checks.
+  if ! id -nG 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
+    sudo usermod -aG docker "$(id -un)" 2>/dev/null || true
+  fi
   sudo dockerd >/tmp/dockerd.log 2>&1 &
-  for _ in $(seq 1 30); do
+  for _ in $(seq 1 45); do
+    sudo chmod 666 /var/run/docker.sock 2>/dev/null || true
     if docker info >/dev/null 2>&1; then
       sudo chmod 666 /var/run/docker.sock 2>/dev/null || true
       log "Docker daemon ready"
