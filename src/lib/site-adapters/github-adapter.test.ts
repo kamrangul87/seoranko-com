@@ -6,6 +6,8 @@ import {
   isDirectPushBlocked,
   githubTokenKindHint,
   githubAdapter,
+  isStaleClientFixBranch,
+  deleteStaleSeorankoFixBranches,
 } from './github-adapter'
 
 const autodunLikeTree = [
@@ -79,6 +81,55 @@ describe('githubTokenKindHint', () => {
     expect(githubTokenKindHint('ghs_abc')).toMatch(/github_app_installation/)
     expect(githubTokenKindHint('github_pat_abc')).toMatch(/fine_grained_pat/)
     expect(githubTokenKindHint('ghp_abc')).toMatch(/classic_pat/)
+  })
+})
+
+describe('stale client Fix Agent branches', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('flags seoranko-fix-* and known merged homepage stubs', () => {
+    expect(isStaleClientFixBranch('seoranko-fix-abc-itoi')).toBe(true)
+    expect(isStaleClientFixBranch('homepage-build')).toBe(true)
+    expect(isStaleClientFixBranch('claude/build-homepage-UAaZz')).toBe(true)
+    expect(isStaleClientFixBranch('main')).toBe(false)
+    expect(isStaleClientFixBranch('feature/something')).toBe(false)
+  })
+
+  it('deletes stale branches via GitHub API', async () => {
+    const deleted: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        const method = (init?.method || 'GET').toUpperCase()
+        if (method === 'GET' && url.includes('/branches')) {
+          return new Response(
+            JSON.stringify([
+              { name: 'main' },
+              { name: 'seoranko-fix-abc' },
+              { name: 'homepage-build' },
+              { name: 'keep-me' },
+            ]),
+            { status: 200 },
+          )
+        }
+        if (method === 'DELETE' && url.includes('/git/refs/heads/')) {
+          const branch = decodeURIComponent(url.split('/git/refs/heads/')[1] || '')
+          deleted.push(branch)
+          return new Response(null, { status: 204 })
+        }
+        throw new Error(`unexpected ${method} ${url}`)
+      }),
+    )
+
+    const result = await deleteStaleSeorankoFixBranches(testCreds)
+    expect(result.deleted.sort()).toEqual(['homepage-build', 'seoranko-fix-abc'].sort())
+    expect(result.failed).toEqual([])
+    expect(deleted).not.toContain('main')
+    expect(deleted).not.toContain('keep-me')
   })
 })
 

@@ -27,4 +27,13 @@ if [[ -z "${SUPABASE_DB_PASSWORD:-}" && -z "${SUPABASE_DB_URL:-}" && -z "${DATAB
 fi
 
 chmod +x scripts/ci-supabase-db-push.sh
-exec ./scripts/ci-supabase-db-push.sh
+./scripts/ci-supabase-db-push.sh
+
+# Sweep leftover seoranko-fix-* review branches on connected GitHub client
+# repos (legacy PR-fallback). Best-effort — never fails the deploy.
+if [[ -n "${SITE_CONNECTION_ENCRYPTION_KEY:-}" && -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]]; then
+  echo "vercel-production-migrate: cleaning stale client Fix Agent branches…"
+  node scripts/cleanup-client-fix-branches.mjs || echo "::warning::client branch cleanup skipped/failed (non-fatal)"
+else
+  echo "vercel-production-migrate: skip client branch cleanup (encryption key or service role missing)"
+fi

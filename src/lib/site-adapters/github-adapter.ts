@@ -6,7 +6,9 @@
 //
 // POLICY: Fix Agent always commits directly to the default branch. There is
 // no PR-fallback path — if the push is blocked, the attempt fails so the
-// operator can fix token/branch permissions.
+// operator can fix token/branch permissions. After a GitHub Fix Agent run we
+// also delete leftover `seoranko-fix-*` review branches from the old
+// PR-fallback era so client repos do not accumulate stale refs.
 //
 // SAFETY: this adapter commits to a real repository that a real site builds
 // from. Two rules keep it from breaking a live site:
@@ -222,6 +224,76 @@ async function putContentsFile(
     }),
     signal: AbortSignal.timeout(20000),
   })
+}
+
+/** Legacy Fix Agent review-branch prefix (PR-fallback era). Safe to delete. */
+export const SEORANKO_FIX_BRANCH_PREFIX = 'seoranko-fix-'
+
+/** Extra one-off stale branches we know are fully merged on autodun-ai. */
+const EXTRA_STALE_BRANCHES = new Set(['homepage-build', 'claude/build-homepage-UAaZz'])
+
+export function isStaleClientFixBranch(name: string): boolean {
+  if (!name || name === 'main' || name === 'master') return false
+  if (name.startsWith(SEORANKO_FIX_BRANCH_PREFIX)) return true
+  return EXTRA_STALE_BRANCHES.has(name)
+}
+
+/**
+ * Delete leftover Fix Agent review branches (and known merged homepage stubs).
+ * Best-effort — never throws into the write path. Direct-push no longer creates
+ * these; this only sweeps history so client repos stay tidy.
+ */
+export async function deleteStaleSeorankoFixBranches(
+  creds: SiteCredentials,
+): Promise<{ deleted: string[]; failed: Array<{ branch: string; error: string }> }> {
+  const deleted: string[] = []
+  const failed: Array<{ branch: string; error: string }> = []
+  const invalid = validCreds(creds)
+  if (invalid || !creds.accessToken || !creds.owner || !creds.repo) {
+    return { deleted, failed: invalid ? [{ branch: '*', error: invalid }] : [] }
+  }
+
+  try {
+    const listRes = await fetch(
+      `${GH}/repos/${creds.owner}/${creds.repo}/branches?per_page=100`,
+      { headers: ghHeaders(creds.accessToken), signal: AbortSignal.timeout(20000) },
+    )
+    if (!listRes.ok) {
+      failed.push({ branch: '*', error: `list branches HTTP ${listRes.status}` })
+      return { deleted, failed }
+    }
+    const branches = (await listRes.json()) as Array<{ name: string }>
+    const stale = (Array.isArray(branches) ? branches : [])
+      .map((b) => b.name)
+      .filter(isStaleClientFixBranch)
+
+    for (const name of stale) {
+      const del = await fetch(
+        `${GH}/repos/${creds.owner}/${creds.repo}/git/refs/heads/${encodeURIComponent(name)}`,
+        {
+          method: 'DELETE',
+          headers: ghHeaders(creds.accessToken),
+          signal: AbortSignal.timeout(15000),
+        },
+      )
+      if (del.ok || del.status === 204) {
+        deleted.push(name)
+      } else {
+        const body = await del.json().catch(() => ({})) as { message?: string }
+        failed.push({
+          branch: name,
+          error: body.message || `HTTP ${del.status}`,
+        })
+      }
+    }
+  } catch (err) {
+    failed.push({
+      branch: '*',
+      error: err instanceof Error ? err.message : 'branch cleanup failed',
+    })
+  }
+
+  return { deleted, failed }
 }
 
 async function commitFileChange(

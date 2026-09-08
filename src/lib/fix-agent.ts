@@ -53,6 +53,7 @@ import {
 } from '@/lib/csp/build-policy'
 import { findBlockingAttempt } from '@/lib/fix-agent-idempotency'
 import { recordInterventionFromVerify } from '@/lib/intervention/record'
+import { deleteStaleSeorankoFixBranches } from '@/lib/site-adapters/github-adapter'
 
 const MAX_ATTEMPTS_PER_ISSUE = 3
 const RATE_LIMIT_PER_HOUR = 20
@@ -1648,6 +1649,28 @@ export async function runFixAgent(opts: {
     ? null
     : persistenceErrors[0] ||
       'fix_agent_attempts insert failed — apply migration 20260907160000_fix_agent_attempts_ensure_csp.sql on hosted Supabase.'
+
+  // Sweep legacy seoranko-fix-* review branches (PR-fallback era). Direct-push
+  // no longer creates them; this keeps client repos (e.g. autodun-ai) tidy.
+  if (owned.cmsType === 'github' && owned.credentials?.accessToken) {
+    try {
+      const sweep = await deleteStaleSeorankoFixBranches({
+        ...owned.credentials,
+        siteUrl: owned.siteUrl,
+      })
+      if (sweep.deleted.length) {
+        console.info(
+          `[fix-agent] deleted stale client branches on ${owned.credentials.owner}/${owned.credentials.repo}:`,
+          sweep.deleted.join(', '),
+        )
+      }
+    } catch (err) {
+      console.error(
+        '[fix-agent] stale branch cleanup',
+        err instanceof Error ? err.message : err,
+      )
+    }
+  }
 
   return {
     ok: true,
