@@ -39,9 +39,35 @@ fi
 
 npx --yes supabase@2.116.0 --version
 
+push_with_db_url() {
+  npx --yes supabase@2.116.0 db push --yes --db-url "$DB_URL"
+}
+
 if [[ -n "$DB_URL" ]]; then
   echo "Applying migrations via --db-url (project ${PROJECT_REF}, pooler ${POOLER_HOST:-from-url})"
-  npx --yes supabase@2.116.0 db push --yes --db-url "$DB_URL"
+  set +e
+  push_out="$(push_with_db_url 2>&1)"
+  push_ec=$?
+  set -e
+  printf '%s\n' "$push_out"
+  if [[ $push_ec -ne 0 ]]; then
+    # Ghost remote versions (applied/recorded on hosted, missing from git) block every
+    # db push. Repair them as reverted, then retry once.
+    mapfile -t orphan_versions < <(
+      printf '%s\n' "$push_out" | grep -oE 'supabase migration repair --status reverted [0-9]+' \
+        | awk '{print $NF}' | sort -u
+    )
+    if [[ ${#orphan_versions[@]} -eq 0 ]]; then
+      echo "::error::supabase db push failed (no repairable orphan versions detected)."
+      exit "$push_ec"
+    fi
+    echo "::warning::Repairing orphan remote migration version(s): ${orphan_versions[*]}"
+    for ver in "${orphan_versions[@]}"; do
+      npx --yes supabase@2.116.0 migration repair --status reverted "$ver" --yes --db-url "$DB_URL"
+    done
+    echo "Retrying db push after orphan repair…"
+    push_with_db_url
+  fi
 else
   export SUPABASE_ACCESS_TOKEN
   echo "Linking project ${PROJECT_REF} via access token…"

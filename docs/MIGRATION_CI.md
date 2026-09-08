@@ -78,6 +78,11 @@ npx supabase migration repair --status applied <version> --db-url "$DB_URL"
 npx supabase migration repair --status reverted <version> --db-url "$DB_URL"
 ```
 
+`scripts/ci-supabase-db-push.sh` also auto-repairs orphan remote versions when
+`db push` prints `migration repair --status reverted <version>`, then retries
+once — so a single ghost row cannot brick every production deploy. Prefer
+committing a matching no-op file under `supabase/migrations/` when the orphan
+should stay in history.
 After remote history matches the repo’s `supabase/migrations/` files, CI
 `db push` only applies **new** files.
 
