@@ -39,6 +39,9 @@ ON CONFLICT (intervention_type, intervention_subtype) DO UPDATE
   SET interference_scope = EXCLUDED.interference_scope;
 
 -- ── experiment_preregistrations (Phase B1) ────────────────────────────────
+-- Hosted may already have a stub from an earlier MCP apply without site_id /
+-- other columns. CREATE TABLE IF NOT EXISTS is a no-op in that case — align
+-- columns before creating indexes (Vercel prod failed on idx_*_site).
 CREATE TABLE IF NOT EXISTS experiment_preregistrations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   experiment_id UUID NOT NULL UNIQUE REFERENCES experiments(id) ON DELETE CASCADE,
@@ -57,6 +60,20 @@ CREATE TABLE IF NOT EXISTS experiment_preregistrations (
   locked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE experiment_preregistrations
+  ADD COLUMN IF NOT EXISTS experiment_id UUID REFERENCES experiments(id) ON DELETE CASCADE,
+  ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  ADD COLUMN IF NOT EXISTS site_id UUID REFERENCES connected_sites(id) ON DELETE CASCADE,
+  ADD COLUMN IF NOT EXISTS primary_metric TEXT,
+  ADD COLUMN IF NOT EXISTS expected_direction TEXT,
+  ADD COLUMN IF NOT EXISTS baseline_window_days INTEGER,
+  ADD COLUMN IF NOT EXISTS observation_window_days INTEGER,
+  ADD COLUMN IF NOT EXISTS analysis_method TEXT DEFAULT 'difference_in_differences',
+  ADD COLUMN IF NOT EXISTS minimum_detectable_effect DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS preregistration_hash TEXT,
+  ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ DEFAULT NOW(),
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 
 CREATE INDEX IF NOT EXISTS idx_experiment_prereg_site ON experiment_preregistrations(site_id);
 CREATE INDEX IF NOT EXISTS idx_experiment_prereg_user ON experiment_preregistrations(user_id);
@@ -127,6 +144,27 @@ CREATE TABLE IF NOT EXISTS intervention_events (
     UNIQUE (url_id, intervention_type, applied_at)
 );
 
+ALTER TABLE intervention_events
+  ADD COLUMN IF NOT EXISTS site_id UUID REFERENCES connected_sites(id) ON DELETE CASCADE,
+  ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  ADD COLUMN IF NOT EXISTS experiment_id UUID REFERENCES experiments(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS url_id TEXT,
+  ADD COLUMN IF NOT EXISTS intervention_type TEXT,
+  ADD COLUMN IF NOT EXISTS intervention_subtype TEXT,
+  ADD COLUMN IF NOT EXISTS interference_scope TEXT,
+  ADD COLUMN IF NOT EXISTS is_isolated BOOLEAN DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS component_types TEXT[] DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS lifecycle_state TEXT DEFAULT 'recommended',
+  ADD COLUMN IF NOT EXISTS actor TEXT,
+  ADD COLUMN IF NOT EXISTS applied_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS before_state_hash TEXT,
+  ADD COLUMN IF NOT EXISTS after_state_hash TEXT,
+  ADD COLUMN IF NOT EXISTS before_state JSONB DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS after_state JSONB DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS change_diff JSONB DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
 CREATE INDEX IF NOT EXISTS idx_intervention_events_site ON intervention_events(site_id);
 CREATE INDEX IF NOT EXISTS idx_intervention_events_experiment ON intervention_events(experiment_id);
 CREATE INDEX IF NOT EXISTS idx_intervention_events_lifecycle ON intervention_events(lifecycle_state);
@@ -177,6 +215,16 @@ CREATE TABLE IF NOT EXISTS gsc_revision_checks (
   checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE gsc_revision_checks
+  ADD COLUMN IF NOT EXISTS site_id UUID REFERENCES connected_sites(id) ON DELETE CASCADE,
+  ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  ADD COLUMN IF NOT EXISTS experiment_id UUID REFERENCES experiments(id) ON DELETE CASCADE,
+  ADD COLUMN IF NOT EXISTS window_start DATE,
+  ADD COLUMN IF NOT EXISTS window_end DATE,
+  ADD COLUMN IF NOT EXISTS revision_detected BOOLEAN DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS evidence JSONB DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS checked_at TIMESTAMPTZ DEFAULT NOW();
+
 CREATE INDEX IF NOT EXISTS idx_gsc_revision_checks_site ON gsc_revision_checks(site_id, checked_at DESC);
 
 ALTER TABLE gsc_revision_checks ENABLE ROW LEVEL SECURITY;
@@ -225,6 +273,27 @@ CREATE TABLE IF NOT EXISTS causal_results (
   -- Idempotent re-runs: one primary (non-exploratory) result per intervention+metric
   UNIQUE (intervention_id, metric, is_exploratory)
 );
+
+ALTER TABLE causal_results
+  ADD COLUMN IF NOT EXISTS experiment_id UUID REFERENCES experiments(id) ON DELETE CASCADE,
+  ADD COLUMN IF NOT EXISTS intervention_id UUID REFERENCES intervention_events(id) ON DELETE CASCADE,
+  ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  ADD COLUMN IF NOT EXISTS site_id UUID REFERENCES connected_sites(id) ON DELETE CASCADE,
+  ADD COLUMN IF NOT EXISTS metric TEXT,
+  ADD COLUMN IF NOT EXISTS is_exploratory BOOLEAN DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS effect_estimate DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS confidence_interval_low DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS confidence_interval_high DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS treatment_n INTEGER,
+  ADD COLUMN IF NOT EXISTS control_n INTEGER,
+  ADD COLUMN IF NOT EXISTS baseline_period_start DATE,
+  ADD COLUMN IF NOT EXISTS baseline_period_end DATE,
+  ADD COLUMN IF NOT EXISTS observation_period_start DATE,
+  ADD COLUMN IF NOT EXISTS observation_period_end DATE,
+  ADD COLUMN IF NOT EXISTS method TEXT DEFAULT 'difference_in_differences',
+  ADD COLUMN IF NOT EXISTS validity_status TEXT,
+  ADD COLUMN IF NOT EXISTS result_direction TEXT,
+  ADD COLUMN IF NOT EXISTS calculated_at TIMESTAMPTZ DEFAULT NOW();
 
 CREATE INDEX IF NOT EXISTS idx_causal_results_experiment ON causal_results(experiment_id);
 CREATE INDEX IF NOT EXISTS idx_causal_results_site ON causal_results(site_id);

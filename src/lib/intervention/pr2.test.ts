@@ -57,6 +57,10 @@ describe('Intervention Dataset PR2 — Phase F mechanical tests', () => {
     expect(migration).toMatch(/trg_preregistration_immutable/)
     expect(migration).toMatch(/BEFORE UPDATE OR DELETE ON experiment_preregistrations/)
     expect(migration).toMatch(/immutable after lock/)
+    // Stub tables from earlier MCP apply may lack site_id — must ADD COLUMN before indexes.
+    expect(migration).toMatch(
+      /ALTER TABLE experiment_preregistrations[\s\S]*ADD COLUMN IF NOT EXISTS site_id/,
+    )
   })
 
   it('2. Analysis refuses a metric other than the registered primary', () => {
