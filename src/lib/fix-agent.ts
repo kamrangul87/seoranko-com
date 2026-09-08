@@ -764,7 +764,7 @@ function buildStrategies(
             if (!mut.changed) continue
             beforeSnaps.push(`<!-- ${sourceUrl} -->\n${sourcePage.bodyHtml}`)
             lastApply = await adapter.rewritePageHtml(creds, sourcePage, mut.html, {
-              // Mechanical href rewrite — try direct push; PR only if GitHub blocks it.
+              // Mechanical href rewrite — direct push only (PR fallback is disabled).
               riskLevel: 'safe',
               commitMessage: `SEORANKO Fix Agent: rewrite ${mut.replaced} link href(s) on ${sourcePage.id}`,
             })
