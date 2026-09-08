@@ -4,6 +4,7 @@ import { join } from 'path'
 import {
   findBestGithubSourceMatch,
   isDirectPushBlocked,
+  githubTokenKindHint,
   githubAdapter,
 } from './github-adapter'
 
@@ -73,6 +74,14 @@ describe('isDirectPushBlocked', () => {
   })
 })
 
+describe('githubTokenKindHint', () => {
+  it('labels App installation vs fine-grained vs classic tokens', () => {
+    expect(githubTokenKindHint('ghs_abc')).toMatch(/github_app_installation/)
+    expect(githubTokenKindHint('github_pat_abc')).toMatch(/fine_grained_pat/)
+    expect(githubTokenKindHint('ghp_abc')).toMatch(/classic_pat/)
+  })
+})
+
 describe('GitHub writeStaticFile direct-push only', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -131,6 +140,9 @@ describe('GitHub writeStaticFile direct-push only', () => {
     expect(result.success).toBe(false)
     expect(result.error).toMatch(/Direct push blocked/i)
     expect(result.error).toMatch(/PR fallback is disabled/i)
+    expect(result.error).toMatch(/Resource not accessible by integration/i)
+    expect(result.error).toMatch(/HTTP 403/)
+    expect(result.error).toMatch(/token_kind=/)
     expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/pulls'))).toBe(false)
   })
 

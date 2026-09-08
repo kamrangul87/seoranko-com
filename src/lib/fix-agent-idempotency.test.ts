@@ -53,6 +53,20 @@ describe('fix-agent-idempotency', () => {
     ).toBe(false)
   })
 
+  it('blocks re-attempt when an unverified row shares issue_key', () => {
+    const hit = findBlockingAttempt(
+      [
+        {
+          id: '1',
+          issue_key: 'rewrite-link-href::/blog',
+          status: 'unverified',
+        },
+      ],
+      { issueKey: 'rewrite-link-href::/blog' },
+    )
+    expect(hit?.status).toBe('unverified')
+  })
+
   it('blocks re-attempt when a pending_merge row shares issue_key', () => {
     const hit = findBlockingAttempt(
       [

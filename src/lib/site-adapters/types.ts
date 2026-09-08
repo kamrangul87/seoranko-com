@@ -35,7 +35,7 @@ export interface FixApplyResult {
    * - merge — opened a PR (direct push blocked); awaiting human merge
    */
   pendingKind?: 'deploy' | 'merge'
-  /** Human-readable note for a successful outcome (e.g. "Pull Request opened"). */
+  /** Human-readable note for a successful write (live confirmation is separate). */
   detail?: string
   /** Link for the user to follow (e.g. the PR). */
   url?: string

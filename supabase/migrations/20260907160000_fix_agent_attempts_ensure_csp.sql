@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS fix_agent_attempts (
   strategy TEXT NOT NULL,
   attempt_number INT NOT NULL DEFAULT 1,
   status TEXT NOT NULL DEFAULT 'pending',
-  -- pending | applied | verified | failed | skipped | reverted | handed_off | pending_deploy | pending_merge
+  -- pending | applied | verified | failed | skipped | reverted | handed_off | pending_deploy | pending_merge | unverified | pr_pending
+  -- Only `verified` means live re-crawl confirmed the change. `unverified` / `pr_pending` are not done.
   before_snapshot TEXT,
   after_snapshot TEXT,
   diff_summary TEXT,

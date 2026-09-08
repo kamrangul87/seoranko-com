@@ -20,6 +20,8 @@ export type IdempotentAttemptRow = {
 export const BLOCKING_FIX_STATUSES = new Set([
   'pending_merge',
   'pending_deploy',
+  'pr_pending',
+  'unverified',
   'applied',
   'verified',
   'awaiting_deploy',
