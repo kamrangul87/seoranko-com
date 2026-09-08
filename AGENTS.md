@@ -24,10 +24,15 @@ run the Supabase stack in Docker. Docker and the Supabase CLI are already instal
 VM snapshot, but neither the Docker daemon nor Supabase auto-start on a fresh session:
 
 1. Start the Docker daemon and open its socket (it is not running on boot):
-   - `sudo dockerd > /tmp/dockerd.log 2>&1 &`
-   - `sudo chmod 666 /var/run/docker.sock`
-   `/etc/docker/daemon.json` is preconfigured with the `fuse-overlayfs` storage driver and
-   `containerd-snapshotter` disabled — both are required for Docker to work in this VM.
+   - Prefer `bash scripts/cloud-agent-start.sh` (sets iptables-legacy, starts dockerd, runs local Supabase).
+   - Manual equivalent:
+     - `sudo update-alternatives --set iptables /usr/sbin/iptables-legacy`
+     - `sudo update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy`
+     - `sudo dockerd > /tmp/dockerd.log 2>&1 &`
+     - `sudo chmod 666 /var/run/docker.sock`
+   `/etc/docker/daemon.json` must use the `fuse-overlayfs` storage driver with
+   `containerd-snapshotter` disabled. **iptables-legacy is required** — without it,
+   Docker bridge DNS between containers fails and `supabase start` dies during schema init.
 2. `supabase start` — see the migration caveat below first. Read `API_URL` and `ANON_KEY`
    from the output (or `supabase status`) into `.env.local` as `NEXT_PUBLIC_SUPABASE_URL`
    and `NEXT_PUBLIC_SUPABASE_ANON_KEY`. `.env.local` is gitignored.
