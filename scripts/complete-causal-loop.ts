@@ -209,58 +209,95 @@ async function main() {
       const { evidence: _e, ...persistable } = result
       void _e
 
-      const ups = await client.query(
-        `
-        INSERT INTO causal_results (
-          experiment_id, intervention_id, user_id, site_id, metric, is_exploratory,
-          effect_estimate, confidence_interval_low, confidence_interval_high,
-          treatment_n, control_n,
-          baseline_period_start, baseline_period_end,
-          observation_period_start, observation_period_end,
-          method, validity_status, result_direction, calculated_at
-        ) VALUES (
-          $1,$2,$3,$4,$5,$6,
-          $7,$8,$9,
-          $10,$11,
-          $12,$13,
-          $14,$15,
-          $16,$17,$18,$19
-        )
-        ON CONFLICT (${causalResultConflictTarget()}) DO UPDATE SET
-          validity_status = EXCLUDED.validity_status,
-          effect_estimate = EXCLUDED.effect_estimate,
-          treatment_n = EXCLUDED.treatment_n,
-          control_n = EXCLUDED.control_n,
-          baseline_period_start = EXCLUDED.baseline_period_start,
-          baseline_period_end = EXCLUDED.baseline_period_end,
-          observation_period_start = EXCLUDED.observation_period_start,
-          observation_period_end = EXCLUDED.observation_period_end,
-          result_direction = EXCLUDED.result_direction,
-          calculated_at = EXCLUDED.calculated_at
-        RETURNING id, intervention_id, validity_status, metric, calculated_at
-        `,
-        [
-          persistable.experiment_id,
-          persistable.intervention_id,
-          site.user_id,
-          site.id,
-          persistable.metric,
-          persistable.is_exploratory,
-          persistable.effect_estimate,
-          persistable.confidence_interval_low,
-          persistable.confidence_interval_high,
-          persistable.treatment_n,
-          persistable.control_n,
-          persistable.baseline_period_start,
-          persistable.baseline_period_end,
-          persistable.observation_period_start,
-          persistable.observation_period_end,
-          persistable.method,
-          persistable.validity_status,
-          persistable.result_direction,
-          persistable.calculated_at,
-        ],
+      const existing = await client.query(
+        `SELECT id FROM causal_results
+         WHERE intervention_id = $1 AND metric = $2 AND is_exploratory = $3`,
+        [persistable.intervention_id, persistable.metric, persistable.is_exploratory],
       )
+
+      let ups
+      if (existing.rows[0]?.id) {
+        ups = await client.query(
+          `
+          UPDATE causal_results SET
+            experiment_id = $1,
+            effect_estimate = $2,
+            confidence_interval_low = $3,
+            confidence_interval_high = $4,
+            treatment_n = $5,
+            control_n = $6,
+            baseline_period_start = $7,
+            baseline_period_end = $8,
+            observation_period_start = $9,
+            observation_period_end = $10,
+            method = $11,
+            validity_status = $12,
+            result_direction = $13,
+            calculated_at = $14
+          WHERE id = $15
+          RETURNING id, intervention_id, validity_status, metric, calculated_at
+          `,
+          [
+            persistable.experiment_id,
+            persistable.effect_estimate,
+            persistable.confidence_interval_low,
+            persistable.confidence_interval_high,
+            persistable.treatment_n,
+            persistable.control_n,
+            persistable.baseline_period_start,
+            persistable.baseline_period_end,
+            persistable.observation_period_start,
+            persistable.observation_period_end,
+            persistable.method,
+            persistable.validity_status,
+            persistable.result_direction,
+            persistable.calculated_at,
+            existing.rows[0].id,
+          ],
+        )
+      } else {
+        ups = await client.query(
+          `
+          INSERT INTO causal_results (
+            experiment_id, intervention_id, user_id, site_id, metric, is_exploratory,
+            effect_estimate, confidence_interval_low, confidence_interval_high,
+            treatment_n, control_n,
+            baseline_period_start, baseline_period_end,
+            observation_period_start, observation_period_end,
+            method, validity_status, result_direction, calculated_at
+          ) VALUES (
+            $1,$2,$3,$4,$5,$6,
+            $7,$8,$9,
+            $10,$11,
+            $12,$13,
+            $14,$15,
+            $16,$17,$18,$19
+          )
+          RETURNING id, intervention_id, validity_status, metric, calculated_at
+          `,
+          [
+            persistable.experiment_id,
+            persistable.intervention_id,
+            site.user_id,
+            site.id,
+            persistable.metric,
+            persistable.is_exploratory,
+            persistable.effect_estimate,
+            persistable.confidence_interval_low,
+            persistable.confidence_interval_high,
+            persistable.treatment_n,
+            persistable.control_n,
+            persistable.baseline_period_start,
+            persistable.baseline_period_end,
+            persistable.observation_period_start,
+            persistable.observation_period_end,
+            persistable.method,
+            persistable.validity_status,
+            persistable.result_direction,
+            persistable.calculated_at,
+          ],
+        )
+      }
       causalAnalyze.push({
         ...ups.rows[0],
         evidence: result.evidence,
