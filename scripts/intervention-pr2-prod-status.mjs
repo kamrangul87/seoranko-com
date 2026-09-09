@@ -176,9 +176,17 @@ async function main() {
     'experiment_preregistrations',
     'experiments',
     'fix_agent_attempts',
+    'gsc_url_inspections',
+    'gsc_inspection_quota_usage',
   ]) {
     if (!byTable[t]) {
-      out.steps.push({ table: t, missing: true })
+      // Still count if table exists but wasn't in the limited schema dump above
+      try {
+        const c = await client.query(`SELECT COUNT(*)::int AS n FROM ${t}`)
+        out.steps.push({ table: t, count: c.rows[0].n })
+      } catch {
+        out.steps.push({ table: t, missing: true })
+      }
       continue
     }
     const c = await client.query(`SELECT COUNT(*)::int AS n FROM ${t}`)
