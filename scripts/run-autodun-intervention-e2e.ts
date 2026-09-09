@@ -38,43 +38,59 @@ async function main() {
     .maybeSingle()
   if (siteErr || !site) throw new Error(siteErr?.message || `No connected_sites for ${domain}`)
 
-  const issue: PageAuditIssue = {
-    id: `e2e-dead-link-remove-${encodeURIComponent(deadUrl)}`,
-    severity: 'critical',
-    category: 'link-graph',
-    title: `Remove dead internal link to /privacy`,
-    description: 'E2E: /privacy returns 4xx; remove outbound links from source.',
-    remediation: 'Auto-fixable dead-link removal.',
-    fixMetadata: {
-      kind: 'remove-dead-link',
-      deadUrl,
-      sourceUrls: [auditUrl],
-      evidence: 'e2e-privacy',
-    },
-  }
+  const { data: existingInterventions } = await supabase
+    .from('intervention_events')
+    .select('id')
+    .eq('site_id', site.id)
+    .limit(1)
 
-  console.log(JSON.stringify({ step: 'fix_agent_start', siteId: site.id, auditUrl, deadUrl }))
-  const fixResult = await runFixAgent({
-    supabase,
-    userId: site.user_id,
-    auditUrl,
-    issues: [issue],
-    confirmSiteId: site.id,
-    langHint: 'en',
-  })
-  console.log(
-    JSON.stringify({
-      step: 'fix_agent_done',
-      ok: fixResult.ok,
-      applied: fixResult.applied?.map((a) => ({
-        autoKind: a.autoKind,
-        status: a.status,
-        verificationDetail: a.verificationDetail,
-        errorMessage: a.errorMessage,
-      })),
-      humanTasks: fixResult.humanTasks,
-    }),
-  )
+  if (!existingInterventions?.length) {
+    const issue: PageAuditIssue = {
+      id: `e2e-dead-link-remove-${encodeURIComponent(deadUrl)}`,
+      severity: 'critical',
+      category: 'link-graph',
+      title: `Remove dead internal link to /privacy`,
+      description: 'E2E: /privacy returns 4xx; remove outbound links from source.',
+      remediation: 'Auto-fixable dead-link removal.',
+      fixMetadata: {
+        kind: 'remove-dead-link',
+        deadUrl,
+        sourceUrls: [auditUrl],
+        evidence: 'e2e-privacy',
+      },
+    }
+
+    console.log(JSON.stringify({ step: 'fix_agent_start', siteId: site.id, auditUrl, deadUrl }))
+    const fixResult = await runFixAgent({
+      supabase,
+      userId: site.user_id,
+      auditUrl,
+      issues: [issue],
+      confirmSiteId: site.id,
+      langHint: 'en',
+    })
+    console.log(
+      JSON.stringify({
+        step: 'fix_agent_done',
+        ok: fixResult.ok,
+        applied: fixResult.applied?.map((a) => ({
+          autoKind: a.autoKind,
+          status: a.status,
+          verificationDetail: a.verificationDetail,
+          errorMessage: a.errorMessage,
+        })),
+        humanTasks: fixResult.humanTasks,
+      }),
+    )
+  } else {
+    console.log(
+      JSON.stringify({
+        step: 'fix_agent_skipped',
+        reason: 'intervention_events_already_present',
+        countHint: existingInterventions.length,
+      }),
+    )
+  }
 
   const { data: interventions } = await supabase
     .from('intervention_events')
@@ -83,8 +99,11 @@ async function main() {
     .order('created_at', { ascending: false })
     .limit(10)
   console.log(JSON.stringify({ step: 'intervention_events', rows: interventions || [] }))
+  if (!interventions?.length) {
+    throw new Error('No intervention_events after Fix Agent — cannot complete causal e2e')
+  }
 
-  // Ensure experiment + locked prereg exist
+  // Ensure experiment + locked prereg exist (create prereg even if experiment shell already exists)
   let experimentId: string | null = null
   const { data: existingExp } = await supabase
     .from('experiments')
@@ -109,13 +128,22 @@ async function main() {
       .maybeSingle()
     if (expErr || !created) throw new Error(expErr?.message || 'experiment insert failed')
     experimentId = created.id
+  }
+
+  const { data: existingPrereg } = await supabase
+    .from('experiment_preregistrations')
+    .select('id, experiment_id')
+    .eq('experiment_id', experimentId)
+    .maybeSingle()
+
+  if (!existingPrereg) {
     const fields = {
       primary_metric: 'impressions' as const,
       expected_direction: 'increase' as const,
       baseline_window_days: 28,
       observation_window_days: 28,
       analysis_method: 'difference_in_differences' as const,
-      minimum_detectable_effect: null,
+      minimum_detectable_effect: null as number | null,
     }
     const { error: prErr } = await supabase.from('experiment_preregistrations').insert({
       experiment_id: experimentId,

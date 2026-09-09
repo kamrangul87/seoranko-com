@@ -52,7 +52,7 @@ describe('migration CI contract (merge-to-main auto-apply)', () => {
     expect(sh).toMatch(/skipping db push/)
     // One-shot intervention e2e when table empty (Vercel has encryption secrets).
     expect(sh).toMatch(/run-autodun-intervention-e2e/)
-    expect(sh).toMatch(/intervention_events empty/)
+    expect(sh).toMatch(/causal_results empty/)
   })
 
   it('orphan-remote-noop-file-present and CI repairs then retries', () => {

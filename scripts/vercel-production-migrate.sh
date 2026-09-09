@@ -38,24 +38,24 @@ else
   echo "vercel-production-migrate: skip client branch cleanup (encryption key or service role missing)"
 fi
 
-# One-shot Intervention Dataset e2e when the table is still empty.
-# Uses the same secrets already present on Vercel production (CI lacks them).
-# Never fails the deploy. Skip once any intervention_events row exists.
+# Complete Intervention → causal loop when causal_results is still empty.
+# Uses secrets already present on Vercel production (CI lacks them).
+# Idempotent: Fix Agent only when no interventions; always ensures experiment+prereg+analyze.
 if [[ -n "${SITE_CONNECTION_ENCRYPTION_KEY:-}" && -n "${SUPABASE_SERVICE_ROLE_KEY:-}" && -n "${NEXT_PUBLIC_SUPABASE_URL:-}" ]]; then
-  echo "vercel-production-migrate: checking whether intervention e2e is needed…"
+  echo "vercel-production-migrate: checking whether causal e2e is needed…"
   NEED_E2E="$(node --input-type=module -e "
 import { createClient } from '@supabase/supabase-js'
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
-const { count, error } = await sb.from('intervention_events').select('id', { count: 'exact', head: true })
+const { count, error } = await sb.from('causal_results').select('id', { count: 'exact', head: true })
 if (error) { console.error(error.message); process.exit(0) }
 process.stdout.write(String(count === 0 ? '1' : '0'))
 " 2>/dev/null || echo 0)"
   if [[ "$NEED_E2E" == "1" ]]; then
-    echo "vercel-production-migrate: intervention_events empty — running autodun Fix Agent e2e…"
+    echo "vercel-production-migrate: causal_results empty — running autodun intervention/causal e2e…"
     npx --yes tsx scripts/run-autodun-intervention-e2e.ts \
       || echo "::warning::autodun intervention e2e failed (non-fatal — inspect logs)"
   else
-    echo "vercel-production-migrate: skip intervention e2e (intervention_events already has rows, or count failed)"
+    echo "vercel-production-migrate: skip intervention e2e (causal_results already has rows, or count failed)"
   fi
 else
   echo "vercel-production-migrate: skip intervention e2e (missing Supabase/encryption secrets)"
