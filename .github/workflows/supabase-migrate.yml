@@ -63,6 +63,7 @@ jobs:
         run: |
           # Need full install so tsx can resolve @/ imports in analyze/fix-agent.
           npm ci
+          npm install --no-save pg@8.16.3
           # Fix Agent path needs service-role + encryption (often unset in Actions).
           if [ -n "${NEXT_PUBLIC_SUPABASE_URL}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY}" ] && [ -n "${SITE_CONNECTION_ENCRYPTION_KEY}" ]; then
             npx --yes tsx scripts/run-autodun-intervention-e2e.ts
