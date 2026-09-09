@@ -1,9 +1,11 @@
 -- Fix ambiguous "day" in reserve_gsc_inspection_quota.
 -- RETURNS TABLE (..., day DATE, ...) puts an output variable named day in
 -- plpgsql scope, so bare `day` in UPDATE/WHERE was ambiguous vs the table column.
--- Rename output to quota_day and fully-qualify table references.
+-- Keep the same return shape (drop + recreate) and qualify table references as q.day.
 
-CREATE OR REPLACE FUNCTION reserve_gsc_inspection_quota(
+DROP FUNCTION IF EXISTS reserve_gsc_inspection_quota(UUID, UUID, TEXT, INTEGER, INTEGER);
+
+CREATE FUNCTION reserve_gsc_inspection_quota(
   p_site_id UUID,
   p_user_id UUID,
   p_property_url TEXT,
@@ -13,7 +15,7 @@ CREATE OR REPLACE FUNCTION reserve_gsc_inspection_quota(
 RETURNS TABLE (
   reserved INTEGER,
   remaining INTEGER,
-  quota_day DATE,
+  day DATE,
   requests_used INTEGER,
   exhausted BOOLEAN
 )
@@ -79,4 +81,4 @@ REVOKE ALL ON FUNCTION reserve_gsc_inspection_quota(UUID, UUID, TEXT, INTEGER, I
 GRANT EXECUTE ON FUNCTION reserve_gsc_inspection_quota(UUID, UUID, TEXT, INTEGER, INTEGER) TO service_role;
 
 COMMENT ON FUNCTION reserve_gsc_inspection_quota(UUID, UUID, TEXT, INTEGER, INTEGER) IS
-  'Atomically reserve URL Inspection quota for a property-day. Output quota_day avoids plpgsql clash with table column day.';
+  'Atomically reserve URL Inspection quota for a property-day. Table columns referenced as q.day to avoid clash with OUT param day.';

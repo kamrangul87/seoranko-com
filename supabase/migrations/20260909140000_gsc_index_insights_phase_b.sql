@@ -70,7 +70,7 @@ CREATE OR REPLACE FUNCTION reserve_gsc_inspection_quota(
 RETURNS TABLE (
   reserved INTEGER,
   remaining INTEGER,
-  quota_day DATE,
+  day DATE,
   requests_used INTEGER,
   exhausted BOOLEAN
 )
