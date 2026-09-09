@@ -28,6 +28,26 @@ export type AutoFixKind =
   | 'sitemap-regenerate'
   | 'rewrite-link-href'
 
+/** Exhaustive list — keep in sync with AutoFixKind (strategy contract tests). */
+export const AUTO_FIX_KINDS: readonly AutoFixKind[] = [
+  'meta-title',
+  'meta-description',
+  'missing-h1',
+  'schema-organization',
+  'schema-article',
+  'schema-product',
+  'schema-breadcrumb',
+  'lang-attribute',
+  'image-alt',
+  'llms-txt',
+  'html-structure',
+  'security-headers',
+  'redirect-canonical',
+  'remove-dead-link',
+  'sitemap-regenerate',
+  'rewrite-link-href',
+] as const
+
 export type HumanFixKind =
   | 'thin-content'
   | 'internal-linking'

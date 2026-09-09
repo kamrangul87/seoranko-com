@@ -24,31 +24,38 @@ interface Field { key: string; label: string; placeholder: string; secret?: bool
 
 const PLATFORM_ORDER: ConnectPlatform[] = ['github', 'wordpress', 'shopify', 'webflow', 'universal-tag']
 
-const PLATFORM_META: Record<ConnectPlatform, { label: string; short: string; blurb: string }> = {
+const PLATFORM_META: Record<
+  ConnectPlatform,
+  { label: string; short: string; blurb: string; experimental?: boolean }
+> = {
   github: {
     label: 'GitHub',
     short: 'GitHub',
-    blurb: 'Best for Vercel/Netlify/static sites. Fix Agent can commit schema, meta, and llms.txt.',
+    blurb: 'Beta primary path — Fix Agent commits deterministic fixes and verifies live.',
   },
   wordpress: {
     label: 'WordPress',
     short: 'WordPress',
-    blurb: 'Application Passwords — no plugin required (Editor or Administrator).',
+    blurb: 'Experimental — not credential-proven for beta. Application Passwords.',
+    experimental: true,
   },
   shopify: {
     label: 'Shopify',
     short: 'Shopify',
-    blurb: 'Custom app Admin API token with read_content + write_content.',
+    blurb: 'Experimental — not credential-proven for beta.',
+    experimental: true,
   },
   webflow: {
     label: 'Webflow',
     short: 'Webflow',
-    blurb: 'Data API v2 site token with CMS read/write.',
+    blurb: 'Experimental — not credential-proven for beta.',
+    experimental: true,
   },
   'universal-tag': {
     label: 'Universal Tag',
     short: 'Script tag',
-    blurb: 'Fallback only — injects schema in the browser. Cannot set HTTP headers or write static files.',
+    blurb: 'Experimental / limited — cannot set HTTP headers or write static files.',
+    experimental: true,
   },
 }
 
@@ -268,6 +275,7 @@ export function ConnectSiteModal({
             >
               <div className="text-xs font-semibold">
                 {meta.short}
+                {meta.experimental ? ' · experimental' : ''}
                 {isCurrent ? ' · current' : ''}
               </div>
               <div className="text-[11px] text-gray-500 mt-0.5 leading-snug">{meta.blurb}</div>

@@ -173,20 +173,10 @@ export function buildSavedAuditPayload(opts: {
     pageAudit: pageSnap,
   })
 
-  return {
-    ok: true as const,
-    domain: opts.domain,
-    saved: Boolean(opts.diagnosis || opts.linkGraph || opts.pageAudit),
-    tablesMissing: opts.tablesMissing,
-    needsFreshCrawl,
-    needsFreshCrawlReason: reason,
-    usableDiagnosis,
-    usablePageAudit: usablePage,
-    indexDiagnosisRunId: usableDiagnosis ? opts.diagnosis?.row.id ?? null : null,
-    indexDiagnosis: usableDiagnosis ? opts.diagnosis?.result ?? null : null,
-    indexDiagnosisCreatedAt: usableDiagnosis ? opts.diagnosis?.row.created_at ?? null : null,
-    pageAudit: usablePage ? opts.pageAudit : null,
-    linkGraph: opts.linkGraph
+  // When diagnosis/QG evidence is invalid, do not surface a stale Link Graph
+  // snapshot — the UI must re-crawl before Link Graph results are trustworthy.
+  const linkGraphPayload =
+    !needsFreshCrawl && opts.linkGraph
       ? ({
           auditId: opts.linkGraph.audit.id,
           createdAt: opts.linkGraph.audit.created_at,
@@ -202,6 +192,21 @@ export function buildSavedAuditPayload(opts: {
           },
           topFindings: opts.linkGraph.topFindings,
         } satisfies SavedLinkGraphPayload)
-      : null,
+      : null
+
+  return {
+    ok: true as const,
+    domain: opts.domain,
+    saved: Boolean(opts.diagnosis || opts.linkGraph || opts.pageAudit),
+    tablesMissing: opts.tablesMissing,
+    needsFreshCrawl,
+    needsFreshCrawlReason: reason,
+    usableDiagnosis,
+    usablePageAudit: usablePage,
+    indexDiagnosisRunId: usableDiagnosis ? opts.diagnosis?.row.id ?? null : null,
+    indexDiagnosis: usableDiagnosis ? opts.diagnosis?.result ?? null : null,
+    indexDiagnosisCreatedAt: usableDiagnosis ? opts.diagnosis?.row.created_at ?? null : null,
+    pageAudit: usablePage ? opts.pageAudit : null,
+    linkGraph: linkGraphPayload,
   }
 }

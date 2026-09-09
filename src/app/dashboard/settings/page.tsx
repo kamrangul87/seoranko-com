@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { DashboardNav } from '@/components/DashboardNav'
+import { BetaOnboardingChecklist } from '@/components/BetaOnboardingChecklist'
 import { OrganisationSchemaSettings } from '@/components/OrganisationSchemaSettings'
 import { InternalLinksPanel } from '@/components/InternalLinksPanel'
 import { LinkRegistryManager } from '@/components/LinkRegistryManager'
@@ -84,8 +85,15 @@ export default function SettingsPage() {
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-8 py-8">
           <div className="mb-8">
-            <h1 className="text-2xl font-bold mb-1">Settings</h1>
-            <p className="text-[#6B6B6B] text-sm">Configure your organisation schema, internal links, and brand settings.</p>
+            <h1 className="text-2xl font-bold mb-1">Sites</h1>
+            <p className="text-[#6B6B6B] text-sm">
+              Connect domains and GitHub write access. WordPress / Shopify / Webflow remain
+              experimental until credential-proven.
+            </p>
+          </div>
+
+          <div className="mb-6">
+            <BetaOnboardingChecklist />
           </div>
 
           {loading ? (

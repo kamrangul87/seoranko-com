@@ -3,7 +3,7 @@
  * Empty or stub rows must never be served as a successful restore.
  */
 
-import type { IndexDiagnosisResult } from './types'
+import type { IndexDiagnosisResult, PageIndexability } from './types'
 
 export type PageAuditSnapshot = {
   score: number
@@ -14,13 +14,56 @@ export type PageAuditSnapshot = {
   h1?: string
 }
 
+/**
+ * Schema-validate a stored Index Diagnosis payload.
+ * Soft heuristics alone are not enough — malformed pages/coverage must fail.
+ */
+export function isSchemaValidIndexDiagnosis(
+  result: unknown,
+): result is IndexDiagnosisResult {
+  if (!result || typeof result !== 'object') return false
+  const r = result as Record<string, unknown>
+  const coverage = r.coverage
+  if (!coverage || typeof coverage !== 'object') return false
+  const c = coverage as Record<string, unknown>
+  if (typeof c.domain !== 'string' || !c.domain.trim()) return false
+  if (typeof c.seedUrl !== 'string' || !c.seedUrl.trim()) return false
+  if (typeof c.fetchedCount !== 'number' || Number.isNaN(c.fetchedCount)) return false
+  if (typeof c.discoveredCount !== 'number' || Number.isNaN(c.discoveredCount)) return false
+  if (!Array.isArray(r.pages)) return false
+  for (const page of r.pages) {
+    if (!isSchemaValidPageIndexability(page)) return false
+  }
+  const verdict = r.verdict
+  if (!verdict || typeof verdict !== 'object') return false
+  const v = verdict as Record<string, unknown>
+  if (typeof v.headline !== 'string') return false
+  if (typeof v.indexableCount !== 'number') return false
+  if (typeof v.blockedCount !== 'number') return false
+  if (typeof v.atRiskCount !== 'number') return false
+  return true
+}
+
+function isSchemaValidPageIndexability(page: unknown): page is PageIndexability {
+  if (!page || typeof page !== 'object') return false
+  const p = page as Record<string, unknown>
+  if (typeof p.url !== 'string' || !p.url.trim()) return false
+  if (p.verdict !== 'INDEXABLE' && p.verdict !== 'BLOCKED' && p.verdict !== 'AT_RISK') {
+    return false
+  }
+  if (typeof p.httpStatus !== 'number' || Number.isNaN(p.httpStatus)) return false
+  if (typeof p.crawlDepth !== 'number') return false
+  if (!Array.isArray(p.steps)) return false
+  return true
+}
+
 /** True when a persisted Index Diagnosis crawl has real fetched pages. */
 export function isUsableIndexDiagnosis(
   result: IndexDiagnosisResult | null | undefined,
 ): boolean {
-  if (!result?.coverage) return false
+  if (!isSchemaValidIndexDiagnosis(result)) return false
   const pages = result.pages
-  if (!Array.isArray(pages) || pages.length === 0) return false
+  if (pages.length === 0) return false
   if ((result.coverage.fetchedCount ?? 0) < 1) return false
   // At least one page must look like a real HTTP observation.
   return pages.some((p) => typeof p.httpStatus === 'number' && p.httpStatus > 0)

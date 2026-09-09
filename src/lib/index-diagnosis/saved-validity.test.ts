@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  isSchemaValidIndexDiagnosis,
   isUsableIndexDiagnosis,
   isUsablePageAuditSnapshot,
   savedAuditNeedsFreshCrawl,
@@ -120,6 +121,17 @@ describe('saved Index Diagnosis / page-audit validity', () => {
         diagnosis: baseResult(),
         pageAudit: { score: 50, httpStatus: 200, wordCount: 100, issues: [] },
       }).needsFreshCrawl,
+    ).toBe(false)
+  })
+
+  it('rejects schema-invalid snapshots (missing verdict / bad page shape)', () => {
+    expect(isSchemaValidIndexDiagnosis(null)).toBe(false)
+    expect(isSchemaValidIndexDiagnosis({ coverage: { domain: 'x' }, pages: [] })).toBe(false)
+    expect(
+      isUsableIndexDiagnosis({
+        ...baseResult(),
+        pages: [{ url: 'https://example.com/', httpStatus: 200 } as never],
+      }),
     ).toBe(false)
   })
 })

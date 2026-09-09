@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -21,27 +21,30 @@ const PLAN_LIMITS = {
   agency:  { label: 'Agency',  keywords: Infinity,  articles: Infinity, kPeriod: 'month', aPeriod: 'month' },
 }
 
-// §10 item 13 / §5 — collapsed to exactly the six screens the doc names.
-// Keywords, Optimise and Intelligence still exist as routes (linked from the
-// screen closest to their station — Plan, Write, Rankings respectively) but
-// are no longer top-level nav, per §9 rule 3: a derived/instrument feature
-// doesn't get its own menu item.
-const NAV_ITEMS = [
+// Beta primary journey (PRODUCT_MODEL.md): Sites → Audit → Google → History.
+// Content/AI tools remain reachable under Experimental — not deleted.
+const NAV_ITEMS: Array<{
+  href: string
+  exact?: boolean
+  label: string
+  description: string
+  experimental?: boolean
+  icon: ReactNode
+}> = [
   {
-    href: '/dashboard',
-    exact: true,
-    label: 'Home',
-    description: '',
+    href: '/dashboard/settings',
+    label: 'Sites',
+    description: 'Domains, GitHub, connections',
     icon: (
       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
       </svg>
     ),
   },
   {
     href: '/dashboard/audit',
     label: 'Audit',
-    description: '',
+    description: 'Crawl, findings, fixes',
     icon: (
       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
@@ -50,42 +53,44 @@ const NAV_ITEMS = [
   },
   {
     href: '/dashboard/experiments',
-    label: 'Experiments',
-    description: '',
+    label: 'Google status',
+    description: 'GSC, interventions, recrawl',
     icon: (
       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
       </svg>
     ),
   },
   {
-    href: '/dashboard/sitemap',
-    label: 'Sitemap',
-    description: '',
+    href: '/dashboard/install',
+    label: 'History',
+    description: 'Install + connection health',
     icon: (
       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 0v10" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ),
   },
   {
-    href: '/dashboard/briefs',
-    label: 'Briefs',
+    href: '/dashboard',
+    exact: true,
+    label: 'Home',
     description: '',
+    experimental: true,
     icon: (
       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
       </svg>
     ),
   },
   {
-    href: '/dashboard/ai-visibility',
-    label: 'AI Visibility',
-    description: '',
+    href: '/dashboard/write',
+    label: 'Write',
+    description: 'Content tools',
+    experimental: true,
     icon: (
       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
       </svg>
     ),
   },
@@ -93,6 +98,7 @@ const NAV_ITEMS = [
     href: '/dashboard/keywords',
     label: 'Keywords',
     description: '',
+    experimental: true,
     icon: (
       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
@@ -103,6 +109,7 @@ const NAV_ITEMS = [
     href: '/dashboard/rankings',
     label: 'Rankings',
     description: '',
+    experimental: true,
     icon: (
       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
@@ -110,23 +117,47 @@ const NAV_ITEMS = [
     ),
   },
   {
-    href: '/dashboard/billing',
-    label: 'Billing',
+    href: '/dashboard/briefs',
+    label: 'Briefs',
     description: '',
+    experimental: true,
     icon: (
       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
       </svg>
     ),
   },
   {
-    href: '/dashboard/settings',
-    label: 'Settings',
+    href: '/dashboard/ai-visibility',
+    label: 'AI Visibility',
     description: '',
+    experimental: true,
     icon: (
       <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+      </svg>
+    ),
+  },
+  {
+    href: '/dashboard/sitemap',
+    label: 'Sitemap',
+    description: '',
+    experimental: true,
+    icon: (
+      <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 0v10" />
+      </svg>
+    ),
+  },
+  {
+    href: '/dashboard/billing',
+    label: 'Billing',
+    description: '',
+    experimental: true,
+    icon: (
+      <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
       </svg>
     ),
   },
@@ -165,9 +196,9 @@ export function DashboardNav() {
         </Link>
       </div>
 
-      {/* Nav */}
+      {/* Nav — beta primary first; experimental collapsed below */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        {NAV_ITEMS.map(({ href, label, description, icon, exact }) => {
+        {NAV_ITEMS.filter((i) => !i.experimental).map(({ href, label, description, icon, exact }) => {
           const isActive = exact ? pathname === href : pathname.startsWith(href)
           return (
             <Link
@@ -186,6 +217,31 @@ export function DashboardNav() {
                   <p className={`text-[10px] leading-tight mt-0.5 ${isActive ? 'text-[#FF6B2C]/70' : 'text-[#9B9B9B]'}`}>
                     {description}
                   </p>
+                )}
+              </div>
+            </Link>
+          )
+        })}
+        <p className="px-3 pt-4 pb-1 text-[10px] uppercase tracking-wide font-medium text-[#9B9B9B]">
+          Experimental
+        </p>
+        {NAV_ITEMS.filter((i) => i.experimental).map(({ href, label, description, icon, exact }) => {
+          const isActive = exact ? pathname === href : pathname.startsWith(href)
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={`w-full flex items-start gap-3 px-3 py-2 rounded-[8px] text-xs font-medium transition-colors ${
+                isActive
+                  ? 'bg-[#FF6B2C]/10 text-[#FF6B2C]'
+                  : 'text-[#9B9B9B] hover:text-[#6B6B6B] hover:bg-white'
+              }`}
+            >
+              <span className="mt-0.5 opacity-70">{icon}</span>
+              <div className="min-w-0">
+                <p className="font-medium leading-tight">{label}</p>
+                {description && (
+                  <p className="text-[10px] leading-tight mt-0.5 text-[#B0B0B0]">{description}</p>
                 )}
               </div>
             </Link>

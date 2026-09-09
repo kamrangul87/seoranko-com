@@ -74,3 +74,7 @@ jobs:
           # Works with SUPABASE_DB_PASSWORD already present for migrate.
           npx --yes tsx scripts/complete-causal-loop.ts
           node scripts/intervention-pr2-prod-status.mjs
+          # Phase 2A: attempt one real GSC URL Inspection (never fabricates).
+          node scripts/gsc-first-inspection-probe.mjs || echo "::warning::GSC first-inspection probe exited non-zero"
+          # Phase 2B evidence: verified Fix Agent kinds in prod (read-only).
+          node scripts/fix-agent-verified-kinds-probe.mjs || echo "::warning::verified-kinds probe exited non-zero"

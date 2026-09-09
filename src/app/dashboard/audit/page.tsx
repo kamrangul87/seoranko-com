@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { DashboardNav } from '@/components/DashboardNav'
+import { BetaOnboardingChecklist } from '@/components/BetaOnboardingChecklist'
+import { findingStatusFromFixAttempt } from '@/lib/finding-status'
 import { IndexDiagnosisPanel } from '@/components/IndexDiagnosisPanel'
 import { LinkGraphPanel } from '@/components/LinkGraphPanel'
 import { AuditPasteFix } from '@/components/AuditPasteFix'
@@ -123,16 +125,11 @@ interface FixAttempt {
 }
 
 function formatAttemptStatus(status: string): string {
-  if (status === 'verified') return 'verified (live)'
-  if (status === 'unverified' || status === 'pending_deploy') {
-    return 'unverified — not confirmed live'
-  }
-  if (status === 'pr_pending' || status === 'pending_merge') {
-    return 'pr_pending — not confirmed live'
-  }
-  if (status === 'applied') return 'unverified (legacy applied)'
-  if (status === 'handed_off') return 'handed off'
-  return status
+  // Single beta vocabulary (PRODUCT_MODEL.md)
+  return findingStatusFromFixAttempt({
+    status,
+    failed: status === 'failed' || status === 'handed_off',
+  })
 }
 
 function extractPrUrl(text: string | null | undefined): string | null {
@@ -368,10 +365,12 @@ export default function AuditPage() {
         )
         return
       }
-      if (data.linkGraph) setSavedLinkGraph(data.linkGraph)
 
       // Never silently restore empty/stub Quality Gate or empty Index Diagnosis.
+      // Also never restore a stale Link Graph alongside an invalid diagnosis —
+      // Link Graph Run always needs a fresh crawl when evidence is unusable.
       if (hydrateDiagnosis && data.needsFreshCrawl) {
+        setSavedLinkGraph(null)
         setSavedMeta(data.needsFreshCrawlReason || 'Stored audit is incomplete — scanning fresh…')
         setUrl((prev) => prev || domainOrUrl)
         // Defer so url state + session restore settle, then run a real crawl.
@@ -742,8 +741,13 @@ export default function AuditPage() {
         <div className="max-w-3xl mx-auto px-8 py-8">
           <h1 className="text-2xl font-semibold mb-2">Site Audit</h1>
           <p className="text-[#6B6B6B] mb-6">
-            Paste a URL. SEORANKO runs a domain Index Diagnosis crawl plus a Quality Gate check on the scanned page.
+            Paste a URL. SEORANKO runs a fresh crawl, shows evidence-backed findings, and applies
+            user-approved deterministic fixes (verified only after a live re-crawl match).
           </p>
+
+          <div className="mb-6">
+            <BetaOnboardingChecklist compact />
+          </div>
 
           <div className="flex gap-2 mb-6">
             <input

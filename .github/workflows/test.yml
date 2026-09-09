@@ -30,6 +30,15 @@ jobs:
           src/lib/sitemap-generator/
           src/lib/link-graph/
           src/lib/audit-persist-migration-ci.contract.test.ts
+          src/lib/audit-saved-stale-link-graph.test.ts
+          src/lib/finding-status.test.ts
+          src/lib/fix-agent-live-verify.test.ts
+          src/lib/fix-agent-strategy-contract.test.ts
+          src/lib/domain-period-regex.regression.test.ts
+          src/lib/gsc/pr1-wiring.test.ts
+          src/lib/gsc/index-insights.test.ts
+          src/lib/gsc/baseline-readiness.test.ts
+          src/lib/gsc/dedupe-metrics.test.ts
           src/lib/fix-agent-classification.ts
           src/lib/fix-agent-issues
           src/lib/developer-snippet-placements.test.ts

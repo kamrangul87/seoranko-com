@@ -303,7 +303,8 @@ function issueStillPresent(issues: PageAuditIssue[], classified: ClassifiedIssue
   )
 }
 
-function verifyLiveHtml(
+/** Exported for honesty regression tests — presence checks only; never rubber-stamp. */
+export function verifyLiveHtml(
   kind: AutoFixKind,
   html: string,
   schemaType?: string,
@@ -350,7 +351,12 @@ function verifyLiveHtml(
       }
     }
     case 'llms-txt':
-      return { ok: true, detail: 'llms.txt write is file-level; confirm after deploy.' }
+      // Must never rubber-stamp. Call verifyLlmsTxtLive() with a live fetch.
+      return {
+        ok: false,
+        detail:
+          'llms.txt cannot be verified from HTML alone — live GET /llms.txt is required.',
+      }
     case 'image-alt': {
       const missing = (html.match(/<img\b(?![^>]*\balt\s*=)[^>]*>/gi) || []).length
       return {
@@ -363,8 +369,12 @@ function verifyLiveHtml(
       return { ok: !bad, detail: bad ? 'Stray wrappers still present.' : 'Structure check passed or full document.' }
     }
     case 'security-headers':
-      // Headers are host-config; live verify is deferred until after deploy.
-      return { ok: true, detail: 'Security headers written to host config — verify after deploy.' }
+      // Must never rubber-stamp. Call verifySecurityHeadersLive() with response headers.
+      return {
+        ok: false,
+        detail:
+          'Security headers cannot be verified from HTML alone — live response header check is required.',
+      }
 
     case 'rewrite-link-href': {
       const fixes = auditIssue?.fixMetadata?.hrefFixes || []
@@ -404,6 +414,89 @@ function verifyLiveHtml(
       return { ok: false, detail: 'Redirect verified separately via HTTP follow.' }
     default:
       return { ok: false, detail: 'No verifier for this kind.' }
+  }
+}
+
+/** Live GET {origin}/llms.txt — never mark verified without this. */
+export async function verifyLlmsTxtLive(
+  siteUrl: string,
+): Promise<{ ok: boolean; detail: string }> {
+  let origin: string
+  try {
+    origin = new URL(siteUrl).origin
+  } catch {
+    return { ok: false, detail: 'Invalid site URL for llms.txt verification.' }
+  }
+  const url = `${origin}/llms.txt`
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'SEORANKO-FixAgent/1.0', 'Cache-Control': 'no-cache' },
+      signal: AbortSignal.timeout(20000),
+      redirect: 'follow',
+    })
+    if (!res.ok) {
+      return {
+        ok: false,
+        detail: `Live GET ${url} returned HTTP ${res.status} — not verified.`,
+      }
+    }
+    const text = (await res.text()).trim()
+    if (text.length < 8) {
+      return { ok: false, detail: `Live ${url} is empty or too short — not verified.` }
+    }
+    return {
+      ok: true,
+      detail: `Confirmed live llms.txt (${text.length} chars) at ${url}.`,
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      detail: `Could not fetch live llms.txt: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+}
+
+/** Live response must include immediate security headers we ship. */
+export async function verifySecurityHeadersLive(
+  pageUrl: string,
+): Promise<{ ok: boolean; detail: string }> {
+  try {
+    const res = await fetch(pageUrl, {
+      method: 'GET',
+      headers: { 'User-Agent': 'SEORANKO-FixAgent/1.0', 'Cache-Control': 'no-cache' },
+      signal: AbortSignal.timeout(20000),
+      redirect: 'follow',
+    })
+    const missing: string[] = []
+    for (const h of IMMEDIATE_SECURITY_HEADERS) {
+      const got = res.headers.get(h.key)
+      if (!got) {
+        missing.push(h.key)
+        continue
+      }
+      // Accept case-insensitive value containment (CDNs may normalize)
+      if (!got.toLowerCase().includes(h.value.toLowerCase()) && got.toLowerCase() !== h.value.toLowerCase()) {
+        // X-Frame-Options SAMEORIGIN vs DENY — still count as present if header exists
+        if (h.key.toLowerCase() === 'x-frame-options') continue
+        if (h.key.toLowerCase() === 'x-content-type-options' && /nosniff/i.test(got)) continue
+        missing.push(`${h.key} (unexpected value: ${got})`)
+      }
+    }
+    if (missing.length) {
+      return {
+        ok: false,
+        detail: `Live headers missing or incomplete: ${missing.join(', ')} (HTTP ${res.status}).`,
+      }
+    }
+    return {
+      ok: true,
+      detail: `Confirmed X-Frame-Options and X-Content-Type-Options on live response (HTTP ${res.status}).`,
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      detail: `Could not verify security headers live: ${err instanceof Error ? err.message : String(err)}`,
+    }
   }
 }
 
@@ -1377,6 +1470,10 @@ export async function runFixAgent(opts: {
               const liveHtml = await liveRes.text()
               capturedLiveHtml = liveHtml
               v = verifyLiveHtml(kind, liveHtml, undefined, item.issue)
+            } else if (kind === 'llms-txt') {
+              v = await verifyLlmsTxtLive(owned.siteUrl)
+            } else if (kind === 'security-headers') {
+              v = await verifySecurityHeadersLive(opts.auditUrl || owned.siteUrl)
             } else if (kind === 'rewrite-link-href') {
               const fixes = item.issue.fixMetadata?.hrefFixes || []
               const sourceUrl =
