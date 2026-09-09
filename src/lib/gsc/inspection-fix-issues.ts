@@ -1,7 +1,7 @@
 /**
  * Map GSC Index Insights deltas → Fix Agent / human task issues.
  * Canonical mismatch can use redirect-canonical when both URLs are known.
- * Not-indexed / robots / never-crawled stay human — never auto-"fixed".
+ * Other deltas stay human — never auto-"fixed", never ranking speculation.
  */
 
 import type { PageAuditIssue } from '@/lib/page-audit-engine'
@@ -14,6 +14,31 @@ export type InspectionRowForIssues = {
   google_canonical?: string | null
   user_canonical?: string | null
   coverage_state?: string | null
+}
+
+function remediationFor(humanKind: string): string {
+  switch (humanKind) {
+    case 'gsc-not-indexed':
+      return 'Human review: improve page usefulness and request indexing in Search Console if appropriate. SEORANKO will not auto-fix “not indexed”.'
+    case 'gsc-robots-conflict':
+      return 'Human review: reconcile robots.txt / meta robots with Google’s robotsTxtState.'
+    case 'gsc-never-crawled':
+      return 'Human review: confirm sitemap inclusion and crawl demand; Google has no recorded lastCrawlTime.'
+    case 'gsc-blocked-but-indexed':
+      return 'Human review: our crawl says blocked while Google reports indexed — check accidental indexation risk.'
+    case 'gsc-indexing-directive':
+      return 'Human review: reconcile noindex directives with Google’s indexingState enum.'
+    case 'gsc-fetch-state':
+      return 'Human review: reconcile our HTTP fetch result with Google’s pageFetchState.'
+    case 'gsc-post-fix-recrawl':
+      return 'Observed difference: Google has not recorded a successful crawl since the verified fix. Request indexing if appropriate; SEORANKO does not mutate intervention lifecycle from Index Insights.'
+    case 'gsc-historical-transition':
+      return 'Observed historical transition in Google’s recorded view — review prior inspection evidence.'
+    case 'gsc-canonical-mismatch':
+      return 'Align declared canonical with the URL Google selected, or add a mechanical redirect if appropriate.'
+    default:
+      return 'Human review of Google Index Insights evidence — observed difference only.'
+  }
 }
 
 export function buildGscInspectionFixAgentIssues(
@@ -32,8 +57,7 @@ export function buildGscInspectionFixAgentIssues(
           category: 'gsc-index-insights',
           title: `Canonical mismatch: ${deltaReasonLabel(d.reason)}`,
           description: d.explanation,
-          remediation:
-            'Align declared canonical with the URL Google selected, or add a mechanical redirect if the non-preferred URL should permanently point at the preferred one.',
+          remediation: remediationFor('gsc-canonical-mismatch'),
           fixMetadata: {
             kind: 'redirect-canonical',
             fromUrl: row.user_canonical,
@@ -44,27 +68,18 @@ export function buildGscInspectionFixAgentIssues(
         continue
       }
 
-      // Human tasks — never invent ranking reasons
-      const humanKind =
-        d.humanTaskKind ||
-        (d.reason === 'robots_state_conflict'
-          ? 'gsc-robots-conflict'
-          : d.reason === 'sitemap_never_crawled'
-            ? 'gsc-never-crawled'
-            : 'gsc-not-indexed')
-
+      const humanKind = d.humanTaskKind || 'gsc-not-indexed'
       issues.push({
         id: idBase,
-        severity: d.reason === 'crawl_indexable_google_not_indexed' ? 'warning' : 'info',
+        severity:
+          d.reason === 'crawl_indexable_google_not_indexed' ||
+          d.reason === 'crawl_blocked_google_indexed'
+            ? 'warning'
+            : 'info',
         category: 'gsc-index-insights',
         title: deltaReasonLabel(d.reason),
         description: d.explanation,
-        remediation:
-          humanKind === 'gsc-not-indexed'
-            ? 'Human review: improve page usefulness and request indexing in Search Console if appropriate. SEORANKO will not auto-fix “not indexed”.'
-            : humanKind === 'gsc-robots-conflict'
-              ? 'Human review: reconcile robots.txt / meta robots with Google’s robotsTxtState.'
-              : 'Human review: confirm sitemap inclusion and crawl demand; Google has no recorded lastCrawlTime.',
+        remediation: remediationFor(humanKind),
         fixMetadata: {
           kind: 'gsc-human-delta',
           evidence: `${humanKind}:${JSON.stringify(d.evidence)}`,

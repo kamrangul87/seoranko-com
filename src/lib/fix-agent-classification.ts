@@ -38,6 +38,11 @@ export type HumanFixKind =
   | 'gsc-canonical-mismatch'
   | 'gsc-robots-conflict'
   | 'gsc-never-crawled'
+  | 'gsc-blocked-but-indexed'
+  | 'gsc-indexing-directive'
+  | 'gsc-fetch-state'
+  | 'gsc-post-fix-recrawl'
+  | 'gsc-historical-transition'
   | 'other-editorial'
 
 export type SiteConnectionType =
@@ -204,13 +209,23 @@ export function classifyAuditIssue(
     }
   } else if (issue.fixMetadata?.kind === 'gsc-human-delta') {
     const evidence = issue.fixMetadata.evidence || ''
-    const humanKind: ClassifiedIssue['humanKind'] = evidence.startsWith('gsc-robots-conflict')
-      ? 'gsc-robots-conflict'
-      : evidence.startsWith('gsc-never-crawled')
-        ? 'gsc-never-crawled'
-        : evidence.startsWith('gsc-canonical-mismatch')
-          ? 'gsc-canonical-mismatch'
-          : 'gsc-not-indexed'
+    const prefix = evidence.split(':')[0] || ''
+    const known: ClassifiedIssue['humanKind'][] = [
+      'gsc-robots-conflict',
+      'gsc-never-crawled',
+      'gsc-canonical-mismatch',
+      'gsc-not-indexed',
+      'gsc-blocked-but-indexed',
+      'gsc-indexing-directive',
+      'gsc-fetch-state',
+      'gsc-post-fix-recrawl',
+      'gsc-historical-transition',
+    ]
+    const humanKind: ClassifiedIssue['humanKind'] = known.includes(
+      prefix as ClassifiedIssue['humanKind'],
+    )
+      ? (prefix as ClassifiedIssue['humanKind'])
+      : 'gsc-not-indexed'
     base = {
       issue,
       fixability: 'human',
