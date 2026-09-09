@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
     const { data: rows, error } = await supabase
       .from('gsc_url_inspections')
       .select(
-        'id, url, inspected_at, verdict, coverage_state, robots_txt_state, indexing_state, google_canonical, user_canonical, canonical_mismatch, last_crawl_time, page_fetch_state, our_verdict, deltas',
+        'id, url, inspected_at, verdict, coverage_state, robots_txt_state, indexing_state, google_canonical, user_canonical, canonical_mismatch, last_crawl_time, page_fetch_state, crawled_as, our_verdict, deltas, intervention_id, status',
       )
       .eq('site_id', siteId)
       .eq('user_id', user.id)
@@ -61,6 +61,7 @@ export async function GET(req: NextRequest) {
 
     const latestByUrl = new Map<string, (typeof rows)[number]>()
     for (const row of rows || []) {
+      if (row.status && row.status !== 'succeeded') continue
       let key = row.url
       try {
         key = normalizeUrl(row.url)
@@ -72,18 +73,27 @@ export async function GET(req: NextRequest) {
 
     const { data: quota } = await supabase
       .from('gsc_inspection_quota_usage')
-      .select('day, requests_used, exhausted_at, property_url')
+      .select(
+        'day, requests_used, exhausted_at, property_url, attempted, succeeded, failed, deferred',
+      )
       .eq('site_id', siteId)
       .order('day', { ascending: false })
       .limit(1)
       .maybeSingle()
 
+    const { count: deferredPending } = await supabase
+      .from('gsc_inspection_deferred')
+      .select('id', { count: 'exact', head: true })
+      .eq('site_id', siteId)
+      .eq('status', 'pending')
+
     return NextResponse.json({
       ok: true,
       inspections: Array.from(latestByUrl.values()),
       quota: quota || null,
+      deferredPending: deferredPending ?? 0,
       framing:
-        "Google's recorded index status + the specific mismatches we can prove + the fix for each. Not a ranking explanation.",
+        "Our current crawl vs Google's last recorded view — observed differences only. Not a ranking explanation.",
       fixAgentIssues: buildGscInspectionFixAgentIssues(
         Array.from(latestByUrl.values()).map((r) => ({
           url: r.url,

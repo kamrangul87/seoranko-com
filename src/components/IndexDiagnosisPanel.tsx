@@ -128,7 +128,9 @@ export function IndexDiagnosisPanel({
   const [inspectionQuota, setInspectionQuota] = useState<{
     requests_used?: number
     exhausted_at?: string | null
+    deferred?: number
   } | null>(null)
+  const [deferredPending, setDeferredPending] = useState(0)
   const [inspectionBusy, setInspectionBusy] = useState(false)
   const [inspectionMessage, setInspectionMessage] = useState<string | null>(null)
 
@@ -160,6 +162,7 @@ export function IndexDiagnosisPanel({
         }
         setInspectionsByUrl(map)
         setInspectionQuota(json.quota || null)
+        setDeferredPending(Number(json.deferredPending ?? 0))
       } catch {
         /* non-fatal */
       }
@@ -196,15 +199,17 @@ export function IndexDiagnosisPanel({
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error || 'Inspection sync failed')
       setInspectionMessage(
-        `Inspected ${json.result?.inspected ?? 0} URL(s). Remaining daily budget: ${
-          json.result?.remainingBudget ?? '—'
-        }.`,
+        `Inspected ${json.result?.inspected ?? 0} URL(s)` +
+          (json.result?.deferred ? `, deferred ${json.result.deferred}` : '') +
+          `. Remaining daily budget: ${json.result?.remainingBudget ?? '—'}.` +
+          (json.result?.stoppedReason ? ` Stopped: ${json.result.stoppedReason}.` : ''),
       )
       // Reload latest
       const reload = await fetch(`/api/gsc/inspections?siteId=${encodeURIComponent(siteId)}`)
       const data = await reload.json().catch(() => ({}))
       if (reload.ok) {
         const map: typeof inspectionsByUrl = {}
+        setDeferredPending(Number(data.deferredPending ?? 0))
         for (const row of data.inspections || []) {
           if (!row?.url) continue
           map[row.url] = {
@@ -535,8 +540,8 @@ export function IndexDiagnosisPanel({
           <div>
             <h2 className="font-medium">Per-URL indexability ({pages.length} crawled)</h2>
             <p className="text-[11px] text-[#6B6B6B] mt-0.5 max-w-xl">
-              Google&apos;s recorded index status + the specific mismatches we can prove + the fix for
-              each. Not a ranking explanation.
+              Our current crawl vs Google&apos;s last recorded view — observed differences we can
+              prove, plus the fix for each. Not a ranking explanation.
             </p>
           </div>
           {siteId && (
@@ -546,7 +551,7 @@ export function IndexDiagnosisPanel({
               onClick={() => void runInspectionSync()}
               className="text-xs px-3 py-1.5 rounded-lg border border-[#E5E5E5] bg-white hover:bg-[#FAFAFA] disabled:opacity-50"
             >
-              {inspectionBusy ? 'Syncing Google…' : 'Sync Google’s view'}
+              {inspectionBusy ? 'Syncing Google…' : "Sync Google’s last recorded view"}
             </button>
           )}
         </div>
@@ -557,6 +562,7 @@ export function IndexDiagnosisPanel({
           <p className="text-[11px] text-[#9B9B9B] mb-2">
             Inspection quota today: {inspectionQuota.requests_used ?? 0}
             {inspectionQuota.exhausted_at ? ' · exhausted' : ''}
+            {deferredPending > 0 ? ` · ${deferredPending} deferred` : ''}
           </p>
         )}
         <div className="overflow-x-auto">
@@ -564,9 +570,9 @@ export function IndexDiagnosisPanel({
             <thead>
               <tr className="text-left text-[#9B9B9B] border-b">
                 <th className="py-1 pr-2">URL</th>
-                <th className="py-1 pr-2">Our verdict</th>
-                <th className="py-1 pr-2">Google&apos;s view</th>
-                <th className="py-1 pr-2">Evidence / deltas</th>
+                <th className="py-1 pr-2">Our current crawl</th>
+                <th className="py-1 pr-2">Google&apos;s last recorded view</th>
+                <th className="py-1 pr-2">Observed difference</th>
               </tr>
             </thead>
             <tbody>

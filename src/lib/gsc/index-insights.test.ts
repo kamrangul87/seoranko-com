@@ -1,23 +1,59 @@
 import { describe, expect, it } from 'vitest'
 import {
+  BANNED_RANKING_CLAIM_RE,
   computeInspectionDeltas,
   googleLooksIndexed,
   googleRobotsAllows,
 } from './inspection-deltas'
 import {
   computeCanonicalMismatch,
+  normalizeInspectionCanonical,
   parseInspectionResult,
   remainingInspectionBudget,
+  GSC_INSPECTION_BATCH_CAP,
   GSC_INSPECTION_DAILY_QUOTA,
   GSC_INSPECTION_DAILY_RESERVE,
+  GSC_INSPECTION_DEADLINE_MS,
+  GSC_INSPECTION_SOFT_CAP,
 } from './url-inspection'
 import { buildGscInspectionFixAgentIssues } from './inspection-fix-issues'
 import { classifyAuditIssue } from '@/lib/fix-agent-classification'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
-describe('GSC URL Inspection parse + canonical', () => {
-  it('parses indexStatusResult fields from API body', () => {
+describe('canonical normalization (Phase B spec)', () => {
+  it('lowercases scheme+host only; preserves path/query case; strips fragment; no trailing-slash collapse', () => {
+    expect(normalizeInspectionCanonical('HTTPS://Example.COM/Path/Page?Q=A#frag')).toBe(
+      'https://example.com/Path/Page?Q=A',
+    )
+    expect(normalizeInspectionCanonical('https://example.com/a/')).toBe('https://example.com/a/')
+    expect(normalizeInspectionCanonical('https://example.com/a')).toBe('https://example.com/a')
+    expect(
+      normalizeInspectionCanonical('https://example.com/a/') ===
+        normalizeInspectionCanonical('https://example.com/a'),
+    ).toBe(false)
+  })
+
+  it('strips default ports', () => {
+    expect(normalizeInspectionCanonical('https://example.com:443/x')).toBe('https://example.com/x')
+    expect(normalizeInspectionCanonical('http://example.com:80/x')).toBe('http://example.com/x')
+  })
+
+  it('canonical mismatch uses normalizeInspectionCanonical (not full-URL lowercase)', () => {
+    expect(
+      computeCanonicalMismatch('https://Example.com/Path', 'https://example.com/Path'),
+    ).toBe(false)
+    expect(
+      computeCanonicalMismatch('https://example.com/Path', 'https://example.com/path'),
+    ).toBe(true)
+    expect(
+      computeCanonicalMismatch('https://example.com/a/', 'https://example.com/a'),
+    ).toBe(true)
+  })
+})
+
+describe('GSC URL Inspection parse + budget', () => {
+  it('parses indexStatusResult + rich results + crawledAs', () => {
     const parsed = parseInspectionResult({
       inspectionResult: {
         indexStatusResult: {
@@ -29,28 +65,60 @@ describe('GSC URL Inspection parse + canonical', () => {
           userCanonical: 'https://example.com/b',
           lastCrawlTime: null,
           pageFetchState: 'SUCCESSFUL',
+          crawledAs: 'MOBILE',
+          sitemap: ['https://example.com/sitemap.xml'],
+          referringUrls: ['https://example.com/'],
         },
+        richResultsResult: { verdict: 'PASS', detectedItems: [] },
       },
     })
     expect(parsed.coverageState).toBe('URL is unknown to Google')
-    expect(parsed.robotsTxtState).toBe('ALLOWED')
-    expect(parsed.googleCanonical).toBe('https://example.com/a')
+    expect(parsed.crawledAs).toBe('MOBILE')
+    expect(parsed.sitemap).toEqual(['https://example.com/sitemap.xml'])
+    expect(parsed.referringUrlsExhaustive).toBe(false)
+    expect(parsed.richResultsVerdict).toBe('PASS')
     expect(computeCanonicalMismatch(parsed.userCanonical, parsed.googleCanonical)).toBe(true)
   })
 
-  it('remaining budget respects daily reserve', () => {
-    expect(remainingInspectionBudget(0)).toBe(
+  it('remaining budget respects soft cap / daily reserve; Hobby constants', () => {
+    expect(remainingInspectionBudget(0)).toBe(GSC_INSPECTION_SOFT_CAP)
+    expect(GSC_INSPECTION_SOFT_CAP).toBe(
       GSC_INSPECTION_DAILY_QUOTA - GSC_INSPECTION_DAILY_RESERVE,
     )
-    expect(remainingInspectionBudget(GSC_INSPECTION_DAILY_QUOTA)).toBe(0)
-    expect(remainingInspectionBudget(GSC_INSPECTION_DAILY_QUOTA - GSC_INSPECTION_DAILY_RESERVE)).toBe(
-      0,
-    )
+    expect(GSC_INSPECTION_BATCH_CAP).toBe(40)
+    expect(GSC_INSPECTION_DEADLINE_MS).toBe(50_000)
+    expect(remainingInspectionBudget(GSC_INSPECTION_SOFT_CAP)).toBe(0)
+  })
+})
+
+describe('enum-primary googleLooksIndexed', () => {
+  it('uses verdict PASS; ignores coverageState prose', () => {
+    expect(
+      googleLooksIndexed({
+        coverageState: 'Submitted and indexed',
+        indexingState: null,
+        verdict: 'PASS',
+      }),
+    ).toBe(true)
+    expect(
+      googleLooksIndexed({
+        coverageState: 'Submitted and indexed',
+        indexingState: null,
+        verdict: 'NEUTRAL',
+      }),
+    ).toBe(false)
+    expect(
+      googleLooksIndexed({
+        coverageState: 'Submitted and indexed',
+        indexingState: 'BLOCKED_BY_META_TAG',
+        verdict: 'PASS',
+      }),
+    ).toBe(false)
   })
 })
 
 describe('GSC Index Insights deltas (mechanical)', () => {
-  it('flags crawl indexable vs Google not indexed with honest copy', () => {
+  it('flags crawl indexable vs Google not indexed + no successful crawl recorded', () => {
     const deltas = computeInspectionDeltas(
       { ourVerdict: 'INDEXABLE', ourRobotsBlocked: false, inSitemap: true },
       {
@@ -66,11 +134,29 @@ describe('GSC Index Insights deltas (mechanical)', () => {
       },
     )
     expect(deltas.some((d) => d.reason === 'crawl_indexable_google_not_indexed')).toBe(true)
-    expect(deltas.some((d) => d.reason === 'sitemap_never_crawled')).toBe(true)
+    expect(deltas.some((d) => d.reason === 'no_successful_google_crawl_recorded')).toBe(true)
     const notIndexed = deltas.find((d) => d.reason === 'crawl_indexable_google_not_indexed')!
-    expect(notIndexed.explanation).not.toMatch(/won't rank|will not rank|algorithm/i)
+    expect(notIndexed.explanation).not.toMatch(BANNED_RANKING_CLAIM_RE)
     expect(notIndexed.fixAgentKind).toBeNull()
     expect(notIndexed.humanTaskKind).toBe('gsc-not-indexed')
+  })
+
+  it('flags crawl_blocked_google_indexed', () => {
+    const deltas = computeInspectionDeltas(
+      { ourVerdict: 'BLOCKED', ourRobotsBlocked: true, inSitemap: false },
+      {
+        coverageState: 'Submitted and indexed',
+        robotsTxtState: 'ALLOWED',
+        indexingState: 'INDEXING_ALLOWED',
+        googleCanonical: 'https://example.com/x',
+        userCanonical: 'https://example.com/x',
+        canonicalMismatch: false,
+        lastCrawlTime: '2026-09-01T00:00:00Z',
+        pageFetchState: 'SUCCESSFUL',
+        verdict: 'PASS',
+      },
+    )
+    expect(deltas.some((d) => d.reason === 'crawl_blocked_google_indexed')).toBe(true)
   })
 
   it('flags canonical mismatch and maps to redirect-canonical strategy', () => {
@@ -90,12 +176,9 @@ describe('GSC Index Insights deltas (mechanical)', () => {
     )
     const d = deltas.find((x) => x.reason === 'canonical_mismatch')!
     expect(d.fixAgentKind).toBe('redirect-canonical')
-    expect(googleLooksIndexed({ coverageState: 'Submitted and indexed', indexingState: null, verdict: 'PASS' })).toBe(
-      true,
-    )
   })
 
-  it('flags robots state conflict both directions', () => {
+  it('flags robots state conflict', () => {
     expect(googleRobotsAllows('DISALLOWED')).toBe(false)
     const a = computeInspectionDeltas(
       { ourVerdict: 'BLOCKED', ourRobotsBlocked: true, inSitemap: false },
@@ -112,6 +195,87 @@ describe('GSC Index Insights deltas (mechanical)', () => {
       },
     )
     expect(a.some((d) => d.reason === 'robots_state_conflict')).toBe(true)
+  })
+
+  it('emits google_not_recrawled_since_fix from verified_at vs lastCrawlTime', () => {
+    const deltas = computeInspectionDeltas(
+      { ourVerdict: 'INDEXABLE', ourRobotsBlocked: false, inSitemap: true },
+      {
+        coverageState: 'Submitted and indexed',
+        robotsTxtState: 'ALLOWED',
+        indexingState: 'INDEXING_ALLOWED',
+        googleCanonical: 'https://example.com/',
+        userCanonical: 'https://example.com/',
+        canonicalMismatch: false,
+        lastCrawlTime: '2026-09-01T00:00:00Z',
+        pageFetchState: 'SUCCESSFUL',
+        verdict: 'PASS',
+      },
+      {
+        verifiedIntervention: {
+          id: 'd28e07fb-0000-0000-0000-000000000001',
+          verifiedAt: '2026-09-08T12:00:00Z',
+        },
+      },
+    )
+    const d = deltas.find((x) => x.reason === 'google_not_recrawled_since_fix')!
+    expect(d).toBeTruthy()
+    expect(d.evidence.intervention_id).toBe('d28e07fb-0000-0000-0000-000000000001')
+    expect(d.humanTaskKind).toBe('gsc-post-fix-recrawl')
+    expect(d.explanation).not.toMatch(BANNED_RANKING_CLAIM_RE)
+  })
+
+  it('does not emit post-fix delta when Google crawled after verified_at', () => {
+    const deltas = computeInspectionDeltas(
+      { ourVerdict: 'INDEXABLE', ourRobotsBlocked: false, inSitemap: true },
+      {
+        coverageState: null,
+        robotsTxtState: 'ALLOWED',
+        indexingState: 'INDEXING_ALLOWED',
+        googleCanonical: null,
+        userCanonical: null,
+        canonicalMismatch: false,
+        lastCrawlTime: '2026-09-09T00:00:00Z',
+        pageFetchState: 'SUCCESSFUL',
+        verdict: 'PASS',
+      },
+      {
+        verifiedIntervention: {
+          id: 'x',
+          verifiedAt: '2026-09-08T12:00:00Z',
+        },
+      },
+    )
+    expect(deltas.some((d) => d.reason === 'google_not_recrawled_since_fix')).toBe(false)
+  })
+
+  it('emits historical_transition when indexed state flips', () => {
+    const deltas = computeInspectionDeltas(
+      { ourVerdict: 'INDEXABLE', ourRobotsBlocked: false, inSitemap: true },
+      {
+        coverageState: null,
+        robotsTxtState: 'ALLOWED',
+        indexingState: 'INDEXING_ALLOWED',
+        googleCanonical: 'https://example.com/',
+        userCanonical: 'https://example.com/',
+        canonicalMismatch: false,
+        lastCrawlTime: '2026-09-09T00:00:00Z',
+        pageFetchState: 'SUCCESSFUL',
+        verdict: 'PASS',
+      },
+      {
+        previous: {
+          id: 'prev-1',
+          inspectedAt: '2026-09-01T00:00:00Z',
+          verdict: 'NEUTRAL',
+          indexingState: null,
+          googleCanonical: 'https://example.com/',
+          pageFetchState: 'SUCCESSFUL',
+          robotsTxtState: 'ALLOWED',
+        },
+      },
+    )
+    expect(deltas.some((d) => d.reason === 'historical_transition')).toBe(true)
   })
 })
 
@@ -144,42 +308,81 @@ describe('GSC inspection → Fix Agent mapping', () => {
           },
         ],
       },
+      {
+        url: 'https://example.com/',
+        deltas: [
+          {
+            reason: 'google_not_recrawled_since_fix',
+            explanation: 'no crawl since fix',
+            evidence: { intervention_id: 'i1' },
+            fixAgentKind: null,
+            humanTaskKind: 'gsc-post-fix-recrawl',
+          },
+        ],
+      },
     ])
     const canon = issues.find((i) => i.fixMetadata?.kind === 'redirect-canonical')!
     expect(classifyAuditIssue(canon, { connectionType: 'github' }).autoKind).toBe(
       'redirect-canonical',
     )
     const human = issues.find((i) => i.fixMetadata?.kind === 'gsc-human-delta')!
-    const classified = classifyAuditIssue(human)
-    expect(classified.fixability).toBe('human')
-    expect(classified.humanKind).toBe('gsc-not-indexed')
+    expect(classifyAuditIssue(human).fixability).toBe('human')
+    const postFix = issues.find((i) =>
+      (i.fixMetadata?.evidence || '').startsWith('gsc-post-fix-recrawl'),
+    )!
+    expect(classifyAuditIssue(postFix).humanKind).toBe('gsc-post-fix-recrawl')
   })
 })
 
-describe('GSC Index Insights wiring', () => {
+describe('GSC Index Insights wiring + banned UI phrases', () => {
   const root = join(__dirname, '../../..')
 
-  it('ships migration with RLS and historical insert table', () => {
-    const sql = readFileSync(
+  it('ships Phase A + Phase B migrations with RLS and quota RPC', () => {
+    const a = readFileSync(
       join(root, 'supabase/migrations/20260909120000_gsc_url_inspections.sql'),
       'utf8',
     )
-    expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS gsc_url_inspections/)
-    expect(sql).toMatch(/ENABLE ROW LEVEL SECURITY/)
-    expect(sql).toMatch(/gsc_inspection_quota_usage/)
-    expect(sql).toMatch(/Never overwrite/)
+    const b = readFileSync(
+      join(root, 'supabase/migrations/20260909140000_gsc_index_insights_phase_b.sql'),
+      'utf8',
+    )
+    expect(a).toMatch(/CREATE TABLE IF NOT EXISTS gsc_url_inspections/)
+    expect(a).toMatch(/ENABLE ROW LEVEL SECURITY/)
+    expect(b).toMatch(/reserve_gsc_inspection_quota/)
+    expect(b).toMatch(/record_gsc_inspection_quota_outcome/)
+    expect(b).toMatch(/gsc_inspection_deferred/)
+    expect(b).toMatch(/FOR UPDATE/)
+    expect(b).toMatch(/intervention_id/)
+    expect(b).toMatch(/Read-only w\.r\.t\. that table/)
   })
 
-  it('daily cron runs inspections after metrics sync', () => {
+  it('daily cron runs inspections after metrics sync; Hobby maxDuration 60', () => {
     const cron = readFileSync(join(root, 'src/app/api/cron/gsc-sync/route.ts'), 'utf8')
+    const vercel = readFileSync(join(root, 'vercel.json'), 'utf8')
     expect(cron).toMatch(/syncAllUrlInspections/)
     expect(cron).toMatch(/syncAllActiveGscConnections/)
+    expect(vercel).toMatch(/"maxDuration": 60/)
+    expect(vercel).toMatch(/gsc-sync/)
   })
 
-  it('Index Diagnosis panel shows Google\'s view column', () => {
+  it('Index Diagnosis panel uses Phase B wording; no ranking-cause claims', () => {
     const panel = readFileSync(join(root, 'src/components/IndexDiagnosisPanel.tsx'), 'utf8')
-    expect(panel).toMatch(/Google&apos;s view|Google's view/)
+    expect(panel).toMatch(/Our current crawl/)
+    expect(panel).toMatch(/Google&apos;s last recorded view|Google's last recorded view/)
+    expect(panel).toMatch(/Observed difference/)
     expect(panel).toMatch(/\/api\/gsc\/inspections/)
     expect(panel).toMatch(/Not a ranking explanation/)
+    expect(panel).not.toMatch(BANNED_RANKING_CLAIM_RE)
+  })
+
+  it('scheduler stays read-only for intervention lifecycle / causal_results', () => {
+    const sched = readFileSync(join(root, 'src/lib/gsc/inspection-scheduler.ts'), 'utf8')
+    expect(sched).toMatch(/intervention_events/)
+    expect(sched).toMatch(/verified_at/)
+    expect(sched).toMatch(/reserve_gsc_inspection_quota/)
+    expect(sched).not.toMatch(/\.from\(['"]causal_results['"]\)\.(insert|update|upsert)/)
+    expect(sched).not.toMatch(/lifecycle_state:\s*['"]verified['"]/)
+    expect(sched).toMatch(/index_diagnosis_runs/)
+    expect(sched).toMatch(/\.eq\(['"]domain['"]/)
   })
 })
