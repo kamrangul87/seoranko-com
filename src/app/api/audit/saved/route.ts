@@ -3,8 +3,11 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { loadLatestIndexDiagnosisRun } from '@/lib/index-diagnosis/persist'
 import { loadLatestLinkGraphForDomain } from '@/lib/link-graph/persist'
-import { normalizeDomain } from '@/lib/supabase/audit-db'
-import { buildSavedAuditPayload } from '@/lib/audit-saved-payload'
+import { normalizeDomain, normalizeUrl } from '@/lib/supabase/audit-db'
+import {
+  buildPageAuditPayloadFromRow,
+  buildSavedAuditPayload,
+} from '@/lib/audit-saved-payload'
 
 function authClient() {
   const cookieStore = cookies()
@@ -17,8 +20,8 @@ function authClient() {
 
 /**
  * GET /api/audit/saved?domain=example.com  (or ?url=https://…)
- * Returns the latest persisted Index Diagnosis + Link Graph for the signed-in user.
- * Does not re-crawl — used to restore Audit UI across page loads.
+ * Returns the latest persisted Index Diagnosis + Quality Gate + Link Graph.
+ * Never returns empty/stub diagnosis as a successful restore — sets needsFreshCrawl.
  */
 export async function GET(req: NextRequest) {
   const supabase = authClient()
@@ -39,10 +42,49 @@ export async function GET(req: NextRequest) {
   const diagnosis = await loadLatestIndexDiagnosisRun(user.id, domain)
   const linkGraph = await loadLatestLinkGraphForDomain(supabase, domain)
 
+  const seedUrl =
+    diagnosis?.result.coverage.seedUrl ||
+    (domainOrUrl.startsWith('http') ? domainOrUrl : `https://${domain}/`)
+  const pageUrl = normalizeUrl(seedUrl)
+
+  const { data: pageRow } = await supabase
+    .from('site_audit_results')
+    .select(
+      'score, http_status, word_count, title, h1, meta_description, has_schema, issues, opportunities, last_audited_at, page_url',
+    )
+    .eq('domain', domain)
+    .eq('page_url', pageUrl)
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  // Fallback: any row for this domain matching the requested URL host path variants
+  let resolvedPage = pageRow
+  if (!resolvedPage) {
+    const { data: alts } = await supabase
+      .from('site_audit_results')
+      .select(
+        'score, http_status, word_count, title, h1, meta_description, has_schema, issues, opportunities, last_audited_at, page_url',
+      )
+      .eq('domain', domain)
+      .eq('user_id', user.id)
+      .order('last_audited_at', { ascending: false })
+      .limit(5)
+    const want = normalizeUrl(domainOrUrl.startsWith('http') ? domainOrUrl : seedUrl)
+    resolvedPage = (alts || []).find((r) => normalizeUrl(r.page_url) === want) || null
+  }
+
+  const pageAudit = resolvedPage
+    ? buildPageAuditPayloadFromRow({
+        url: normalizeUrl(resolvedPage.page_url || pageUrl),
+        row: resolvedPage,
+        diagnosis: diagnosis?.result ?? null,
+      })
+    : null
+
   const tablesMissing =
     diagnosis === null &&
     linkGraph === null &&
-    // Distinguish empty history from missing tables via a cheap probe
+    pageAudit === null &&
     (await (async () => {
       const probe = await supabase.from('index_diagnosis_runs').select('id', { head: true, count: 'exact' }).limit(1)
       return Boolean(probe.error?.message?.match(/does not exist|schema cache|PGRST/i))
@@ -52,6 +94,7 @@ export async function GET(req: NextRequest) {
     buildSavedAuditPayload({
       domain,
       diagnosis,
+      pageAudit,
       linkGraph,
       tablesMissing,
     }),

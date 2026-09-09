@@ -61,24 +61,35 @@ export function normalizeDomain(domain: string): string {
 // ── Save audit results to Supabase (upsert by domain + page_url) ────────────
 export async function upsertAuditResults(
   domain: string,
-  results: any[]
+  results: any[],
+  opts?: { userId?: string },
 ): Promise<void> {
-  const supabase = getClient();
+  // Prefer service role when writing with user_id so RLS owner policies pass
+  // (anon client has auth.uid() = null and cannot satisfy WITH CHECK).
+  const supabase =
+    opts?.userId && process.env.SUPABASE_SERVICE_ROLE_KEY
+      ? createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          { auth: { persistSession: false } },
+        )
+      : getClient();
   const normDomain = normalizeDomain(domain);
 
   for (const r of results) {
     const normUrl = normalizeUrl(r.url);
     // Check if this page already has fixed status — preserve fix data if so
-    const { data: existing } = await supabase
+    let existingQuery = supabase
       .from('site_audit_results')
       .select('status, fixed_issues, score_after_fix, score_before_fix')
       .eq('domain', normDomain)
       .eq('page_url', normUrl)
-      .single();
+    if (opts?.userId) existingQuery = existingQuery.eq('user_id', opts.userId)
+    const { data: existing } = await existingQuery.maybeSingle();
 
     const isFixed = existing?.status === 'fixed';
 
-    const row: Partial<AuditRow> = {
+    const row: Partial<AuditRow> & { user_id?: string } = {
       domain:           normDomain,
       page_url:         normUrl,
       score:            isFixed ? existing.score_after_fix : r.score,
@@ -99,6 +110,7 @@ export async function upsertAuditResults(
       has_faq:          r.hasFaq ?? false,
       last_audited_at:  new Date().toISOString(),
     };
+    if (opts?.userId) row.user_id = opts.userId;
 
     const { error } = await supabase
       .from('site_audit_results')

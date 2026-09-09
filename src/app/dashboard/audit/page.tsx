@@ -369,7 +369,50 @@ export default function AuditPage() {
         return
       }
       if (data.linkGraph) setSavedLinkGraph(data.linkGraph)
-      if (!hydrateDiagnosis || !data.indexDiagnosis) return
+
+      // Never silently restore empty/stub Quality Gate or empty Index Diagnosis.
+      if (hydrateDiagnosis && data.needsFreshCrawl) {
+        setSavedMeta(data.needsFreshCrawlReason || 'Stored audit is incomplete — scanning fresh…')
+        setUrl((prev) => prev || domainOrUrl)
+        // Defer so url state + session restore settle, then run a real crawl.
+        queueMicrotask(() => {
+          void (async () => {
+            setLoading(true)
+            setError(null)
+            try {
+              const scanRes = await fetch('/api/copilot/audit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: domainOrUrl }),
+              })
+              const scanData = await scanRes.json()
+              if (!scanRes.ok) throw new Error(scanData.error || 'Audit failed')
+              setAudit(scanData.audit)
+              setSavedMeta(null)
+              try {
+                sessionStorage.setItem('seoranko:last-audit-url', scanData.audit.url)
+              } catch {
+                /* ignore */
+              }
+              if (scanData.audit?.indexDiagnosis?.coverage?.domain) {
+                void loadSavedAudits(scanData.audit.indexDiagnosis.coverage.domain, {
+                  hydrateDiagnosis: false,
+                })
+              }
+              if (scanData.audit?.coreWebVitalsPending !== false) {
+                void fetchCoreWebVitalsAsync(scanData.audit.url)
+              }
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'Audit failed')
+            } finally {
+              setLoading(false)
+            }
+          })()
+        })
+        return
+      }
+
+      if (!hydrateDiagnosis || !data.indexDiagnosis || !data.pageAudit) return
 
       setSavedMeta(
         data.indexDiagnosisCreatedAt
@@ -386,37 +429,38 @@ export default function AuditPage() {
             indexDiagnosisRunId: data.indexDiagnosisRunId,
           }
         }
+        const pa = data.pageAudit
         return {
-          url: data.indexDiagnosis.coverage.seedUrl || domainOrUrl,
-          score: prev?.score ?? 0,
-          searchScore: prev?.searchScore ?? 0,
+          url: pa.url || data.indexDiagnosis.coverage.seedUrl || domainOrUrl,
+          score: pa.score,
+          searchScore: prev?.searchScore ?? pa.score,
           aiScore: prev?.aiScore ?? 0,
-          httpStatus: prev?.httpStatus ?? 0,
+          httpStatus: pa.httpStatus,
           siteType: prev?.siteType ?? {
             siteType: 'unknown',
             confidence: 'low',
             signals: [],
             pageRole: null,
           },
-          issues: prev?.issues ?? [],
-          opportunities: prev?.opportunities ?? [],
-          explainable: prev?.explainable ?? {
+          issues: pa.issues || [],
+          opportunities: (Array.isArray(pa.opportunities) ? pa.opportunities : []) as string[],
+          explainable: pa.explainable || {
             dimensions: [],
-            score: 0,
-            scoreExplanation: 'Re-scan for Quality Gate.',
+            score: pa.score,
+            scoreExplanation: 'Restored from last saved Quality Gate.',
             publishDecision: 'review',
-            publishDecisionReason: 'Restored Index Diagnosis only — page Quality Gate not loaded.',
+            publishDecisionReason: 'Restored snapshot — re-scan to refresh.',
           },
-          signals: prev?.signals ?? {
-            title: '',
-            h1: '',
-            wordCount: 0,
-            hasSchema: false,
+          signals: {
+            title: pa.title || '',
+            h1: pa.h1 || '',
+            wordCount: pa.wordCount ?? 0,
+            hasSchema: !!pa.hasSchema,
             hasProductSchema: false,
           },
           history: prev?.history ?? [],
           crawlNotes: [
-            'Restored last saved Index Diagnosis from the database (no re-crawl).',
+            'Restored last saved Index Diagnosis and Quality Gate from the database (no re-crawl).',
             ...(prev?.crawlNotes || []),
           ],
           indexDiagnosis: data.indexDiagnosis,
@@ -622,6 +666,10 @@ export default function AuditPage() {
       : issueFilter
         ? audit.issues.filter(issueFilter)
         : audit.issues
+    if (!issuesToFix.length) {
+      setFixMessage('no crawl data available — run a scan first')
+      return
+    }
     const ok = window.confirm(buildFixConfirmMessage(connection, issuesToFix))
     if (!ok) return
 

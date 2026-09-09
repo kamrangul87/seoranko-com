@@ -263,23 +263,27 @@ export async function runPageAudit(
   // Persist for trend (best-effort — tables may be absent in local empty DBs)
   try {
     const domain = normalizeDomain(url)
-    await upsertAuditResults(domain, [
-      {
-        url,
-        score: scored.score,
-        grade: scored.score >= 80 ? 'A' : scored.score >= 70 ? 'B' : scored.score >= 50 ? 'C' : 'D',
-        wordCount: signals.wordCount,
-        issues: scored.issues,
-        opportunities: scored.opportunities,
-        aiAnalysis: { siteType: detection, ecommerceIssueCount: ecommerceIssues.length },
-        httpStatus: signals.httpStatus || status,
-        title: signals.title,
-        metaDescription: signals.metaDescription,
-        h1: signals.h1,
-        hasSchema: signals.hasSchema,
-        hasFaq: signals.hasFaq,
-      },
-    ])
+    await upsertAuditResults(
+      domain,
+      [
+        {
+          url,
+          score: scored.score,
+          grade: scored.score >= 80 ? 'A' : scored.score >= 70 ? 'B' : scored.score >= 50 ? 'C' : 'D',
+          wordCount: signals.wordCount,
+          issues: scored.issues,
+          opportunities: scored.opportunities,
+          aiAnalysis: { siteType: detection, ecommerceIssueCount: ecommerceIssues.length },
+          httpStatus: signals.httpStatus || status,
+          title: signals.title,
+          metaDescription: signals.metaDescription,
+          h1: signals.h1,
+          hasSchema: signals.hasSchema,
+          hasFaq: signals.hasFaq,
+        },
+      ],
+      { userId: opts?.userId },
+    )
     await insertAuditHistory(domain, [{ url, score: scored.score, aiScore: scored.aiScore }])
   } catch (err) {
     crawlNotes.push(`History persist skipped: ${err instanceof Error ? err.message : 'unknown'}`)

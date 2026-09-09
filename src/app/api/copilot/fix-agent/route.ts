@@ -44,7 +44,13 @@ export async function POST(req: NextRequest) {
       )
     }
     if (issues.length === 0) {
-      return NextResponse.json({ error: 'issues array is required' }, { status: 400 })
+      return NextResponse.json(
+        {
+          error: 'no crawl data available — run a scan first',
+          code: 'NO_CRAWL_DATA',
+        },
+        { status: 400 },
+      )
     }
 
     const supabase = createClient(

@@ -147,6 +147,34 @@ describe('Audit saved payload (reload without re-crawl)', () => {
     const payload = buildSavedAuditPayload({
       domain: 'example.com',
       diagnosis: { row, result },
+      pageAudit: {
+        url: 'https://example.com/',
+        score: 72,
+        httpStatus: 200,
+        wordCount: 420,
+        title: 'Home',
+        h1: 'Home',
+        metaDescription: '',
+        hasSchema: false,
+        issues: [
+          {
+            id: 'audit-1',
+            severity: 'warning',
+            category: 'onpage',
+            title: 'Thin title',
+            description: 'Thin title',
+          },
+        ],
+        opportunities: [],
+        explainable: {
+          dimensions: [],
+          score: 72,
+          scoreExplanation: 'ok',
+          publishDecision: 'review',
+          publishDecisionReason: 'test',
+        },
+        lastAuditedAt: '2026-09-07T12:00:00.000Z',
+      },
       linkGraph: {
         audit: {
           id: 'lg-1',
@@ -167,8 +195,11 @@ describe('Audit saved payload (reload without re-crawl)', () => {
 
     expect(payload.saved).toBe(true)
     expect(payload.tablesMissing).toBe(false)
+    expect(payload.needsFreshCrawl).toBe(false)
     expect(payload.indexDiagnosisRunId).toBe('diag-1')
     expect(payload.indexDiagnosis?.ranAt).toBe('2026-09-07T12:00:00.000Z')
+    expect(payload.pageAudit?.score).toBe(72)
+    expect(payload.pageAudit?.httpStatus).toBe(200)
     expect(payload.linkGraph?.auditId).toBe('lg-1')
     expect(payload.linkGraph?.summary.criticalCount).toBe(2)
     expect(payload.linkGraph?.summary.verdictHeadline).toBe('2 critical link issues')
@@ -178,12 +209,42 @@ describe('Audit saved payload (reload without re-crawl)', () => {
     const payload = buildSavedAuditPayload({
       domain: 'example.com',
       diagnosis: null,
+      pageAudit: null,
       linkGraph: null,
       tablesMissing: true,
     })
     expect(payload.saved).toBe(false)
     expect(payload.tablesMissing).toBe(true)
+    expect(payload.needsFreshCrawl).toBe(true)
     expect(payload.indexDiagnosis).toBeNull()
     expect(payload.linkGraph).toBeNull()
+  })
+
+  it('needsFreshCrawl when Index Diagnosis has zero fetched pages (never serve stub zeros)', () => {
+    const emptyRow: IndexDiagnosisRunRow = {
+      id: 'diag-empty',
+      domain: 'example.com',
+      seed_url: 'https://example.com/',
+      verdict_headline: '',
+      coverage: { ...coverage(), fetchedCount: 0, discoveredCount: 0 },
+      pages: [],
+      cohorts: [],
+      top_causes: [],
+      indexable_count: 0,
+      blocked_count: 0,
+      at_risk_count: 0,
+      created_at: '2026-09-07T12:00:00.000Z',
+    }
+    const result = reconstructIndexDiagnosisFromRow(emptyRow)
+    const payload = buildSavedAuditPayload({
+      domain: 'example.com',
+      diagnosis: { row: emptyRow, result },
+      pageAudit: null,
+      linkGraph: null,
+      tablesMissing: false,
+    })
+    expect(payload.needsFreshCrawl).toBe(true)
+    expect(payload.indexDiagnosis).toBeNull()
+    expect(payload.pageAudit).toBeNull()
   })
 })

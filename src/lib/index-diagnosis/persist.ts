@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import { normalizeDomain } from '@/lib/supabase/audit-db'
 import { buildSiteFollowUpTasks } from './follow-up-tasks'
 import { buildManualFixesForResult } from './manual-fixes'
+import { isUsableIndexDiagnosis } from './saved-validity'
 import type {
   CohortMetrics,
   CrawlCoverage,
@@ -69,6 +70,12 @@ export async function persistIndexDiagnosisRun(
   userId: string,
   result: IndexDiagnosisResult,
 ): Promise<{ id: string | null; error: string | null }> {
+  if (!isUsableIndexDiagnosis(result)) {
+    return {
+      id: null,
+      error: 'refusing to persist empty Index Diagnosis (no fetched pages)',
+    }
+  }
   try {
     const supabase = serviceClient()
     const { data, error } = await supabase
@@ -126,7 +133,15 @@ export async function loadLatestIndexDiagnosisRun(
     if (!data) return null
 
     const row = data as IndexDiagnosisRunRow
-    return { row, result: reconstructIndexDiagnosisFromRow(row) }
+    const result = reconstructIndexDiagnosisFromRow(row)
+    if (!isUsableIndexDiagnosis(result)) {
+      console.warn(
+        '[index-diagnosis] latest run unusable (empty pages/fetchedCount) — treating as missing',
+        { id: row.id, domain: row.domain },
+      )
+      return null
+    }
+    return { row, result }
   } catch (err) {
     console.warn('[index-diagnosis] load error', err)
     return null
