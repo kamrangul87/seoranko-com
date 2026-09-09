@@ -81,6 +81,26 @@ const RULE_TITLES: Record<string, { title: string; why: string; change: string }
     why: 'Pages Google cannot reach through your own links are hard to discover and rank.',
     change: 'Add contextual internal links from related indexable pages.',
   },
+  L22: {
+    title: 'Pages only reachable deeper than five clicks',
+    why: 'Deep URLs get less crawl attention and are harder for users and bots to find.',
+    change: 'Add shallower internal links or hub pages so important URLs sit within a few clicks of the homepage.',
+  },
+  L23: {
+    title: 'Indexable pages with no in-content internal links',
+    why: 'A page that never links onward in its main content is a dead end for crawlers and readers — equity and discovery stop there.',
+    change: 'Add contextual links in the main body to related indexable pages (nav/footer alone is not enough).',
+  },
+  L24: {
+    title: 'Pages with excessive internal links',
+    why: 'Very dense link lists dilute relevance signals and look like boilerplate to crawlers.',
+    change: 'Trim low-value internal links; keep a focused set of contextual destinations.',
+  },
+  L25: {
+    title: 'Internal targets that did not respond',
+    why: 'Unresolved destinations waste crawl budget and hide whether the link is live.',
+    change: 'Fix the destination, remove the link, or raise the crawl timeout and re-run.',
+  },
   L26: {
     title: 'Sitemap URLs return non-200',
     why: 'A sitemap claims a URL should be indexed — non-200 contradicts that.',
@@ -154,6 +174,8 @@ export function buildVerdictHeadline(findings: LinkFinding[]): string {
   const parts = causes.map((c) => {
     if (c.ruleId === 'L05') return `${c.affectedCount} internal link(s) point at URLs that redirect`
     if (c.ruleId === 'L21') return `${c.affectedCount} page(s) have no internal links at all`
+    if (c.ruleId === 'L23')
+      return `${c.affectedCount} indexable page(s) have no in-content internal links`
     if (c.ruleId === 'L01') return `${c.affectedCount} internal link(s) resolve to 4xx`
     if (c.ruleId === 'L06') return `${c.affectedCount} link(s) point at non-canonical URLs`
     return `${c.affectedCount} ${c.title.toLowerCase()}`

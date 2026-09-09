@@ -305,6 +305,25 @@ describe('link-graph acceptance (§8)', () => {
     expect(causes.every((c) => c.ruleId === 'L05')).toBe(true)
   })
 
+  it('L23 top-cause card uses real copy (not See findings evidence placeholder)', () => {
+    const findings = [
+      {
+        ruleId: 'L23',
+        severity: 'WARN' as const,
+        sourceUrl: 'https://example.com/lonely',
+        targetUrl: null,
+        evidence: { mainInternalLinks: 0 },
+        suggestedTarget: null,
+      },
+    ]
+    const causes = buildTopCauses(findings)
+    expect(causes).toHaveLength(1)
+    expect(causes[0]!.title.toLowerCase()).toMatch(/in-content|internal links/)
+    expect(causes[0]!.whyItMatters).not.toMatch(/See findings evidence/i)
+    expect(causes[0]!.whatToChange.toLowerCase()).toMatch(/contextual|main body|internal/)
+    expect(buildVerdictHeadline(findings).toLowerCase()).toMatch(/in-content/)
+  })
+
   it('fix list only includes rules with suggested targets', async () => {
     const html = {
       'https://example.com/': `<html><body><main><a href="/old">Go</a></main></body></html>`,

@@ -164,7 +164,7 @@ export async function getSiteConnectionStatus(
         suggestedDomain: host,
         parentDomain: parent.domain,
         prompt:
-          `${host} is not registered as its own site. You have ${parent.domain} connected — add ${host} in Settings → Your Sites, then connect GitHub/GSC for that site so Fix Agent and Experiments stay separate per host.`,
+          `This fix requires connecting ${host} — go to Settings to connect it. You have ${parent.domain} connected; each host needs its own site + CMS connection (GSC listing alone does not grant write access).`,
       }
     }
   }

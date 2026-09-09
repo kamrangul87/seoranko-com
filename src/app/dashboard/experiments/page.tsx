@@ -296,19 +296,23 @@ function ExperimentsPageInner() {
 
       const created = (data.registered || []).filter((r: { createdSite: boolean }) => r.createdSite)
       const mapped = data.registered || []
-      setPickingProperties(false)
+      // Keep the full property checklist visible so the user can keep adding others
+      // in the same flow — do not dismiss after one register batch.
       setMessage(
         [
           `Tracking ${mapped.length} propert${mapped.length === 1 ? 'y' : 'ies'}`,
           created.length ? `(${created.length} new site${created.length === 1 ? '' : 's'} created)` : null,
           data.syncNote || null,
           data.sync?.error ? `Sync note: ${data.sync.error}` : null,
+          'Remaining properties stay listed below — select more anytime.',
         ]
           .filter(Boolean)
           .join(' — '),
       )
       const list = await reloadSites()
       await loadAccount()
+      // Refresh checklist in place (alreadyTracked updates; untracked stay selectable).
+      await loadAccountProperties()
       const prefer =
         mapped[0]?.siteId && list.some((s: Site) => s.id === mapped[0].siteId)
           ? mapped[0].siteId
@@ -465,7 +469,8 @@ function ExperimentsPageInner() {
               <h2 className="font-medium">Select properties to track</h2>
               <p className="text-sm text-[#6B6B6B]">
                 Each selected property becomes its own site (exact host). Already-tracked properties
-                stay checked off.
+                stay checked and disabled. After you save, this list stays open so you can keep
+                adding others without starting over.
               </p>
               {properties.length === 0 ? (
                 <p className="text-sm text-[#6B6B6B]">No properties found on this Google account.</p>
@@ -568,27 +573,53 @@ function ExperimentsPageInner() {
             <div className="border border-[#E5E5E5] rounded-lg px-4 py-4 bg-white space-y-3">
               <h2 className="font-medium">This site has no Search Console mapping</h2>
               <p className="text-sm text-[#6B6B6B]">
-                Prefer &quot;Choose properties to track&quot; above if you just connected Google.
-                Or reconnect Search Console for this site alone.
+                Prefer the full property checklist above so you can attach several hosts at once.
+                Connecting GSC for this site alone still works if you only need one mapping.
               </p>
-              <button
-                type="button"
-                disabled={busy || !siteId}
-                onClick={() => void startSiteConnect()}
-                className="px-4 py-2 rounded-lg border border-[#E5E5E5] bg-white text-sm disabled:opacity-50"
-              >
-                {busy ? 'Redirecting…' : 'Connect GSC for this site'}
-              </button>
+              <div className="flex flex-wrap gap-2">
+                {accountConnected ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void loadAccountProperties()}
+                    className="px-4 py-2 rounded-lg bg-[#0F0F0F] text-white text-sm disabled:opacity-50"
+                  >
+                    {busy ? 'Loading…' : 'Show all account properties'}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  disabled={busy || !siteId}
+                  onClick={() => void startSiteConnect()}
+                  className="px-4 py-2 rounded-lg border border-[#E5E5E5] bg-white text-sm disabled:opacity-50"
+                >
+                  {busy ? 'Redirecting…' : 'Connect GSC for this site only'}
+                </button>
+              </div>
             </div>
           )}
 
-          {!loading && connected && (pickingProperty || !hasProperty) && (
+          {!loading && connected && (pickingProperty || !hasProperty) && !pickingProperties && (
             <div className="border border-[#E5E5E5] rounded-lg px-4 py-4 bg-white space-y-3">
-              <h2 className="font-medium">Choose a Search Console property</h2>
+              <h2 className="font-medium">Attach a Search Console property to this site</h2>
               <p className="text-sm text-[#6B6B6B]">
-                Status: {statusLabel}. Pick the property that matches this site. On save we backfill
-                available history (~16 months) — that backfill is the baseline window.
+                Status: {statusLabel}. To onboard several hosts at once, use &quot;Choose properties to
+                track&quot; above — the checklist stays open after each save. Below is the single-site
+                attach path only.
               </p>
+              {accountConnected ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setPickingProperty(false)
+                    void loadAccountProperties()
+                  }}
+                  className="px-4 py-2 rounded-lg bg-[#0F0F0F] text-white text-sm disabled:opacity-50"
+                >
+                  {busy ? 'Loading…' : 'Open full property checklist'}
+                </button>
+              ) : null}
               {properties.length === 0 ? (
                 <button
                   type="button"
@@ -604,7 +635,7 @@ function ExperimentsPageInner() {
                     })()
                   }}
                 >
-                  Load properties
+                  Load properties for this site
                 </button>
               ) : (
                 <ul className="space-y-2">

@@ -69,6 +69,9 @@ describe('Causal Experiment Engine PR1 wiring', () => {
     expect(experiments).toMatch(/pick_properties/)
     expect(experiments).toMatch(/\/api\/gsc\/register/)
     expect(experiments).toMatch(/Choose properties to track/)
+    // After register, checklist must stay open (not setPickingProperties(false)).
+    expect(experiments).toMatch(/Remaining properties stay listed below/)
+    expect(experiments).not.toMatch(/setPickingProperties\(false\)\s*\n\s*setMessage/)
   })
 
   it('scopes url_metrics_daily upserts to crawl/sitemap known URLs', () => {

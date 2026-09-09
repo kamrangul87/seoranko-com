@@ -157,6 +157,7 @@ export function LinkGraphPanel({
   fixRunning,
   onRunFixAgent,
   initialSaved,
+  fixConnectionHint,
 }: {
   diagnosis: IndexDiagnosisResult
   domain?: string
@@ -171,6 +172,13 @@ export function LinkGraphPanel({
     createdAt?: string
     summary: LinkGraphSummary
     topFindings: LinkFindingRow[]
+  } | null
+  /** When Fix Agent cannot write (e.g. subdomain not registered). */
+  fixConnectionHint?: {
+    needsExactSiteRegistration?: boolean
+    suggestedDomain?: string
+    parentDomain?: string
+    prompt?: string
   } | null
 }) {
   const [running, setRunning] = useState(false)
@@ -204,6 +212,32 @@ export function LinkGraphPanel({
     () => findings.filter((f) => LINK_REDIRECT_HOP_RULES.has(f.ruleId || f.rule_id || '')).length,
     [findings],
   )
+
+  const fixBlockedHost =
+    fixConnectionHint?.suggestedDomain ||
+    (auditUrl
+      ? (() => {
+          try {
+            return new URL(auditUrl).hostname.replace(/^www\./i, '')
+          } catch {
+            return null
+          }
+        })()
+      : null) ||
+    resolvedDomain
+
+  const fixBlockedMessage = !cmsConnected
+    ? fixConnectionHint?.needsExactSiteRegistration && fixBlockedHost
+      ? `This fix requires connecting ${fixBlockedHost} — go to Settings to connect it${
+          fixConnectionHint.parentDomain
+            ? ` (separate from ${fixConnectionHint.parentDomain}; GSC listing alone does not grant write access)`
+            : ' (GSC listing alone does not grant write access)'
+        }.`
+      : fixConnectionHint?.prompt ||
+        (fixBlockedHost
+          ? `This fix requires connecting ${fixBlockedHost} — go to Settings to connect GitHub or another CMS. Auditing or GSC tracking alone does not grant write access.`
+          : 'Connect this site in Settings before Fix Agent can apply changes.')
+    : null
 
   // Restore latest saved Link Graph for this domain when parent didn't pass one.
   useEffect(() => {
@@ -367,9 +401,13 @@ export function LinkGraphPanel({
                     {fixRunning ? 'Applying…' : 'Fix all redirect-hop links'}
                   </button>
                 ) : (
-                  <p className="text-xs text-[#6B6B6B] self-center">
-                    Connect GitHub (or another CMS) to auto-apply, or use Manual fix on a finding.
-                  </p>
+                  <div className="text-xs text-amber-950 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 max-w-xl space-y-1">
+                    <p className="font-medium">Fix Agent cannot write here yet</p>
+                    <p>{fixBlockedMessage}</p>
+                    <a href="/dashboard/settings" className="underline text-[#FF6B2C]">
+                      Open Settings → Your Sites
+                    </a>
+                  </div>
                 )}
                 {cmsConnected && onRunFixAgent && nonCanonicalBulk && (
                   <button
@@ -449,7 +487,7 @@ export function LinkGraphPanel({
                                 </span>
                               )}
                               <div className="flex flex-wrap gap-2 mt-1 font-sans">
-                                {cmsConnected && onRunFixAgent && single && (
+                                {cmsConnected && onRunFixAgent && single ? (
                                   <button
                                     type="button"
                                     disabled={!!fixRunning}
@@ -458,7 +496,13 @@ export function LinkGraphPanel({
                                   >
                                     Auto-fix
                                   </button>
-                                )}
+                                ) : single ? (
+                                  <p className="text-[11px] text-amber-900">
+                                    {fixBlockedHost
+                                      ? `This fix requires connecting ${fixBlockedHost} — go to Settings to connect it.`
+                                      : 'Connect this host in Settings before auto-fix.'}
+                                  </p>
+                                ) : null}
                               </div>
                               {single && finding.sourceUrl && finding.suggestedTarget && fromHref && (
                                 <ManualHrefPaste

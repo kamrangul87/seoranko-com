@@ -722,6 +722,19 @@ export default function AuditPage() {
                   fixRunning={fixRunning}
                   onRunFixAgent={(issues) => void runFixAgent(undefined, issues as AuditIssue[])}
                   initialSaved={savedLinkGraph}
+                  fixConnectionHint={
+                    connection
+                      ? {
+                          needsExactSiteRegistration: connection.needsExactSiteRegistration,
+                          suggestedDomain: connection.suggestedDomain,
+                          parentDomain: connection.parentDomain,
+                          prompt: connection.prompt,
+                        }
+                      : {
+                          prompt:
+                            'Connect this site in Settings → Your Sites before Fix Agent can write.',
+                        }
+                  }
                 />
               )}
 
@@ -822,10 +835,13 @@ export default function AuditPage() {
                     </p>
                     {connection?.needsExactSiteRegistration && connection.suggestedDomain ? (
                       <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                        Register <span className="font-medium">{connection.suggestedDomain}</span> as its
-                        own site
-                        {connection.parentDomain ? ` (separate from ${connection.parentDomain})` : ''}
-                        , then connect GitHub and Search Console for that host.
+                        This fix requires connecting{' '}
+                        <span className="font-medium">{connection.suggestedDomain}</span> — go to
+                        Settings to connect it
+                        {connection.parentDomain
+                          ? ` (separate from ${connection.parentDomain}; a GSC property list does not grant write access)`
+                          : ''}
+                        .
                       </p>
                     ) : null}
                     <Link href="/dashboard/settings" className="text-sm text-[#FF6B2C] underline">
