@@ -479,11 +479,21 @@ async function main() {
   if (siteForQuota.rows[0] && rpcs.rows.some((r) => r.proname === 'reserve_gsc_inspection_quota')) {
     const { site_id, user_id } = siteForQuota.rows[0]
     const prop = `https://phase-b-quota-probe.example/${Date.now()}/`
+    const serial = await client.query(
+      `SELECT * FROM reserve_gsc_inspection_quota($1,$2,$3,$4,$5)`,
+      [site_id, user_id, prop, 3, 20],
+    )
+    const afterSerial = await client.query(
+      `SELECT requests_used, attempted, exhausted_at IS NOT NULL AS exhausted, day::text AS day
+       FROM gsc_inspection_quota_usage WHERE property_url = $1`,
+      [prop],
+    )
+    // Reset to seed_used=15 for the race (soft_cap 20 → capacity 5)
     await client.query(
-      `INSERT INTO gsc_inspection_quota_usage
-         (site_id, user_id, property_url, day, requests_used, attempted)
-       VALUES ($1,$2,$3,(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date, 15, 15)`,
-      [site_id, user_id, prop],
+      `UPDATE gsc_inspection_quota_usage
+       SET requests_used = 15, attempted = 15, exhausted_at = NULL, succeeded = 0, failed = 0, deferred = 0
+       WHERE property_url = $1`,
+      [prop],
     )
 
     const clients = []
@@ -503,7 +513,13 @@ async function main() {
               `SELECT * FROM reserve_gsc_inspection_quota($1,$2,$3,$4,$5)`,
               [site_id, user_id, prop, 10, 20],
             )
-            .then((r) => r.rows[0])
+            .then((r) => ({
+              reserved: r.rows[0]?.reserved,
+              remaining: r.rows[0]?.remaining,
+              exhausted: r.rows[0]?.exhausted,
+              day: r.rows[0]?.day,
+              requests_used: r.rows[0]?.requests_used,
+            }))
             .catch((e) => ({ error: e instanceof Error ? e.message : String(e) })),
         ),
       )
@@ -518,6 +534,8 @@ async function main() {
       )
       const used = Number(final.rows[0]?.requests_used ?? 0)
       out.gscQuotaConcurrency = {
+        serial_reserve: serial.rows[0] || null,
+        after_serial: afterSerial.rows[0] || null,
         seed_used: 15,
         soft_cap: 20,
         remaining_capacity: 5,
@@ -526,7 +544,11 @@ async function main() {
         totalReserved,
         final_requests_used: used,
         exhausted: Boolean(final.rows[0]?.exhausted),
-        reserved_per_caller: results.map((r) => Number(r?.reserved || 0)),
+        reserved_per_caller: results.map((r) =>
+          r.error ? null : Number(r?.reserved ?? 0),
+        ),
+        caller_errors: results.map((r) => r.error || null).filter(Boolean),
+        caller_raw: results,
         oversold: totalReserved > 5 || used > 20,
       }
     } finally {
