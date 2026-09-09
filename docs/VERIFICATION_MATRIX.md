@@ -3,7 +3,8 @@
 A feature may be called **working** only when its Evidence column is satisfied.
 Code existence and unit tests alone are **not** sufficient.
 
-Last inventory pass: 2026-09-09 against `main` (post beta reliability gate commit).
+Last inventory pass: 2026-09-09 against `main` @ `f8221e2`.
+CI: Test `34340761782` success; migrate `34340761756` success.
 Update this file when evidence changes. Do not invent analytics numbers.
 
 ---
