@@ -8,7 +8,7 @@
  * Usage: npx tsx scripts/complete-causal-loop.ts
  */
 import pg from 'pg'
-import { analyzeIntervention, causalResultConflictTarget } from '../src/lib/intervention/analyze'
+import { analyzeIntervention } from '../src/lib/intervention/analyze'
 import {
   hashPreregistration,
   type PreregistrationFields,
