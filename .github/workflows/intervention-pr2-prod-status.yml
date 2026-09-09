@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
       - name: Install pg client
         run: npm install --no-save pg@8.16.3
       - name: Run prod status probe

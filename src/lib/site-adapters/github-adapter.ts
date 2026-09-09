@@ -350,8 +350,9 @@ async function commitFileChange(
   }
 }
 
-function guardEditable(path: string): string | null {
+function guardEditable(path: string, opts?: { allowComponentSource?: boolean }): string | null {
   if (COMPONENT_SOURCE.test(path)) {
+    if (opts?.allowComponentSource) return null
     return `${path} is a component source file — RANKO won't insert raw HTML into it, as that would break your build. Add the fix to the template manually, or point this URL at an HTML/Markdown source.`
   }
   if (!HTML_SAFE.test(path)) {
@@ -425,6 +426,57 @@ export const githubAdapter: CMSAdapter = {
       bodyHtml: fileData.content,
       hasSchema: fileData.content.includes('application/ld+json')
     }
+  },
+
+  async findSourcesContaining(creds, needle): Promise<PageContent[]> {
+    if (validCreds(creds) || !needle.trim()) return []
+    const files = await getRepoTree(creds)
+    const candidates = files.filter(
+      (f) =>
+        HTML_SAFE.test(f.path) ||
+        /\.(tsx|jsx|ts|js|vue|svelte|astro)$/i.test(f.path),
+    )
+    const hits: PageContent[] = []
+    // Cap reads — prefer layout/footer/nav naming first.
+    const ranked = [...candidates].sort((a, b) => {
+      const score = (p: string) =>
+        /footer|header|nav|layout|app\.(tsx|jsx)|_app\./i.test(p) ? 0 : 1
+      return score(a.path) - score(b.path) || a.path.length - b.path.length
+    })
+    for (const f of ranked.slice(0, 80)) {
+      if (hits.length >= 8) break
+      const fileData = await getFileContent(creds, f.path)
+      if (!fileData) continue
+      if (!fileData.content.includes(needle)) continue
+      hits.push({
+        id: f.path,
+        url: `file://${f.path}`,
+        title: f.path.split('/').pop() || f.path,
+        bodyHtml: fileData.content,
+        hasSchema: fileData.content.includes('application/ld+json'),
+      })
+    }
+    return hits
+  },
+
+  async rewriteSourceFile(creds, page, newContent, opts): Promise<FixApplyResult> {
+    const unsafe = guardEditable(page.id, {
+      allowComponentSource: !!opts?.allowComponentSource,
+    })
+    if (unsafe) return { success: false, error: unsafe }
+
+    const fileData = await getFileContent(creds, page.id)
+    if (!fileData) return { success: false, error: 'Could not re-read the file before committing.' }
+    if (fileData.content === newContent) return { success: true, skipped: true }
+
+    const result = await commitFileChange(
+      creds,
+      page.id,
+      newContent,
+      fileData.sha,
+      opts?.commitMessage || `SEORANKO Fix Agent: update ${page.id}`,
+    )
+    return applyResultFromCommit(result, { branch: creds.branch || 'main', path: page.id })
   },
 
   async injectSchema(creds, page, schemaJsonLd): Promise<FixApplyResult> {

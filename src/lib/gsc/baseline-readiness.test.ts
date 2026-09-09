@@ -147,6 +147,25 @@ describe('evaluateBaselineReadiness', () => {
     expect(result.reasonCode).not.toBe('traffic_discontinuity')
   })
 
+  it('discontinuity floors: prior day 99 skips; abs drop 49 skips', () => {
+    const build = (prior: number, next: number) => {
+      const rows: DailyUrlMetric[] = []
+      const start = new Date('2026-06-01T00:00:00.000Z')
+      for (let d = 0; d < 60; d++) {
+        const day = new Date(start)
+        day.setUTCDate(start.getUTCDate() + d)
+        const date = day.toISOString().slice(0, 10)
+        const siteTotal = d < 30 ? prior : next
+        for (let u = 0; u < 35; u++) {
+          rows.push(row(`https://example.com/p-${u}`, date, u === 0 ? siteTotal : 0))
+        }
+      }
+      return evaluateBaselineReadiness(rows)
+    }
+    expect(build(99, 1).reasonCode).not.toBe('traffic_discontinuity')
+    expect(build(100, 51).reasonCode).not.toBe('traffic_discontinuity')
+  })
+
   it('ignores provisional rows for readiness', () => {
     const rows = buildFlatBaseline({ urls: 40, days: 60, start: '2026-06-01' })
     // Add noisy provisional days that would otherwise look like a discontinuity

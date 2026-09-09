@@ -80,6 +80,31 @@ export interface CMSAdapter {
   ): Promise<FixApplyResult>
 
   /**
+   * Optional: find source files that contain a path/href string (for dead-link
+   * removal in SPA component sources). Returns up to a small fixed limit.
+   */
+  findSourcesContaining?(
+    creds: SiteCredentials,
+    needle: string,
+  ): Promise<PageContent[]>
+
+  /**
+   * Optional: rewrite an arbitrary source file already returned by findSourcesContaining.
+   * Unlike rewritePageHtml, may allow component sources when the caller is doing
+   * mechanical string surgery (dead-link removal), not HTML injection.
+   */
+  rewriteSourceFile?(
+    creds: SiteCredentials,
+    page: PageContent,
+    newContent: string,
+    opts?: {
+      commitMessage?: string
+      /** When true, .tsx/.jsx/etc. are allowed for mechanical link removal only. */
+      allowComponentSource?: boolean
+    },
+  ): Promise<FixApplyResult>
+
+  /**
    * Optional: create/update a static file at the site root (e.g. llms.txt).
    * Primarily supported by the GitHub adapter.
    */

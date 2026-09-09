@@ -197,6 +197,57 @@ describe('GitHub writeStaticFile direct-push only', () => {
     expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/pulls'))).toBe(false)
   })
 
+  it('rewritePageHtml 403 also fails closed with no PR fallback', async () => {
+    const calls: Array<{ url: string; method: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        const method = (init?.method || 'GET').toUpperCase()
+        calls.push({ url, method })
+        if (method === 'GET' && url.includes('/contents/')) {
+          return new Response(
+            JSON.stringify({
+              content: Buffer.from('<html></html>', 'utf-8').toString('base64'),
+              sha: 'abc',
+            }),
+            { status: 200 },
+          )
+        }
+        if (method === 'PUT' && url.includes('/contents/')) {
+          return new Response(
+            JSON.stringify({ message: 'Resource not accessible by integration' }),
+            { status: 403 },
+          )
+        }
+        return new Response('unexpected', { status: 500 })
+      }),
+    )
+
+    const result = await githubAdapter.rewritePageHtml!(
+      testCreds,
+      {
+        id: 'public/about/index.html',
+        url: 'https://example.com/about',
+        title: 'About',
+        bodyHtml: '<html></html>',
+        hasSchema: false,
+      },
+      '<html><body>x</body></html>',
+      { commitMessage: 'test' },
+    )
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/PR fallback is disabled/i)
+    expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/pulls'))).toBe(false)
+  })
+
+  it('adapter source has no PR-fallback helpers', () => {
+    const src = readFileSync(join(__dirname, 'github-adapter.ts'), 'utf8')
+    expect(src).not.toMatch(/async function createPullRequest/)
+    expect(src).not.toMatch(/opens? a pull request/i)
+    expect(src).toMatch(/PR fallback is disabled/)
+  })
+
   it('marks direct-push success as awaiting deploy', async () => {
     vi.stubGlobal(
       'fetch',

@@ -1,6 +1,9 @@
 /**
- * Persist intervention_events from the Fix Agent verify loop.
- * lifecycle_state = verified only when an independent re-crawl state hash matches.
+ * Persist intervention_events from the Fix Agent write + verify loop.
+ *
+ * - Successful adapter write → lifecycle_state = implemented (row created)
+ * - Independent re-crawl state-hash match → promote to verified
+ * Never trust the Fix Agent success report alone for verified.
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -30,25 +33,34 @@ export type InterventionLifecycleState =
   | 'interrupted'
   | 'implementation_failed'
 
-export type RecordVerifiedInterventionInput = {
+export type RecordInterventionBase = {
   supabase: any
   userId: string
   siteId: string
   url: string
   autoKind: AutoFixKind
-  /** HTML before the write (from strategy). */
   beforeHtml: string
-  /** HTML the adapter claims to have written. */
   expectedAfterHtml: string
-  /** Independently re-fetched live HTML. */
-  liveHtml: string
-  liveStatusCode?: number | null
   experimentId?: string | null
   appliedAt?: string
   actor?: 'fix_agent' | 'user_confirmed' | 'deploy_detected'
 }
 
-export type RecordVerifiedInterventionResult = {
+export type RecordImplementedInput = RecordInterventionBase
+
+export type PromoteVerifiedInput = RecordInterventionBase & {
+  interventionId: string
+  liveHtml: string
+  liveStatusCode?: number | null
+}
+
+/** @deprecated Prefer recordImplemented + promoteInterventionVerified */
+export type RecordVerifiedInterventionInput = RecordInterventionBase & {
+  liveHtml: string
+  liveStatusCode?: number | null
+}
+
+export type RecordInterventionResult = {
   recorded: boolean
   skippedReason?: string
   interventionId?: string | null
@@ -79,29 +91,120 @@ function resolveTaxonomy(
   return taxonomyForAutoFixKind(kind)
 }
 
-/**
- * Record an intervention after Fix Agent live verify.
- * - Hash match → lifecycle_state = verified
- * - Write succeeded but live hash mismatch → implemented (not verified)
- * - Unmapped auto-kind → skip (no detector in taxonomy yet)
- */
-export async function recordInterventionFromVerify(
-  input: RecordVerifiedInterventionInput,
-): Promise<RecordVerifiedInterventionResult> {
+function buildStates(input: {
+  url: string
+  beforeHtml: string
+  expectedAfterHtml: string
+  liveHtml?: string
+  liveStatusCode?: number | null
+}) {
   const beforeState = extractPageState(input.beforeHtml, { pageUrl: input.url })
   const expectedAfter = extractPageState(input.expectedAfterHtml, {
     pageUrl: input.url,
     statusCode: input.liveStatusCode ?? null,
   })
-  const liveState = extractPageState(input.liveHtml, {
-    pageUrl: input.url,
-    statusCode: input.liveStatusCode ?? null,
-  })
-
-  // Prefer live status on expected for hash compare when both represent "after"
+  const liveState = input.liveHtml
+    ? extractPageState(input.liveHtml, {
+        pageUrl: input.url,
+        statusCode: input.liveStatusCode ?? null,
+      })
+    : null
   const expectedForHash: InterventionPageState = {
     ...expectedAfter,
-    status_code: liveState.status_code,
+    status_code: liveState?.status_code ?? expectedAfter.status_code,
+  }
+  return { beforeState, expectedAfter, liveState, expectedForHash }
+}
+
+/**
+ * Insert intervention_events as implemented after a confirmed adapter write.
+ */
+export async function recordImplemented(
+  input: RecordImplementedInput,
+): Promise<RecordInterventionResult> {
+  const { beforeState, expectedForHash } = buildStates(input)
+  const taxonomy = resolveTaxonomy(input.autoKind, beforeState, expectedForHash)
+  if (!taxonomy) {
+    return { recorded: false, skippedReason: `no_taxonomy_for_${input.autoKind}` }
+  }
+
+  const beforeStateHash = hashPageState(beforeState)
+  const afterStateHash = hashPageState(expectedForHash)
+  const changeDiff = diffPageStates(beforeState, expectedForHash)
+  const appliedAt = input.appliedAt || new Date().toISOString()
+
+  let experimentId = input.experimentId ?? null
+  if (!experimentId) {
+    const { data: exp } = await input.supabase
+      .from('experiments')
+      .select('id')
+      .eq('site_id', input.siteId)
+      .in('status', ['baseline', 'ready', 'running'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    experimentId = exp?.id ?? null
+  }
+
+  const row = {
+    site_id: input.siteId,
+    user_id: input.userId,
+    experiment_id: experimentId,
+    url_id: input.url,
+    url: input.url,
+    intervention_type: taxonomy.intervention_type,
+    intervention_subtype: taxonomy.intervention_subtype,
+    interference_scope: taxonomy.interference_scope,
+    is_isolated: true,
+    component_types: [] as string[],
+    lifecycle_state: 'implemented' as const,
+    actor: input.actor || 'fix_agent',
+    applied_at: appliedAt,
+    verified_at: null,
+    before_state_hash: beforeStateHash,
+    after_state_hash: afterStateHash,
+    before_state: beforeState,
+    after_state: expectedForHash,
+    change_diff: changeDiff,
+  }
+
+  const { data, error } = await input.supabase
+    .from('intervention_events')
+    .insert(row)
+    .select('id')
+    .maybeSingle()
+
+  if (error) {
+    console.error('[intervention] implemented insert failed', error.message || error)
+    return {
+      recorded: false,
+      skippedReason: error.message || 'insert_failed',
+      beforeStateHash,
+      afterStateHash,
+      taxonomy,
+      lifecycleState: 'implemented',
+    }
+  }
+
+  return {
+    recorded: true,
+    interventionId: data?.id ?? null,
+    lifecycleState: 'implemented',
+    beforeStateHash,
+    afterStateHash,
+    taxonomy,
+  }
+}
+
+/**
+ * Promote an implemented intervention to verified when live re-crawl matches.
+ */
+export async function promoteInterventionVerified(
+  input: PromoteVerifiedInput,
+): Promise<RecordInterventionResult> {
+  const { beforeState, expectedForHash, liveState } = buildStates(input)
+  if (!liveState) {
+    return { recorded: false, skippedReason: 'missing_live_html' }
   }
 
   const taxonomy = resolveTaxonomy(input.autoKind, beforeState, expectedForHash)
@@ -114,70 +217,73 @@ export async function recordInterventionFromVerify(
     liveState,
     taxonomy.intervention_subtype,
   )
-  const beforeStateHash = hashPageState(beforeState)
-  const afterStateHash = hashPageState(liveMatched ? liveState : expectedForHash)
-  const changeDiff = diffPageStates(beforeState, liveMatched ? liveState : expectedForHash)
-  const appliedAt = input.appliedAt || new Date().toISOString()
-  const lifecycleState: InterventionLifecycleState = liveMatched ? 'verified' : 'implemented'
-
-  const row = {
-    site_id: input.siteId,
-    user_id: input.userId,
-    experiment_id: input.experimentId ?? null,
-    url_id: input.url,
-    // Hosted stub from an earlier MCP apply had NOT NULL `url` (no url_id).
-    // Keep both populated so inserts succeed against either shape.
-    url: input.url,
-    intervention_type: taxonomy.intervention_type,
-    intervention_subtype: taxonomy.intervention_subtype,
-    interference_scope: taxonomy.interference_scope,
-    is_isolated: true,
-    component_types: [] as string[],
-    lifecycle_state: lifecycleState,
-    actor: input.actor || 'fix_agent',
-    applied_at: appliedAt,
-    verified_at: liveMatched ? new Date().toISOString() : null,
-    before_state_hash: beforeStateHash,
-    after_state_hash: afterStateHash,
-    before_state: beforeState,
-    after_state: liveMatched ? liveState : expectedForHash,
-    change_diff: changeDiff,
+  if (!liveMatched) {
+    return {
+      recorded: true,
+      interventionId: input.interventionId,
+      lifecycleState: 'implemented',
+      liveMatched: false,
+      taxonomy,
+      beforeStateHash: hashPageState(beforeState),
+      afterStateHash: hashPageState(expectedForHash),
+    }
   }
 
-  const { data, error } = await input.supabase
+  const afterStateHash = hashPageState(liveState)
+  const beforeStateHash = hashPageState(beforeState)
+  const { error } = await input.supabase
     .from('intervention_events')
-    .insert(row)
-    .select('id')
-    .maybeSingle()
+    .update({
+      lifecycle_state: 'verified',
+      verified_at: new Date().toISOString(),
+      after_state_hash: afterStateHash,
+      after_state: liveState,
+      change_diff: diffPageStates(beforeState, liveState),
+    })
+    .eq('id', input.interventionId)
+    .eq('site_id', input.siteId)
+    .eq('lifecycle_state', 'implemented')
 
   if (error) {
-    // Unique (url_id, intervention_type, applied_at) — surface without throwing into Fix Agent.
-    console.error('[intervention] insert failed', error.message || error)
+    console.error('[intervention] verify promote failed', error.message || error)
     return {
       recorded: false,
-      skippedReason: error.message || 'insert_failed',
-      liveMatched,
+      skippedReason: error.message || 'promote_failed',
+      interventionId: input.interventionId,
+      liveMatched: true,
+      taxonomy,
       beforeStateHash,
       afterStateHash,
-      taxonomy,
-      lifecycleState,
     }
   }
 
   return {
     recorded: true,
-    interventionId: data?.id ?? null,
-    lifecycleState,
+    interventionId: input.interventionId,
+    lifecycleState: 'verified',
+    liveMatched: true,
+    taxonomy,
     beforeStateHash,
     afterStateHash,
-    liveMatched,
-    taxonomy,
   }
 }
 
 /**
- * Pure gate used by tests: verified requires matching re-crawl hash.
+ * One-shot record used when write + live HTML are available together
+ * (legacy path / backfill). Prefer recordImplemented + promoteInterventionVerified.
  */
+export async function recordInterventionFromVerify(
+  input: RecordVerifiedInterventionInput,
+): Promise<RecordInterventionResult> {
+  const implemented = await recordImplemented(input)
+  if (!implemented.recorded || !implemented.interventionId) return implemented
+
+  return promoteInterventionVerified({
+    ...input,
+    interventionId: implemented.interventionId,
+  })
+}
+
 export function canMarkVerified(opts: {
   expectedAfter: InterventionPageState
   liveState: InterventionPageState

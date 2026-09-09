@@ -555,9 +555,9 @@ export function LinkGraphPanel({
                               ) : null}
                               {ruleId === 'L01' && (
                                 <p className="text-[11px] font-sans text-[#6B6B6B] mt-1">
-                                  Dead link — Fix Agent can remove the &lt;a&gt; from the source page
-                                  (same path as Index Diagnosis). Destination content is never
-                                  invented.
+                                  Dead link — Fix Agent can remove the outbound link from the source
+                                  page. Destination content is never invented; restoring the page is a
+                                  human task (companion finding).
                                 </p>
                               )}
                             </li>

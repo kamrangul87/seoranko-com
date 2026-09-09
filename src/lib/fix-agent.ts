@@ -39,7 +39,7 @@ import type { PageAuditIssue } from './page-audit-engine'
 import { runPageAudit } from './page-audit-engine'
 import { validateSchema } from './schema-validator'
 import { verifyRedirectLive } from './fix-agent-redirect'
-import { removeDeadLinkFromHtml } from './fix-agent-dead-links'
+import { removeDeadLinkFromHtml, removeDeadLinkFromSource } from './fix-agent-dead-links'
 import { rewriteHrefsInHtml, verifyHrefRewriteInHtml } from './fix-agent-href-rewrite'
 import { normalizeUrl } from '@/lib/supabase/audit-db'
 import { deriveIssueKey } from '@/lib/seo-workshop/issue-key'
@@ -52,9 +52,11 @@ import {
   newOriginsNotInAllowlist,
 } from '@/lib/csp/build-policy'
 import { findBlockingAttempt } from '@/lib/fix-agent-idempotency'
-import { recordInterventionFromVerify } from '@/lib/intervention/record'
+import {
+  promoteInterventionVerified,
+  recordImplemented,
+} from '@/lib/intervention/record'
 import { deleteStaleSeorankoFixBranches } from '@/lib/site-adapters/github-adapter'
-import { hostOf } from '@/lib/site-connection-lookup'
 import { normaliseDomain } from '@/lib/connected-sites'
 
 const MAX_ATTEMPTS_PER_ISSUE = 3
@@ -823,11 +825,11 @@ case 'remove-dead-link': {
       const meta = auditIssue.fixMetadata
       const deadUrl = meta?.deadUrl
       const sourceUrls = meta?.sourceUrls || []
-      if (!deadUrl || sourceUrls.length === 0) break
+      if (!deadUrl) break
       plans.push({
         name: 'remove-dead-anchors',
         run: async () => {
-          if (!adapter.rewritePageHtml) {
+          if (!adapter.rewritePageHtml && !adapter.rewriteSourceFile) {
             return {
               apply: { success: false, error: 'Adapter cannot rewrite source pages.' },
               before: '',
@@ -839,22 +841,61 @@ case 'remove-dead-link': {
           let totalRemoved = 0
           const beforeSnaps: string[] = []
           const afterSnaps: string[] = []
+          const editedIds = new Set<string>()
+
+          // 1) Known source URLs from the finding (HTML pages).
           for (const sourceUrl of sourceUrls.slice(0, 5)) {
             const sourcePage = await adapter.findPageContent(creds, sourceUrl)
             if (!sourcePage) continue
             const mut = removeDeadLinkFromHtml(sourcePage.bodyHtml, deadUrl)
             if (!mut.changed) continue
             beforeSnaps.push(sourcePage.bodyHtml)
-            lastApply = await adapter.rewritePageHtml(creds, sourcePage, mut.html, {
-              riskLevel: 'safe',
-              commitMessage: `SEORANKO Fix Agent: remove dead link to ${deadUrl} from ${sourcePage.id}`,
-            })
+            if (adapter.rewritePageHtml) {
+              lastApply = await adapter.rewritePageHtml(creds, sourcePage, mut.html, {
+                riskLevel: 'safe',
+                commitMessage: `SEORANKO Fix Agent: remove dead link to ${deadUrl} from ${sourcePage.id}`,
+              })
+            } else if (adapter.rewriteSourceFile) {
+              lastApply = await adapter.rewriteSourceFile(creds, sourcePage, mut.html, {
+                commitMessage: `SEORANKO Fix Agent: remove dead link to ${deadUrl} from ${sourcePage.id}`,
+              })
+            }
             afterSnaps.push(mut.html)
             totalRemoved += mut.removed
+            editedIds.add(sourcePage.id)
           }
+
+          // 2) SPA / component sources (Footer.tsx Link to="/privacy", etc.).
+          if (adapter.findSourcesContaining && adapter.rewriteSourceFile) {
+            let pathNeedle = deadUrl
+            try {
+              pathNeedle = new URL(deadUrl).pathname
+            } catch {
+              /* keep deadUrl */
+            }
+            const sources = await adapter.findSourcesContaining(creds, pathNeedle)
+            for (const sourcePage of sources) {
+              if (editedIds.has(sourcePage.id)) continue
+              const mut = removeDeadLinkFromSource(sourcePage.bodyHtml, deadUrl)
+              if (!mut.changed || mut.removed === 0) continue
+              beforeSnaps.push(sourcePage.bodyHtml)
+              lastApply = await adapter.rewriteSourceFile(creds, sourcePage, mut.content, {
+                allowComponentSource: true,
+                commitMessage: `SEORANKO Fix Agent: remove dead link to ${deadUrl} from ${sourcePage.id}`,
+              })
+              afterSnaps.push(mut.content)
+              totalRemoved += mut.removed
+              editedIds.add(sourcePage.id)
+            }
+          }
+
           if (totalRemoved === 0) {
             return {
-              apply: { success: true, skipped: true, detail: 'Dead link not found in editable source files.' },
+              apply: {
+                success: true,
+                skipped: true,
+                detail: 'Dead link not found in editable source files.',
+              },
               before: beforeSnaps[0] || '',
               after: afterSnaps[0] || '',
               summary: `No editable source file contained a link to ${deadUrl}.`,
@@ -1222,6 +1263,7 @@ export async function runFixAgent(opts: {
       let status = 'failed'
       let verificationDetail: string | null = null
       let scoreAfter: number | null = null
+      let interventionId: string | null = null
 
       if (apply.skipped) {
         status = 'skipped'
@@ -1230,166 +1272,223 @@ export async function runFixAgent(opts: {
       } else if (!apply.success) {
         status = 'failed'
         verificationDetail = apply.error || 'Write failed'
-      } else if (!adapter.serverVerifiable) {
-        status = 'unverified'
-        verificationDetail =
-          apply.detail ||
-          'Write queued (connector is not server-verifiable) — not confirmed live.'
-        anyPending = true
-        resolved = true
       } else {
-        // Re-fetch live and check. A successful write is never "done" until this passes.
-        let capturedLiveHtml: string | null = null
-        let capturedLiveStatus: number | null = null
-        try {
-          await new Promise((r) => setTimeout(r, adapter.deferredVerification ? 2500 : 1200))
-          let v: { ok: boolean; detail: string }
-
-          if (kind === 'redirect-canonical') {
-            const meta = item.issue.fixMetadata
-            if (meta?.fromUrl && meta?.toUrl) {
-              v = await verifyRedirectLive(meta.fromUrl, new URL(meta.toUrl).pathname)
-            } else {
-              v = { ok: false, detail: 'Missing redirect metadata.' }
+        // Successful adapter write → intervention_events row as implemented (before verify).
+        if (outcome.before !== undefined && outcome.after) {
+          try {
+            const implemented = await recordImplemented({
+              supabase: opts.supabase,
+              userId: opts.userId,
+              siteId: owned.siteId,
+              url: opts.auditUrl,
+              autoKind: kind,
+              beforeHtml: outcome.before,
+              expectedAfterHtml: outcome.after,
+              actor: 'fix_agent',
+            })
+            if (implemented.recorded && implemented.interventionId) {
+              interventionId = implemented.interventionId
+              verificationDetail = [
+                apply.detail,
+                `Intervention recorded as implemented (${interventionId}).`,
+              ]
+                .filter(Boolean)
+                .join(' ')
+            } else if (implemented.skippedReason) {
+              verificationDetail = [
+                apply.detail,
+                `Intervention not recorded: ${implemented.skippedReason}.`,
+              ]
+                .filter(Boolean)
+                .join(' ')
             }
-          } else if (kind === 'sitemap-regenerate') {
-            const sitemapUrl = `${owned.siteUrl.replace(/\/$/, '')}/sitemap.xml`
-            const liveRes = await fetch(sitemapUrl, {
-              headers: { 'User-Agent': 'SEORANKO-FixAgent/1.0', 'Cache-Control': 'no-cache' },
-              signal: AbortSignal.timeout(20000),
-            })
-            capturedLiveStatus = liveRes.status
-            const liveHtml = await liveRes.text()
-            capturedLiveHtml = liveHtml
-            v = verifyLiveHtml(kind, liveHtml, undefined, item.issue)
-          } else if (kind === 'remove-dead-link') {
-            const sourceUrl = item.issue.fixMetadata?.sourceUrls?.[0]
-            const verifyUrl = sourceUrl || opts.auditUrl
-            const liveRes = await fetch(verifyUrl, {
-              headers: { 'User-Agent': 'SEORANKO-FixAgent/1.0', 'Cache-Control': 'no-cache' },
-              signal: AbortSignal.timeout(20000),
-            })
-            capturedLiveStatus = liveRes.status
-            const liveHtml = await liveRes.text()
-            capturedLiveHtml = liveHtml
-            v = verifyLiveHtml(kind, liveHtml, undefined, item.issue)
-          } else if (kind === 'rewrite-link-href') {
-            const fixes = item.issue.fixMetadata?.hrefFixes || []
-            const sourceUrl =
-              fixes[0]?.sourceUrl ||
-              item.issue.fixMetadata?.sourceUrls?.[0] ||
-              opts.auditUrl
-            const liveRes = await fetch(sourceUrl, {
-              headers: { 'User-Agent': 'SEORANKO-FixAgent/1.0', 'Cache-Control': 'no-cache' },
-              signal: AbortSignal.timeout(20000),
-            })
-            capturedLiveStatus = liveRes.status
-            const liveHtml = await liveRes.text()
-            capturedLiveHtml = liveHtml
-            if (fixes.length > 0) {
-              let allOk = true
-              const details: string[] = []
-              for (const fix of fixes.slice(0, 15)) {
-                if (fix.sourceUrl && fix.sourceUrl !== sourceUrl) continue
-                const one = verifyHrefRewriteInHtml(liveHtml, fix.fromHref, fix.toHref)
-                details.push(one.detail)
-                if (!one.ok) allOk = false
-              }
-              v = { ok: allOk, detail: details.join(' ') || 'Href rewrite verification complete.' }
-            } else {
-              v = verifyLiveHtml(kind, liveHtml, undefined, item.issue)
-            }
-          } else {
-            const liveRes = await fetch(opts.auditUrl, {
-              headers: { 'User-Agent': 'SEORANKO-FixAgent/1.0', 'Cache-Control': 'no-cache' },
-              signal: AbortSignal.timeout(20000),
-            })
-            capturedLiveStatus = liveRes.status
-            const liveHtml = await liveRes.text()
-            capturedLiveHtml = liveHtml
-            const schemaType =
-              kind === 'schema-organization'
-                ? 'Organization'
-                : kind === 'schema-article'
-                  ? 'Article'
-                  : kind === 'schema-product'
-                    ? 'Product'
-                    : kind === 'schema-breadcrumb'
-                      ? 'BreadcrumbList'
-                      : undefined
-            v = verifyLiveHtml(kind, liveHtml, schemaType, item.issue)
+          } catch (err) {
+            console.error(
+              '[fix-agent] intervention implemented',
+              err instanceof Error ? err.message : err,
+            )
           }
+        }
 
-          if (v.ok) {
-            status = 'verified'
-            verificationDetail = apply.detail ? `${apply.detail} ${v.detail}` : v.detail
-            resolved = true
-            if (workingPage && outcome.after) workingPage.bodyHtml = outcome.after
-            if (!SITE_WIDE_AUTO_KINDS.has(kind)) {
-              try {
-                const re = await runPageAudit(opts.auditUrl)
-                scoreAfter = re.score
-                if (!issueStillPresent(re.issues, item)) {
-                  verificationDetail += ' Issue no longer present on re-audit.'
+        if (!adapter.serverVerifiable) {
+          status = 'unverified'
+          verificationDetail = [
+            verificationDetail,
+            apply.detail ||
+              'Write queued (connector is not server-verifiable) — not confirmed live.',
+          ]
+            .filter(Boolean)
+            .join(' ')
+          anyPending = true
+          resolved = true
+        } else {
+          // Re-fetch live and check. A successful write is never "done" until this passes.
+          let capturedLiveHtml: string | null = null
+          let capturedLiveStatus: number | null = null
+          try {
+            await new Promise((r) => setTimeout(r, adapter.deferredVerification ? 2500 : 1200))
+            let v: { ok: boolean; detail: string }
+
+            if (kind === 'redirect-canonical') {
+              const meta = item.issue.fixMetadata
+              if (meta?.fromUrl && meta?.toUrl) {
+                v = await verifyRedirectLive(meta.fromUrl, new URL(meta.toUrl).pathname)
+              } else {
+                v = { ok: false, detail: 'Missing redirect metadata.' }
+              }
+            } else if (kind === 'sitemap-regenerate') {
+              const sitemapUrl = `${owned.siteUrl.replace(/\/$/, '')}/sitemap.xml`
+              const liveRes = await fetch(sitemapUrl, {
+                headers: { 'User-Agent': 'SEORANKO-FixAgent/1.0', 'Cache-Control': 'no-cache' },
+                signal: AbortSignal.timeout(20000),
+              })
+              capturedLiveStatus = liveRes.status
+              const liveHtml = await liveRes.text()
+              capturedLiveHtml = liveHtml
+              v = verifyLiveHtml(kind, liveHtml, undefined, item.issue)
+            } else if (kind === 'remove-dead-link') {
+              const sourceUrl = item.issue.fixMetadata?.sourceUrls?.[0]
+              const verifyUrl = sourceUrl || opts.auditUrl
+              const liveRes = await fetch(verifyUrl, {
+                headers: { 'User-Agent': 'SEORANKO-FixAgent/1.0', 'Cache-Control': 'no-cache' },
+                signal: AbortSignal.timeout(20000),
+              })
+              capturedLiveStatus = liveRes.status
+              const liveHtml = await liveRes.text()
+              capturedLiveHtml = liveHtml
+              v = verifyLiveHtml(kind, liveHtml, undefined, item.issue)
+            } else if (kind === 'rewrite-link-href') {
+              const fixes = item.issue.fixMetadata?.hrefFixes || []
+              const sourceUrl =
+                fixes[0]?.sourceUrl ||
+                item.issue.fixMetadata?.sourceUrls?.[0] ||
+                opts.auditUrl
+              const liveRes = await fetch(sourceUrl, {
+                headers: { 'User-Agent': 'SEORANKO-FixAgent/1.0', 'Cache-Control': 'no-cache' },
+                signal: AbortSignal.timeout(20000),
+              })
+              capturedLiveStatus = liveRes.status
+              const liveHtml = await liveRes.text()
+              capturedLiveHtml = liveHtml
+              if (fixes.length > 0) {
+                let allOk = true
+                const details: string[] = []
+                for (const fix of fixes.slice(0, 15)) {
+                  if (fix.sourceUrl && fix.sourceUrl !== sourceUrl) continue
+                  const one = verifyHrefRewriteInHtml(liveHtml, fix.fromHref, fix.toHref)
+                  details.push(one.detail)
+                  if (!one.ok) allOk = false
                 }
-              } catch {
-                /* ignore re-audit errors */
+                v = { ok: allOk, detail: details.join(' ') || 'Href rewrite verification complete.' }
+              } else {
+                v = verifyLiveHtml(kind, liveHtml, undefined, item.issue)
               }
             } else {
-              verificationDetail += ' Site-wide fix confirmed live.'
+              const liveRes = await fetch(opts.auditUrl, {
+                headers: { 'User-Agent': 'SEORANKO-FixAgent/1.0', 'Cache-Control': 'no-cache' },
+                signal: AbortSignal.timeout(20000),
+              })
+              capturedLiveStatus = liveRes.status
+              const liveHtml = await liveRes.text()
+              capturedLiveHtml = liveHtml
+              const schemaType =
+                kind === 'schema-organization'
+                  ? 'Organization'
+                  : kind === 'schema-article'
+                    ? 'Article'
+                    : kind === 'schema-product'
+                      ? 'Product'
+                      : kind === 'schema-breadcrumb'
+                        ? 'BreadcrumbList'
+                        : undefined
+              v = verifyLiveHtml(kind, liveHtml, schemaType, item.issue)
             }
-          } else {
-            // Write may have landed in the repo/CMS, but live HTML has not changed yet.
+
+            if (v.ok) {
+              status = 'verified'
+              verificationDetail = [
+                verificationDetail,
+                apply.detail ? `${apply.detail} ${v.detail}` : v.detail,
+              ]
+                .filter(Boolean)
+                .join(' ')
+              resolved = true
+              if (workingPage && outcome.after) workingPage.bodyHtml = outcome.after
+              if (!SITE_WIDE_AUTO_KINDS.has(kind)) {
+                try {
+                  const re = await runPageAudit(opts.auditUrl)
+                  scoreAfter = re.score
+                  if (!issueStillPresent(re.issues, item)) {
+                    verificationDetail += ' Issue no longer present on re-audit.'
+                  }
+                } catch {
+                  /* ignore re-audit errors */
+                }
+              } else {
+                verificationDetail += ' Site-wide fix confirmed live.'
+              }
+            } else {
+              // Write may have landed in the repo/CMS, but live HTML has not changed yet.
+              status = unverifiedStatusFromApply(apply)
+              anyPending = true
+              resolved = true
+              if (workingPage && outcome.after) workingPage.bodyHtml = outcome.after
+              verificationDetail = [
+                verificationDetail,
+                apply.detail,
+                `Live re-crawl did not confirm the change — status=${status}, not done.`,
+                v.detail,
+              ]
+                .filter(Boolean)
+                .join(' ')
+            }
+
+            // Promote implemented → verified only on independent state-hash match.
+            if (
+              interventionId &&
+              capturedLiveHtml &&
+              outcome.before !== undefined &&
+              outcome.after
+            ) {
+              try {
+                const promoted = await promoteInterventionVerified({
+                  supabase: opts.supabase,
+                  userId: opts.userId,
+                  siteId: owned.siteId,
+                  url: opts.auditUrl,
+                  autoKind: kind,
+                  beforeHtml: outcome.before,
+                  expectedAfterHtml: outcome.after,
+                  liveHtml: capturedLiveHtml,
+                  liveStatusCode: capturedLiveStatus,
+                  interventionId,
+                  actor: 'fix_agent',
+                })
+                if (promoted.recorded && promoted.lifecycleState === 'verified') {
+                  verificationDetail = `${verificationDetail || ''} Intervention promoted to verified.`.trim()
+                } else if (promoted.liveMatched === false) {
+                  verificationDetail = `${verificationDetail || ''} Intervention remains implemented (live state hash mismatch).`.trim()
+                }
+              } catch (err) {
+                console.error(
+                  '[fix-agent] intervention promote',
+                  err instanceof Error ? err.message : err,
+                )
+              }
+            }
+          } catch {
             status = unverifiedStatusFromApply(apply)
             anyPending = true
             resolved = true
-            if (workingPage && outcome.after) workingPage.bodyHtml = outcome.after
             verificationDetail = [
-              apply.detail,
-              `Live re-crawl did not confirm the change — status=${status}, not done.`,
-              v.detail,
+              verificationDetail,
+              apply.detail
+                ? `${apply.detail} Could not re-fetch live to verify — status=${status}, not done.`
+                : `Wrote fix but could not re-fetch live to verify — status=${status}, not done.`,
             ]
               .filter(Boolean)
               .join(' ')
           }
-
-          // Intervention Dataset: only `verified` after independent re-crawl state-hash match.
-          // Never trust the Fix Agent success report alone for intervention lifecycle.
-          if (capturedLiveHtml && outcome.before !== undefined && outcome.after) {
-            try {
-              const intervention = await recordInterventionFromVerify({
-                supabase: opts.supabase,
-                userId: opts.userId,
-                siteId: owned.siteId,
-                url: opts.auditUrl,
-                autoKind: kind,
-                beforeHtml: outcome.before,
-                expectedAfterHtml: outcome.after,
-                liveHtml: capturedLiveHtml,
-                liveStatusCode: capturedLiveStatus,
-                actor: 'fix_agent',
-              })
-              if (intervention.recorded && intervention.lifecycleState === 'verified') {
-                verificationDetail = `${verificationDetail || ''} Intervention recorded as verified.`.trim()
-              } else if (intervention.recorded && intervention.lifecycleState === 'implemented') {
-                // Presence check may have passed while normalised state hash did not —
-                // keep Fix Agent attempt status, but intervention stays implemented.
-                verificationDetail = `${verificationDetail || ''} Intervention recorded as implemented (live state hash mismatch).`.trim()
-              }
-            } catch (err) {
-              console.error(
-                '[fix-agent] intervention record',
-                err instanceof Error ? err.message : err,
-              )
-            }
-          }
-        } catch {
-          status = unverifiedStatusFromApply(apply)
-          anyPending = true
-          resolved = true
-          verificationDetail = apply.detail
-            ? `${apply.detail} Could not re-fetch live to verify — status=${status}, not done.`
-            : `Wrote fix but could not re-fetch live to verify — status=${status}, not done.`
         }
       }
 

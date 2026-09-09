@@ -23,7 +23,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: Apply pending migrations to hosted Supabase
         env:
@@ -48,4 +48,24 @@ jobs:
           PROBE_WRITE: 'false'
         run: |
           npm install --no-save pg@8.16.3
+          node scripts/intervention-pr2-prod-status.mjs
+
+      - name: Autodun Fix Agent → intervention → causal e2e
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SITE_CONNECTION_ENCRYPTION_KEY: ${{ secrets.SITE_CONNECTION_ENCRYPTION_KEY }}
+        run: |
+          if [ -z "${NEXT_PUBLIC_SUPABASE_URL}" ] || [ -z "${SUPABASE_SERVICE_ROLE_KEY}" ] || [ -z "${SITE_CONNECTION_ENCRYPTION_KEY}" ]; then
+            echo "::warning::Skipping autodun intervention e2e — missing Supabase/encryption secrets"
+            exit 0
+          fi
+          npm ci
+          npx --yes tsx scripts/run-autodun-intervention-e2e.ts
+          npm install --no-save pg@8.16.3
+          SUPABASE_DB_PASSWORD="${{ secrets.SUPABASE_DB_PASSWORD }}" \
+          SUPABASE_PROJECT_REF="${{ secrets.SUPABASE_PROJECT_REF }}" \
+          SUPABASE_POOLER_HOST="${{ secrets.SUPABASE_POOLER_HOST }}" \
+          SUPABASE_DB_URL="${{ secrets.SUPABASE_DB_URL }}" \
+          DATABASE_URL="${{ secrets.DATABASE_URL }}" \
           node scripts/intervention-pr2-prod-status.mjs

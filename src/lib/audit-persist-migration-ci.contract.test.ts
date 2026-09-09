@@ -51,6 +51,24 @@ describe('migration CI contract (merge-to-main auto-apply)', () => {
     expect(sh).toMatch(/::warning::/)
     expect(sh).toMatch(/skipping db push/)
   })
+
+  it('orphan-remote-noop-file-present and CI repairs then retries', () => {
+    const orphan = readFileSync(
+      join(root, 'supabase/migrations/20260908072925_orphan_remote_history.sql'),
+      'utf8',
+    )
+    expect(orphan).toMatch(/SELECT 1/)
+    const sh = readFileSync(join(root, 'scripts/ci-supabase-db-push.sh'), 'utf8')
+    expect(sh).toMatch(/migration repair --status reverted/)
+    expect(sh).toMatch(/supabase migration repair/)
+  })
+
+  it('pins Node 24 in migration and test workflows', () => {
+    for (const name of ['supabase-migrate.yml', 'test.yml', 'intervention-pr2-prod-status.yml']) {
+      const yml = readFileSync(join(root, `.github/workflows/${name}`), 'utf8')
+      expect(yml).toMatch(/node-version:\s*'24'/)
+    }
+  })
 })
 
 describe('Audit saved payload (reload without re-crawl)', () => {

@@ -189,6 +189,22 @@ export function buildLinkGraphFixAgentIssues(result: LinkGraphResult): PageAudit
         evidence: 'L01',
       }),
     })
+    // Human task: restoring the destination page requires real content (never invented).
+    issues.push({
+      id: `link-dead-page-restore-${encodeURIComponent(deadUrl)}`,
+      severity: 'warning',
+      category: 'link-graph',
+      title: `Destination page missing: ${pathLabel(deadUrl)}`,
+      description: `Link Graph L01 companion: ${pathLabel(deadUrl)} returns 4xx. Removing inbound links is auto-fixable; restoring the page is a human task.`,
+      remediation:
+        'Human task: publish real destination content or redirect to a live URL. SEORANKO will not invent legal/business copy.',
+      fixMetadata: meta({
+        kind: 'missing-page-content',
+        deadUrl,
+        sourceUrls: sources,
+        evidence: 'L01-human-restore',
+      }),
+    })
   }
 
   return issues

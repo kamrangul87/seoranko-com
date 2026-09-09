@@ -911,11 +911,34 @@ function ExperimentsPageInner() {
                   )}
                   <button
                     type="button"
-                    disabled
-                    className="px-4 py-2 rounded-lg bg-[#0F0F0F]/40 text-white cursor-not-allowed"
-                    title="Coming next"
+                    disabled={busy || !siteId}
+                    className="px-4 py-2 rounded-lg bg-[#0F0F0F] text-white disabled:opacity-40"
+                    onClick={async () => {
+                      if (!siteId) return
+                      setBusy(true)
+                      setError(null)
+                      try {
+                        const res = await fetch('/api/experiments/create', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ siteId }),
+                        })
+                        const data = await res.json().catch(() => ({}))
+                        if (!res.ok) throw new Error(data.error || 'Could not create experiment')
+                        setMessage(
+                          `Experiment created (${data.experiment?.id}). Pre-registration locked. Linked ${
+                            data.linkedInterventionIds?.length || 0
+                          } intervention(s).`,
+                        )
+                        await loadStatus(siteId)
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Create failed')
+                      } finally {
+                        setBusy(false)
+                      }
+                    }}
                   >
-                    Create experiment (coming next)
+                    Create experiment
                   </button>
                   <p className="text-xs text-green-800">
                     Expect measurement windows measured in weeks. A flat 48-hour chart is normal — not

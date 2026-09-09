@@ -131,6 +131,7 @@ describe('link-graph fix-agent issues', () => {
     expect(issues.some((i) => i.id === 'link-bulk-non-canonical')).toBe(true)
     expect(issues.some((i) => i.fixMetadata?.kind === 'rewrite-link-href')).toBe(true)
     expect(issues.some((i) => i.fixMetadata?.kind === 'remove-dead-link')).toBe(true)
+    expect(issues.some((i) => i.fixMetadata?.kind === 'missing-page-content')).toBe(true)
 
     const bulk = buildRedirectHopBulkIssue(result)
     expect(bulk).toBeTruthy()

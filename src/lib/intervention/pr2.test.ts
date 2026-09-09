@@ -527,10 +527,13 @@ describe('Intervention Dataset PR2 — Phase E end-to-end (insufficient_data is 
 })
 
 describe('Intervention Dataset PR2 — Fix Agent verify wiring (Phase D)', () => {
-  it('fix-agent imports and calls recordInterventionFromVerify', () => {
+  it('fix-agent records implemented on apply and promotes on live match', () => {
     const src = readFileSync(join(root, 'src/lib/fix-agent.ts'), 'utf8')
-    expect(src).toMatch(/recordInterventionFromVerify/)
-    expect(src).toMatch(/Intervention recorded as verified/)
+    expect(src).toMatch(/recordImplemented/)
+    expect(src).toMatch(/promoteInterventionVerified/)
+    expect(src).toMatch(/Intervention recorded as implemented/)
+    expect(src).toMatch(/Intervention promoted to verified/)
+    expect(src).not.toMatch(/recordInterventionFromVerify/)
   })
 
   it('verified intervention hashes are immutable (DB trigger)', () => {
@@ -549,5 +552,14 @@ describe('Intervention Dataset PR2 — UI strip (Phase G)', () => {
     expect(page).toMatch(/Result/)
     expect(page).toMatch(/insufficient evidence/)
     expect(page).toMatch(/\/api\/experiments\/analyze/)
+    expect(page).toMatch(/\/api\/experiments\/create/)
+    expect(page).toMatch(/Create experiment/)
+  })
+
+  it('create experiment API locks preregistration and links interventions', () => {
+    const src = readFileSync(join(root, 'src/app/api/experiments/create/route.ts'), 'utf8')
+    expect(src).toMatch(/experiment_preregistrations/)
+    expect(src).toMatch(/preregistration_hash/)
+    expect(src).toMatch(/linkedInterventionIds/)
   })
 })
