@@ -78,10 +78,18 @@ Strategy contracts (before/after extractors, assertions, failure/handoff):
 | Item | Class | Evidence required | Current |
 |---|---|---|---|
 | Schema + quota RPC | proven live (infra) | Migrations applied; concurrent reserve does not oversell | Migrate CI: concurrency totalReserved=5, oversold=false |
-| First real inspection row | **not started (data)** | `gsc_url_inspections` count ≥ 1 from live API | **count = 0** until Sync with valid token |
-| UI Sync / cron write | implemented unproven | Sync or cron increases inspection count | Code + `gsc-first-inspection-probe.mjs` in migrate CI |
+| First real inspection row | **not started (data)** | `gsc_url_inspections` count ≥ 1 from live API | **count = 0** (migrate CI 34340761756); probe skipped API write (no service-role in Actions) |
+| UI Sync / cron write | implemented unproven | Sync or cron increases inspection count | Code + probe; **manual Sync required** |
 | Post-fix recrawl delta | implemented unproven | Delta when `lastCrawlTime` < `verified_at` | Code; needs inspection + verified intervention |
 | Ranking-cause claims | forbidden | Must never appear in UI | Tests ban phrases |
+
+### Fix Agent live kinds (prod probe 34340761756)
+
+| Kind | Status in prod | Notes |
+|---|---|---|
+| remove-dead-link | verified (n=1) | Proven live |
+| llms-txt | pending_deploy (n=1) | Pre-honesty-fix row; new path cannot mark verified without live GET |
+| (other kinds) | — | **action:** approve + live-verify ≥2 additional existing strategies |
 
 ### Intervention lifecycle
 
