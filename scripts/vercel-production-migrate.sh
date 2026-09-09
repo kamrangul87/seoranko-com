@@ -43,7 +43,9 @@ fi
 # complete-causal-loop (prereg + analyze) which only needs DB password.
 complete_causal_via_pg() {
   echo "vercel-production-migrate: completing causal loop via Postgres…"
-  npm install --no-save pg@8.16.3 >/dev/null 2>&1 || true
+  # Do NOT run `npm install` here — with NODE_ENV=production it prunes
+  # devDependencies (tailwindcss) and breaks `next build`.
+  # `pg` is a runtime dependency in package.json.
   npx --yes tsx scripts/complete-causal-loop.ts \
     || echo "::warning::complete-causal-loop failed (non-fatal — inspect logs)"
 }
