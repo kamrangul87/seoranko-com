@@ -94,7 +94,8 @@ async function main() {
       baseline_window_days: 28,
       observation_window_days: 28,
       analysis_method: 'difference_in_differences',
-      minimum_detectable_effect: null,
+      // Hosted schema has NOT NULL on this column (stricter than migration file).
+      minimum_detectable_effect: 0.1,
     }
 
     const existingPrereg = await client.query(

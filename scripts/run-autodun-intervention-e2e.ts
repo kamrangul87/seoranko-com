@@ -143,7 +143,8 @@ async function main() {
       baseline_window_days: 28,
       observation_window_days: 28,
       analysis_method: 'difference_in_differences' as const,
-      minimum_detectable_effect: null as number | null,
+      // Hosted schema enforces NOT NULL (stricter than migration).
+      minimum_detectable_effect: 0.1 as number | null,
     }
     const { error: prErr } = await supabase.from('experiment_preregistrations').insert({
       experiment_id: experimentId,
