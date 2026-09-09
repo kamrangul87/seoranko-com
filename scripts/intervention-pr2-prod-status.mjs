@@ -517,7 +517,7 @@ async function main() {
               reserved: r.rows[0]?.reserved,
               remaining: r.rows[0]?.remaining,
               exhausted: r.rows[0]?.exhausted,
-              day: r.rows[0]?.day,
+              quota_day: r.rows[0]?.quota_day ?? r.rows[0]?.day,
               requests_used: r.rows[0]?.requests_used,
             }))
             .catch((e) => ({ error: e instanceof Error ? e.message : String(e) })),

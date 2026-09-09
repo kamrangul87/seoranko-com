@@ -70,7 +70,7 @@ CREATE OR REPLACE FUNCTION reserve_gsc_inspection_quota(
 RETURNS TABLE (
   reserved INTEGER,
   remaining INTEGER,
-  day DATE,
+  quota_day DATE,
   requests_used INTEGER,
   exhausted BOOLEAN
 )
@@ -106,26 +106,26 @@ BEGIN
 
   v_remaining := GREATEST(0, p_soft_cap - v_used);
   IF v_exhausted OR v_remaining <= 0 THEN
-    UPDATE gsc_inspection_quota_usage
-    SET exhausted_at = COALESCE(exhausted_at, NOW()),
-        quota_exhausted_count = quota_exhausted_count + 1,
+    UPDATE gsc_inspection_quota_usage q
+    SET exhausted_at = COALESCE(q.exhausted_at, NOW()),
+        quota_exhausted_count = q.quota_exhausted_count + 1,
         updated_at = NOW()
-    WHERE property_url = p_property_url AND day = v_day;
+    WHERE q.property_url = p_property_url AND q.day = v_day;
     RETURN QUERY SELECT 0, 0, v_day, v_used, TRUE;
     RETURN;
   END IF;
 
   v_reserved := LEAST(p_n, v_remaining);
-  UPDATE gsc_inspection_quota_usage
-  SET requests_used = requests_used + v_reserved,
-      attempted = attempted + v_reserved,
+  UPDATE gsc_inspection_quota_usage q
+  SET requests_used = q.requests_used + v_reserved,
+      attempted = q.attempted + v_reserved,
       exhausted_at = CASE
-        WHEN requests_used + v_reserved >= p_soft_cap THEN COALESCE(exhausted_at, NOW())
-        ELSE exhausted_at
+        WHEN q.requests_used + v_reserved >= p_soft_cap THEN COALESCE(q.exhausted_at, NOW())
+        ELSE q.exhausted_at
       END,
       updated_at = NOW()
-  WHERE property_url = p_property_url AND day = v_day
-  RETURNING gsc_inspection_quota_usage.requests_used INTO v_used;
+  WHERE q.property_url = p_property_url AND q.day = v_day
+  RETURNING q.requests_used INTO v_used;
 
   v_remaining := GREATEST(0, p_soft_cap - v_used);
   RETURN QUERY SELECT v_reserved, v_remaining, v_day, v_used, (v_remaining <= 0);

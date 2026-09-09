@@ -146,7 +146,7 @@ async function reserveQuota(
   return {
     reserved: Number(row?.reserved ?? 0),
     remaining: Number(row?.remaining ?? 0),
-    day: row?.day ? String(row.day) : utcDay(),
+    day: row?.quota_day ? String(row.quota_day) : row?.day ? String(row.day) : utcDay(),
     exhausted: Boolean(row?.exhausted),
   }
 }
