@@ -130,7 +130,8 @@ async function main() {
       AND table_name IN (
         'intervention_events','causal_results','experiment_preregistrations',
         'fix_agent_attempts','connected_sites','experiments',
-        'gsc_url_inspections','gsc_inspection_quota_usage'
+        'gsc_url_inspections','gsc_inspection_quota_usage',
+        'gsc_inspection_deferred','gsc_inspection_scheduler_cursor'
       )
     ORDER BY 1,2
   `)
@@ -182,6 +183,8 @@ async function main() {
     'fix_agent_attempts',
     'gsc_url_inspections',
     'gsc_inspection_quota_usage',
+    'gsc_inspection_deferred',
+    'gsc_inspection_scheduler_cursor',
   ]) {
     if (!byTable[t]) {
       // Still count if table exists but wasn't in the limited schema dump above
@@ -444,6 +447,99 @@ async function main() {
     out.finalCounts = {
       intervention_events: ie2.rows[0].n,
       causal_results: cr2.rows[0].n,
+    }
+  }
+
+  // ── GSC Index Insights Phase B: RPCs + concurrent reserve evidence ───────
+  const rpcs = await client.query(`
+    SELECT p.proname, pg_get_function_identity_arguments(p.oid) AS args
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname IN (
+        'reserve_gsc_inspection_quota',
+        'record_gsc_inspection_quota_outcome'
+      )
+    ORDER BY 1
+  `)
+  out.gscPhaseBRpcs = rpcs.rows
+
+  const verifiedIe = await client.query(`
+    SELECT COUNT(*)::int AS n
+    FROM intervention_events
+    WHERE lifecycle_state = 'verified' AND verified_at IS NOT NULL
+  `)
+  out.interventionEventsVerified = verifiedIe.rows[0].n
+
+  // Concurrent reserve against a disposable property (cleaned up). Soft cap 20,
+  // seed used=15 → capacity 5; 10 parallel callers each request 10.
+  const siteForQuota = await client.query(`
+    SELECT id AS site_id, user_id FROM connected_sites LIMIT 1
+  `)
+  if (siteForQuota.rows[0] && rpcs.rows.some((r) => r.proname === 'reserve_gsc_inspection_quota')) {
+    const { site_id, user_id } = siteForQuota.rows[0]
+    const prop = `https://phase-b-quota-probe.example/${Date.now()}/`
+    await client.query(
+      `INSERT INTO gsc_inspection_quota_usage
+         (site_id, user_id, property_url, day, requests_used, attempted)
+       VALUES ($1,$2,$3,(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date, 15, 15)`,
+      [site_id, user_id, prop],
+    )
+
+    const clients = []
+    try {
+      for (let i = 0; i < 10; i++) {
+        const c = new pg.Client({
+          connectionString: dbUrl(),
+          ssl: { rejectUnauthorized: false },
+        })
+        await c.connect()
+        clients.push(c)
+      }
+      const results = await Promise.all(
+        clients.map((c) =>
+          c
+            .query(
+              `SELECT * FROM reserve_gsc_inspection_quota($1,$2,$3,$4,$5)`,
+              [site_id, user_id, prop, 10, 20],
+            )
+            .then((r) => r.rows[0])
+            .catch((e) => ({ error: e instanceof Error ? e.message : String(e) })),
+        ),
+      )
+      const final = await client.query(
+        `SELECT requests_used, attempted, exhausted_at IS NOT NULL AS exhausted
+         FROM gsc_inspection_quota_usage WHERE property_url = $1`,
+        [prop],
+      )
+      const totalReserved = results.reduce(
+        (s, r) => s + Number(r && r.reserved != null ? r.reserved : 0),
+        0,
+      )
+      const used = Number(final.rows[0]?.requests_used ?? 0)
+      out.gscQuotaConcurrency = {
+        seed_used: 15,
+        soft_cap: 20,
+        remaining_capacity: 5,
+        parallel_callers: 10,
+        each_requested: 10,
+        totalReserved,
+        final_requests_used: used,
+        exhausted: Boolean(final.rows[0]?.exhausted),
+        reserved_per_caller: results.map((r) => Number(r?.reserved || 0)),
+        oversold: totalReserved > 5 || used > 20,
+      }
+    } finally {
+      await Promise.all(clients.map((c) => c.end().catch(() => {})))
+      await client.query(
+        `DELETE FROM gsc_inspection_quota_usage WHERE property_url = $1`,
+        [prop],
+      )
+    }
+  } else {
+    out.gscQuotaConcurrency = {
+      skipped: true,
+      reason: siteForQuota.rows[0] ? 'rpc_missing' : 'no_connected_sites',
     }
   }
 
