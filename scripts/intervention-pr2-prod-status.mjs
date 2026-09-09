@@ -476,6 +476,9 @@ async function main() {
   const siteForQuota = await client.query(`
     SELECT id AS site_id, user_id FROM connected_sites LIMIT 1
   `)
+  // Concurrency probe must not hard-fail the whole migrate job once RPCs exist —
+  // emit errors in JSON instead.
+  try {
   if (siteForQuota.rows[0] && rpcs.rows.some((r) => r.proname === 'reserve_gsc_inspection_quota')) {
     const { site_id, user_id } = siteForQuota.rows[0]
     const prop = `https://phase-b-quota-probe.example/${Date.now()}/`
@@ -517,7 +520,7 @@ async function main() {
               reserved: r.rows[0]?.reserved,
               remaining: r.rows[0]?.remaining,
               exhausted: r.rows[0]?.exhausted,
-              quota_day: r.rows[0]?.day,
+              quota_day: r.rows[0]?.quota_day ?? r.rows[0]?.day,
               requests_used: r.rows[0]?.requests_used,
             }))
             .catch((e) => ({ error: e instanceof Error ? e.message : String(e) })),
@@ -562,6 +565,11 @@ async function main() {
     out.gscQuotaConcurrency = {
       skipped: true,
       reason: siteForQuota.rows[0] ? 'rpc_missing' : 'no_connected_sites',
+    }
+  }
+  } catch (err) {
+    out.gscQuotaConcurrency = {
+      error: err instanceof Error ? err.message : String(err),
     }
   }
 
