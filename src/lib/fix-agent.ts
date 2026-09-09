@@ -971,6 +971,26 @@ function humanTaskFrom(classified: ClassifiedIssue): FixAgentHumanTask {
         'Human task: restore the missing page with real content, or add a redirect to a live URL. Fix Agent can remove dead links pointing here separately.',
     }
   }
+  if (
+    kind === 'gsc-not-indexed' ||
+    kind === 'gsc-canonical-mismatch' ||
+    kind === 'gsc-robots-conflict' ||
+    kind === 'gsc-never-crawled'
+  ) {
+    return {
+      kind,
+      title: classified.issue.title,
+      reason: classified.reason,
+      suggestedAction:
+        kind === 'gsc-not-indexed'
+          ? 'Review page usefulness and use Search Console URL Inspection / request indexing if appropriate. SEORANKO will not auto-fix “not indexed”.'
+          : kind === 'gsc-robots-conflict'
+            ? 'Reconcile robots.txt and meta robots with Google’s recorded robotsTxtState.'
+            : kind === 'gsc-never-crawled'
+              ? 'Confirm the URL belongs in the sitemap and is linked internally; Google has no recorded lastCrawlTime.'
+              : 'Align your declared canonical with the URL Google selected (or set a redirect).',
+    }
+  }
   if (kind === 'requires-server') {
     return {
       kind,

@@ -34,6 +34,10 @@ export type HumanFixKind =
   | 'factual-claim'
   | 'requires-server'
   | 'missing-page-content'
+  | 'gsc-not-indexed'
+  | 'gsc-canonical-mismatch'
+  | 'gsc-robots-conflict'
+  | 'gsc-never-crawled'
   | 'other-editorial'
 
 export type SiteConnectionType =
@@ -197,6 +201,22 @@ export function classifyAuditIssue(
       fixability: 'human',
       humanKind: 'missing-page-content',
       reason: 'Recreating a missing page requires real legal/business content — never auto-generated.',
+    }
+  } else if (issue.fixMetadata?.kind === 'gsc-human-delta') {
+    const evidence = issue.fixMetadata.evidence || ''
+    const humanKind: ClassifiedIssue['humanKind'] = evidence.startsWith('gsc-robots-conflict')
+      ? 'gsc-robots-conflict'
+      : evidence.startsWith('gsc-never-crawled')
+        ? 'gsc-never-crawled'
+        : evidence.startsWith('gsc-canonical-mismatch')
+          ? 'gsc-canonical-mismatch'
+          : 'gsc-not-indexed'
+    base = {
+      issue,
+      fixability: 'human',
+      humanKind,
+      reason:
+        'Google Index Insights delta — stored inspection evidence only; never auto-speculates about ranking.',
     }
   } else if (issue.fixMetadata?.kind === 'redirect-canonical' || REDIRECT_CANONICAL_RE.test(hay)) {
     base = {

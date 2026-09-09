@@ -44,6 +44,7 @@ export interface PageAuditFixMetadata {
     | 'sitemap-regenerate'
     | 'missing-page-content'
     | 'rewrite-link-href'
+    | 'gsc-human-delta'
   fromUrl?: string
   toUrl?: string
   deadUrl?: string

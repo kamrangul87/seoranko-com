@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import type { IndexDiagnosisResult, InboundLinkEvidence } from '@/lib/index-diagnosis/types'
 import { CRAWLER_JS_LIMITATION } from '@/lib/index-diagnosis/fix-agent-issues'
 import { lookupManualFixForUrl, resolveManualFixForTask } from '@/lib/index-diagnosis/manual-fixes'
 import { ManualFixPanel } from '@/components/ManualFixPanel'
+import { deltaReasonLabel, type InspectionDelta } from '@/lib/gsc/inspection-deltas'
 
 const EXCLUDE_LABELS: Record<string, string> = {
   ROBOTS_DISALLOWED: 'Robots.txt disallowed',
@@ -77,6 +78,16 @@ function ExcludedByReasonList({
   )
 }
 
+function googleViewLabel(row: {
+  coverage_state?: string | null
+  verdict?: string | null
+} | null): string {
+  if (!row) return '—'
+  if (row.coverage_state) return row.coverage_state
+  if (row.verdict) return row.verdict
+  return 'Inspected'
+}
+
 export function IndexDiagnosisPanel({
   data,
   siteId,
@@ -103,6 +114,115 @@ export function IndexDiagnosisPanel({
   const [urlLookup, setUrlLookup] = useState('')
   const [lookupFix, setLookupFix] = useState<ReturnType<typeof lookupManualFixForUrl>>(null)
   const [lookupMessage, setLookupMessage] = useState<string | null>(null)
+  const [inspectionsByUrl, setInspectionsByUrl] = useState<
+    Record<
+      string,
+      {
+        coverage_state: string | null
+        verdict: string | null
+        deltas: InspectionDelta[]
+        inspected_at?: string
+      }
+    >
+  >({})
+  const [inspectionQuota, setInspectionQuota] = useState<{
+    requests_used?: number
+    exhausted_at?: string | null
+  } | null>(null)
+  const [inspectionBusy, setInspectionBusy] = useState(false)
+  const [inspectionMessage, setInspectionMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!siteId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/gsc/inspections?siteId=${encodeURIComponent(siteId)}`)
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok || cancelled) return
+        const map: typeof inspectionsByUrl = {}
+        for (const row of json.inspections || []) {
+          if (!row?.url) continue
+          let key = row.url as string
+          try {
+            key = new URL(row.url).href.replace(/\/$/, '')
+          } catch {
+            /* keep */
+          }
+          map[key] = {
+            coverage_state: row.coverage_state ?? null,
+            verdict: row.verdict ?? null,
+            deltas: Array.isArray(row.deltas) ? row.deltas : [],
+            inspected_at: row.inspected_at,
+          }
+          // Also key by path-normalized variants the table may use
+          map[row.url] = map[key]
+        }
+        setInspectionsByUrl(map)
+        setInspectionQuota(json.quota || null)
+      } catch {
+        /* non-fatal */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [siteId])
+
+  const inspectionLookup = useMemo(() => {
+    return (url: string) => {
+      if (inspectionsByUrl[url]) return inspectionsByUrl[url]
+      try {
+        const href = new URL(url).href.replace(/\/$/, '')
+        if (inspectionsByUrl[href]) return inspectionsByUrl[href]
+        if (inspectionsByUrl[`${href}/`]) return inspectionsByUrl[`${href}/`]
+      } catch {
+        /* ignore */
+      }
+      return null
+    }
+  }, [inspectionsByUrl])
+
+  async function runInspectionSync() {
+    if (!siteId) return
+    setInspectionBusy(true)
+    setInspectionMessage(null)
+    try {
+      const res = await fetch('/api/gsc/inspections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteId }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || 'Inspection sync failed')
+      setInspectionMessage(
+        `Inspected ${json.result?.inspected ?? 0} URL(s). Remaining daily budget: ${
+          json.result?.remainingBudget ?? '—'
+        }.`,
+      )
+      // Reload latest
+      const reload = await fetch(`/api/gsc/inspections?siteId=${encodeURIComponent(siteId)}`)
+      const data = await reload.json().catch(() => ({}))
+      if (reload.ok) {
+        const map: typeof inspectionsByUrl = {}
+        for (const row of data.inspections || []) {
+          if (!row?.url) continue
+          map[row.url] = {
+            coverage_state: row.coverage_state ?? null,
+            verdict: row.verdict ?? null,
+            deltas: Array.isArray(row.deltas) ? row.deltas : [],
+            inspected_at: row.inspected_at,
+          }
+        }
+        setInspectionsByUrl(map)
+        setInspectionQuota(data.quota || null)
+      }
+    } catch (err) {
+      setInspectionMessage(err instanceof Error ? err.message : 'Inspection sync failed')
+    } finally {
+      setInspectionBusy(false)
+    }
+  }
 
   function toggleFix(taskId: string) {
     setExpandedFix((prev) => ({ ...prev, [taskId]: !prev[taskId] }))
@@ -411,30 +531,97 @@ export function IndexDiagnosisPanel({
       )}
 
       <div className="border border-[#E5E5E5] rounded-xl p-4 bg-white">
-        <h2 className="font-medium mb-2">Per-URL indexability ({pages.length} crawled)</h2>
+        <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+          <div>
+            <h2 className="font-medium">Per-URL indexability ({pages.length} crawled)</h2>
+            <p className="text-[11px] text-[#6B6B6B] mt-0.5 max-w-xl">
+              Google&apos;s recorded index status + the specific mismatches we can prove + the fix for
+              each. Not a ranking explanation.
+            </p>
+          </div>
+          {siteId && (
+            <button
+              type="button"
+              disabled={inspectionBusy}
+              onClick={() => void runInspectionSync()}
+              className="text-xs px-3 py-1.5 rounded-lg border border-[#E5E5E5] bg-white hover:bg-[#FAFAFA] disabled:opacity-50"
+            >
+              {inspectionBusy ? 'Syncing Google…' : 'Sync Google’s view'}
+            </button>
+          )}
+        </div>
+        {inspectionMessage && (
+          <p className="text-[11px] text-[#6B6B6B] mb-2">{inspectionMessage}</p>
+        )}
+        {inspectionQuota && (
+          <p className="text-[11px] text-[#9B9B9B] mb-2">
+            Inspection quota today: {inspectionQuota.requests_used ?? 0}
+            {inspectionQuota.exhausted_at ? ' · exhausted' : ''}
+          </p>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
               <tr className="text-left text-[#9B9B9B] border-b">
                 <th className="py-1 pr-2">URL</th>
-                <th className="py-1 pr-2">Verdict</th>
-                <th className="py-1 pr-2">Evidence</th>
+                <th className="py-1 pr-2">Our verdict</th>
+                <th className="py-1 pr-2">Google&apos;s view</th>
+                <th className="py-1 pr-2">Evidence / deltas</th>
               </tr>
             </thead>
             <tbody>
-              {pages.map((p) => (
-                <tr key={p.url} className="border-b border-[#F0F0F0] align-top">
-                  <td className="py-1.5 pr-2 max-w-[180px] break-all">
-                    <a href={p.url} className="text-[#FF6B2C] underline" target="_blank" rel="noreferrer">
-                      {p.url.replace(/^https?:\/\/[^/]+/, '') || '/'}
-                    </a>
-                  </td>
-                  <td className="py-1.5 pr-2 whitespace-nowrap">
-                    <span className={`px-1.5 py-0.5 rounded ${verdictColor(p.verdict)}`}>{p.verdict}</span>
-                  </td>
-                  <td className="py-1.5 text-[#6B6B6B] font-mono break-all">{p.decisiveEvidence}</td>
-                </tr>
-              ))}
+              {pages.map((p) => {
+                const g = inspectionLookup(p.url)
+                const deltas = g?.deltas || []
+                return (
+                  <tr
+                    key={p.url}
+                    className={`border-b border-[#F0F0F0] align-top ${
+                      deltas.length ? 'bg-amber-50/40' : ''
+                    }`}
+                  >
+                    <td className="py-1.5 pr-2 max-w-[180px] break-all">
+                      <a href={p.url} className="text-[#FF6B2C] underline" target="_blank" rel="noreferrer">
+                        {p.url.replace(/^https?:\/\/[^/]+/, '') || '/'}
+                      </a>
+                    </td>
+                    <td className="py-1.5 pr-2 whitespace-nowrap">
+                      <span className={`px-1.5 py-0.5 rounded ${verdictColor(p.verdict)}`}>
+                        {p.verdict}
+                      </span>
+                    </td>
+                    <td className="py-1.5 pr-2 max-w-[160px]">
+                      <span
+                        className={`px-1.5 py-0.5 rounded ${
+                          deltas.length
+                            ? 'text-amber-950 bg-amber-100'
+                            : g
+                              ? 'text-[#0F0F0F] bg-[#F5F5F5]'
+                              : 'text-[#9B9B9B] bg-transparent'
+                        }`}
+                      >
+                        {googleViewLabel(g)}
+                      </span>
+                    </td>
+                    <td className="py-1.5 text-[#6B6B6B]">
+                      <div className="font-mono break-all">{p.decisiveEvidence}</div>
+                      {deltas.length > 0 && (
+                        <ul className="mt-1 space-y-1 font-sans">
+                          {deltas.map((d, i) => (
+                            <li
+                              key={`${d.reason}-${i}`}
+                              className="text-[11px] text-amber-950 border border-amber-200 rounded px-1.5 py-1 bg-amber-50"
+                            >
+                              <span className="font-medium">{deltaReasonLabel(d.reason)}</span>
+                              <span className="block mt-0.5 text-amber-900/90">{d.explanation}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
