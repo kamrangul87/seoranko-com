@@ -116,20 +116,49 @@ Strategy contracts (before/after extractors, assertions, failure/handoff):
 
 ---
 
-## Regression fixtures (Phase 2D)
+## Regression fixtures (Phase 2D) — merge-gated
 
-| # | Bug class | Fixture |
+Each fixture must fail if the bug returns **and** its path must appear in
+`.github/workflows/test.yml` (push/PR to `main`). Enforced by
+`src/lib/regression-fixtures-ci.contract.test.ts`.
+
+| # | Bug class | Fixture | In Test workflow |
+|---|---|---|---|
+| 1 | Empty stored Audit restore | `index-diagnosis/` (saved-validity) | Yes |
+| 2 | Stale Link Graph after invalid diagnosis | `audit-saved-stale-link-graph.test.ts` | Yes |
+| 3 | Migration not applied | `audit-persist-migration-ci.contract.test.ts` | Yes |
+| 4 | False verified llms/security | `fix-agent-live-verify.test.ts` | Yes |
+| 5 | PR vs direct-write status | `fix-agent-summary.test.ts` + `finding-status.test.ts` | Yes |
+| 6 | Subdomain connection mismatch | `link-graph/` + `site-connection-lookup.test.ts` | Yes |
+| 7 | Canonical normalization | `gsc/index-insights.test.ts` | Yes |
+| 8 | Domain period regex | `domain-period-regex.regression.test.ts` + `sentence-boundaries.test.ts` | Yes |
+| 9 | Duplicate batch upserts | `gsc/dedupe-metrics.test.ts` | Yes |
+| 10 | Low-volume discontinuity | `gsc/baseline-readiness.test.ts` | Yes |
+
+Standalone test files not listed in Test.yml do **not** count as gated.
+
+---
+
+## Phase 4 — platform usage & first beta candidates
+
+| Check | How | Status |
 |---|---|---|
-| 1 | Empty stored Audit restore | `index-diagnosis/saved-validity.test.ts` |
-| 2 | Stale Link Graph after invalid diagnosis | `audit-saved-stale-link-graph.test.ts` |
-| 3 | Migration not applied | `audit-persist-migration-ci.contract.test.ts` |
-| 4 | False verified llms/security | `fix-agent-live-verify.test.ts` |
-| 5 | PR vs direct-write status | `fix-agent-summary.test.ts` + `finding-status.test.ts` |
-| 6 | Subdomain connection mismatch | `link-graph/fix-write-gate.test.ts`, `site-connection-lookup.test.ts` |
-| 7 | Canonical normalization | `gsc/index-insights.test.ts` |
-| 8 | Domain period regex | `domain-period-regex.regression.test.ts`, `sentence-boundaries.test.ts` |
-| 9 | Duplicate batch upserts | `gsc/dedupe-metrics.test.ts` |
-| 10 | Low-volume discontinuity | `gsc/baseline-readiness.test.ts` |
+| GSC inspection quota vs soft cap (1950) | `scripts/beta-platform-usage-probe.mjs` in migrate CI | Wired — fill from next green migrate log |
+| Supabase DB size + critical table rows | same probe | Wired |
+| Vercel function minutes | same probe; needs `VERCEL_TOKEN` | Blocked until secret — reports Hobby 60s/daily-cron envelope until then |
+| First beta candidates | `scripts/beta-candidates-probe.mjs` | Wired — do **not** assume autodun is the customer |
+
+### Candidate policy (honest)
+
+- **autodun.com** / **seoranko.com** = dogfood / first-party validation, not an external customer.
+- True external beta = non-dogfood domain + active GitHub write + active GSC + owner consent + useful verified finding/fix or confirmed regression.
+- Phase 4 is incomplete if we only treat dogfood as “customer beta” unless you explicitly accept dogfood-only.
+
+Update after migrate CI candidates probe:
+
+```
+(recommendation from probe — fill after CI)
+```
 
 ---
 
@@ -139,10 +168,13 @@ Strategy contracts (before/after extractors, assertions, failure/handoff):
 - [ ] Fresh audit → non-placeholder findings + stored evidence
 - [ ] Approve deterministic fix → `implemented` → live `verified`
 - [ ] Google last recorded status visible when inspections exist (**blocked:** 0 inspection rows)
-- [ ] “Awaiting Google recrawl” distinct from “Google disagrees” (status vocabulary shipped; needs inspection data)
+- [ ] “Awaiting Google recrawl” distinct from “Google disagrees”
 - [x] Reload never restores empty stub data (code + fixtures)
-- [ ] Migrations applied; CI + production deploy green (verify after this push)
+- [x] All ten regression fixtures listed in merge-gating Test workflow (+ contract test)
+- [ ] Migrations applied; CI + production deploy green
 - [ ] Two additional GitHub strategies proven live beyond dead-link
+- [ ] Platform usage probe reviewed (GSC / Supabase / Vercel)
+- [ ] First beta candidate named from inventory (dogfood vs external) — not assumed
 - [ ] VERIFICATION_MATRIX rows flipped with production IDs
 
 ### Exact manual action still required (Phase 2A)
@@ -154,3 +186,8 @@ With a valid GSC OAuth token on an active property:
 3. Confirm `gsc_url_inspections` gains ≥1 row (migrate CI probe also attempts this).
 
 Without that user interaction / valid token, Index Insights stays **implemented unproven** for data.
+
+### Migration safety
+
+Any new migration must be **additive/non-destructive by default**. Stop and ask before
+`DROP` / destructive `ALTER` / truncate — production holds verified interventions and GSC history.

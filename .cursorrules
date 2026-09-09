@@ -47,6 +47,11 @@ pipeline, schema generation, image generation, or publisher adapters.
    Phase H (near-duplicate + volume-throttle safeguards), built proactively
    given Google's scaled-content-abuse policy risk.
 
+8. **Additive schema by default.** Prefer new tables/columns with RLS and
+   safe defaults. Stop and ask the human before any migration that DROPs
+   tables/columns, truncates, or rewrites production rows — verified
+   interventions and GSC history now exist on hosted Supabase.
+
 ## Known open issues (check before assuming these are fixed)
 
 - Paragraph splitter (src/lib/paragraph-splitter.ts) is written but not

@@ -102,6 +102,12 @@ Supporting metrics (instrument; do not invent numbers):
 - Human approval before live writes; volume throttles
 - RLS on new tables; no silent country/brand/locale defaults
 - No sub-daily Vercel cron; model calls via `model-router` only when needed
+- **Additive migrations by default** — stop and ask before DROP / destructive ALTER
+  (production holds verified interventions + GSC history)
+- Phase 2D regression fixtures must run in merge-gating CI (not optional local-only)
+- Phase 4 reports GSC quota, Supabase footprint, and Vercel function envelope/usage
+  before calling beta complete; first beta candidates come from inventory probes,
+  not assumptions that autodun.com is the customer
 
 See `docs/VERIFICATION_MATRIX.md` before calling any feature “working.”
-See `docs/DELIVERY_ROADMAP.md` for sequenced reliability work.
+See `docs/DELIVERY_ROADMAP.md` for sequenced reliability work and effort bands.

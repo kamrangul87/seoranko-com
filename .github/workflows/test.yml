@@ -22,7 +22,7 @@ jobs:
         run: npm run lint
       - name: Permanent audit-site fixture suite
         run: npm run test:fixtures
-      - name: Index Diagnosis / Sitemap / Link Graph / Fix Agent
+      - name: Index Diagnosis / Sitemap / Link Graph / Fix Agent / beta regressions
         run: >
           npm test -- --run
           src/lib/__fixtures__/audit-sites/
@@ -34,7 +34,11 @@ jobs:
           src/lib/finding-status.test.ts
           src/lib/fix-agent-live-verify.test.ts
           src/lib/fix-agent-strategy-contract.test.ts
+          src/lib/fix-agent-summary.test.ts
           src/lib/domain-period-regex.regression.test.ts
+          src/lib/sentence-boundaries.test.ts
+          src/lib/site-connection-lookup.test.ts
+          src/lib/regression-fixtures-ci.contract.test.ts
           src/lib/gsc/pr1-wiring.test.ts
           src/lib/gsc/index-insights.test.ts
           src/lib/gsc/baseline-readiness.test.ts

@@ -78,3 +78,6 @@ jobs:
           node scripts/gsc-first-inspection-probe.mjs || echo "::warning::GSC first-inspection probe exited non-zero"
           # Phase 2B evidence: verified Fix Agent kinds in prod (read-only).
           node scripts/fix-agent-verified-kinds-probe.mjs || echo "::warning::verified-kinds probe exited non-zero"
+          # Phase 4: platform usage vs quotas + first-beta candidate inventory.
+          node scripts/beta-platform-usage-probe.mjs || echo "::warning::platform-usage probe exited non-zero"
+          node scripts/beta-candidates-probe.mjs || echo "::warning::beta-candidates probe exited non-zero"
