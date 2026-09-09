@@ -55,17 +55,21 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SITE_CONNECTION_ENCRYPTION_KEY: ${{ secrets.SITE_CONNECTION_ENCRYPTION_KEY }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_POOLER_HOST: ${{ secrets.SUPABASE_POOLER_HOST }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          if [ -z "${NEXT_PUBLIC_SUPABASE_URL}" ] || [ -z "${SUPABASE_SERVICE_ROLE_KEY}" ] || [ -z "${SITE_CONNECTION_ENCRYPTION_KEY}" ]; then
-            echo "::warning::Skipping autodun intervention e2e — missing Supabase/encryption secrets"
-            exit 0
-          fi
+          # Need full install so tsx can resolve @/ imports in analyze/fix-agent.
           npm ci
-          npx --yes tsx scripts/run-autodun-intervention-e2e.ts
-          npm install --no-save pg@8.16.3
-          SUPABASE_DB_PASSWORD="${{ secrets.SUPABASE_DB_PASSWORD }}" \
-          SUPABASE_PROJECT_REF="${{ secrets.SUPABASE_PROJECT_REF }}" \
-          SUPABASE_POOLER_HOST="${{ secrets.SUPABASE_POOLER_HOST }}" \
-          SUPABASE_DB_URL="${{ secrets.SUPABASE_DB_URL }}" \
-          DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+          # Fix Agent path needs service-role + encryption (often unset in Actions).
+          if [ -n "${NEXT_PUBLIC_SUPABASE_URL}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY}" ] && [ -n "${SITE_CONNECTION_ENCRYPTION_KEY}" ]; then
+            npx --yes tsx scripts/run-autodun-intervention-e2e.ts
+          else
+            echo "::warning::Skipping Fix Agent e2e — missing Supabase/encryption secrets; completing causal loop via Postgres"
+          fi
+          # Postgres-only: prereg + link intervention + analyze → causal_results.
+          # Works with SUPABASE_DB_PASSWORD already present for migrate.
+          npx --yes tsx scripts/complete-causal-loop.ts
           node scripts/intervention-pr2-prod-status.mjs

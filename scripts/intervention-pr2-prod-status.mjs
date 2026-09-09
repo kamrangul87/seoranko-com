@@ -127,7 +127,11 @@ async function main() {
     SELECT table_name, column_name
     FROM information_schema.columns
     WHERE table_schema='public'
-      AND table_name IN ('intervention_events','causal_results','experiment_preregistrations','fix_agent_attempts','connected_sites','experiments')
+      AND table_name IN (
+        'intervention_events','causal_results','experiment_preregistrations',
+        'fix_agent_attempts','connected_sites','experiments',
+        'gsc_url_inspections','gsc_inspection_quota_usage'
+      )
     ORDER BY 1,2
   `)
   const byTable = {}

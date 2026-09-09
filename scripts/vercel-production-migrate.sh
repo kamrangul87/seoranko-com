@@ -39,24 +39,47 @@ else
 fi
 
 # Complete Intervention → causal loop when causal_results is still empty.
-# Uses secrets already present on Vercel production (CI lacks them).
-# Idempotent: Fix Agent only when no interventions; always ensures experiment+prereg+analyze.
-if [[ -n "${SITE_CONNECTION_ENCRYPTION_KEY:-}" && -n "${SUPABASE_SERVICE_ROLE_KEY:-}" && -n "${NEXT_PUBLIC_SUPABASE_URL:-}" ]]; then
+# Prefer service-role e2e (can run Fix Agent); fall back to Postgres-only
+# complete-causal-loop (prereg + analyze) which only needs DB password.
+complete_causal_via_pg() {
+  echo "vercel-production-migrate: completing causal loop via Postgres…"
+  npx --yes tsx scripts/complete-causal-loop.ts \
+    || echo "::warning::complete-causal-loop failed (non-fatal — inspect logs)"
+}
+
+if [[ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" && -n "${NEXT_PUBLIC_SUPABASE_URL:-}" ]]; then
   echo "vercel-production-migrate: checking whether causal e2e is needed…"
-  NEED_E2E="$(node --input-type=module -e "
+  # Fail-open: run e2e when count is 0 OR when the check itself errors.
+  NEED_E2E="$(
+    node --input-type=module -e "
 import { createClient } from '@supabase/supabase-js'
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 const { count, error } = await sb.from('causal_results').select('id', { count: 'exact', head: true })
-if (error) { console.error(error.message); process.exit(0) }
+if (error) {
+  console.error('causal_results count error:', error.message)
+  process.stdout.write('1')
+  process.exit(0)
+}
 process.stdout.write(String(count === 0 ? '1' : '0'))
-" 2>/dev/null || echo 0)"
+" || echo 1
+  )"
+  echo "vercel-production-migrate: NEED_E2E=${NEED_E2E}"
   if [[ "$NEED_E2E" == "1" ]]; then
-    echo "vercel-production-migrate: causal_results empty — running autodun intervention/causal e2e…"
-    npx --yes tsx scripts/run-autodun-intervention-e2e.ts \
-      || echo "::warning::autodun intervention e2e failed (non-fatal — inspect logs)"
+    if [[ -n "${SITE_CONNECTION_ENCRYPTION_KEY:-}" ]]; then
+      echo "vercel-production-migrate: causal_results empty — running autodun intervention/causal e2e…"
+      npx --yes tsx scripts/run-autodun-intervention-e2e.ts \
+        || echo "::warning::autodun intervention e2e failed (non-fatal — falling back to pg loop)"
+    else
+      echo "vercel-production-migrate: encryption key missing — skipping Fix Agent e2e"
+    fi
+    # Always ensure prereg+causal via pg if still empty (covers e2e skip/fail).
+    complete_causal_via_pg
   else
-    echo "vercel-production-migrate: skip intervention e2e (causal_results already has rows, or count failed)"
+    echo "vercel-production-migrate: skip intervention e2e (causal_results already has rows)"
   fi
+elif [[ -n "${SUPABASE_DB_PASSWORD:-}" || -n "${SUPABASE_DB_URL:-}" || -n "${DATABASE_URL:-}" ]]; then
+  echo "vercel-production-migrate: service-role URL missing — pg-only causal completion"
+  complete_causal_via_pg
 else
-  echo "vercel-production-migrate: skip intervention e2e (missing Supabase/encryption secrets)"
+  echo "vercel-production-migrate: skip intervention e2e (missing Supabase secrets)"
 fi
