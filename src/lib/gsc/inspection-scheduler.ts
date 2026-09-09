@@ -195,7 +195,7 @@ export async function buildInspectionQueue(
   }
 
   // (b) Sitemap URLs even if not in fetched pages list
-  for (const s of sitemapSet) {
+  for (const s of Array.from(sitemapSet)) {
     if (excluded.has(s)) {
       skippedExcluded += 1
       continue
