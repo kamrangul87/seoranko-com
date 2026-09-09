@@ -105,18 +105,17 @@ async function main() {
     `)
 
     const tableStats = await client.query(`
-      SELECT relname AS table,
-             n_live_tup::bigint AS live_rows,
-             pg_size_pretty(pg_total_relation_size(c.oid)) AS size
+      SELECT s.relname AS table,
+             s.n_live_tup::bigint AS live_rows,
+             pg_size_pretty(pg_total_relation_size(quote_ident(s.schemaname) || '.' || quote_ident(s.relname))) AS size
       FROM pg_stat_user_tables s
-      JOIN pg_class c ON c.relname = s.relname
-      WHERE schemaname = 'public'
-        AND relname IN (
+      WHERE s.schemaname = 'public'
+        AND s.relname IN (
           'gsc_url_inspections','gsc_inspection_quota_usage','url_metrics_daily',
           'fix_agent_attempts','intervention_events','causal_results',
           'index_diagnosis_runs','link_graph_audits','connected_sites','site_connections'
         )
-      ORDER BY n_live_tup DESC
+      ORDER BY s.n_live_tup DESC
     `)
 
     const connCounts = await client.query(`

@@ -154,10 +154,16 @@ Standalone test files not listed in Test.yml do **not** count as gated.
 - True external beta = non-dogfood domain + active GitHub write + active GSC + owner consent + useful verified finding/fix or confirmed regression.
 - Phase 4 is incomplete if we only treat dogfood as “customer beta” unless you explicitly accept dogfood-only.
 
-Update after migrate CI candidates probe:
+Update after migrate CI candidates probe (`34341733031`):
 
 ```
-(recommendation from probe — fill after CI)
+totalSites: 1
+dogfood: autodun.com (github+gsc active, 1 verified fix, 0 inspections)
+externalWithGithubAndGsc: 0
+autodunIsCustomer: false (dogfood only)
+needExternalForTrueBeta: yes
+firstValidationTarget: finish dogfood GSC inspection + 2 extra verified strategies, then recruit one external GitHub+GSC site
+platform-usage probe: failed once (relname ambiguous) — fixed; re-run next migrate
 ```
 
 ---
