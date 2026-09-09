@@ -34,7 +34,7 @@ import {
   mutateMissingH1,
   type HtmlMutationResult,
 } from './fix-agent-html-mutations'
-import { findOwnedSiteConnection, type OwnedSiteConnection } from './site-connection-lookup'
+import { findOwnedSiteConnection, hostOf, type OwnedSiteConnection } from './site-connection-lookup'
 import type { PageAuditIssue } from './page-audit-engine'
 import { runPageAudit } from './page-audit-engine'
 import { validateSchema } from './schema-validator'
@@ -54,6 +54,8 @@ import {
 import { findBlockingAttempt } from '@/lib/fix-agent-idempotency'
 import { recordInterventionFromVerify } from '@/lib/intervention/record'
 import { deleteStaleSeorankoFixBranches } from '@/lib/site-adapters/github-adapter'
+import { hostOf } from '@/lib/site-connection-lookup'
+import { normaliseDomain } from '@/lib/connected-sites'
 
 const MAX_ATTEMPTS_PER_ISSUE = 3
 const RATE_LIMIT_PER_HOUR = 20
@@ -744,8 +746,28 @@ function buildStrategies(
               summary: 'Link href rewrite unsupported on this connection.',
             }
           }
-          const bySource = new Map<string, typeof fixes>()
-          for (const fix of fixes) {
+          const siteHost = normaliseDomain(owned.domain)
+          const allowed = fixes.filter((f) => hostOf(f.sourceUrl) === siteHost)
+          const blockedHosts = Array.from(
+            new Set(
+              fixes
+                .map((f) => hostOf(f.sourceUrl))
+                .filter((h): h is string => !!h && h !== siteHost),
+            ),
+          )
+          if (allowed.length === 0) {
+            return {
+              apply: {
+                success: false,
+                error: `This fix requires connecting ${blockedHosts.join(', ') || 'the source host'} — go to Settings to connect it.`,
+              },
+              before: '',
+              after: '',
+              summary: 'Source host is outside the connected site domain.',
+            }
+          }
+          const bySource = new Map<string, typeof allowed>()
+          for (const fix of allowed) {
             const list = bySource.get(fix.sourceUrl) || []
             list.push(fix)
             bySource.set(fix.sourceUrl, list)

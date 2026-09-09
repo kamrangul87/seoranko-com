@@ -10,6 +10,10 @@ import {
   buildRedirectHopBulkIssue,
   buildSingleHrefRewriteIssue,
 } from '@/lib/link-graph/fix-agent-issues'
+import {
+  fixRequiresConnectingHost,
+  fixRequiresConnectingMessage,
+} from '@/lib/link-graph/fix-write-gate'
 import { applyPasteAndFix } from '@/lib/manual-paste-fix'
 
 interface LinkFindingRow {
@@ -153,6 +157,7 @@ export function LinkGraphPanel({
   domain,
   siteId,
   cmsConnected,
+  connectedDomain,
   auditUrl,
   fixRunning,
   onRunFixAgent,
@@ -163,6 +168,8 @@ export function LinkGraphPanel({
   domain?: string
   siteId?: string
   cmsConnected?: boolean
+  /** Exact connected_sites.domain for the active CMS write connection. */
+  connectedDomain?: string | null
   auditUrl?: string
   fixRunning?: boolean
   onRunFixAgent?: (issues: PageAuditIssue[]) => void
@@ -213,31 +220,47 @@ export function LinkGraphPanel({
     [findings],
   )
 
-  const fixBlockedHost =
-    fixConnectionHint?.suggestedDomain ||
-    (auditUrl
-      ? (() => {
-          try {
-            return new URL(auditUrl).hostname.replace(/^www\./i, '')
-          } catch {
-            return null
-          }
-        })()
-      : null) ||
-    resolvedDomain
+  /** Hosts among redirect findings that the current CMS connection cannot write. */
+  const redirectBlockedHosts = useMemo(() => {
+    const hosts = new Set<string>()
+    for (const f of findings) {
+      if (!LINK_REDIRECT_HOP_RULES.has(f.ruleId || f.rule_id || '')) continue
+      const finding = toFinding(f)
+      const need = fixRequiresConnectingHost({
+        sourceUrl: finding.sourceUrl,
+        cmsConnected: !!cmsConnected,
+        connectedDomain,
+      })
+      if (need) hosts.add(need)
+    }
+    return Array.from(hosts).sort()
+  }, [findings, cmsConnected, connectedDomain])
 
-  const fixBlockedMessage = !cmsConnected
-    ? fixConnectionHint?.needsExactSiteRegistration && fixBlockedHost
-      ? `This fix requires connecting ${fixBlockedHost} — go to Settings to connect it${
-          fixConnectionHint.parentDomain
-            ? ` (separate from ${fixConnectionHint.parentDomain}; GSC listing alone does not grant write access)`
-            : ' (GSC listing alone does not grant write access)'
-        }.`
-      : fixConnectionHint?.prompt ||
-        (fixBlockedHost
-          ? `This fix requires connecting ${fixBlockedHost} — go to Settings to connect GitHub or another CMS. Auditing or GSC tracking alone does not grant write access.`
-          : 'Connect this site in Settings before Fix Agent can apply changes.')
-    : null
+  const canBulkRedirectFix =
+    !!cmsConnected &&
+    !!siteId &&
+    !!onRunFixAgent &&
+    !!redirectBulk &&
+    redirectBlockedHosts.length === 0
+
+  const auditBlockedHost =
+    fixConnectionHint?.suggestedDomain ||
+    fixRequiresConnectingHost({
+      sourceUrl: auditUrl || null,
+      cmsConnected: !!cmsConnected,
+      connectedDomain,
+    }) ||
+    (redirectBlockedHosts[0] ?? null)
+
+  const bulkBlockedMessage =
+    redirectBlockedHosts.length > 0
+      ? redirectBlockedHosts.length === 1
+        ? fixRequiresConnectingMessage(redirectBlockedHosts[0]!)
+        : `These fixes require connecting: ${redirectBlockedHosts.join(', ')} — go to Settings to connect each host.`
+      : auditBlockedHost
+        ? fixRequiresConnectingMessage(auditBlockedHost)
+        : fixConnectionHint?.prompt ||
+          'Connect this site in Settings before Fix Agent can apply changes.'
 
   // Restore latest saved Link Graph for this domain when parent didn't pass one.
   useEffect(() => {
@@ -388,12 +411,12 @@ export function LinkGraphPanel({
                 >
                   Preview before/after
                 </button>
-                {cmsConnected && siteId && onRunFixAgent && redirectBulk ? (
+                {canBulkRedirectFix ? (
                   <button
                     type="button"
                     onClick={() => {
                       previewBulkDiff()
-                      onRunFixAgent([redirectBulk])
+                      onRunFixAgent!([redirectBulk!])
                     }}
                     disabled={!!fixRunning}
                     className="text-xs px-3 py-1.5 rounded-lg bg-[#0F0F0F] text-white disabled:opacity-50"
@@ -403,16 +426,22 @@ export function LinkGraphPanel({
                 ) : (
                   <div className="text-xs text-amber-950 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 max-w-xl space-y-1">
                     <p className="font-medium">Fix Agent cannot write here yet</p>
-                    <p>{fixBlockedMessage}</p>
+                    <p>{bulkBlockedMessage}</p>
+                    {fixConnectionHint?.parentDomain ? (
+                      <p>
+                        You have {fixConnectionHint.parentDomain} connected — each host needs its
+                        own CMS connection (GSC listing alone does not grant write access).
+                      </p>
+                    ) : null}
                     <a href="/dashboard/settings" className="underline text-[#FF6B2C]">
                       Open Settings → Your Sites
                     </a>
                   </div>
                 )}
-                {cmsConnected && onRunFixAgent && nonCanonicalBulk && (
+                {canBulkRedirectFix && nonCanonicalBulk && (
                   <button
                     type="button"
-                    onClick={() => onRunFixAgent([nonCanonicalBulk])}
+                    onClick={() => onRunFixAgent!([nonCanonicalBulk])}
                     disabled={!!fixRunning}
                     className="text-xs px-3 py-1.5 rounded-lg border border-[#E5E5E5] bg-white disabled:opacity-50"
                   >
@@ -473,6 +502,13 @@ export function LinkGraphPanel({
                             typeof finding.evidence.hrefRaw === 'string'
                               ? finding.evidence.hrefRaw
                               : finding.targetUrl || ''
+                          const requiresHost = fixRequiresConnectingHost({
+                            sourceUrl: finding.sourceUrl,
+                            cmsConnected: !!cmsConnected,
+                            connectedDomain,
+                          })
+                          const canWriteThisFinding =
+                            !requiresHost && !!cmsConnected && !!onRunFixAgent && !!single
                           return (
                             <li
                               key={i}
@@ -487,30 +523,36 @@ export function LinkGraphPanel({
                                 </span>
                               )}
                               <div className="flex flex-wrap gap-2 mt-1 font-sans">
-                                {cmsConnected && onRunFixAgent && single ? (
+                                {canWriteThisFinding ? (
                                   <button
                                     type="button"
                                     disabled={!!fixRunning}
                                     className="text-[11px] px-2 py-0.5 rounded border border-[#E5E5E5] bg-white disabled:opacity-50"
-                                    onClick={() => onRunFixAgent([single])}
+                                    onClick={() => onRunFixAgent!([single!])}
                                   >
                                     Auto-fix
                                   </button>
-                                ) : single ? (
-                                  <p className="text-[11px] text-amber-900">
-                                    {fixBlockedHost
-                                      ? `This fix requires connecting ${fixBlockedHost} — go to Settings to connect it.`
-                                      : 'Connect this host in Settings before auto-fix.'}
+                                ) : single || finding.sourceUrl ? (
+                                  <p className="text-[11px] text-amber-950 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                                    {fixRequiresConnectingMessage(
+                                      requiresHost ||
+                                        fixConnectionHint?.suggestedDomain ||
+                                        resolvedDomain ||
+                                        'this host',
+                                    )}
                                   </p>
                                 ) : null}
                               </div>
-                              {single && finding.sourceUrl && finding.suggestedTarget && fromHref && (
+                              {canWriteThisFinding &&
+                              finding.sourceUrl &&
+                              finding.suggestedTarget &&
+                              fromHref ? (
                                 <ManualHrefPaste
                                   sourceUrl={finding.sourceUrl}
                                   fromHref={fromHref}
                                   toHref={finding.suggestedTarget}
                                 />
-                              )}
+                              ) : null}
                               {ruleId === 'L01' && (
                                 <p className="text-[11px] font-sans text-[#6B6B6B] mt-1">
                                   Dead link — Fix Agent can remove the &lt;a&gt; from the source page

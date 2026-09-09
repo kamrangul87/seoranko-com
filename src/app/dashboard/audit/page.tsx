@@ -557,6 +557,8 @@ export default function AuditPage() {
     setHumanTasks([])
     setAttempts([])
     setScoreAfterFix(null)
+    // Drop prior host's CMS connection so Auto-fix cannot flash for the wrong domain.
+    setConnection(null)
     try {
       const res = await fetch('/api/copilot/audit', {
         method: 'POST',
@@ -596,7 +598,25 @@ export default function AuditPage() {
     issueFilter?: (i: AuditIssue) => boolean,
     overrideIssues?: AuditIssue[],
   ) {
-    if (!audit || !connection?.connected || !connection.siteId) return
+    if (!audit) return
+    if (!connection?.connected || !connection.siteId) {
+      const host =
+        connection?.suggestedDomain ||
+        (() => {
+          try {
+            return new URL(audit.url).hostname.replace(/^www\./i, '')
+          } catch {
+            return 'this host'
+          }
+        })()
+      setFixMessage(
+        connection?.needsExactSiteRegistration
+          ? `This fix requires connecting ${host} — go to Settings to connect it.`
+          : connection?.prompt ||
+              `This fix requires connecting ${host} — go to Settings to connect it.`,
+      )
+      return
+    }
     const issuesToFix = overrideIssues
       ? overrideIssues
       : issueFilter
@@ -718,6 +738,7 @@ export default function AuditPage() {
                   domain={audit.indexDiagnosis.coverage.domain}
                   siteId={connection?.siteId}
                   cmsConnected={!!connection?.connected}
+                  connectedDomain={connection?.domain ?? null}
                   auditUrl={audit.url}
                   fixRunning={fixRunning}
                   onRunFixAgent={(issues) => void runFixAgent(undefined, issues as AuditIssue[])}
