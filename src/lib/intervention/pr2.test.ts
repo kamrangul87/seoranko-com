@@ -534,6 +534,9 @@ describe('Intervention Dataset PR2 — Fix Agent verify wiring (Phase D)', () =>
     expect(src).toMatch(/Intervention recorded as implemented/)
     expect(src).toMatch(/Intervention promoted to verified/)
     expect(src).not.toMatch(/recordInterventionFromVerify/)
+    // Regression: duplicate hostOf import broke the 9539753 Vercel production build.
+    const hostOfImports = src.match(/^import .*hostOf.*$/gm) || []
+    expect(hostOfImports).toHaveLength(1)
   })
 
   it('verified intervention hashes are immutable (DB trigger)', () => {
