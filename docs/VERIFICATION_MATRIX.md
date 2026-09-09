@@ -154,16 +154,22 @@ Standalone test files not listed in Test.yml do **not** count as gated.
 - True external beta = non-dogfood domain + active GitHub write + active GSC + owner consent + useful verified finding/fix or confirmed regression.
 - Phase 4 is incomplete if we only treat dogfood as “customer beta” unless you explicitly accept dogfood-only.
 
-Update after migrate CI candidates probe (`34341733031`):
+Recorded from migrate CI `34341948513` (`14ee28c`):
 
 ```
-totalSites: 1
-dogfood: autodun.com (github+gsc active, 1 verified fix, 0 inspections)
-externalWithGithubAndGsc: 0
-autodunIsCustomer: false (dogfood only)
-needExternalForTrueBeta: yes
-firstValidationTarget: finish dogfood GSC inspection + 2 extra verified strategies, then recruit one external GitHub+GSC site
-platform-usage probe: failed once (relname ambiguous) — fixed; re-run next migrate
+candidates:
+  totalSites: 1
+  dogfood: autodun.com (github+gsc, verifiedFixes=1, inspections=0)
+  externalWithGithubAndGsc: 0
+  autodunIsCustomer: false
+  needExternalForTrueBeta: yes
+
+platform usage:
+  gsc.usedToday: 0 / softCap 1950 (nearCap: false)
+  supabase.databaseSize: 20 MB
+  inventory: sites=1 github=1 gsc_active=1 inspections=0 verified_interventions=1
+  vercel.liveMinutes: unavailable (VERCEL_TOKEN missing) — Hobby envelope 60s / once-daily cron only
+  warnings: ["Vercel live function-minute usage not readable"]
 ```
 
 ---
@@ -179,7 +185,7 @@ platform-usage probe: failed once (relname ambiguous) — fixed; re-run next mig
 - [x] All ten regression fixtures listed in merge-gating Test workflow (+ contract test)
 - [ ] Migrations applied; CI + production deploy green
 - [ ] Two additional GitHub strategies proven live beyond dead-link
-- [ ] Platform usage probe reviewed (GSC / Supabase / Vercel)
+- [x] Platform usage probe reviewed (GSC + Supabase; Vercel minutes need VERCEL_TOKEN)
 - [ ] First beta candidate named from inventory (dogfood vs external) — not assumed
 - [ ] VERIFICATION_MATRIX rows flipped with production IDs
 
