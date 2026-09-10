@@ -2,6 +2,9 @@
  * Public Index Diagnosis runner — reuses runIndexCrawl, maps to public reasons.
  */
 
+import { runIndexCrawl } from '@/lib/index-diagnosis/crawler'
+import { matchRobotsForUrl } from '@/lib/index-diagnosis/robots-parser'
+import { classifyPublicScan } from './classify'
 import {
   PUBLIC_SCAN_DEADLINE_MS,
   PUBLIC_SCAN_MAX_DEPTH,
