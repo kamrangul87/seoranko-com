@@ -84,12 +84,17 @@ export async function validatePublicDomainInput(
 }
 
 export function clientIpFromHeaders(headers: Headers): string {
+  // Prefer platform-trusted client IP (Vercel). Falling back to the first
+  // X-Forwarded-For hop is spoofable and can disagree across requests when
+  // proxies rewrite the chain — that broke email-unlock on production.
+  const vercel = headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim()
+  if (vercel) return vercel
+  const real = headers.get('x-real-ip')?.trim()
+  if (real) return real
   const xf = headers.get('x-forwarded-for')
   if (xf) {
     const first = xf.split(',')[0]?.trim()
     if (first) return first
   }
-  const real = headers.get('x-real-ip')?.trim()
-  if (real) return real
   return '0.0.0.0'
 }

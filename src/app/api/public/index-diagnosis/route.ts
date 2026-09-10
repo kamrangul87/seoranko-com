@@ -46,6 +46,8 @@ export async function POST(req: NextRequest) {
   try {
     const recent = await countScansLastHour(ipHash)
     if (recent >= PUBLIC_SCAN_RATE_LIMIT_PER_HOUR) {
+      // Count this attempt too so cold serverless instances still coalesce.
+      recordMemoryScan(ipHash)
       return NextResponse.json(
         {
           ok: false,

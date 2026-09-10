@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { explainPublicCause } from './explanations'
 import { PUBLIC_EXCLUSION_REASONS } from './types'
-import { validatePublicDomainInput } from './validate-domain'
+import { clientIpFromHeaders, validatePublicDomainInput } from './validate-domain'
 
 describe('public Index Diagnosis explanations', () => {
   it('has a template for every reason code', () => {
@@ -11,6 +11,16 @@ describe('public Index Diagnosis explanations', () => {
       expect(copy.explanation).toContain('https://example.com/page')
       expect(copy.explanation).toMatch(/3/)
     }
+  })
+})
+
+describe('clientIpFromHeaders', () => {
+  it('prefers x-vercel-forwarded-for over x-forwarded-for', () => {
+    const h = new Headers({
+      'x-forwarded-for': '1.1.1.1, 2.2.2.2',
+      'x-vercel-forwarded-for': '9.9.9.9',
+    })
+    expect(clientIpFromHeaders(h)).toBe('9.9.9.9')
   })
 })
 
@@ -33,6 +43,73 @@ describe('validatePublicDomainInput', () => {
     if (r.ok) {
       expect(r.normalizedUrl).toMatch(/^https:\/\/example\.com/)
       expect(r.domain).toBe('example.com')
+    }
+  })
+})
+
+describe('runPublicIndexDiagnosis robots_blocks_all', () => {
+  beforeEach(() => {
+    vi.resetModules()
+  })
+  afterEach(() => {
+    vi.doUnmock('@/lib/index-diagnosis/crawler')
+    vi.doUnmock('@/lib/index-diagnosis/robots-parser')
+  })
+
+  it('returns robots_blocks_all when homepage is disallowed', async () => {
+    vi.doMock('@/lib/index-diagnosis/crawler', () => ({
+      runIndexCrawl: vi.fn(async () => ({
+        homepageUrl: 'https://blocked.example/',
+        robotsTxt: { raw: 'User-agent: *\nDisallow: /\n', groups: [] },
+        fetchedPages: [],
+        coverage: {
+          domain: 'blocked.example',
+          seedUrl: 'https://blocked.example/',
+          discoveredCount: 1,
+          fetchedCount: 0,
+          excluded: [
+            {
+              url: 'https://blocked.example/',
+              reason: 'ROBOTS_DISALLOWED',
+              evidence: 'Disallow: /',
+            },
+          ],
+          excludedByReason: {
+            ROBOTS_DISALLOWED: 1,
+            META_NOINDEX: 0,
+            X_ROBOTS_NOINDEX: 0,
+            NON_200: 0,
+            DEPTH_LIMIT: 0,
+            TIMEOUT: 0,
+            PLAN_LIMIT: 0,
+            REDIRECT_CHAIN: 0,
+            NOT_REACHED: 0,
+          },
+          terminationReason: 'ROBOTS',
+          terminationEvidence: 'blocked',
+          discoverySources: { sitemap: 0, links: 0, both: 0, seed: 1 },
+          sitemapOnlyUrls: [],
+          linkedOnlyUrls: [],
+          sitemapDiscoveredUrls: [],
+          robotsTxtFetched: true,
+          robotsTxtEvidence: 'ok',
+        },
+      })),
+    }))
+    vi.doMock('@/lib/index-diagnosis/robots-parser', () => ({
+      matchRobotsForUrl: () => ({
+        allowed: false,
+        ruleLine: 'Disallow: /',
+        evidence: 'UA * Disallow: /',
+      }),
+    }))
+
+    const { runPublicIndexDiagnosis } = await import('./run-public')
+    const result = await runPublicIndexDiagnosis('https://blocked.example/')
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.code).toBe('robots_blocks_all')
+      expect(result.message.toLowerCase()).toContain('robots')
     }
   })
 })
