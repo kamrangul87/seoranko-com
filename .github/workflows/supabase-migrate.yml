@@ -80,6 +80,8 @@ jobs:
           node scripts/intervention-pr2-prod-status.mjs
           # Phase 2A Step 1: live GSC token probe (fails loud if secrets missing).
           node scripts/gsc-phase2a-token-probe.mjs || echo "::warning::Phase 2A token probe exited non-zero — check secrets"
+          # Phase 2A H3 root-cause: per-source queue predicates vs prod row counts (read-only).
+          node scripts/gsc-inspection-queue-sources-probe.mjs || echo "::warning::inspection queue sources probe exited non-zero"
           # Phase 2A: attempt one real GSC URL Inspection (never fabricates).
           node scripts/gsc-first-inspection-probe.mjs || echo "::warning::GSC first-inspection probe exited non-zero"
           # Phase 2B evidence: verified Fix Agent kinds in prod (read-only).
