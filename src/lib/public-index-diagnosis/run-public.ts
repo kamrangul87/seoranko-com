@@ -2,9 +2,12 @@
  * Public Index Diagnosis runner — reuses runIndexCrawl, maps to public reasons.
  */
 
-import { runIndexCrawl } from '@/lib/index-diagnosis/crawler'
-import { matchRobotsForUrl } from '@/lib/index-diagnosis/robots-parser'
-import { classifyPublicScan } from './classify'
+import {
+  PUBLIC_SCAN_DEADLINE_MS,
+  PUBLIC_SCAN_MAX_DEPTH,
+  PUBLIC_SCAN_MAX_DISCOVERED,
+  PUBLIC_SCAN_MAX_FETCHED,
+} from './rate-limit'
 import type { PublicCauseSummary, PublicUrlEvidence } from './types'
 
 export type PublicScanErrorCode =
@@ -40,15 +43,15 @@ export type PublicScanFailure = {
 }
 
 const PUBLIC_CRAWL = {
-  maxDiscovered: 200,
-  maxFetched: 200,
-  maxDepth: 6,
+  maxDiscovered: PUBLIC_SCAN_MAX_DISCOVERED,
+  maxFetched: PUBLIC_SCAN_MAX_FETCHED,
+  maxDepth: PUBLIC_SCAN_MAX_DEPTH,
 }
 
 export async function runPublicIndexDiagnosis(
   seedUrl: string,
 ): Promise<PublicScanResult | PublicScanFailure> {
-  const deadlineMs = Date.now() + 55_000
+  const deadlineMs = Date.now() + PUBLIC_SCAN_DEADLINE_MS
   let crawl
   try {
     crawl = await runIndexCrawl(seedUrl, { ...PUBLIC_CRAWL, deadlineMs })

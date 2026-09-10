@@ -199,6 +199,10 @@ With a valid GSC OAuth token on an active property:
 
 Without that user interaction / valid token, Index Insights stays **implemented unproven** for data.
 
+**Step reports:** `docs/PHASE2A_STEP_REPORT.md`  
+**Step 2 (caller):** cron `src/app/api/cron/gsc-sync/route.ts` + UI `POST /api/gsc/inspections` — not “nothing”.  
+**Step 1:** blocked in agent/CI until hosted Supabase + Google OAuth secrets are present (`scripts/gsc-phase2a-token-probe.mjs`).
+
 ### Phase 5 Agentic Fix Run
 
 **Blocked** until 2A + 2B close. Receipt, effort bands, freeze answers:

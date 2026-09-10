@@ -179,7 +179,7 @@ export default function PublicIndexDiagnosisPage() {
 
         {loading && (
           <p className="text-sm text-[#6B6B6B] mb-6">
-            Crawling up to 200 URLs (about a minute). Partial results are returned if the time budget
+            Crawling up to 40 URLs (about 30 seconds). Partial results are returned if the time budget
             runs out.
           </p>
         )}
@@ -209,7 +209,7 @@ export default function PublicIndexDiagnosisPage() {
               </p>
               {result.siteTooLarge && (
                 <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
-                  This site is large — we hit the 200-URL discovery cap. Treat this as a sample of
+                  This site is large — we hit the crawl URL cap. Treat this as a sample of
                   the highest-priority crawl paths, not a full inventory.
                 </p>
               )}

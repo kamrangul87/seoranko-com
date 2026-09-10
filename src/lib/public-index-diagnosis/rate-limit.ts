@@ -6,7 +6,13 @@
 
 import { createClient } from '@supabase/supabase-js'
 
-export const PUBLIC_SCAN_RATE_LIMIT_PER_HOUR = 3
+export const PUBLIC_SCAN_RATE_LIMIT_PER_HOUR = 1
+
+/** Hard crawl budget for the public funnel (containment — not a product expansion). */
+export const PUBLIC_SCAN_MAX_DISCOVERED = 40
+export const PUBLIC_SCAN_MAX_FETCHED = 40
+export const PUBLIC_SCAN_MAX_DEPTH = 4
+export const PUBLIC_SCAN_DEADLINE_MS = 25_000
 
 const concurrentByIp = new Set<string>()
 const memoryHits = new Map<string, number[]>()

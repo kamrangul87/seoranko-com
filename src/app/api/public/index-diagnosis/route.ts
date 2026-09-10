@@ -7,6 +7,8 @@ import {
 } from '@/lib/public-index-diagnosis/validate-domain'
 import { runPublicIndexDiagnosis } from '@/lib/public-index-diagnosis/run-public'
 import {
+  PUBLIC_SCAN_MAX_DISCOVERED,
+  PUBLIC_SCAN_MAX_FETCHED,
   PUBLIC_SCAN_RATE_LIMIT_PER_HOUR,
   countScansLastHour,
   recordMemoryScan,
@@ -137,7 +139,8 @@ export async function POST(req: NextRequest) {
       urlCount: result.urls.length,
       siteTooLarge:
         Boolean((result.evidence as { siteTooLargeHint?: boolean }).siteTooLargeHint) ||
-        result.urlsDiscovered >= 200,
+        result.urlsDiscovered >= PUBLIC_SCAN_MAX_DISCOVERED ||
+        result.urlsFetched >= PUBLIC_SCAN_MAX_FETCHED,
       // Preview only — first 0 URLs until email unlock
       urlsUnlocked: false,
       urls: [] as unknown[],

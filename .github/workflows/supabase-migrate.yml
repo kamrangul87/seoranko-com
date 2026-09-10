@@ -55,6 +55,10 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SITE_CONNECTION_ENCRYPTION_KEY: ${{ secrets.SITE_CONNECTION_ENCRYPTION_KEY }}
+          GOOGLE_GSC_CLIENT_ID: ${{ secrets.GOOGLE_GSC_CLIENT_ID }}
+          GOOGLE_GSC_CLIENT_SECRET: ${{ secrets.GOOGLE_GSC_CLIENT_SECRET }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           SUPABASE_POOLER_HOST: ${{ secrets.SUPABASE_POOLER_HOST }}
@@ -74,6 +78,8 @@ jobs:
           # Works with SUPABASE_DB_PASSWORD already present for migrate.
           npx --yes tsx scripts/complete-causal-loop.ts
           node scripts/intervention-pr2-prod-status.mjs
+          # Phase 2A Step 1: live GSC token probe (fails loud if secrets missing).
+          node scripts/gsc-phase2a-token-probe.mjs || echo "::warning::Phase 2A token probe exited non-zero — check secrets"
           # Phase 2A: attempt one real GSC URL Inspection (never fabricates).
           node scripts/gsc-first-inspection-probe.mjs || echo "::warning::GSC first-inspection probe exited non-zero"
           # Phase 2B evidence: verified Fix Agent kinds in prod (read-only).
