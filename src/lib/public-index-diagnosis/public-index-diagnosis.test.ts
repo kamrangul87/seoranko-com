@@ -1,5 +1,9 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { explainPublicCause } from './explanations'
+import {
+  explainPublicCause,
+  PUBLIC_REASON_AUTO_FIXABLE,
+  upgradeCtaForCause,
+} from './explanations'
 import { PUBLIC_EXCLUSION_REASONS } from './types'
 import { clientIpFromHeaders, validatePublicDomainInput } from './validate-domain'
 
@@ -10,7 +14,31 @@ describe('public Index Diagnosis explanations', () => {
       expect(copy.headline.length).toBeGreaterThan(5)
       expect(copy.explanation).toContain('https://example.com/page')
       expect(copy.explanation).toMatch(/3/)
+      expect(copy.action.length).toBeGreaterThan(10)
+      expect(copy.autoFixable).toBe(PUBLIC_REASON_AUTO_FIXABLE[reason])
     }
+  })
+
+  it('keeps action lines concrete and imperative', () => {
+    const redirect = explainPublicCause('REDIRECT_CHAIN', 2, 'https://example.com/a')
+    expect(redirect.action.toLowerCase()).toMatch(/replace|href|final destination/)
+    expect(redirect.autoFixable).toBe(true)
+
+    const thin = explainPublicCause('THIN_CONTENT', 2, 'https://example.com/')
+    expect(thin.action.toLowerCase()).toMatch(/expand|200|noindex/)
+    expect(thin.autoFixable).toBe(false)
+
+    const dead = explainPublicCause('HTTP_4XX', 1, 'https://example.com/missing')
+    expect(dead.action.toLowerCase()).toMatch(/restore|remove|href/)
+    expect(dead.autoFixable).toBe(true)
+  })
+
+  it('does not claim Fix Agent auto-fix for editorial findings', () => {
+    expect(PUBLIC_REASON_AUTO_FIXABLE.THIN_CONTENT).toBe(false)
+    expect(PUBLIC_REASON_AUTO_FIXABLE.NEAR_DUPLICATE).toBe(false)
+    expect(PUBLIC_REASON_AUTO_FIXABLE.ORPHAN_NO_INLINKS).toBe(false)
+    expect(upgradeCtaForCause(true)).toMatch(/Fix Agent can apply this automatically/)
+    expect(upgradeCtaForCause(false)).not.toMatch(/automatically/)
   })
 })
 

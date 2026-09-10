@@ -69,6 +69,8 @@ describe('classifyPublicScan', () => {
     })
     expect(result.urls[0]?.reason).toBe('NOINDEX_TAG')
     expect(result.topCauses[0]?.reason).toBe('NOINDEX_TAG')
+    expect(result.topCauses[0]?.autoFixable).toBe(false)
+    expect(result.topCauses[0]?.action.toLowerCase()).toMatch(/remove noindex|meta/)
   })
 
   it('marks thin content when main text < 200 words', () => {
@@ -85,6 +87,34 @@ describe('classifyPublicScan', () => {
       ],
     })
     expect(result.urls[0]?.reason).toBe('THIN_CONTENT')
+    expect(result.topCauses[0]?.autoFixable).toBe(false)
+    expect(result.topCauses[0]?.action.length).toBeGreaterThan(10)
+  })
+
+  it('flags HTTP_4XX as auto-fixable with a concrete action', () => {
+    const result = classifyPublicScan({
+      coverage: emptyCoverage({
+        fetchedCount: 0,
+        excluded: [
+          {
+            url: 'https://example.com/gone',
+            reason: 'NON_200',
+            evidence: 'HTTP 404',
+            httpStatus: 404,
+          },
+        ],
+        excludedByReason: {
+          ...emptyCoverage().excludedByReason,
+          NON_200: 1,
+        },
+      }),
+      robotsTxt: '',
+      fetchedPages: [],
+    })
+    expect(result.urls[0]?.reason).toBe('HTTP_4XX')
+    expect(result.topCauses[0]?.reason).toBe('HTTP_4XX')
+    expect(result.topCauses[0]?.autoFixable).toBe(true)
+    expect(result.topCauses[0]?.action.toLowerCase()).toMatch(/restore|remove/)
   })
 
   it('maps robots-excluded URLs to BLOCKED_BY_ROBOTS', () => {
@@ -108,5 +138,6 @@ describe('classifyPublicScan', () => {
     })
     expect(result.urls[0]?.reason).toBe('BLOCKED_BY_ROBOTS')
     expect(result.urls[0]?.robotsRuleLine).toMatch(/Disallow:\s*\/admin/i)
+    expect(result.topCauses[0]?.action.toLowerCase()).toMatch(/robots\.txt|disallow/)
   })
 })

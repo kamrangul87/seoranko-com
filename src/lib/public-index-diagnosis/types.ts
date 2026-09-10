@@ -44,4 +44,8 @@ export type PublicCauseSummary = {
   exampleUrl: string
   headline: string
   explanation: string
+  /** Concrete imperative remediation — one line, no strategy internals. */
+  action: string
+  /** True when Fix Agent can apply a mechanical strategy for this reason. */
+  autoFixable: boolean
 }

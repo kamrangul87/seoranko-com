@@ -9,6 +9,8 @@ type TopCause = {
   exampleUrl: string
   headline: string
   explanation: string
+  action?: string
+  autoFixable?: boolean
 }
 
 type UrlRow = {
@@ -227,12 +229,34 @@ export default function PublicIndexDiagnosisPage() {
                       key={c.reason}
                       className="border border-[#E8E8E4] rounded-xl bg-white p-4"
                     >
-                      <p className="text-xs font-semibold text-[#9B9B9B] uppercase tracking-wide mb-1">
-                        #{i + 1} · {c.reason.replace(/_/g, ' ')} · {c.affectedUrlCount} URL
-                        {c.affectedUrlCount === 1 ? '' : 's'}
-                      </p>
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <p className="text-xs font-semibold text-[#9B9B9B] uppercase tracking-wide">
+                          #{i + 1} · {c.reason.replace(/_/g, ' ')} · {c.affectedUrlCount} URL
+                          {c.affectedUrlCount === 1 ? '' : 's'}
+                        </p>
+                        {c.autoFixable ? (
+                          <span className="inline-flex items-center rounded-md border border-[#FF6B2C]/40 bg-[#FFF4EE] px-2 py-0.5 text-[11px] font-semibold text-[#C24A12]">
+                            Auto-fixable with a free account
+                          </span>
+                        ) : null}
+                      </div>
                       <p className="font-semibold text-[#0F0F0F] mb-1">{c.headline}</p>
-                      <p className="text-sm text-[#6B6B6B] leading-relaxed">{c.explanation}</p>
+                      <p className="text-sm text-[#6B6B6B] leading-relaxed mb-2">{c.explanation}</p>
+                      {c.action ? (
+                        <p className="text-sm text-[#0F0F0F] leading-relaxed mb-3">
+                          <span className="font-medium">What to change: </span>
+                          {c.action}
+                        </p>
+                      ) : null}
+                      <p className="text-sm text-[#6B6B6B]">
+                        {c.autoFixable
+                          ? 'Fix Agent can apply this automatically — '
+                          : 'Track and fix this in SEORANKO — '}
+                        <Link href="/signup" className="text-[#FF6B2C] font-medium hover:underline">
+                          create a free account
+                        </Link>
+                        .
+                      </p>
                     </li>
                   ))}
                 </ol>

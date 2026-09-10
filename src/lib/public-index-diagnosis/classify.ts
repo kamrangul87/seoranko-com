@@ -239,6 +239,8 @@ export function classifyPublicScan(opts: {
       exampleUrl,
       headline: copy.headline,
       explanation: copy.explanation,
+      action: copy.action,
+      autoFixable: copy.autoFixable,
     }
   })
 
