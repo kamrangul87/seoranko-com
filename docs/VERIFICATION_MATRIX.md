@@ -199,7 +199,15 @@ With a valid GSC OAuth token on an active property:
 
 Without that user interaction / valid token, Index Insights stays **implemented unproven** for data.
 
+### Phase 5 Agentic Fix Run
+
+**Blocked** until 2A + 2B close. Receipt, effort bands, freeze answers:
+`docs/PHASE5_AGENTIC_FIX_RUN.md`. No 5A–5H implementation yet.
+
 ### Migration safety
 
 Any new migration must be **additive/non-destructive by default**. Stop and ask before
 `DROP` / destructive `ALTER` / truncate — production holds verified interventions and GSC history.
+
+New tables: RLS enabled **and ≥1 policy** (see `public_scans` deny policies
+`20260910100000_public_scans_deny_policies.sql`).

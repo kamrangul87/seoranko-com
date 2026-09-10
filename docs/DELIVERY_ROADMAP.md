@@ -93,6 +93,19 @@ validation**, not another engineering feature phase.
 
 ---
 
+## Phase 5 — Agentic Fix Run *(BLOCKED)*
+
+Directive on file: `docs/PHASE5_AGENTIC_FIX_RUN.md`.
+
+**Do not start 5A–5H** until Phase **2A** (first live GSC inspection + quota RPC
+exercise) and **2B** (two additional verified GitHub strategies) are closed with
+production evidence in `VERIFICATION_MATRIX.md`.
+
+Public Index Diagnosis / `public_scans` is on **feature hold** (justified + deny
+policies only — no further funnel work).
+
+---
+
 ## Explicit non-goals (post-gate)
 
 - WordPress / Shopify / Webflow expansion
