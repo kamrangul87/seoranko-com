@@ -40,7 +40,7 @@ async function main() {
   try {
     const conn = await client.query(
       `SELECT c.id, c.user_id, c.site_id, c.property_url, c.status,
-              c.last_sync_at, c.last_error, s.domain, s.root_url
+              c.last_sync_at, c.last_error, s.domain
        FROM gsc_connections c
        LEFT JOIN connected_sites s ON s.id = c.site_id
        WHERE c.site_id = $1
