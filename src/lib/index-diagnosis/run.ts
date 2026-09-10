@@ -12,8 +12,11 @@ import type { IndexDiagnosisResult } from './types'
  * Run full Index Diagnosis for a seed URL (domain crawl + indexability + cohorts).
  * Crawl data only — no external SERP or paid APIs.
  */
-export async function runIndexDiagnosis(seedUrl: string): Promise<IndexDiagnosisResult> {
-  const crawl = await runIndexCrawl(seedUrl)
+export async function runIndexDiagnosis(
+  seedUrl: string,
+  crawlOptions?: import('./crawler').IndexCrawlOptions,
+): Promise<IndexDiagnosisResult> {
+  const crawl = await runIndexCrawl(seedUrl, crawlOptions)
   const pages = evaluateAllPages(crawl.fetchedPages, crawl.robotsTxt)
 
   const gapCtx = buildSitemapGapFilterContext(crawl.coverage, crawl.fetchedPages, pages)

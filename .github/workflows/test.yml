@@ -39,6 +39,7 @@ jobs:
           src/lib/sentence-boundaries.test.ts
           src/lib/site-connection-lookup.test.ts
           src/lib/regression-fixtures-ci.contract.test.ts
+          src/lib/public-index-diagnosis/
           src/lib/gsc/pr1-wiring.test.ts
           src/lib/gsc/index-insights.test.ts
           src/lib/gsc/baseline-readiness.test.ts

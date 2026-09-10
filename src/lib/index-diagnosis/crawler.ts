@@ -14,11 +14,20 @@ import type {
 } from './types'
 
 const USER_AGENT = 'SEORANKO-IndexDiagnosis/1.0'
-const MAX_DISCOVERED = 200
-const MAX_FETCHED = 50
-const MAX_DEPTH = 4
+const DEFAULT_MAX_DISCOVERED = 200
+const DEFAULT_MAX_FETCHED = 50
+const DEFAULT_MAX_DEPTH = 4
 const MAX_REDIRECTS = 5
 const FETCH_TIMEOUT_MS = 8000
+
+/** Optional overrides — defaults preserve dashboard Index Diagnosis behaviour. */
+export type IndexCrawlOptions = {
+  maxDiscovered?: number
+  maxFetched?: number
+  maxDepth?: number
+  /** Wall-clock deadline (ms since epoch). Soft-stop and return partial. */
+  deadlineMs?: number
+}
 
 export interface FetchedPage {
   url: string
@@ -174,7 +183,15 @@ function initExcludeCounts(): Record<CrawlExcludeReason, number> {
   }
 }
 
-export async function runIndexCrawl(seedUrl: string): Promise<CrawlResult> {
+export async function runIndexCrawl(
+  seedUrl: string,
+  options: IndexCrawlOptions = {},
+): Promise<CrawlResult> {
+  const MAX_DISCOVERED = options.maxDiscovered ?? DEFAULT_MAX_DISCOVERED
+  const MAX_FETCHED = options.maxFetched ?? DEFAULT_MAX_FETCHED
+  const MAX_DEPTH = options.maxDepth ?? DEFAULT_MAX_DEPTH
+  const deadlineMs = options.deadlineMs
+
   const normalizedSeed = normalizeUrl(seedUrl.startsWith('http') ? seedUrl : `https://${seedUrl}`)
   if (!isSafePublicUrl(normalizedSeed)) {
     throw new Error('URL is not allowed for index diagnosis crawl')
@@ -244,6 +261,11 @@ export async function runIndexCrawl(seedUrl: string): Promise<CrawlResult> {
   let terminationEvidence = 'Crawl queue exhausted'
 
   while (queue.length > 0 && fetchedPages.length < MAX_FETCHED) {
+    if (deadlineMs != null && Date.now() >= deadlineMs) {
+      terminationReason = 'FETCH_BUDGET_EXHAUSTED'
+      terminationEvidence = 'Crawl stopped — time budget exhausted (partial results)'
+      break
+    }
     if (discovered.size >= MAX_DISCOVERED) {
       terminationReason = 'DISCOVERY_CAP_REACHED'
       terminationEvidence = `Discovery cap ${MAX_DISCOVERED} URLs reached`

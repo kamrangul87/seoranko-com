@@ -15,12 +15,12 @@ import type {
   PageIndexability,
 } from './types'
 
-function classifyCanonical(
+export function classifyCanonical(
   pageUrl: string,
   canonicalTags: string[],
-): { kind: CanonicalKind; evidence: string } {
+): { kind: CanonicalKind; evidence: string; target: string | null } {
   if (canonicalTags.length === 0) {
-    return { kind: 'missing', evidence: 'No <link rel="canonical"> tag found' }
+    return { kind: 'missing', evidence: 'No <link rel="canonical"> tag found', target: null }
   }
   if (canonicalTags.length > 1) {
     const uniq = new Set(canonicalTags)
@@ -28,6 +28,7 @@ function classifyCanonical(
       return {
         kind: 'conflicting',
         evidence: `Multiple conflicting canonical hrefs: ${canonicalTags.join(' | ')}`,
+        target: canonicalTags[0] || null,
       }
     }
   }
@@ -39,7 +40,7 @@ function classifyCanonical(
     canonHost = new URL(canon).hostname.replace(/^www\./, '')
     pageHost = new URL(pageUrl).hostname.replace(/^www\./, '')
   } catch {
-    return { kind: 'other', evidence: `Canonical href not parseable: ${canon}` }
+    return { kind: 'other', evidence: `Canonical href not parseable: ${canon}`, target: canon }
   }
 
   const normCanon = normalizeUrl(canon)
@@ -49,6 +50,7 @@ function classifyCanonical(
     return {
       kind: 'cross-domain',
       evidence: `Canonical ${canon} points off-site (page host ${pageHost})`,
+      target: canon,
     }
   }
   if (normCanon === normPage || canon === pageUrl || canonicalConsolidationOk(pageUrl, canon)) {
@@ -58,9 +60,14 @@ function classifyCanonical(
       evidence: equiv
         ? `Canonical matches this page (equivalent URL): ${canon}`
         : `Canonical self-reference: ${canon}`,
+      target: canon,
     }
   }
-  return { kind: 'other', evidence: `Canonical points to different same-host URL: ${canon} (page ${pageUrl})` }
+  return {
+    kind: 'other',
+    evidence: `Canonical points to different same-host URL: ${canon} (page ${pageUrl})`,
+    target: canon,
+  }
 }
 
 export function pathPatternForUrl(url: string): string {

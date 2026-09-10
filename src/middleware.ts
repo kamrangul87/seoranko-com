@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
 // Public routes — never require auth
-const PUBLIC_PATHS = ['/', '/pricing', '/login', '/signup', '/blog']
+const PUBLIC_PATHS = ['/', '/pricing', '/login', '/signup', '/blog', '/tools']
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -9,9 +9,11 @@ export async function middleware(request: NextRequest) {
   // Always allow public paths and API auth routes
   if (
     PUBLIC_PATHS.includes(pathname) ||
+    pathname.startsWith('/tools') ||
     pathname.startsWith('/login') ||
     pathname.startsWith('/signup') ||
     pathname.startsWith('/api/auth') ||
+    pathname.startsWith('/api/public') ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/favicon')
   ) {
