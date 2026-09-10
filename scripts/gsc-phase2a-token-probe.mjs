@@ -43,7 +43,7 @@ async function connectionSnapshotViaPg() {
        WHERE c.property_url ILIKE '%autodun%'
           OR s.domain ILIKE '%autodun%'
           OR s.root_url ILIKE '%autodun%'
-       ORDER BY c.updated_at DESC NULLS LAST
+       ORDER BY c.last_sync_at DESC NULLS LAST
        LIMIT 5`,
     )
     const metrics = await client.query(

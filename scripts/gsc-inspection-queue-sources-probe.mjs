@@ -44,7 +44,7 @@ async function main() {
        FROM gsc_connections c
        LEFT JOIN connected_sites s ON s.id = c.site_id
        WHERE c.site_id = $1
-       ORDER BY c.updated_at DESC NULLS LAST
+       ORDER BY c.last_sync_at DESC NULLS LAST
        LIMIT 1`,
       [SITE],
     )

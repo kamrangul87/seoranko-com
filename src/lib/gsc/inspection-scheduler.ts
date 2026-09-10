@@ -1047,12 +1047,15 @@ export async function syncAllUrlInspections(supabase: any): Promise<{
   failed: number
   results: InspectionSyncResult[]
 }> {
+  // gsc_connections has connected_at / last_sync_at — not updated_at.
+  // Ordering by a missing column makes PostgREST error and aborts the whole
+  // inspection wave before buildInspectionQueue (quota_usage stays 0 forever).
   const { data: connections, error } = await supabase
     .from('gsc_connections')
     .select('id, property_url')
     .eq('status', 'active')
     .not('property_url', 'is', null)
-    .order('updated_at', { ascending: true })
+    .order('last_sync_at', { ascending: true, nullsFirst: true })
 
   if (error) throw new Error(error.message)
 

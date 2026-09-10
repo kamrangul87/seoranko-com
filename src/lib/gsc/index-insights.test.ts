@@ -398,6 +398,33 @@ describe('GSC Index Insights wiring + banned UI phrases', () => {
     expect(emptyIdx).toBeGreaterThan(queueIdx)
     expect(reserveIdx).toBeGreaterThan(emptyIdx)
   })
+
+  it('syncAllUrlInspections orders gsc_connections by last_sync_at (column exists; updated_at does not)', () => {
+    const sched = readFileSync(join(root, 'src/lib/gsc/inspection-scheduler.ts'), 'utf8')
+    const mig = readFileSync(
+      join(root, 'supabase/migrations/20260907120000_causal_experiment_engine_pr1.sql'),
+      'utf8',
+    )
+    const syncAll = sched.slice(sched.indexOf('export async function syncAllUrlInspections'))
+    expect(mig).toMatch(/CREATE TABLE IF NOT EXISTS gsc_connections/)
+    expect(mig).toMatch(/last_sync_at/)
+    expect(mig).not.toMatch(/updated_at/)
+    expect(syncAll).toMatch(/\.order\(\s*['"]last_sync_at['"]/)
+    expect(syncAll).not.toMatch(/\.order\(\s*['"]updated_at['"]/)
+  })
+
+  it('metrics queue source has no date lookback (GSC reporting lag safe)', () => {
+    const sched = readFileSync(join(root, 'src/lib/gsc/inspection-scheduler.ts'), 'utf8')
+    const metricsStart = sched.indexOf(".from('url_metrics_daily')")
+    const metricsEnd = sched.indexOf('for (const row of metricRows', metricsStart)
+    expect(metricsStart).toBeGreaterThan(-1)
+    expect(metricsEnd).toBeGreaterThan(metricsStart)
+    const metricsQuery = sched.slice(metricsStart, metricsEnd)
+    expect(metricsQuery).toMatch(/\.eq\(\s*['"]site_id['"]/)
+    expect(metricsQuery).toMatch(/\.gt\(\s*['"]impressions['"]\s*,\s*0\s*\)/)
+    expect(metricsQuery).not.toMatch(/['"]date['"]/)
+    expect(metricsQuery).not.toMatch(/setUTCDate|Date\.now|CURRENT_DATE/)
+  })
 })
 
 describe('formatInspectionLastError', () => {
