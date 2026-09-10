@@ -61,6 +61,22 @@ ensure_supabase_cli() {
 }
 
 write_env_local() {
+  # Prefer already-injected hosted Supabase secrets over local stack keys.
+  # Cloud Agents that point at production (GSC probes, migrate probes) must not
+  # have .env.local overwritten with http://127.0.0.1:54321.
+  local hosted="${NEXT_PUBLIC_SUPABASE_URL:-}"
+  if [[ -n "$hosted" ]] && [[ "$hosted" != *"127.0.0.1"* ]] && [[ "$hosted" != *"localhost"* ]]; then
+    if [[ -n "${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}" && -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]]; then
+      cat > .env.local <<EOF
+NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+EOF
+      log "Wrote .env.local from hosted Supabase secrets (skipped local keys)"
+      return 0
+    fi
+  fi
+
   local api_url anon service
   api_url=$(supabase status -o env 2>/dev/null | awk -F= '/^API_URL=/{print $2}' | tr -d '"')
   anon=$(supabase status -o env 2>/dev/null | awk -F= '/^ANON_KEY=/{print $2}' | tr -d '"')
