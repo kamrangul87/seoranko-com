@@ -22,7 +22,7 @@ Caller already prefers `quota_day` with `day` fallback. A pure rename mismatch w
 - Fix `6bf7dab` Vercel **success** (“Deployment has completed”).
 - Quota rename landed earlier (`7833f65` / `20260909144000`). Live app commit **postdates** the rename.
 
-### H3 — empty candidate queue before reserve — **matches the symptom**
+### H3 — empty candidate queue before reserve — **mechanism real; not why prod is empty**
 
 In `syncUrlInspectionsForConnection`:
 
@@ -30,9 +30,25 @@ In `syncUrlInspectionsForConnection`:
 2. `batch = queue.slice(0, batchCap)`
 3. **`if (batch.length === 0) return` with `stoppedReason: 'empty'` — before `reserveQuota()`**
 
-That yields: cron metrics update `last_sync_at`, inspection path reserves nothing, `last_error` stayed null. Exactly production’s “clean cron, quota_usage=0” shape.
+That path can explain quota_usage=0 **if** the queue is empty. Production counters (CI run `34460594608`, probe `gsc-inspection-queue-sources-probe.mjs`) show it would **not** be empty for autodun:
 
-**Fix shipped:** empty queue / zero reservation / thrown batch now write `gsc_connections.last_error` via `formatInspectionLastError`. Successful `inspected > 0` clears it.
+| Source | Predicate (code) | Prod count (site `50b305a3-…`) |
+|---|---|---|
+| Diagnosis | latest `index_diagnosis_runs` for `user_id` + `domain` → pages not BLOCKED/excluded | **14** eligible pages |
+| Sitemap | same run `coverage.sitemapDiscoveredUrls` | **13** eligible |
+| Metrics | `url_metrics_daily` `site_id` + `impressions > 0` (**no date window**) | **370** rows / **12** distinct URLs (freshest 2026-09-06) |
+| Deferred | `gsc_inspection_deferred` `property_url` + `pending` + `next_attempt_at <= now()` | **0** |
+| Interventions | `intervention_events` verified + `site_id` + `verified_at` | **1** (with URL) |
+
+Date-window suspicion **disproven** in code. (Hypothetical `date >= today-3` would match **0** distinct URLs today — same failure class as discontinuity floor — but metrics does not filter on date.)
+
+**Fix shipped (observability):** empty queue / zero reservation / thrown batch write `gsc_connections.last_error`.
+
+### H4 — cron inspection wave orders by missing `gsc_connections.updated_at` — **root cause of quota_usage=0**
+
+`syncAllUrlInspections` selected active connections with `.order('updated_at')`. Table only has `connected_at` / `last_sync_at` (migration `20260907120000_…`). PostgREST errors → entire inspection try/catch in cron logs and returns metrics `ok: true` with no reserve. Metrics sync never touches that order column.
+
+**Fix shipped (`8d7cd91`):** order by `last_sync_at` (nulls first). Regression test asserts no `updated_at` order on that wave.
 
 ---
 
