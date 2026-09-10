@@ -9,6 +9,7 @@ import { runPublicIndexDiagnosis } from '@/lib/public-index-diagnosis/run-public
 import {
   PUBLIC_SCAN_RATE_LIMIT_PER_HOUR,
   countScansLastHour,
+  recordMemoryScan,
   releaseScanLock,
   tryAcquireScanLock,
 } from '@/lib/public-index-diagnosis/rate-limit'
@@ -72,6 +73,9 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await runPublicIndexDiagnosis(validated.normalizedUrl)
+    // Count toward hourly cap even if DB persist fails (abuse control).
+    recordMemoryScan(ipHash)
+
     if (!result.ok) {
       const status = result.code === 'robots_blocks_all' ? 422 : 400
       return NextResponse.json(result, { status })
