@@ -5,6 +5,37 @@ point at a live row / HTTP body / CI log. Update when evidence lands.
 
 ---
 
+## Hypotheses (checked 10 Sept against `origin/main` @ `6bf7dab`)
+
+### H1 — return-column `day` vs `quota_day` — **not the cause on current code**
+
+| Side | Fields |
+|---|---|
+| Live SQL (`20260909144000_…rename_day.sql`) | `reserved`, `remaining`, `quota_day`, `requests_used`, `exhausted` |
+| `reserveQuota()` reader | `row.reserved`, `row.remaining`, `row.quota_day` **or** legacy `row.day`, `row.exhausted` |
+
+Caller already prefers `quota_day` with `day` fallback. A pure rename mismatch would not prevent the RPC from inserting a `gsc_inspection_quota_usage` row — reserve still runs. Zero rows ⇒ reserve was never called (or never committed).
+
+### H2 — Vercel deploy lag vs DB — **was briefly true, now cleared**
+
+- `a21c444` Vercel **failed** (missing imports in `run-public.ts`).
+- Fix `6bf7dab` Vercel **success** (“Deployment has completed”).
+- Quota rename landed earlier (`7833f65` / `20260909144000`). Live app commit **postdates** the rename.
+
+### H3 — empty candidate queue before reserve — **matches the symptom**
+
+In `syncUrlInspectionsForConnection`:
+
+1. `buildInspectionQueue(...)` (diagnosis pages, sitemap, `url_metrics_daily` impressions>0, deferred, interventions; skip succeeded inspections <3d)
+2. `batch = queue.slice(0, batchCap)`
+3. **`if (batch.length === 0) return` with `stoppedReason: 'empty'` — before `reserveQuota()`**
+
+That yields: cron metrics update `last_sync_at`, inspection path reserves nothing, `last_error` stayed null. Exactly production’s “clean cron, quota_usage=0” shape.
+
+**Fix shipped:** empty queue / zero reservation / thrown batch now write `gsc_connections.last_error` via `formatInspectionLastError`. Successful `inspected > 0` clears it.
+
+---
+
 ## STEP 2 — What triggers URL Inspection sync? *(answered from merged code)*
 
 `gsc_inspection_quota_usage = 0` means `reserve_gsc_inspection_quota` has never

@@ -385,4 +385,31 @@ describe('GSC Index Insights wiring + banned UI phrases', () => {
     expect(sched).toMatch(/index_diagnosis_runs/)
     expect(sched).toMatch(/\.eq\(['"]domain['"]/)
   })
+
+  it('empty inspection queue returns before reserveQuota and writes last_error', () => {
+    const sched = readFileSync(join(root, 'src/lib/gsc/inspection-scheduler.ts'), 'utf8')
+    expect(sched).toMatch(/inspection_queue_empty/)
+    expect(sched).toMatch(/formatInspectionLastError/)
+    expect(sched).toMatch(/quota_day/)
+    const queueIdx = sched.indexOf('buildInspectionQueue')
+    const emptyIdx = sched.indexOf("stoppedReason = 'empty'")
+    const reserveIdx = sched.indexOf('await reserveQuota')
+    expect(queueIdx).toBeGreaterThan(-1)
+    expect(emptyIdx).toBeGreaterThan(queueIdx)
+    expect(reserveIdx).toBeGreaterThan(emptyIdx)
+  })
+})
+
+describe('formatInspectionLastError', () => {
+  it('includes reason and ISO timestamp', async () => {
+    const { formatInspectionLastError } = await import('./inspection-scheduler')
+    const msg = formatInspectionLastError({
+      reason: 'no candidate URLs',
+      detail: 'queueLen=0',
+      at: new Date('2026-09-10T12:00:00.000Z'),
+    })
+    expect(msg).toContain('URL Inspection: no candidate URLs.')
+    expect(msg).toContain('queueLen=0')
+    expect(msg).toContain('2026-09-10T12:00:00.000Z')
+  })
 })

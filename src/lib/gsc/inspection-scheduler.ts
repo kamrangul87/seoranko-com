@@ -43,6 +43,44 @@ export type InspectionSyncResult = {
   sampleDeltas: Array<{ url: string; reasons: string[] }>
 }
 
+/** Build a durable last_error string for inspection no-ops / failures (no secrets). */
+export function formatInspectionLastError(opts: {
+  reason: string
+  detail?: string
+  at?: Date
+}): string {
+  const at = (opts.at ?? new Date()).toISOString()
+  const detail = opts.detail ? ` ${opts.detail}` : ''
+  return `URL Inspection: ${opts.reason}.${detail} at ${at}`.slice(0, 1000)
+}
+
+async function writeConnectionInspectionError(
+  supabase: any,
+  connectionId: string,
+  message: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from('gsc_connections')
+    .update({ last_error: message.slice(0, 1000) })
+    .eq('id', connectionId)
+  if (error) {
+    console.error('[gsc-inspection] last_error write failed:', error.message)
+  }
+}
+
+async function clearConnectionInspectionError(
+  supabase: any,
+  connectionId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from('gsc_connections')
+    .update({ last_error: null })
+    .eq('id', connectionId)
+  if (error) {
+    console.error('[gsc-inspection] last_error clear failed:', error.message)
+  }
+}
+
 type PrioritizedUrl = {
   url: string
   priority: number
@@ -130,7 +168,13 @@ async function reserveQuota(
     propertyUrl: string
     requested: number
   },
-): Promise<{ reserved: number; remaining: number; day: string; exhausted: boolean }> {
+): Promise<{
+  reserved: number
+  remaining: number
+  day: string
+  exhausted: boolean
+  rpcError?: string
+}> {
   const { data, error } = await supabase.rpc('reserve_gsc_inspection_quota', {
     p_site_id: opts.siteId,
     p_user_id: opts.userId,
@@ -140,12 +184,19 @@ async function reserveQuota(
   })
   if (error) {
     console.error('[gsc-inspection-quota] reserve failed:', error.message)
-    return { reserved: 0, remaining: 0, day: utcDay(), exhausted: true }
+    return {
+      reserved: 0,
+      remaining: 0,
+      day: utcDay(),
+      exhausted: true,
+      rpcError: error.message,
+    }
   }
   const row = Array.isArray(data) ? data[0] : data
   return {
     reserved: Number(row?.reserved ?? 0),
     remaining: Number(row?.remaining ?? 0),
+    // Live RPC returns quota_day; accept legacy "day" if an older deploy somehow remains.
     day: row?.quota_day
       ? String(row.quota_day)
       : row?.day
@@ -678,6 +729,15 @@ export async function syncUrlInspectionsForConnection(
 
   if (batch.length === 0) {
     result.stoppedReason = 'empty'
+    result.errors.push('inspection_queue_empty')
+    await writeConnectionInspectionError(
+      supabase,
+      connectionId,
+      formatInspectionLastError({
+        reason: 'no candidate URLs (queue empty before quota reserve)',
+        detail: `skippedExcluded=${skippedExcluded} queueLen=${queue.length}. Sources: index_diagnosis_runs, sitemap, url_metrics_daily(impressions>0), deferred, interventions.`,
+      }),
+    )
     return result
   }
 
@@ -694,6 +754,17 @@ export async function syncUrlInspectionsForConnection(
   if (reservation.reserved <= 0) {
     result.skippedQuota = batch.length
     result.stoppedReason = 'quota'
+    result.errors.push(reservation.rpcError || 'quota_reserved_zero')
+    await writeConnectionInspectionError(
+      supabase,
+      connectionId,
+      formatInspectionLastError({
+        reason: reservation.rpcError
+          ? `quota reserve RPC failed: ${reservation.rpcError}`
+          : 'quota reserved 0 (soft cap exhausted or RPC returned zero)',
+        detail: `requested=${batch.length} remaining=${reservation.remaining} exhausted=${reservation.exhausted}`,
+      }),
+    )
     return result
   }
 
@@ -954,6 +1025,20 @@ export async function syncUrlInspectionsForConnection(
   result.remainingBudget = Math.max(0, reservation.remaining)
   result.exhausted = result.exhausted || result.remainingBudget <= 0 || markExhausted
   result.stoppedReason = stoppedReason
+
+  if (result.inspected > 0) {
+    await clearConnectionInspectionError(supabase, connectionId)
+  } else if (result.errors.length > 0 || stoppedReason === 'deadline') {
+    await writeConnectionInspectionError(
+      supabase,
+      connectionId,
+      formatInspectionLastError({
+        reason: `finished with inspected=0 (stopped=${stoppedReason})`,
+        detail: result.errors.slice(0, 3).join('; ') || undefined,
+      }),
+    )
+  }
+
   return result
 }
 
@@ -991,6 +1076,15 @@ export async function syncAllUrlInspections(supabase: any): Promise<{
       synced += 1
     } catch (err) {
       failed += 1
+      const message = err instanceof Error ? err.message : String(err)
+      await writeConnectionInspectionError(
+        supabase,
+        c.id,
+        formatInspectionLastError({
+          reason: 'inspection batch threw',
+          detail: message,
+        }),
+      )
       results.push({
         siteId: '',
         propertyUrl: (c as { property_url?: string }).property_url || '',
@@ -1001,7 +1095,7 @@ export async function syncAllUrlInspections(supabase: any): Promise<{
         deferred: 0,
         remainingBudget: 0,
         exhausted: false,
-        errors: [err instanceof Error ? err.message : String(err)],
+        errors: [message],
         sampleDeltas: [],
       })
     }
