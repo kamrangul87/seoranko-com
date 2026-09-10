@@ -85,38 +85,18 @@ Step 1’s live token call succeeds or is proven dead.
 
 ---
 
-## STEP 1 — Live GSC token probe *(blocked in this agent env)*
+## STEP 1 — Live GSC token probe *(production-only; not env validation)*
 
-### Attempted
+Token decrypt uses `SITE_CONNECTION_ENCRYPTION_KEY`, which stays on **Vercel
+Production** only — not the Cloud Agent VM. Env validation is: `npm ci`, unit
+tests, Postgres pooler, and service-role REST (all confirmed 10 Sept).
 
-- Local agent env has **demo** Supabase (`127.0.0.1:54321`) + `test-…` encryption key; no `GOOGLE_GSC_CLIENT_*`.
-- GitHub Actions migrate job (e.g. `34453784926`): `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SITE_CONNECTION_ENCRYPTION_KEY` are **empty** in the job env (secrets not set / not passed). Only `SUPABASE_DB_PASSWORD` is present → probe skips live API.
-- `curl https://www.seoranko.com/api/cron/gsc-sync` → `401 {"error":"Unauthorized"}` (no `CRON_SECRET` in agent).
-- Dashboard session: not logged in; cannot click Sync.
+Live Google calls / first inspection: trigger **Index Diagnosis → Sync Google’s
+last recorded view** in production (or wait for `gsc-sync` cron). Do not require
+encryption key in Actions/Cloud Agent.
 
-### Script ready
-
-`scripts/gsc-phase2a-token-probe.mjs` — decrypts autodun refresh token, refreshes,
-calls `sites.list` + one-day `searchAnalytics`, prints raw JSON (no tokens).
-
-### Silent-failure finding (from code, independent of token)
-
-Even when cron runs: failures set `gsc_connections.last_error` and log to Vercel.
-There is **no** email / pager / dashboard badge gated on stale `last_sync_at`.
-Experiments page shows `last_error` only if the user opens it. That is why four
-days of stale `url_metrics_daily` (latest **2026-09-06**) can go unnoticed.
-
-### Unblock
-
-Add hosted secrets to the Cloud Agent env **or** GitHub Actions (and Vercel):
-
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `SITE_CONNECTION_ENCRYPTION_KEY`
-- `GOOGLE_GSC_CLIENT_ID` / `GOOGLE_GSC_CLIENT_SECRET`
-- Optional: `CRON_SECRET` to invoke production cron once
-
-Then re-run the probe and paste its JSON here as Step 1 evidence.
+`scripts/gsc-phase2a-token-probe.mjs` remains for optional local use when someone
+has production decrypt secrets; it is **not** part of the CI env-validation path.
 
 ---
 

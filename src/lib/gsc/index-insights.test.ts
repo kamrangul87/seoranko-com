@@ -425,6 +425,134 @@ describe('GSC Index Insights wiring + banned UI phrases', () => {
     expect(metricsQuery).not.toMatch(/['"]date['"]/)
     expect(metricsQuery).not.toMatch(/setUTCDate|Date\.now|CURRENT_DATE/)
   })
+
+  it('buildInspectionQueue still selects metrics when freshest row is 4 days old', async () => {
+    const { buildInspectionQueue } = await import('./inspection-scheduler')
+    const freshest = new Date()
+    freshest.setUTCDate(freshest.getUTCDate() - 4)
+    const freshestIso = freshest.toISOString().slice(0, 10)
+    const siteId = 'site-autodun-test'
+    const calls: Array<{ table: string; filters: Record<string, unknown> }> = []
+
+    const metricRows = [
+      {
+        url: 'https://example.com/blog/mot-cost-uk-2026.html',
+        impressions: 65,
+        date: freshestIso,
+      },
+      {
+        url: 'https://example.com/',
+        impressions: 10,
+        date: freshestIso,
+      },
+    ]
+
+    function chain(table: string) {
+      const state: {
+        filters: Record<string, unknown>
+        orderCol?: string
+        limitN?: number
+        single?: boolean
+      } = { filters: {} }
+      const api: any = {
+        select: () => api,
+        eq: (col: string, val: unknown) => {
+          state.filters[col] = val
+          return api
+        },
+        gt: (col: string, val: unknown) => {
+          state.filters[`gt:${col}`] = val
+          return api
+        },
+        gte: (col: string, val: unknown) => {
+          state.filters[`gte:${col}`] = val
+          return api
+        },
+        lte: (col: string, val: unknown) => {
+          state.filters[`lte:${col}`] = val
+          return api
+        },
+        not: (_col?: string, _op?: string, _val?: unknown) => api,
+        order: (col: string) => {
+          state.orderCol = col
+          return api
+        },
+        limit: (n: number) => {
+          state.limitN = n
+          return api
+        },
+        maybeSingle: async () => {
+          calls.push({ table, filters: { ...state.filters } })
+          if (table === 'connected_sites') {
+            return { data: { domain: 'example.com' }, error: null }
+          }
+          if (table === 'index_diagnosis_runs') {
+            return { data: null, error: null }
+          }
+          if (table === 'gsc_inspection_scheduler_cursor') {
+            return { data: null, error: null }
+          }
+          return { data: null, error: null }
+        },
+        then: undefined as unknown,
+      }
+      // Make thenable for await supabase.from(...).select...limit()
+      api.then = (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) => {
+        calls.push({ table, filters: { ...state.filters } })
+        try {
+          if (table === 'url_metrics_daily') {
+            // Mirror production predicate: site_id + impressions>0, no date filter.
+            // Rows remain selectable even when freshest date is 4 days behind today.
+            const ok =
+              state.filters.site_id === siteId && state.filters['gt:impressions'] === 0
+            expect(state.filters['gte:date']).toBeUndefined()
+            expect(state.filters.date).toBeUndefined()
+            return Promise.resolve({
+              data: ok ? metricRows.map(({ url, impressions }) => ({ url, impressions })) : [],
+              error: null,
+            }).then(resolve, reject)
+          }
+          if (table === 'gsc_url_inspections') {
+            return Promise.resolve({ data: [], error: null }).then(resolve, reject)
+          }
+          if (table === 'intervention_events') {
+            return Promise.resolve({ data: [], error: null }).then(resolve, reject)
+          }
+          if (table === 'gsc_inspection_deferred') {
+            return Promise.resolve({ data: [], error: null }).then(resolve, reject)
+          }
+          return Promise.resolve({ data: [], error: null }).then(resolve, reject)
+        } catch (e) {
+          return Promise.reject(e).then(resolve, reject)
+        }
+      }
+      return api
+    }
+
+    const supabase = {
+      from: (table: string) => chain(table),
+    }
+
+    const { queue } = await buildInspectionQueue(supabase, {
+      siteId,
+      userId: 'user-1',
+      propertyUrl: 'sc-domain:example.com',
+      domain: 'example.com',
+    })
+
+    const metricsCall = calls.find((c) => c.table === 'url_metrics_daily')
+    expect(metricsCall).toBeTruthy()
+    expect(metricsCall!.filters['gte:date']).toBeUndefined()
+    expect(queue.map((q) => q.url).sort()).toEqual([
+      'https://example.com/',
+      'https://example.com/blog/mot-cost-uk-2026.html',
+    ].sort())
+    expect(queue.every((q) => q.source === 'metrics')).toBe(true)
+    // Freshest metrics are 4 days old — still selected (GSC reporting lag).
+    expect(
+      (Date.now() - Date.parse(`${freshestIso}T00:00:00.000Z`)) / (24 * 60 * 60 * 1000),
+    ).toBeGreaterThanOrEqual(3.9)
+  })
 })
 
 describe('formatInspectionLastError', () => {

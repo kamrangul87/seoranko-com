@@ -78,12 +78,16 @@ jobs:
           # Works with SUPABASE_DB_PASSWORD already present for migrate.
           npx --yes tsx scripts/complete-causal-loop.ts
           node scripts/intervention-pr2-prod-status.mjs
-          # Phase 2A Step 1: live GSC token probe (fails loud if secrets missing).
-          node scripts/gsc-phase2a-token-probe.mjs || echo "::warning::Phase 2A token probe exited non-zero — check secrets"
           # Phase 2A H3 root-cause: per-source queue predicates vs prod row counts (read-only).
+          # Does not decrypt GSC tokens — encryption key stays in Vercel Production only.
           node scripts/gsc-inspection-queue-sources-probe.mjs || echo "::warning::inspection queue sources probe exited non-zero"
-          # Phase 2A: attempt one real GSC URL Inspection (never fabricates).
-          node scripts/gsc-first-inspection-probe.mjs || echo "::warning::GSC first-inspection probe exited non-zero"
+          # Phase 2A: attempt one real GSC URL Inspection only when hosted decrypt secrets exist.
+          # Cloud Agent / Actions typically lack SITE_CONNECTION_ENCRYPTION_KEY; production holds it.
+          if [ -n "${NEXT_PUBLIC_SUPABASE_URL}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY}" ] && [ -n "${SITE_CONNECTION_ENCRYPTION_KEY}" ] && [ -n "${GOOGLE_GSC_CLIENT_ID}${GOOGLE_CLIENT_ID}" ]; then
+            node scripts/gsc-first-inspection-probe.mjs || echo "::warning::GSC first-inspection probe exited non-zero"
+          else
+            echo "::notice::Skipping live GSC inspection probe — decrypt/OAuth secrets not in this environment (run Sync in production UI)"
+          fi
           # Phase 2B evidence: verified Fix Agent kinds in prod (read-only).
           node scripts/fix-agent-verified-kinds-probe.mjs || echo "::warning::verified-kinds probe exited non-zero"
           # Phase 4: platform usage vs quotas + first-beta candidate inventory.
