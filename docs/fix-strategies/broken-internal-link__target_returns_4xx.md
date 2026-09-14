@@ -1,6 +1,7 @@
 # broken-internal-link__target_returns_4xx
 
 Status: READY FOR IMPLEMENTATION — depends on topic 70 (site model) and topic 68 (re-fetch rule)
+Discriminator revised 2026-09-14 — see detect
 Research dates: 2026-09-10
 Topic: 1 of the issue register
 
@@ -95,15 +96,26 @@ different treatment:
 
 Status and the meta tag alone cannot separate these.
 
-**Chosen discriminator: repo-side route resolution.** Using the site model
-(topic 70), determine whether any route in the connected repo can resolve the
-requested path. If no route resolves it, a 200 + `noindex` response is a
-streamed not-found render and the finding fires. If a route does resolve it,
-the destination is a real page and the `noindex` is deliberate — suppress.
+**Chosen discriminator: repo-declared `noindex` check.** Using the site model
+(topic 70), resolve the path to its route file and determine whether the repo
+*declares* `noindex` for it — via a `metadata` export, `generateMetadata`, or
+a robots config.
 
-Chosen because it is deterministic, offline, quota-free, and independent of
-both streaming behaviour and route-segment configuration. The site model is a
-prerequisite for every fix branch regardless, so this adds no new dependency.
+- repo declares `noindex` → the directive is deliberate. Valid page. Suppress.
+- repo does not declare it, yet the live response carries it → Next.js
+  injected it during a streamed not-found render. Destination gone. Raise.
+
+Chosen because the injected `noindex` has no counterpart in the source, so the
+check is deterministic, offline and quota-free. It holds for dynamic and
+static routes alike and does not depend on `dynamicParams`, on page text, or
+on the resource existing.
+
+**Superseded: plain repo-side route resolution.** Originally chosen here, then
+withdrawn. `app/blog/[slug]/page.tsx` matches `/blog/anything`, so route
+resolution proves a route *pattern* exists, never that the *resource* exists.
+Streamed soft 404s occur on dynamic routes, so it failed on the only case it
+was needed for. Route resolution is still required — it names the route file
+whose metadata is checked — but it is not the discriminator by itself.
 
 **Rejected alternatives:**
 
