@@ -1,0 +1,64 @@
+export type ExtractedAnchor = {
+  href: string
+  /** Raw attribute value as it appeared in HTML. */
+  raw: string
+}
+
+const HREF_RE = /<a\b[^>]*\bhref\s*=\s*(["'])(.*?)\1[^>]*>/gi
+
+/**
+ * Scheme / fragment filter from topic 1 guards. Applied before any fetch.
+ */
+export function isSkippableHref(href: string): boolean {
+  const trimmed = href.trim()
+  if (!trimmed) return true
+  if (trimmed === '#') return true
+  if (trimmed.startsWith('#')) return true
+  const lower = trimmed.toLowerCase()
+  if (lower.startsWith('mailto:')) return true
+  if (lower.startsWith('tel:')) return true
+  if (lower.startsWith('javascript:')) return true
+  if (lower.startsWith('data:')) return true
+  return false
+}
+
+/**
+ * Resolve href against a page URL and decide whether it is same-origin.
+ */
+export function isInternalHref(href: string, pageUrl: string): boolean {
+  if (isSkippableHref(href)) return false
+  try {
+    const base = new URL(pageUrl)
+    const resolved = new URL(href, base)
+    if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') {
+      return false
+    }
+    return resolved.host === base.host
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Extract `<a href>` values from HTML. Does not fetch.
+ */
+export function extractAnchors(html: string): ExtractedAnchor[] {
+  const out: ExtractedAnchor[] = []
+  for (const match of html.matchAll(HREF_RE)) {
+    const raw = match[2] ?? ''
+    out.push({ href: raw.trim(), raw })
+  }
+  return out
+}
+
+/**
+ * Internal, fetchable anchors from a page.
+ */
+export function extractInternalFetchableAnchors(
+  html: string,
+  pageUrl: string,
+): ExtractedAnchor[] {
+  return extractAnchors(html).filter(
+    (a) => !isSkippableHref(a.href) && isInternalHref(a.href, pageUrl),
+  )
+}
