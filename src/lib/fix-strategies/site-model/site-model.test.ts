@@ -109,6 +109,16 @@ describe('resolvePath', () => {
     })
     expect(resolvePath(appDir, '/').kind).toBe('indeterminate')
   })
+
+  it('does not treat middleware presence alone as indeterminate (no rewrite)', () => {
+    // Autodun / SEORANKO pattern: next() / redirect / headers only.
+    const appDir = makeApp({
+      'app/about/page.tsx': 'export default function Page(){return null}',
+      'middleware.ts':
+        'import { NextResponse } from "next/server"; export function middleware(){ return NextResponse.next() }',
+    })
+    expect(resolvePath(appDir, '/about').kind).toBe('static-route')
+  })
 })
 
 describe('declaresNoindex', () => {

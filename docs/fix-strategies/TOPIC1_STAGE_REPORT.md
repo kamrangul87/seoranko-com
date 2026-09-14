@@ -32,17 +32,20 @@ flip → unstable; 429/503 → non-actionable after honouring Retry-After.
   `indeterminate` + route file
 - strips `(group)`, ignores `@slot`, most-specific-first
 - `[...slug]` does not match parent root; `[[...slug]]` does
-- any `middleware` rewrite → `indeterminate` (conservative)
+- `rewrite()` / `NextResponse.rewrite()` present → all paths `indeterminate`
+  (conservative). Middleware file presence alone is not enough.
 - `declaresNoindex` — page metadata, layout chain, `generateMetadata`
 
 **Tests assert:** groups, slots, param, catch-all trap, optional catch-all
-root match, specificity, middleware indeterminate, layout cascade, conditional
-`generateMetadata` → indeterminate.
+root match, specificity, middleware rewrite → indeterminate, layout cascade,
+conditional `generateMetadata` → indeterminate.
 
 **Dossier notes:**
-- Middleware matcher precision is still the open question in the dossier.
-  Current behaviour: **any rewrite ⇒ all paths indeterminate**. Finer static
-  matcher parsing was not specified tightly enough to implement safely.
+- Topic 70 open question **closed** (Autodun middleware answer, 2026-09-14):
+  real Autodun / SEORANKO middleware use `next()` / redirect / headers only —
+  no `rewrite()`. Key off rewrite calls, not file presence. When a rewrite
+  *does* exist, keep indeterminate for all paths (matcher precision still not
+  worth guessing). No Autodun-specific defaults in code.
 
 ## Stage 3 — topic 1, 410 branch only
 
