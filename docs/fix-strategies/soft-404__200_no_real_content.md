@@ -123,8 +123,8 @@ and human-review returned for the fourth.
 
 ## Open questions
 
-1. Confirm the Google soft-404 wording against the live docs page before the
-   `_sources.md` rows are marked verified.
+(none — Google soft-404 wording confirmed against live docs; see `_sources.md`
+row 27)
 
 ## Cross-references
 
