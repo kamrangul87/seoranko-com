@@ -44,7 +44,8 @@ export function isInternalHref(href: string, pageUrl: string): boolean {
  */
 export function extractAnchors(html: string): ExtractedAnchor[] {
   const out: ExtractedAnchor[] = []
-  for (const match of html.matchAll(HREF_RE)) {
+  const matches = Array.from(html.matchAll(HREF_RE))
+  for (const match of matches) {
     const raw = match[2] ?? ''
     out.push({ href: raw.trim(), raw })
   }
