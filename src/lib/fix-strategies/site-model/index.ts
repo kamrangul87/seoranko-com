@@ -134,8 +134,12 @@ function matchSegments(pattern: Segment[], pathSegs: string[]): boolean {
 }
 
 /**
- * Conservative middleware probe. Dossier leaves matcher precision open; if any
- * rewrite exists, treat paths as indeterminate rather than guess.
+ * Middleware probe keyed on rewrite() calls, not file presence.
+ *
+ * Autodun middleware answer (2026-09-14): real Autodun / SEORANKO middleware
+ * uses next()/redirect/headers only — no rewrite(). Presence of middleware.ts
+ * alone must not mark paths indeterminate. When a rewrite *does* exist,
+ * treat paths as indeterminate rather than guessing matcher scope.
  */
 export function middlewareMayRewrite(appDir: string): boolean {
   const root = path.dirname(appDir)

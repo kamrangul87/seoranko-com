@@ -65,7 +65,20 @@ verifier source has no fixer import.
 **CI asserts:** one finding raised; three suppressed; fix applied;
 postcondition passes against the served (fixed) HTML.
 
-## Not in this task
+## Not in this task (original Stage 1–4)
 
-404 branch (git history / successor similarity), 200+`noindex` discriminator
-(uses Stage 2 but deferred), and wiring into the live Fix Agent orchestrator.
+404 branch (git history / successor similarity), soft-404 discriminator
+wiring into Fix Agent, and customer-repo writes.
+
+## Follow-up — 404 branch + Autodun middleware (2026-09-14)
+
+**Autodun middleware answer:** real Autodun middleware has no `rewrite()` —
+only `next()`, auth challenge, or header injection. Closed topic 70 open
+question: key off rewrite calls, not middleware file presence.
+
+**404 branch shipped** under `src/lib/fix-strategies/topic-1/`:
+- `git-route-history.ts` — `git log --diff-filter=D` evidence
+- `successor-similarity.ts` — path + content Jaccard, product floor
+- `decide-404.ts` — remove / proposed-301 / ambiguous / recreate-scaffold
+- GSC impressions accepted but never gate
+- Fixture exercises all four 404 outcomes plus 410
