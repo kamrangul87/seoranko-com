@@ -108,6 +108,23 @@ but only where the route is statically generated.
 5. Resolve a path by matching most-specific-first: static segment, then
    `[param]`, then `[...catchAll]`, then `[[...optionalCatchAll]]`.
 
+## noindex declaration check
+
+A route declares `noindex` in exactly three places. The check must cover all
+three:
+
+1. **Static `metadata` export in `page.tsx`** — `robots: { index: false }`.
+   Applies to that URL only.
+2. **Static `metadata` export in `layout.tsx`** — cascades to every child page
+   in that segment. The check must walk the full layout chain above the route,
+   not just the page file.
+3. **`generateMetadata()` returning the same object** — used where the
+   directive depends on runtime data.
+
+Case 3 cannot always be resolved statically: if `generateMetadata` sets
+`robots` conditionally, the declaration is runtime-dependent. Return
+`indeterminate` and route to human-review. Do not guess the branch taken.
+
 ## false-positive guards
 
 | # | Guard | Action |
@@ -141,11 +158,8 @@ serves the URL. Topic 1 depends on it for the discriminator.
    groups, parallel slots, catch-all vs optional catch-all, and middleware
    rewrites. Still worth one direct read before the `_sources.md` rows are
    marked verified rather than corroborated.
-3. **The discriminator's `noindex` declaration check is not yet specified.**
-   Every way a route can declare `noindex` — static `metadata` export,
-   `generateMetadata`, layout-level inheritance, `robots` config — must be
-   enumerated before the check can be implemented. This is now the blocking
-   item for topic 1.
+3. ~~The discriminator's `noindex` declaration check is not yet specified.~~
+   **CLOSED 2026-09-14.** See below.
 
 ## Cross-references
 

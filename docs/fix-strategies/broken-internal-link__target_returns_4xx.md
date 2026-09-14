@@ -101,7 +101,12 @@ Status and the meta tag alone cannot separate these.
 *declares* `noindex` for it — via a `metadata` export, `generateMetadata`, or
 a robots config.
 
+Check all three declaration sites (topic 70): static `metadata` in
+`page.tsx`, static `metadata` in any `layout.tsx` above the route, and
+`generateMetadata()`.
+
 - repo declares `noindex` → the directive is deliberate. Valid page. Suppress.
+- `generateMetadata` sets `robots` conditionally → indeterminate. Human-review.
 - repo does not declare it, yet the live response carries it → Next.js
   injected it during a streamed not-found render. Destination gone. Raise.
 
