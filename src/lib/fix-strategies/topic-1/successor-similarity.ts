@@ -50,7 +50,9 @@ export function pathSimilarity(a: string, b: string): number {
   if (ta.size === 0 && tb.size === 0) return 1
   if (ta.size === 0 || tb.size === 0) return 0
   let inter = 0
-  for (const t of ta) if (tb.has(t)) inter++
+  Array.from(ta).forEach((t) => {
+    if (tb.has(t)) inter++
+  })
   const union = ta.size + tb.size - inter
   return union === 0 ? 0 : inter / union
 }
@@ -62,7 +64,9 @@ export function contentSimilarity(htmlA: string, htmlB: string): number {
   if (a.size === 0 && b.size === 0) return 1
   if (a.size === 0 || b.size === 0) return 0
   let inter = 0
-  for (const t of a) if (b.has(t)) inter++
+  Array.from(a).forEach((t) => {
+    if (b.has(t)) inter++
+  })
   const union = a.size + b.size - inter
   return union === 0 ? 0 : inter / union
 }
