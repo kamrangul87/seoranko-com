@@ -1,10 +1,10 @@
 // src/lib/schema-validate.ts
-// Hard pre-save assertion on the two properties Google's structured-data
-// guidelines call out for full Article rich-result eligibility:
-// Article.image and Organization.logo. Distinct from schema-validator.ts's
-// broader structural/presence checks (RULE 6 in article-quality-gate.ts),
-// which mostly emit warnings — this asserts the exact values
-// schema-generator.ts resolved and blocks save when they're not usable.
+// Product completeness gate before save: SEORANKO requires a shipped Article
+// image URL and (when brand settings exist) an Organization.logo URL.
+// This is a **product decision**, not a Google requirement — Google's Article
+// docs state there are no required properties; `image` is recommended only.
+// Distinct from schema-validator.ts's broader structural/presence checks
+// (RULE 6 in article-quality-gate.ts).
 
 export interface SchemaValidationInput {
   imageUrl: string | undefined
@@ -33,7 +33,7 @@ export function assertSchemaCompleteness(input: SchemaValidationInput): SchemaVa
 
   if (!isAbsoluteHttpsUrl(input.imageUrl)) {
     reasons.push(
-      'Article.image is missing or not a valid absolute https URL — required for Article rich-result image eligibility.'
+      'Article.image is missing or not a valid absolute https URL — product decision: SEORANKO requires a featured image on save (Google lists image as recommended, not required).'
     )
   }
 

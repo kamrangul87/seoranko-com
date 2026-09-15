@@ -7,8 +7,8 @@ Depends on: topics 68, 70
 Research dates: 2026-09-14
 
 **Template topic.** Topics 9–12 (http/https, www/non-www, case variants, query
-parameters) are the same shape: two URL forms both serving 200 with the same
-content. Reuse this structure; only the variant-generation step differs.
+parameters) reuse this structure; only the variant-generation step differs.
+Each is researched and READY (2026-09-15).
 
 ---
 

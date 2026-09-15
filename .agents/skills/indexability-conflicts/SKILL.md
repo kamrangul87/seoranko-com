@@ -12,7 +12,7 @@ metadata:
 
 # Avoid conflicting indexability signals
 
-Conflicting indexability directives create unpredictable crawling and indexing behaviour. The most dangerous combination is robots.txt blocking a page that also has a `noindex` tag — the `noindex` is never read, but the URL is still known to Google, leaving it in a limbo state that wastes crawl budget.
+Conflicting indexability directives create unpredictable crawling and indexing behaviour. The most dangerous combination is robots.txt blocking a page that also has a `noindex` tag — the `noindex` is never read, but the URL is still known to Google, leaving an inconsistent crawl/index state.
 
 ## Quick Reference
 

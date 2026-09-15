@@ -50,9 +50,15 @@ export interface SchemaValidationOptions {
 // unset), so in practice this never fires — but it's a real requirement per
 // the C04/schema hardening spec, not just a nice-to-have, so it's scored
 // the same way (error, not warning) when something genuinely omits it.
+// Article / BlogPosting: Google Search Central (verified 2026-09-08 / 2026-09-15)
+// states there are **no required properties** — every Google-supported property
+// is recommended. Do not invent required fields here; do not treat `image` as
+// required. Stale "1200px wide" / "800,000 pixels" thresholds live nowhere in
+// this validator — area checks (50K width×height) are in article-quality-gate.
 const SCHEMA_RULES: Record<string, { required: string[]; recommended: string[] }> = {
-  Article:        { required: ['headline', 'author', 'datePublished', 'inLanguage'], recommended: ['image', 'publisher', 'dateModified'] },
-  BlogPosting:    { required: ['headline', 'author', 'datePublished'], recommended: ['image', 'publisher', 'dateModified'] },
+  Article:        { required: [], recommended: ['headline', 'author', 'datePublished', 'dateModified', 'image', 'publisher', 'inLanguage'] },
+  BlogPosting:    { required: [], recommended: ['headline', 'author', 'datePublished', 'dateModified', 'image', 'publisher', 'inLanguage'] },
+  NewsArticle:    { required: [], recommended: ['headline', 'author', 'datePublished', 'dateModified', 'image', 'publisher', 'inLanguage'] },
   Person:         { required: ['name'],                                recommended: ['jobTitle', 'worksFor', 'url'] },
   Organization:   { required: ['name'],                                recommended: ['url', 'logo', 'sameAs'] },
   FAQPage:        { required: ['mainEntity'],                          recommended: [] },
