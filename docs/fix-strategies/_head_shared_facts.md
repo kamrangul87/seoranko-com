@@ -79,3 +79,10 @@ Research date: 2026-09-15
 - **Cannibalisation, split click-through, or reduced CTR claims.**
   Undocumented.
 - **"First wins" for same-document duplicate descriptions.** See H30.
+
+## Topic 34 language facts (L1–L11)
+
+Documented in `head__missing_or_wrong_lang.md` (not duplicated here): WHATWG
+`lang` / BCP 47, Google's non-use of code-level language attributes for
+detection, and schema.org `inLanguage` (including Book rich-result rules).
+
