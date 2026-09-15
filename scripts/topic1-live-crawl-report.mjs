@@ -118,11 +118,15 @@ function classifyHrefShape(raw) {
 }
 
 async function main() {
+  // Preserve the first prior report for diffs; do not clobber on re-runs.
   try {
-    copyFileSync(
-      '/tmp/topic1-live-report.json',
-      '/tmp/topic1-live-report-before.json',
-    )
+    const { existsSync } = await import('node:fs')
+    if (!existsSync('/tmp/topic1-live-report-before.json')) {
+      copyFileSync(
+        '/tmp/topic1-live-report.json',
+        '/tmp/topic1-live-report-before.json',
+      )
+    }
   } catch {
     /* first run */
   }
