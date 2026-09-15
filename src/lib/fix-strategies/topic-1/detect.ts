@@ -10,6 +10,7 @@ import {
 } from './extract-anchors'
 import {
   findDeletedRouteEvidence,
+  gitEvidenceUnavailable,
   type GitRunner,
 } from './git-route-history'
 import { scoreSuccessors, type LivePage } from './successor-similarity'
@@ -111,11 +112,9 @@ export async function detectBrokenInternalLinks(
               path,
               options.runGit,
             )
-          : {
-              deleted: false,
-              deletedPaths: [],
-              detail: 'git evidence unavailable',
-            }
+          : gitEvidenceUnavailable(
+              'history-unavailable: repoRoot/runGit not provided',
+            )
 
       const historical =
         options.historicalHtmlByPath?.[path] ??

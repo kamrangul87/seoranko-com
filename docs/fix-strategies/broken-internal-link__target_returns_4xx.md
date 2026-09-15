@@ -151,6 +151,7 @@ whose metadata is checked — but it is not the discriminator by itself.
 | 5 | Target returns 5xx, network timeout, connection reset, or a rate-limit response | never raise as this finding — availability problem, not a broken link | Google treats network errors similarly to 5xx |
 | 6 | Fetch may have hit a stale cached 404 at the CDN | never raise until re-fetched | routed to topic 68 |
 | 7 | Target returns 200 with `noindex` and is a deliberately noindexed valid page | never raise | Next.js streaming docs — requires the discriminator above to separate from a streamed soft 404 |
+| 8 | Absence of git deletion evidence is not evidence the route never existed — shallow clone (`--depth N`), failed `git log`, missing runner/repo, or unreachable path history | never treat as `no-deletion-found`; emit `history-unavailable` → `human-review`. Never `recreate-scaffold`, never auto `remove-anchor` | git semantics: `git log --diff-filter=D` on a shallow tip cannot see deletions older than the shallow boundary |
 
 ### Explicitly rejected as guards
 
@@ -186,7 +187,11 @@ and is the top-level branch:
   strength:
   1. Git history of the connected repo — whether the route ever existed and
      when it was deleted (`git log --diff-filter=D` over the routes
-     directory). Deterministic, offline, no quota.
+     directory). Deterministic, offline, no quota. The probe must distinguish
+     three evidence states (see decision tree below): `deleted`,
+     `no-deletion-found`, and `history-unavailable`. A shallow clone or
+     failed/missing git probe is `history-unavailable`, never
+     `no-deletion-found`.
   2. Successor-page similarity — path similarity plus main-content similarity.
      Requires *exactly one* candidate above the floor; two or more is a
      `human-review` verdict, not a tie to break.
@@ -199,8 +204,27 @@ and is the top-level branch:
   site itself: moving the existence check before the streaming boundary, or
   setting `htmlLimitedBots`, so the route serves a real 404. That is a
   separate strategy with build-config blast radius, not part of this fix.
-- **Three possible outcomes:** remove the anchor / 301 to closest live
-  equivalent / recreate the destination. See per-branch blast radius below.
+- **Outcomes:** remove the anchor / 301 to closest live equivalent / recreate
+  the destination / hold for human-review when git history is unavailable.
+  See per-branch blast radius below.
+
+### 404 decision tree (git × successors)
+
+Evaluated after a stable 404. Successor count is checked first; git status
+decides only when successors are zero.
+
+| Successors above floor | Git evidence status | Verdict | Action |
+|---|---|---|---|
+| exactly 1 | any | `human-review` | `proposed-301` |
+| 2 or more | any | `human-review` | `ambiguous-successors` |
+| 0 | `deleted` | `auto-fixable` | `remove-anchor` |
+| 0 | `no-deletion-found` | `human-review` | `recreate-scaffold` |
+| 0 | `history-unavailable` | `human-review` | `history-unavailable` |
+
+`history-unavailable` covers: shallow clone with no matching deletion in the
+tip, `git` command failure, missing `repoRoot`/`runGit`, or a path-history
+probe that cannot run. Positive deletion matches found even on a shallow tip
+remain `deleted` — presence is trusted; absence on incomplete history is not.
 
 ## postcondition
 
@@ -239,29 +263,37 @@ Revert the commit. For the 301 branch, also confirm no chain was introduced.
 ## verdict
 
 - 410 target → `auto-fixable` (remove-anchor)
-- 404 target with git evidence of deletion and no successor → `auto-fixable`
-  (remove-anchor)
+- 404 target with git evidence of deletion (`deleted`) and no successor →
+  `auto-fixable` (remove-anchor)
 - 200 + `noindex` confirmed streamed soft 404, with git evidence and no
   successor → `auto-fixable` (remove-anchor)
 - 200 + `noindex` where the discriminator is inconclusive → `human-review`
 - 404 target with exactly one high-similarity successor → `human-review`
   (proposed 301)
 - 404 target with two or more candidate successors → `human-review`
-- 404 target where the destination should exist → scaffold only, `human-review`
+- 404 target with `no-deletion-found` and no successor → scaffold only,
+  `human-review` (`recreate-scaffold`)
+- 404 target with `history-unavailable` and no successor → `human-review`
+  (`history-unavailable`) — never recreate-scaffold, never auto remove-anchor
 - guards 2 and 3 triggered → `human-review`
 
 ## fixture
 
 Synthetic repo containing: one anchor to a 410 route, one anchor to a 404
-route with a deleted predecessor in git history, one anchor to a 404 route
-with a single obvious successor, one anchor to a 404 route with two candidate
-successors, **one anchor to a dynamic route with `loading.tsx` present whose
-`notFound()` fires mid-stream (returns 200 + `noindex`)**, **one anchor to a
-deliberately noindexed valid page**, one `mailto:` href, one `#` href.
+route with a deleted predecessor in git history (`deleted` → remove-anchor),
+one anchor to a 404 route with a single obvious successor, one anchor to a
+404 route with two candidate successors, one anchor to a 404 with full
+history and no matching deletion (`no-deletion-found` → recreate-scaffold),
+one anchor to a 404 on a shallow clone with no matching deletion
+(`history-unavailable` → human-review), **one anchor to a dynamic route
+with `loading.tsx` present whose `notFound()` fires mid-stream (returns 200 +
+`noindex`)**, **one anchor to a deliberately noindexed valid page**, one
+`mailto:` href, one `#` href.
 
-CI asserts: five findings raised, three suppressed, the correct branch chosen
-for each, and specifically that the streamed soft 404 is raised while the
-deliberately noindexed valid page is not.
+CI asserts: the correct branch for each evidence state (including both
+`no-deletion-found` and `history-unavailable`), scheme/healthy suppressions,
+and specifically that the streamed soft 404 is raised while the deliberately
+noindexed valid page is not.
 
 ---
 

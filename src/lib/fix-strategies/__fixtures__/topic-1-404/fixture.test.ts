@@ -11,7 +11,8 @@ function sourceHtml(): string {
     <a href="/deleted-page">deleted 404</a>
     <a href="/moved-once">one successor</a>
     <a href="/moved-many">two successors</a>
-    <a href="/never-existed">no evidence</a>
+    <a href="/never-existed">no deletion found</a>
+    <a href="/shallow-unknown">history unavailable</a>
     <a href="mailto:x@fixture.test">mail</a>
     <a href="#">top</a>
     <a href="/healthy">ok</a>
@@ -36,15 +37,61 @@ function depsWithStatus(map: Record<string, number>): FetchDeps {
   }
 }
 
-const runGit: GitRunner = async () => ({
-  code: 0,
-  stdout: [
-    ' delete mode 100644 app/deleted-page/page.tsx',
-    ' delete mode 100644 app/moved-once/page.tsx',
-    ' delete mode 100644 app/moved-many/page.tsx',
-  ].join('\n'),
-  stderr: '',
-})
+/**
+ * Full-history runner: deletions listed; shallow=false.
+ * `/never-existed` has no matching delete line → no-deletion-found.
+ */
+const runGitFull: GitRunner = async (args) => {
+  if (args[0] === 'rev-parse' && args[1] === '--is-shallow-repository') {
+    return { code: 0, stdout: 'false\n', stderr: '' }
+  }
+  if (args[0] === 'log' && args[1] === '-1' && args[2] === '--pretty=format:%H') {
+    const paths = args.slice(args.indexOf('--') + 1)
+    // never-existed candidates have no history; others do
+    if (paths.some((p) => p.includes('never-existed'))) {
+      return { code: 0, stdout: '', stderr: '' }
+    }
+    return {
+      code: 0,
+      stdout: 'cccccccccccccccccccccccccccccccccccccccc',
+      stderr: '',
+    }
+  }
+  if (args[0] === 'log' && args.includes('--diff-filter=D')) {
+    return {
+      code: 0,
+      stdout: [
+        ' delete mode 100644 app/deleted-page/page.tsx',
+        ' delete mode 100644 app/moved-once/page.tsx',
+        ' delete mode 100644 app/moved-many/page.tsx',
+        // deliberately omit never-existed and shallow-unknown
+      ].join('\n'),
+      stderr: '',
+    }
+  }
+  return { code: 1, stdout: '', stderr: `unexpected: ${args.join(' ')}` }
+}
+
+/**
+ * Shallow runner: same tip as full for deleted-page, but shallow=true so
+ * `/shallow-unknown` (no matching deletion) becomes history-unavailable.
+ */
+const runGitShallow: GitRunner = async (args) => {
+  if (args[0] === 'rev-parse' && args[1] === '--is-shallow-repository') {
+    return { code: 0, stdout: 'true\n', stderr: '' }
+  }
+  if (args[0] === 'log' && args[1] === '-1' && args[2] === '--pretty=format:%H') {
+    return { code: 0, stdout: '', stderr: '' }
+  }
+  if (args[0] === 'log' && args.includes('--diff-filter=D')) {
+    return {
+      code: 0,
+      stdout: ' delete mode 100644 app/deleted-page/page.tsx\n',
+      stderr: '',
+    }
+  }
+  return { code: 1, stdout: '', stderr: `unexpected: ${args.join(' ')}` }
+}
 
 describe('topic-1 404 decision-tree fixture', () => {
   it('chooses the correct branch for each 404 evidence shape', async () => {
@@ -54,6 +101,7 @@ describe('topic-1 404 decision-tree fixture', () => {
       '/moved-once': 404,
       '/moved-many': 404,
       '/never-existed': 404,
+      '/shallow-unknown': 404,
       '/healthy': 200,
     })
 
@@ -93,7 +141,7 @@ describe('topic-1 404 decision-tree fixture', () => {
     const result = await detectBrokenInternalLinks(sourceHtml(), `${HOST}/home`, {
       deps,
       repoRoot: '/fixture-repo',
-      runGit,
+      runGit: runGitFull,
       livePages,
       historicalHtmlByPath: historical,
       similarityConfig: { floor: 0.4 },
@@ -108,6 +156,7 @@ describe('topic-1 404 decision-tree fixture', () => {
     if (byHref['/deleted-page']?.kind === 'broken-internal-link/404') {
       expect(byHref['/deleted-page'].action).toBe('remove-anchor')
       expect(byHref['/deleted-page'].verdict).toBe('auto-fixable')
+      expect(byHref['/deleted-page'].git.status).toBe('deleted')
     }
 
     expect(byHref['/moved-once']?.kind).toBe('broken-internal-link/404')
@@ -126,14 +175,83 @@ describe('topic-1 404 decision-tree fixture', () => {
       expect(byHref['/moved-many'].successors.length).toBeGreaterThanOrEqual(2)
     }
 
+    // Full history, no matching deletion → no-deletion-found → recreate-scaffold
     expect(byHref['/never-existed']?.kind).toBe('broken-internal-link/404')
     if (byHref['/never-existed']?.kind === 'broken-internal-link/404') {
+      expect(byHref['/never-existed'].git.status).toBe('no-deletion-found')
       expect(byHref['/never-existed'].action).toBe('recreate-scaffold')
       expect(byHref['/never-existed'].verdict).toBe('human-review')
+    }
+
+    // With full-history runner, /shallow-unknown also has no deletion → recreate.
+    // Dedicated shallow case is the next test.
+    if (byHref['/shallow-unknown']?.kind === 'broken-internal-link/404') {
+      expect(byHref['/shallow-unknown'].git.status).toBe('no-deletion-found')
+      expect(byHref['/shallow-unknown'].action).toBe('recreate-scaffold')
     }
 
     const reasons = result.suppressed.map((s) => s.reason)
     expect(reasons).toContain('scheme-filter')
     expect(reasons).toContain('healthy-200')
+  })
+
+  it('routes history-unavailable (shallow) to human-review, not recreate-scaffold', async () => {
+    const html = `<!doctype html><html><body>
+      <a href="/deleted-page">deleted</a>
+      <a href="/shallow-unknown">unknown on shallow</a>
+    </body></html>`
+
+    const deps = depsWithStatus({
+      '/deleted-page': 404,
+      '/shallow-unknown': 404,
+    })
+
+    const result = await detectBrokenInternalLinks(html, `${HOST}/home`, {
+      deps,
+      repoRoot: '/fixture-repo-shallow',
+      runGit: runGitShallow,
+      livePages: [],
+    })
+
+    const byHref = Object.fromEntries(result.findings.map((f) => [f.href, f]))
+
+    // Positive deletion in the shallow tip is still trusted
+    expect(byHref['/deleted-page']?.kind).toBe('broken-internal-link/404')
+    if (byHref['/deleted-page']?.kind === 'broken-internal-link/404') {
+      expect(byHref['/deleted-page'].git.status).toBe('deleted')
+      expect(byHref['/deleted-page'].action).toBe('remove-anchor')
+    }
+
+    expect(byHref['/shallow-unknown']?.kind).toBe('broken-internal-link/404')
+    if (byHref['/shallow-unknown']?.kind === 'broken-internal-link/404') {
+      expect(byHref['/shallow-unknown'].git.status).toBe('history-unavailable')
+      expect(byHref['/shallow-unknown'].action).toBe('history-unavailable')
+      expect(byHref['/shallow-unknown'].verdict).toBe('human-review')
+      expect(byHref['/shallow-unknown'].action).not.toBe('recreate-scaffold')
+      expect(byHref['/shallow-unknown'].action).not.toBe('remove-anchor')
+      expect(byHref['/shallow-unknown'].reason).toMatch(/shallow|history-unavailable/i)
+    }
+  })
+
+  it('treats missing runGit as history-unavailable, not recreate-scaffold', async () => {
+    const html = `<!doctype html><html><body>
+      <a href="/orphan-404">orphan</a>
+    </body></html>`
+
+    const deps = depsWithStatus({ '/orphan-404': 404 })
+
+    const result = await detectBrokenInternalLinks(html, `${HOST}/home`, {
+      deps,
+      // no repoRoot / runGit
+      livePages: [],
+    })
+
+    const finding = result.findings.find((f) => f.href === '/orphan-404')
+    expect(finding?.kind).toBe('broken-internal-link/404')
+    if (finding?.kind === 'broken-internal-link/404') {
+      expect(finding.git.status).toBe('history-unavailable')
+      expect(finding.action).toBe('history-unavailable')
+      expect(finding.verdict).toBe('human-review')
+    }
   })
 })

@@ -19,8 +19,15 @@ export type { Decision404 } from './decide-404'
 export {
   findDeletedRouteEvidence,
   candidatePageRelPaths,
+  gitEvidenceUnavailable,
+  isShallowClone,
+  isPathHistoryReachable,
 } from './git-route-history'
-export type { GitDeletionEvidence, GitRunner } from './git-route-history'
+export type {
+  GitDeletionEvidence,
+  GitHistoryStatus,
+  GitRunner,
+} from './git-route-history'
 export {
   scoreSuccessors,
   pathSimilarity,

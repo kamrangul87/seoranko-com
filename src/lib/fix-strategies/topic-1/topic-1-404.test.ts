@@ -8,8 +8,61 @@ import {
 import {
   candidatePageRelPaths,
   findDeletedRouteEvidence,
+  gitEvidenceUnavailable,
   type GitRunner,
 } from './git-route-history'
+
+/**
+ * Offline git mock: answers shallow probe, path-history probe, and deletion log.
+ */
+function mockGit(opts: {
+  shallow?: boolean
+  /** When set, path-history probe returns this commit hash (reachable). */
+  pathHistoryHash?: string | null
+  /** stdout for `git log --diff-filter=D --summary` */
+  deletionSummary?: string
+  failShallow?: boolean
+  failPathLog?: boolean
+  failDeletionLog?: boolean
+}): GitRunner {
+  return async (args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--is-shallow-repository') {
+      if (opts.failShallow) {
+        return { code: 128, stdout: '', stderr: 'not a git repository' }
+      }
+      return {
+        code: 0,
+        stdout: opts.shallow ? 'true\n' : 'false\n',
+        stderr: '',
+      }
+    }
+    if (
+      args[0] === 'log' &&
+      args[1] === '-1' &&
+      args[2] === '--pretty=format:%H'
+    ) {
+      if (opts.failPathLog) {
+        return { code: 128, stdout: '', stderr: 'bad object' }
+      }
+      const hash =
+        opts.pathHistoryHash === undefined
+          ? 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+          : opts.pathHistoryHash
+      return { code: 0, stdout: hash ?? '', stderr: '' }
+    }
+    if (args[0] === 'log' && args.includes('--diff-filter=D')) {
+      if (opts.failDeletionLog) {
+        return { code: 128, stdout: '', stderr: 'fatal: bad revision' }
+      }
+      return {
+        code: 0,
+        stdout: opts.deletionSummary ?? '',
+        stderr: '',
+      }
+    }
+    return { code: 1, stdout: '', stderr: `unexpected git args: ${args.join(' ')}` }
+  }
+}
 
 describe('pathSimilarity / contentSimilarity', () => {
   it('scores shared path segments', () => {
@@ -59,34 +112,96 @@ describe('findDeletedRouteEvidence', () => {
   })
 
   it('detects a deleted page file from git log summary', async () => {
-    const runGit: GitRunner = async () => ({
-      code: 0,
-      stdout: ' delete mode 100644 app/old/page.tsx\n',
-      stderr: '',
-    })
-    const evidence = await findDeletedRouteEvidence('/repo', '/old', runGit)
+    const evidence = await findDeletedRouteEvidence(
+      '/repo',
+      '/old',
+      mockGit({
+        shallow: false,
+        deletionSummary: ' delete mode 100644 app/old/page.tsx\n',
+      }),
+    )
+    expect(evidence.status).toBe('deleted')
     expect(evidence.deleted).toBe(true)
     expect(evidence.deletedPaths).toContain('app/old/page.tsx')
   })
 
-  it('returns not-deleted when no matching path appears', async () => {
-    const runGit: GitRunner = async () => ({
-      code: 0,
-      stdout: ' delete mode 100644 app/other/page.tsx\n',
-      stderr: '',
-    })
-    const evidence = await findDeletedRouteEvidence('/repo', '/old', runGit)
+  it('returns no-deletion-found when history is available and no match', async () => {
+    const evidence = await findDeletedRouteEvidence(
+      '/repo',
+      '/old',
+      mockGit({
+        shallow: false,
+        pathHistoryHash: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        deletionSummary: ' delete mode 100644 app/other/page.tsx\n',
+      }),
+    )
+    expect(evidence.status).toBe('no-deletion-found')
     expect(evidence.deleted).toBe(false)
+  })
+
+  it('returns history-unavailable on a shallow clone with no matching deletion', async () => {
+    const evidence = await findDeletedRouteEvidence(
+      '/repo',
+      '/old',
+      mockGit({
+        shallow: true,
+        pathHistoryHash: null,
+        deletionSummary: '',
+      }),
+    )
+    expect(evidence.status).toBe('history-unavailable')
+    expect(evidence.deleted).toBe(false)
+    expect(evidence.detail).toMatch(/shallow/i)
+  })
+
+  it('still records deleted when a shallow tip contains the deletion', async () => {
+    const evidence = await findDeletedRouteEvidence(
+      '/repo',
+      '/old',
+      mockGit({
+        shallow: true,
+        deletionSummary: ' delete mode 100644 app/old/page.tsx\n',
+      }),
+    )
+    expect(evidence.status).toBe('deleted')
+    expect(evidence.deleted).toBe(true)
+  })
+
+  it('returns history-unavailable when git probes fail', async () => {
+    const evidence = await findDeletedRouteEvidence(
+      '/repo',
+      '/old',
+      mockGit({ failShallow: true }),
+    )
+    expect(evidence.status).toBe('history-unavailable')
+  })
+
+  it('returns history-unavailable when path history query fails', async () => {
+    const evidence = await findDeletedRouteEvidence(
+      '/repo',
+      '/old',
+      mockGit({ shallow: false, failPathLog: true }),
+    )
+    expect(evidence.status).toBe('history-unavailable')
   })
 })
 
 describe('decide404Branch', () => {
-  const noGit = {
+  const noDeletion = {
+    status: 'no-deletion-found' as const,
     deleted: false,
-    deletedPaths: [],
-    detail: 'none',
+    deletedPaths: [] as string[],
+    detail: 'no deleted page file matched this URL path',
+  }
+  const unavailable = {
+    status: 'history-unavailable' as const,
+    deleted: false,
+    deletedPaths: [] as string[],
+    detail:
+      'history-unavailable: shallow clone — absence of deletion evidence is not proof the route never existed',
   }
   const deleted = {
+    status: 'deleted' as const,
     deleted: true,
     deletedPaths: ['app/old/page.tsx'],
     detail: 'deleted',
@@ -124,15 +239,32 @@ describe('decide404Branch', () => {
   })
 
   it('does not tie-break two successors', () => {
-    const d = decide404Branch({ git: noGit, successors: two })
+    const d = decide404Branch({ git: noDeletion, successors: two })
     expect(d.verdict).toBe('human-review')
     expect(d.action).toBe('ambiguous-successors')
   })
 
-  it('scaffolds recreate when no git deletion and no successor', () => {
-    const d = decide404Branch({ git: noGit, successors: [] })
+  it('scaffolds recreate only when no-deletion-found and no successor', () => {
+    const d = decide404Branch({ git: noDeletion, successors: [] })
     expect(d.verdict).toBe('human-review')
     expect(d.action).toBe('recreate-scaffold')
+  })
+
+  it('routes history-unavailable to human-review, never recreate-scaffold or remove-anchor', () => {
+    const d = decide404Branch({ git: unavailable, successors: [] })
+    expect(d.verdict).toBe('human-review')
+    expect(d.action).toBe('history-unavailable')
+    expect(d.action).not.toBe('recreate-scaffold')
+    expect(d.action).not.toBe('remove-anchor')
+    expect(d.reason).toMatch(/shallow|history-unavailable/i)
+  })
+
+  it('does not treat gitEvidenceUnavailable() as recreate-scaffold', () => {
+    const d = decide404Branch({
+      git: gitEvidenceUnavailable(),
+      successors: [],
+    })
+    expect(d.action).toBe('history-unavailable')
   })
 
   it('does not gate on GSC impressions', () => {

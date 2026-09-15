@@ -8,7 +8,11 @@ import type { SuccessorCandidate } from './successor-similarity'
  * - remove-anchor (auto) — git deletion evidence and zero successors
  * - proposed-301 (human-review) — exactly one successor above the floor
  * - ambiguous-successors (human-review) — two or more successors
- * - recreate-scaffold (human-review) — no git deletion, no successors
+ * - history-unavailable (human-review) — git history cannot be trusted for a
+ *   negative result (shallow clone, failed git, missing runner). Never treated
+ *   as recreate-scaffold or auto remove-anchor.
+ * - recreate-scaffold (human-review) — history available, no deletion found,
+ *   and no successors
  *
  * GSC impressions are connection-required enrichment and must not gate.
  */
@@ -23,7 +27,11 @@ export type Decision404 =
     }
   | {
       verdict: 'human-review'
-      action: 'proposed-301' | 'ambiguous-successors' | 'recreate-scaffold'
+      action:
+        | 'proposed-301'
+        | 'ambiguous-successors'
+        | 'history-unavailable'
+        | 'recreate-scaffold'
       reason: string
       git: GitDeletionEvidence
       successors: SuccessorCandidate[]
@@ -58,8 +66,19 @@ export function decide404Branch(input: {
     }
   }
 
-  // Zero successors
-  if (git.deleted) {
+  // Zero successors — git evidence status decides. history-unavailable must
+  // never fall through to recreate-scaffold or auto remove-anchor.
+  if (git.status === 'history-unavailable') {
+    return {
+      verdict: 'human-review',
+      action: 'history-unavailable',
+      reason: git.detail,
+      git,
+      successors,
+    }
+  }
+
+  if (git.status === 'deleted' || git.deleted) {
     return {
       verdict: 'auto-fixable',
       action: 'remove-anchor',
@@ -69,6 +88,7 @@ export function decide404Branch(input: {
     }
   }
 
+  // status === 'no-deletion-found'
   return {
     verdict: 'human-review',
     action: 'recreate-scaffold',
