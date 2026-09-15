@@ -8,11 +8,19 @@ export type ExtractedAnchor = {
  * Matches:
  * - double-quoted:  href="..."
  * - single-quoted:  href='...'
+ * - curly-quoted:   href=“...” / href=”...” / href=‘...’ / href=’...’
+ *   (CMS often uses U+201D on both sides)
  * - unquoted:       href=/path or href=https://...
- * - curly-quoted:   href=“...” / href=‘...’ (common CMS mangling)
  */
 const HREF_RE =
-  /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|[\u201C]([^\u201D]*)[\u201D]|[\u2018]([^\u2019]*)[\u2019]|([^\s>]+))/gi
+  /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|[\u201C\u201D]([^\u201C\u201D]*)[\u201C\u201D]|[\u2018\u2019]([^\u2018\u2019]*)[\u2018\u2019]|([^\s>]+))/gi
+
+function normalizeHrefValue(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^[\u201C\u201D\u2018\u2019]+/, '')
+    .replace(/[\u201C\u201D\u2018\u2019]+$/, '')
+}
 
 /**
  * Scheme / fragment filter from topic 1 guards. Applied before any fetch.
@@ -56,7 +64,7 @@ export function extractAnchors(html: string): ExtractedAnchor[] {
   const matches = Array.from(html.matchAll(HREF_RE))
   for (const match of matches) {
     const raw = match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5] ?? ''
-    out.push({ href: raw.trim(), raw })
+    out.push({ href: normalizeHrefValue(raw), raw })
   }
   return out
 }

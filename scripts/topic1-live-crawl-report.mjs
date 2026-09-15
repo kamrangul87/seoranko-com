@@ -47,7 +47,7 @@ const SEED_URLS = [
 
 const BROAD_A_RE = /<a\b([^>]*)>/gi
 const HREF_ATTR_RE =
-  /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|[\u201C]([^\u201D]*)[\u201D]|[\u2018]([^\u2019]*)[\u2019]|([^\s>]+))/i
+  /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|[\u201C\u201D]([^\u201C\u201D]*)[\u201C\u201D]|[\u2018\u2019]([^\u2018\u2019]*)[\u2018\u2019]|([^\s>]+))/i
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms))

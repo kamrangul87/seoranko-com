@@ -86,11 +86,13 @@ describe('extractAnchors unquoted / curly-quoted hrefs', () => {
   it('extracts curly-quoted href values', () => {
     const html =
       `<a href=\u201Chttps://www.gov.uk/ev\u201D>Gov</a>` +
-      `<a href=\u2018/local\u2019>Local</a>`
+      `<a href=\u2018/local\u2019>Local</a>` +
+      `<a href=\u201Dhttps://ev.example.com\u201D>Both-right</a>`
     const anchors = extractAnchors(html)
     expect(anchors.map((a) => a.href)).toEqual([
       'https://www.gov.uk/ev',
       '/local',
+      'https://ev.example.com',
     ])
   })
 
