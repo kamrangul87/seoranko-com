@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "exclude": [
+    "node_modules",
+    "scripts",
+    "**/*.test.ts",
+    "**/*.contract.test.ts",
+    "src/lib/**/__fixtures__/**",
+    "src/lib/quality-gate/__tests__/**"
+  ]
+}

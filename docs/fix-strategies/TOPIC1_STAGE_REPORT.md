@@ -32,17 +32,20 @@ flip → unstable; 429/503 → non-actionable after honouring Retry-After.
   `indeterminate` + route file
 - strips `(group)`, ignores `@slot`, most-specific-first
 - `[...slug]` does not match parent root; `[[...slug]]` does
-- any `middleware` rewrite → `indeterminate` (conservative)
+- `rewrite()` / `NextResponse.rewrite()` present → all paths `indeterminate`
+  (conservative). Middleware file presence alone is not enough.
 - `declaresNoindex` — page metadata, layout chain, `generateMetadata`
 
 **Tests assert:** groups, slots, param, catch-all trap, optional catch-all
-root match, specificity, middleware indeterminate, layout cascade, conditional
-`generateMetadata` → indeterminate.
+root match, specificity, middleware rewrite → indeterminate, layout cascade,
+conditional `generateMetadata` → indeterminate.
 
 **Dossier notes:**
-- Middleware matcher precision is still the open question in the dossier.
-  Current behaviour: **any rewrite ⇒ all paths indeterminate**. Finer static
-  matcher parsing was not specified tightly enough to implement safely.
+- Topic 70 open question **closed** (Autodun middleware answer, 2026-09-14):
+  real Autodun / SEORANKO middleware use `next()` / redirect / headers only —
+  no `rewrite()`. Key off rewrite calls, not file presence. When a rewrite
+  *does* exist, keep indeterminate for all paths (matcher precision still not
+  worth guessing). No Autodun-specific defaults in code.
 
 ## Stage 3 — topic 1, 410 branch only
 
@@ -65,7 +68,20 @@ verifier source has no fixer import.
 **CI asserts:** one finding raised; three suppressed; fix applied;
 postcondition passes against the served (fixed) HTML.
 
-## Not in this task
+## Not in this task (original Stage 1–4)
 
-404 branch (git history / successor similarity), 200+`noindex` discriminator
-(uses Stage 2 but deferred), and wiring into the live Fix Agent orchestrator.
+404 branch (git history / successor similarity), soft-404 discriminator
+wiring into Fix Agent, and customer-repo writes.
+
+## Follow-up — 404 branch + Autodun middleware (2026-09-14)
+
+**Autodun middleware answer:** real Autodun middleware has no `rewrite()` —
+only `next()`, auth challenge, or header injection. Closed topic 70 open
+question: key off rewrite calls, not middleware file presence.
+
+**404 branch shipped** under `src/lib/fix-strategies/topic-1/`:
+- `git-route-history.ts` — `git log --diff-filter=D` evidence
+- `successor-similarity.ts` — path + content Jaccard, product floor
+- `decide-404.ts` — remove / proposed-301 / ambiguous / recreate-scaffold
+- GSC impressions accepted but never gate
+- Fixture exercises all four 404 outcomes plus 410

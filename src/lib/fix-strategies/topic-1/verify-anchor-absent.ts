@@ -29,7 +29,7 @@ function buildVariants(href: string): string[] {
   } catch {
     // keep raw
   }
-  return [...out]
+  return Array.from(out)
 }
 
 function htmlContainsHref(html: string, href: string): boolean {
