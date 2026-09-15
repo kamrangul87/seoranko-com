@@ -212,7 +212,7 @@ export async function findDeletedRouteEvidence(
 
   const candidates = candidatePageRelPaths(urlPath, routeRoots)
   const candidateSet = new Set(candidates)
-  const searchDirs = [...new Set(routeRoots.map((r) => r.relDir))]
+  const searchDirs = Array.from(new Set(routeRoots.map((r) => r.relDir)))
 
   const shallow = await isShallowClone(repoRoot, runGit)
   if (shallow.failed) {
