@@ -1,5 +1,9 @@
 # Shared facts — structured data block (topics 35–39)
 
+Cited by each dossier in the block. Added to `_sources.md` once.
+Requirement table: `_structured_data_requirement_table.md` (topic 35).
+Deprecation table: `_structured_data_deprecation_table.md` (topic 39).
+
 Research date: 2026-09-15
 Article doc verified live, last updated 2026-09-08
 

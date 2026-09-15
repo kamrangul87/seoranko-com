@@ -44,7 +44,7 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
   },
   {
     "category": "claim-evidence",
-    "id": "claim-evidence-grant::as of august 2026 ozev administers the ev chargepoint grant for eligible homeown",
+    "id": "claim-evidence-other-quantitative::only compliant smart charge points qualify meaning units must meet the electric ",
     "severity": "warning",
   },
   {
@@ -54,12 +54,12 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
   },
   {
     "category": "dated-policy",
-    "id": "freshness-chrono-2",
+    "id": "freshness-chrono-1",
     "severity": "warning",
   },
   {
     "category": "dated-policy",
-    "id": "freshness-chrono-3",
+    "id": "freshness-chrono-2",
     "severity": "warning",
   },
   {
@@ -109,7 +109,12 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
   },
   {
     "category": "claim-evidence",
-    "id": "claim-evidence-grant::the office for zero emission vehicles publishes grant eligibility rules and inst",
+    "id": "claim-evidence-grant::you need an installer registered with a competent person scheme such as niceic o",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-other-quantitative::pas 18992022 the british standards institutions specification for ev charging in",
     "severity": "warning",
   },
   {
@@ -130,7 +135,7 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
   {
     "category": "schema",
     "id": "schema-Article-inLanguage",
-    "severity": "critical",
+    "severity": "warning",
   },
   {
     "category": "schema",
@@ -174,12 +179,17 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
   },
   {
     "category": "claim-evidence",
-    "id": "claim-evidence-regulation::ev charger installation in the uk must follow building regulations approved docu",
+    "id": "claim-evidence-other-quantitative::ev charger installation in the uk must follow building regulations approved docu",
     "severity": "warning",
   },
   {
     "category": "grant-figure",
     "id": "fact-grant-figure-figure::£350",
+    "severity": "warning",
+  },
+  {
+    "category": "hedging",
+    "id": "hedging-real-repetition",
     "severity": "warning",
   },
   {
@@ -219,12 +229,7 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
   },
   {
     "category": "dated-policy",
-    "id": "freshness-chrono-0",
-    "severity": "warning",
-  },
-  {
-    "category": "dated-policy",
-    "id": "freshness-relative-factual-1",
+    "id": "freshness-relative-factual-0",
     "severity": "warning",
   },
   {
@@ -284,7 +289,7 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
   },
   {
     "category": "claim-evidence",
-    "id": "claim-evidence-grant::the england driveway ev charger rule landscape has changed significantly since 2",
+    "id": "claim-evidence-other-quantitative::since 2022 all newbuild homes in england with associated parking must include ev",
     "severity": "warning",
   },
   {
@@ -300,6 +305,11 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
   {
     "category": "grant-figure",
     "id": "fact-grant-figure-figure::£800",
+    "severity": "warning",
+  },
+  {
+    "category": "hedging",
+    "id": "hedging-real-repetition",
     "severity": "warning",
   },
   {
@@ -334,7 +344,7 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
   },
   {
     "category": "claim-evidence",
-    "id": "claim-evidence-technical-standard::a distribution network operator dno owns and maintains the electricity cables an",
+    "id": "claim-evidence-technical-standard::you typically dont legally need their permission for a standard singlephase 7kw ",
     "severity": "warning",
   },
   {
@@ -464,7 +474,7 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
   },
   {
     "category": "claim-evidence",
-    "id": "claim-evidence-grant::smart charging compliance under the electric vehicles smart charge points regula",
+    "id": "claim-evidence-grant::ozev installer accreditation is required for granteligible work and highly recom",
     "severity": "warning",
   },
   {
@@ -565,7 +575,7 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
   {
     "category": "schema",
     "id": "schema-Article-inLanguage",
-    "severity": "critical",
+    "severity": "warning",
   },
   {
     "category": "schema",
@@ -629,12 +639,7 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
   },
   {
     "category": "claim-evidence",
-    "id": "claim-evidence-grant::as of august 2026 the electric vehicle chargepoint grant administered by ozev is",
-    "severity": "warning",
-  },
-  {
-    "category": "claim-evidence",
-    "id": "claim-evidence-grant::the office for zero emission vehicles ozev administers the electric vehicle char",
+    "id": "claim-evidence-grant::worth knowing the grant eligibility criteria require installation by an ozevappr",
     "severity": "warning",
   },
   {
@@ -745,7 +750,7 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
   {
     "category": "schema",
     "id": "schema-Article-inLanguage",
-    "severity": "critical",
+    "severity": "warning",
   },
   {
     "category": "schema",
@@ -914,12 +919,12 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
   },
   {
     "category": "claim-evidence",
-    "id": "claim-evidence-grant::the office for zero emission vehicles administers the electric vehicle chargepoi",
+    "id": "claim-evidence-other-quantitative::in those cases the dno must assess and potentially upgrade the supply",
     "severity": "warning",
   },
   {
     "category": "claim-evidence",
-    "id": "claim-evidence-technical-standard::not every installation triggers a dno application a standard charger running at ",
+    "id": "claim-evidence-other-quantitative::separately all new charge points sold or installed in great britain must comply ",
     "severity": "warning",
   },
   {
@@ -944,12 +949,12 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
 [
   {
     "category": "claim-evidence",
-    "id": "claim-evidence-figure::£200",
+    "id": "claim-evidence-eligibility::to qualify you must own or have ordered an eligible electric or plugin hybrid ve",
     "severity": "warning",
   },
   {
     "category": "claim-evidence",
-    "id": "claim-evidence-grant::to qualify you must own or have ordered an eligible electric or plugin hybrid ve",
+    "id": "claim-evidence-figure::£200",
     "severity": "warning",
   },
   {
@@ -1000,7 +1005,7 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
   {
     "category": "schema",
     "id": "schema-Article-inLanguage",
-    "severity": "critical",
+    "severity": "warning",
   },
   {
     "category": "schema",
@@ -1024,7 +1029,12 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
 [
   {
     "category": "claim-evidence",
-    "id": "claim-evidence-grant::according to ofgem at ofgemgovuk  the average electricity unit rate under the q2",
+    "id": "claim-evidence-grant::the england driveway ev charger rule also stipulates that offstreet parking must",
+    "severity": "warning",
+  },
+  {
+    "category": "claim-evidence",
+    "id": "claim-evidence-other-quantitative::this is the baseline against which any ev tariff saving must be measured",
     "severity": "warning",
   },
   {
@@ -1040,16 +1050,6 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
   {
     "category": "grant-figure",
     "id": "fact-grant-figure-figure::£800",
-    "severity": "warning",
-  },
-  {
-    "category": "dated-policy",
-    "id": "freshness-chrono-0",
-    "severity": "info",
-  },
-  {
-    "category": "dated-policy",
-    "id": "freshness-chrono-1",
     "severity": "warning",
   },
   {
@@ -1084,7 +1084,7 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
   },
   {
     "category": "claim-evidence",
-    "id": "claim-evidence-grant::installation costs vary depending on your property existing wiring and the unit ",
+    "id": "claim-evidence-grant::before accepting any quote confirm whether the installer is ozevapproved as gran",
     "severity": "warning",
   },
   {
@@ -1115,11 +1115,6 @@ exports[`Quality Gate regression harness > snapshots the violation set (id, cate
   {
     "category": "dated-policy",
     "id": "freshness-chrono-0",
-    "severity": "warning",
-  },
-  {
-    "category": "dated-policy",
-    "id": "freshness-chrono-1",
     "severity": "warning",
   },
 ]

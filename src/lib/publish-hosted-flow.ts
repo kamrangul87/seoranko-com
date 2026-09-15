@@ -79,14 +79,16 @@ export async function publishHostedArticle(params: PublishHostedParams): Promise
     }
   }
 
-  // M06: hero image is guaranteed >=1200px wide by construction —
-  // image-generator.ts's BLOG_SIZES.hero always crops to exactly 1200x630.
+  // Product decision: BLOG_SIZES.hero is 1200×630 (756K pixels), well above
+  // Google's recommended Article minimum of 50K pixels (width × height).
+  // Image is recommended for Article, not required by Google — this check is
+  // a product completeness gate for hosted publish, not a Google threshold.
   // No stored width/height to independently re-verify a hypothetical
   // externally-set smaller image; the only realistic failure mode here is
   // a missing hero entirely (already blocked at save time by FIX 1's
   // figure/schema-completeness gate — this is a defensive re-check).
   if (!article.hero_image_url) {
-    return { success: false, message: 'Article has no hero image on record — cannot publish a schema-ineligible page.' }
+    return { success: false, message: 'Article has no hero image on record — cannot publish without a featured image (product decision).' }
   }
 
   // ── V01/V03: volume safeguards, scoped by (user, brand) ──────────────

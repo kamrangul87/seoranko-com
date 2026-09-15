@@ -18,12 +18,14 @@ displays. The markup is inert, not harmful.
 
 A type is present whose Google rich-result support has been withdrawn.
 
-Verified deprecations:
+Verified deprecations (dated table):
 
-| Type | Withdrawn | Source |
-|---|---|---|
-| `HowTo` | Rich results stopped on mobile and desktop September 2023. Documentation, Rich Results Test support and Search Console reporting all removed | D26 |
-| `FAQPage` | Rich results stopped **7 May 2026**, including the former exception for authoritative government and health sites. Documentation removed June 2026 | D27 |
+[`_structured_data_deprecation_table.md`](./_structured_data_deprecation_table.md)
+
+| Type | Withdrawn | Source | Verified-on |
+|---|---|---|---|
+| `HowTo` | Rich results stopped on mobile and desktop September 2023. Documentation, Rich Results Test support and Search Console reporting all removed | D26 | 2026-09-15 |
+| `FAQPage` | Rich results stopped **7 May 2026**, including the former exception for authoritative government and health sites. Documentation removed June 2026 | D27 | 2026-09-15 |
 
 **Severity: informational.** The markup remains valid schema.org vocabulary
 and may serve other consumers (D28). Google has stated unused structured data

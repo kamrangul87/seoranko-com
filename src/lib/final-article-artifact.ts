@@ -67,12 +67,13 @@ export interface BuildFinalArticleArtifactResult {
   /** Absolute https Article.image candidate (hero, else first content / figure). */
   primaryImageUrl: string | undefined
   /**
-   * M06 — width of primaryImageUrl, when it resolved to a known imageSet
+   * M06 — width/height of primaryImageUrl, when it resolved to a known imageSet
    * entry (hero/content). undefined when primaryImageUrl fell through to
-   * the raw-<img>-scan fallback (no width data available for that case) or
-   * no image shipped at all.
+   * the raw-<img>-scan fallback (no dimension data available for that case) or
+   * no image shipped at all. Google recommends ≥50K pixels (width × height).
    */
   primaryImageWidth: number | undefined
+  primaryImageHeight: number | undefined
   figureCount: number
   /** Hero URL set but injection produced zero <figure> tags. */
   imageHandOffError?: string
@@ -132,10 +133,12 @@ export function buildFinalArticleArtifact(
     heroUrl: input.imageSet?.hero?.url,
     contentUrls: input.imageSet?.content?.map((c) => c.url) ?? [],
   })
-  const primaryImageWidth =
+  const primaryImageEntry =
     primaryImageUrl && input.imageSet?.hero?.url === primaryImageUrl
-      ? input.imageSet.hero.width
-      : input.imageSet?.content?.find((c) => c.url === primaryImageUrl)?.width
+      ? input.imageSet.hero
+      : input.imageSet?.content?.find((c) => c.url === primaryImageUrl)
+  const primaryImageWidth = primaryImageEntry?.width
+  const primaryImageHeight = primaryImageEntry?.height
 
   // ── 3b. Social / canonical / verified (optional; keeps OG:image in sync) ─
   if (input.enrichBeforeSchema) {
@@ -159,6 +162,7 @@ export function buildFinalArticleArtifact(
     schemaResult,
     primaryImageUrl,
     primaryImageWidth,
+    primaryImageHeight,
     figureCount,
     imageHandOffError,
     scannabilityError: scannability.error,

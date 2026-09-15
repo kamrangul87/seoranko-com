@@ -168,9 +168,11 @@ describe('Quality regression suite A–X (fixtures)', () => {
   })
 
   // ── E. Missing image ───────────────────────────────────────────────────
-  it('E: missing Article.image still surfaces when required', () => {
+  it('E: missing Article.image surfaces as recommended (not required)', () => {
     const result = validateSchema(ARTICLE_FIXTURES.missingImage, { expectOrganizationLogo: true })
-    expect(result.issues.some((i) => i.property === 'image' || /image/i.test(i.message))).toBe(true)
+    const imageIssues = result.issues.filter((i) => i.property === 'image' || /image/i.test(i.message))
+    expect(imageIssues.length).toBeGreaterThan(0)
+    expect(imageIssues.every((i) => i.severity === 'warning')).toBe(true)
   })
 
   // ── F. Missing logo ────────────────────────────────────────────────────

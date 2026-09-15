@@ -28,13 +28,13 @@ describe('quality-issue-action-hints', () => {
 
   it('M06: tells the user to regenerate/replace the image, not edit JSON-LD', () => {
     const hint = buildActionHint({
-      id: 'schema-Article-image-width',
+      id: 'schema-Article-image-area',
       category: 'schema',
-      title: 'Article: image width',
-      description: 'Primary image is 800px wide — Google requires at least 1200px.',
+      title: 'Article: image resolution',
+      description: 'Primary image is 100×100px (10,000 pixels) — Google recommends at least 50,000 pixels (width × height).',
       autoFixable: false,
     })
-    expect(hint.toLowerCase()).toContain('1200px')
+    expect(hint.toLowerCase()).toMatch(/50[, ]?000/)
     expect(hint.toLowerCase()).not.toContain('json-ld')
   })
 

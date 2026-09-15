@@ -94,12 +94,12 @@ describe('validateSchema', () => {
     expect(imageIssue?.severity).toBe('error')
   })
 
-  it('requires inLanguage on Article and flags it missing as an error', () => {
+  it('treats missing inLanguage on Article as recommended-only (warning), not required', () => {
     const withoutLanguage: Record<string, unknown> = { ...validArticle }
     delete withoutLanguage.inLanguage
     const html = scriptTag(withoutLanguage)
     const result = validateSchema(html)
     const langIssue = result.issues.find(i => i.property === 'inLanguage')
-    expect(langIssue?.severity).toBe('error')
+    expect(langIssue?.severity).toBe('warning')
   })
 })
