@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   declaresNoindex,
+  detectRouteRoots,
   inspectNoindexSource,
   resolvePath,
 } from './index'
@@ -159,5 +160,34 @@ describe('declaresNoindex', () => {
     })
     const resolved = resolvePath(appDir, '/ok')
     expect(declaresNoindex(resolved.routeFile!, appDir)).toBe('false')
+  })
+})
+
+describe('detectRouteRoots', () => {
+  it('prefers src/app when present and includes secondary pages roots', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'site-roots-'))
+    temps.push(root)
+    fs.mkdirSync(path.join(root, 'src/app/about'), { recursive: true })
+    fs.writeFileSync(
+      path.join(root, 'src/app/about/page.tsx'),
+      'export default function Page(){return null}',
+    )
+    fs.mkdirSync(path.join(root, 'src/pages'), { recursive: true })
+    fs.writeFileSync(
+      path.join(root, 'src/pages/Privacy.tsx'),
+      'export default function Privacy(){return null}',
+    )
+    // decoy empty app/ should not win over src/app
+    fs.mkdirSync(path.join(root, 'app'), { recursive: true })
+
+    const roots = detectRouteRoots(root)
+    expect(roots.map((r) => r.relDir)).toEqual(['src/app', 'src/pages'])
+    expect(roots.every((r) => r.absDir.startsWith(root))).toBe(true)
+  })
+
+  it('returns empty when no route trees exist', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'site-roots-empty-'))
+    temps.push(root)
+    expect(detectRouteRoots(root)).toEqual([])
   })
 })

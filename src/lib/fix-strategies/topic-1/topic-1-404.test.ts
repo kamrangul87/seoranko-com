@@ -11,6 +11,15 @@ import {
   gitEvidenceUnavailable,
   type GitRunner,
 } from './git-route-history'
+import { extractAnchors } from './extract-anchors'
+import type { RouteRoot } from '@/lib/fix-strategies/site-model'
+
+const APP_ROOTS: RouteRoot[] = [
+  { relDir: 'app', absDir: '/repo/app', kind: 'app-router' },
+]
+const SRC_APP_ROOTS: RouteRoot[] = [
+  { relDir: 'src/app', absDir: '/repo/src/app', kind: 'app-router' },
+]
 
 /**
  * Offline git mock: answers shallow probe, path-history probe, and deletion log.
@@ -64,6 +73,34 @@ function mockGit(opts: {
   }
 }
 
+describe('extractAnchors unquoted / curly-quoted hrefs', () => {
+  it('extracts unquoted href values', () => {
+    const html = `<a href=/charging-map>Map</a><a href=https://ex.test/x>X</a>`
+    const anchors = extractAnchors(html)
+    expect(anchors.map((a) => a.href)).toEqual([
+      '/charging-map',
+      'https://ex.test/x',
+    ])
+  })
+
+  it('extracts curly-quoted href values', () => {
+    const html =
+      `<a href=\u201Chttps://www.gov.uk/ev\u201D>Gov</a>` +
+      `<a href=\u2018/local\u2019>Local</a>`
+    const anchors = extractAnchors(html)
+    expect(anchors.map((a) => a.href)).toEqual([
+      'https://www.gov.uk/ev',
+      '/local',
+    ])
+  })
+
+  it('still extracts double- and single-quoted hrefs', () => {
+    const html = `<a href="/a">A</a><a href='/b'>B</a>`
+    const anchors = extractAnchors(html)
+    expect(anchors.map((a) => a.href)).toEqual(['/a', '/b'])
+  })
+})
+
 describe('pathSimilarity / contentSimilarity', () => {
   it('scores shared path segments', () => {
     expect(pathSimilarity('/blog/old-post', '/blog/new-post')).toBeGreaterThan(
@@ -73,9 +110,12 @@ describe('pathSimilarity / contentSimilarity', () => {
   })
 
   it('scores overlapping main content without phrase-matching errors', () => {
-    const a = '<main><h1>Charging guide</h1><p>Home chargers install tips</p></main>'
-    const b = '<main><h1>Charging guide</h1><p>Home chargers install tips extra</p></main>'
-    const c = '<main><h1>Unrelated</h1><p>Completely different topic here</p></main>'
+    const a =
+      '<main><h1>Charging guide</h1><p>Home chargers install tips</p></main>'
+    const b =
+      '<main><h1>Charging guide</h1><p>Home chargers install tips extra</p></main>'
+    const c =
+      '<main><h1>Unrelated</h1><p>Completely different topic here</p></main>'
     expect(contentSimilarity(a, b)).toBeGreaterThan(contentSimilarity(a, c))
   })
 })
@@ -107,25 +147,31 @@ describe('scoreSuccessors', () => {
 })
 
 describe('findDeletedRouteEvidence', () => {
-  it('maps URL paths to app page candidates', () => {
-    expect(candidatePageRelPaths('/old')).toContain('app/old/page.tsx')
+  it('maps URL paths using site-model route roots (src/app)', () => {
+    expect(candidatePageRelPaths('/old', SRC_APP_ROOTS)).toContain(
+      'src/app/old/page.tsx',
+    )
+    expect(candidatePageRelPaths('/old', SRC_APP_ROOTS)).not.toContain(
+      'app/old/page.tsx',
+    )
   })
 
-  it('detects a deleted page file from git log summary', async () => {
+  it('detects a deleted page file under src/app', async () => {
     const evidence = await findDeletedRouteEvidence(
       '/repo',
       '/old',
       mockGit({
         shallow: false,
-        deletionSummary: ' delete mode 100644 app/old/page.tsx\n',
+        deletionSummary: ' delete mode 100644 src/app/old/page.tsx\n',
       }),
+      { routeRoots: SRC_APP_ROOTS },
     )
     expect(evidence.status).toBe('deleted')
     expect(evidence.deleted).toBe(true)
-    expect(evidence.deletedPaths).toContain('app/old/page.tsx')
+    expect(evidence.deletedPaths).toContain('src/app/old/page.tsx')
   })
 
-  it('returns no-deletion-found when history is available and no match', async () => {
+  it('returns no-deletion-found when roots cover routing and no match', async () => {
     const evidence = await findDeletedRouteEvidence(
       '/repo',
       '/old',
@@ -134,9 +180,21 @@ describe('findDeletedRouteEvidence', () => {
         pathHistoryHash: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
         deletionSummary: ' delete mode 100644 app/other/page.tsx\n',
       }),
+      { routeRoots: APP_ROOTS },
     )
     expect(evidence.status).toBe('no-deletion-found')
     expect(evidence.deleted).toBe(false)
+  })
+
+  it('returns history-unavailable when route roots are missing', async () => {
+    const evidence = await findDeletedRouteEvidence(
+      '/repo',
+      '/old',
+      mockGit({ shallow: false, deletionSummary: '' }),
+      { routeRoots: [], requireRouteRoots: true },
+    )
+    expect(evidence.status).toBe('history-unavailable')
+    expect(evidence.detail).toMatch(/route roots/i)
   })
 
   it('returns history-unavailable on a shallow clone with no matching deletion', async () => {
@@ -148,6 +206,7 @@ describe('findDeletedRouteEvidence', () => {
         pathHistoryHash: null,
         deletionSummary: '',
       }),
+      { routeRoots: APP_ROOTS },
     )
     expect(evidence.status).toBe('history-unavailable')
     expect(evidence.deleted).toBe(false)
@@ -162,6 +221,7 @@ describe('findDeletedRouteEvidence', () => {
         shallow: true,
         deletionSummary: ' delete mode 100644 app/old/page.tsx\n',
       }),
+      { routeRoots: APP_ROOTS },
     )
     expect(evidence.status).toBe('deleted')
     expect(evidence.deleted).toBe(true)
@@ -172,15 +232,7 @@ describe('findDeletedRouteEvidence', () => {
       '/repo',
       '/old',
       mockGit({ failShallow: true }),
-    )
-    expect(evidence.status).toBe('history-unavailable')
-  })
-
-  it('returns history-unavailable when path history query fails', async () => {
-    const evidence = await findDeletedRouteEvidence(
-      '/repo',
-      '/old',
-      mockGit({ shallow: false, failPathLog: true }),
+      { routeRoots: APP_ROOTS },
     )
     expect(evidence.status).toBe('history-unavailable')
   })
@@ -227,31 +279,62 @@ describe('decide404Branch', () => {
   ]
 
   it('auto-removes when git deletion and no successor', () => {
-    const d = decide404Branch({ git: deleted, successors: [] })
+    const d = decide404Branch({
+      git: deleted,
+      successors: [],
+      routeKind: 'no-route',
+    })
     expect(d.verdict).toBe('auto-fixable')
     expect(d.action).toBe('remove-anchor')
   })
 
   it('proposes 301 human-review for exactly one successor', () => {
-    const d = decide404Branch({ git: deleted, successors: one })
+    const d = decide404Branch({
+      git: deleted,
+      successors: one,
+      routeKind: 'no-route',
+    })
     expect(d.verdict).toBe('human-review')
     expect(d.action).toBe('proposed-301')
   })
 
   it('does not tie-break two successors', () => {
-    const d = decide404Branch({ git: noDeletion, successors: two })
+    const d = decide404Branch({
+      git: noDeletion,
+      successors: two,
+      routeKind: 'no-route',
+    })
     expect(d.verdict).toBe('human-review')
     expect(d.action).toBe('ambiguous-successors')
   })
 
-  it('scaffolds recreate only when no-deletion-found and no successor', () => {
-    const d = decide404Branch({ git: noDeletion, successors: [] })
+  it('no-route + no-deletion-found → no-action (not recreate-scaffold)', () => {
+    const d = decide404Branch({
+      git: noDeletion,
+      successors: [],
+      routeKind: 'no-route',
+    })
+    expect(d.verdict).toBe('human-review')
+    expect(d.action).toBe('no-action')
+    expect(d.action).not.toBe('recreate-scaffold')
+  })
+
+  it('static-route + no-deletion-found → recreate-scaffold (positive existence)', () => {
+    const d = decide404Branch({
+      git: noDeletion,
+      successors: [],
+      routeKind: 'static-route',
+    })
     expect(d.verdict).toBe('human-review')
     expect(d.action).toBe('recreate-scaffold')
   })
 
   it('routes history-unavailable to human-review, never recreate-scaffold or remove-anchor', () => {
-    const d = decide404Branch({ git: unavailable, successors: [] })
+    const d = decide404Branch({
+      git: unavailable,
+      successors: [],
+      routeKind: 'no-route',
+    })
     expect(d.verdict).toBe('human-review')
     expect(d.action).toBe('history-unavailable')
     expect(d.action).not.toBe('recreate-scaffold')
@@ -263,6 +346,7 @@ describe('decide404Branch', () => {
     const d = decide404Branch({
       git: gitEvidenceUnavailable(),
       successors: [],
+      routeKind: 'no-route',
     })
     expect(d.action).toBe('history-unavailable')
   })
@@ -271,6 +355,7 @@ describe('decide404Branch', () => {
     const d = decide404Branch({
       git: deleted,
       successors: [],
+      routeKind: 'no-route',
       gscImpressions: 999,
     })
     expect(d.action).toBe('remove-anchor')

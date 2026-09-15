@@ -4,7 +4,15 @@ export type ExtractedAnchor = {
   raw: string
 }
 
-const HREF_RE = /<a\b[^>]*\bhref\s*=\s*(["'])(.*?)\1[^>]*>/gi
+/**
+ * Matches:
+ * - double-quoted:  href="..."
+ * - single-quoted:  href='...'
+ * - unquoted:       href=/path or href=https://...
+ * - curly-quoted:   href=“...” / href=‘...’ (common CMS mangling)
+ */
+const HREF_RE =
+  /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|[\u201C]([^\u201D]*)[\u201D]|[\u2018]([^\u2019]*)[\u2019]|([^\s>]+))/gi
 
 /**
  * Scheme / fragment filter from topic 1 guards. Applied before any fetch.
@@ -41,12 +49,13 @@ export function isInternalHref(href: string, pageUrl: string): boolean {
 
 /**
  * Extract `<a href>` values from HTML. Does not fetch.
+ * Supports quoted, unquoted, and curly-quoted attribute values.
  */
 export function extractAnchors(html: string): ExtractedAnchor[] {
   const out: ExtractedAnchor[] = []
   const matches = Array.from(html.matchAll(HREF_RE))
   for (const match of matches) {
-    const raw = match[2] ?? ''
+    const raw = match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5] ?? ''
     out.push({ href: raw.trim(), raw })
   }
   return out

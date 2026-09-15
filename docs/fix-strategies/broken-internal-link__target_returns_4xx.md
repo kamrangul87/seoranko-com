@@ -151,7 +151,8 @@ whose metadata is checked — but it is not the discriminator by itself.
 | 5 | Target returns 5xx, network timeout, connection reset, or a rate-limit response | never raise as this finding — availability problem, not a broken link | Google treats network errors similarly to 5xx |
 | 6 | Fetch may have hit a stale cached 404 at the CDN | never raise until re-fetched | routed to topic 68 |
 | 7 | Target returns 200 with `noindex` and is a deliberately noindexed valid page | never raise | Next.js streaming docs — requires the discriminator above to separate from a streamed soft 404 |
-| 8 | Absence of git deletion evidence is not evidence the route never existed — shallow clone (`--depth N`), failed `git log`, missing runner/repo, or unreachable path history | never treat as `no-deletion-found`; emit `history-unavailable` → `human-review`. Never `recreate-scaffold`, never auto `remove-anchor` | git semantics: `git log --diff-filter=D` on a shallow tip cannot see deletions older than the shallow boundary |
+| 8 | Absence of git deletion evidence is not evidence the route never existed — shallow clone (`--depth N`), failed `git log`, missing runner/repo, unreachable path history, **or unconfirmed route-root coverage** (probe must use site-model `detectRouteRoots`, never a hard-coded `app/**` default) | never treat as `no-deletion-found`; emit `history-unavailable` → `human-review`. Never `recreate-scaffold`, never auto `remove-anchor` | git semantics: `git log --diff-filter=D` on a shallow tip cannot see deletions older than the shallow boundary; probing the wrong tree is the same class of false negative |
+| 9 | Site model resolves `no-route` (or route kind is unknown/indeterminate) **and** git status is `no-deletion-found` | intent unknown — propose **nothing** (`no-action`, `human-review`). Never `recreate-scaffold`. Scaffold is only proposed when there is positive evidence the route existed/should exist (site model `static-route` / `dynamic-route`) | live autodun run 2026-09-15: `/charging-map` linked from `/about` is a client SPA target with no App Router file and no deletion under `src/app` — recreate was a false product action |
 
 ### Explicitly rejected as guards
 
@@ -213,18 +214,23 @@ and is the top-level branch:
 Evaluated after a stable 404. Successor count is checked first; git status
 decides only when successors are zero.
 
-| Successors above floor | Git evidence status | Verdict | Action |
-|---|---|---|---|
-| exactly 1 | any | `human-review` | `proposed-301` |
-| 2 or more | any | `human-review` | `ambiguous-successors` |
-| 0 | `deleted` | `auto-fixable` | `remove-anchor` |
-| 0 | `no-deletion-found` | `human-review` | `recreate-scaffold` |
-| 0 | `history-unavailable` | `human-review` | `history-unavailable` |
+| Successors above floor | Git evidence status | Site-model route kind | Verdict | Action |
+|---|---|---|---|---|
+| exactly 1 | any | any | `human-review` | `proposed-301` |
+| 2 or more | any | any | `human-review` | `ambiguous-successors` |
+| 0 | `deleted` | any | `auto-fixable` | `remove-anchor` |
+| 0 | `no-deletion-found` | `static-route` or `dynamic-route` | `human-review` | `recreate-scaffold` |
+| 0 | `no-deletion-found` | `no-route`, indeterminate, or unknown | `human-review` | `no-action` (guard 9) |
+| 0 | `history-unavailable` | any | `human-review` | `history-unavailable` |
 
 `history-unavailable` covers: shallow clone with no matching deletion in the
-tip, `git` command failure, missing `repoRoot`/`runGit`, or a path-history
-probe that cannot run. Positive deletion matches found even on a shallow tip
-remain `deleted` — presence is trusted; absence on incomplete history is not.
+tip, `git` command failure, missing `repoRoot`/`runGit`, empty/unconfirmed
+site-model route roots (cannot prove the candidate path list covers the repo's
+routing), or a path-history probe that cannot run. Positive deletion matches
+found even on a shallow tip remain `deleted` — presence is trusted; absence on
+incomplete history is not. Git path candidates come from `detectRouteRoots`
+(primary App Router dir plus any secondary roots such as `src/pages`), never a
+silent `app/**` default.
 
 ## postcondition
 
@@ -271,8 +277,12 @@ Revert the commit. For the 301 branch, also confirm no chain was introduced.
 - 404 target with exactly one high-similarity successor → `human-review`
   (proposed 301)
 - 404 target with two or more candidate successors → `human-review`
-- 404 target with `no-deletion-found` and no successor → scaffold only,
-  `human-review` (`recreate-scaffold`)
+- 404 target with `no-deletion-found`, no successor, and site-model
+  `static-route`/`dynamic-route` → scaffold only, `human-review`
+  (`recreate-scaffold`)
+- 404 target with `no-deletion-found`, no successor, and site-model `no-route`
+  (or unknown/indeterminate) → `human-review` (`no-action`) — propose nothing
+  (guard 9)
 - 404 target with `history-unavailable` and no successor → `human-review`
   (`history-unavailable`) — never recreate-scaffold, never auto remove-anchor
 - guards 2 and 3 triggered → `human-review`
@@ -283,8 +293,8 @@ Synthetic repo containing: one anchor to a 410 route, one anchor to a 404
 route with a deleted predecessor in git history (`deleted` → remove-anchor),
 one anchor to a 404 route with a single obvious successor, one anchor to a
 404 route with two candidate successors, one anchor to a 404 with full
-history and no matching deletion (`no-deletion-found` → recreate-scaffold),
-one anchor to a 404 on a shallow clone with no matching deletion
+history and no matching deletion with `no-route` (`no-deletion-found` →
+`no-action`), one anchor to a 404 on a shallow clone with no matching deletion
 (`history-unavailable` → human-review), **one anchor to a dynamic route
 with `loading.tsx` present whose `notFound()` fires mid-stream (returns 200 +
 `noindex`)**, **one anchor to a deliberately noindexed valid page**, one

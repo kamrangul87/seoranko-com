@@ -2,8 +2,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { detectBrokenInternalLinks } from '@/lib/fix-strategies/topic-1'
 import type { FetchDeps } from '@/lib/fix-strategies/fetch'
 import type { GitRunner } from '@/lib/fix-strategies/topic-1'
+import type { RouteRoot } from '@/lib/fix-strategies/site-model'
 
 const HOST = 'https://fixture.test'
+
+// Explicit site-model roots — fixtures must not rely on a default app/ probe.
+const FIXTURE_ROOTS: RouteRoot[] = [
+  { relDir: 'app', absDir: '/fixture-repo/app', kind: 'app-router' },
+]
 
 function sourceHtml(): string {
   return `<!doctype html><html><body>
@@ -142,6 +148,7 @@ describe('topic-1 404 decision-tree fixture', () => {
       deps,
       repoRoot: '/fixture-repo',
       runGit: runGitFull,
+      routeRoots: FIXTURE_ROOTS,
       livePages,
       historicalHtmlByPath: historical,
       similarityConfig: { floor: 0.4 },
@@ -175,19 +182,22 @@ describe('topic-1 404 decision-tree fixture', () => {
       expect(byHref['/moved-many'].successors.length).toBeGreaterThanOrEqual(2)
     }
 
-    // Full history, no matching deletion → no-deletion-found → recreate-scaffold
+    // Full history, no matching deletion + no-route → no-action (guard 9).
+    // recreate-scaffold only when site model shows positive route existence.
     expect(byHref['/never-existed']?.kind).toBe('broken-internal-link/404')
     if (byHref['/never-existed']?.kind === 'broken-internal-link/404') {
       expect(byHref['/never-existed'].git.status).toBe('no-deletion-found')
-      expect(byHref['/never-existed'].action).toBe('recreate-scaffold')
+      expect(byHref['/never-existed'].routeKind).toBe('no-route')
+      expect(byHref['/never-existed'].action).toBe('no-action')
       expect(byHref['/never-existed'].verdict).toBe('human-review')
+      expect(byHref['/never-existed'].action).not.toBe('recreate-scaffold')
     }
 
-    // With full-history runner, /shallow-unknown also has no deletion → recreate.
+    // With full-history runner, /shallow-unknown also has no deletion + no-route → no-action.
     // Dedicated shallow case is the next test.
     if (byHref['/shallow-unknown']?.kind === 'broken-internal-link/404') {
       expect(byHref['/shallow-unknown'].git.status).toBe('no-deletion-found')
-      expect(byHref['/shallow-unknown'].action).toBe('recreate-scaffold')
+      expect(byHref['/shallow-unknown'].action).toBe('no-action')
     }
 
     const reasons = result.suppressed.map((s) => s.reason)
@@ -210,6 +220,7 @@ describe('topic-1 404 decision-tree fixture', () => {
       deps,
       repoRoot: '/fixture-repo-shallow',
       runGit: runGitShallow,
+      routeRoots: FIXTURE_ROOTS,
       livePages: [],
     })
 

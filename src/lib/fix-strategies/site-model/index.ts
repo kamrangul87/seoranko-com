@@ -160,6 +160,64 @@ export function middlewareMayRewrite(appDir: string): boolean {
   return false
 }
 
+export type RouteRootKind = 'app-router' | 'pages-router'
+
+export type RouteRoot = {
+  /** Repo-relative directory, e.g. `src/app` or `pages`. */
+  relDir: string
+  /** Absolute path to the directory. */
+  absDir: string
+  kind: RouteRootKind
+}
+
+const APP_ROUTER_CANDIDATES = ['src/app', 'app'] as const
+const PAGES_ROUTER_CANDIDATES = ['src/pages', 'pages'] as const
+
+function dirLooksLikeAppRouter(absDir: string): boolean {
+  if (!fs.existsSync(absDir) || !fs.statSync(absDir).isDirectory()) return false
+  const patterns: RoutePattern[] = []
+  walkPages(absDir, [], patterns)
+  return patterns.length > 0
+}
+
+function dirLooksLikePagesRouter(absDir: string): boolean {
+  if (!fs.existsSync(absDir) || !fs.statSync(absDir).isDirectory()) return false
+  const entries = fs.readdirSync(absDir, { withFileTypes: true })
+  return entries.some(
+    (e) =>
+      (e.isFile() && /\.(tsx|ts|jsx|js)$/.test(e.name) && e.name !== 'api') ||
+      e.isDirectory(),
+  )
+}
+
+/**
+ * Discover App Router / Pages Router roots in a connected repo.
+ * Prefers `src/app` over `app`, and `src/pages` over `pages`, when both exist.
+ * Returns only directories that look like real route trees.
+ */
+export function detectRouteRoots(repoRoot: string): RouteRoot[] {
+  const out: RouteRoot[] = []
+  for (const rel of APP_ROUTER_CANDIDATES) {
+    const absDir = path.join(repoRoot, rel)
+    if (!dirLooksLikeAppRouter(absDir)) continue
+    out.push({ relDir: rel, absDir, kind: 'app-router' })
+  }
+  for (const rel of PAGES_ROUTER_CANDIDATES) {
+    const absDir = path.join(repoRoot, rel)
+    if (!dirLooksLikePagesRouter(absDir)) continue
+    out.push({ relDir: rel, absDir, kind: 'pages-router' })
+  }
+  return out
+}
+
+/**
+ * Primary App Router directory for `resolvePath`, if any.
+ */
+export function primaryAppRouterDir(repoRoot: string): string | null {
+  const roots = detectRouteRoots(repoRoot)
+  return roots.find((r) => r.kind === 'app-router')?.absDir ?? null
+}
+
 /**
  * Resolve a URL path against an App Router `app/` directory.
  */

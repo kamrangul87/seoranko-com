@@ -3,6 +3,13 @@ import {
   type FetchDeps,
 } from '@/lib/fix-strategies/fetch'
 import {
+  detectRouteRoots,
+  primaryAppRouterDir,
+  resolvePath,
+  type RouteKind,
+  type RouteRoot,
+} from '@/lib/fix-strategies/site-model'
+import {
   extractAnchors,
   extractInternalFetchableAnchors,
   isInternalHref,
@@ -42,15 +49,36 @@ export type DetectTopic1Result = {
 
 export type DetectTopic1Options = {
   deps: FetchDeps
-  /** Repo root for git deletion evidence. Required for 404 branching. */
+  /** Repo root for git deletion evidence + site-model route roots. */
   repoRoot?: string
   runGit?: GitRunner
+  /**
+   * Override site-model route roots. When omitted and `repoRoot` is set,
+   * roots are detected via `detectRouteRoots(repoRoot)`.
+   */
+  routeRoots?: RouteRoot[]
   /** Live 200 pages available for successor scoring. */
   livePages?: LivePage[]
   /** Optional historical HTML for the missing URL (content similarity). */
   historicalHtmlByPath?: Record<string, string>
   similarityConfig?: Partial<SuccessorSimilarityConfig>
   gscImpressionsByPath?: Record<string, number>
+}
+
+function resolveRouteKind(
+  repoRoot: string | undefined,
+  routeRoots: RouteRoot[],
+  urlPath: string,
+): RouteKind | null {
+  if (!repoRoot) return null
+  const appDir =
+    routeRoots.find((r) => r.kind === 'app-router')?.absDir ??
+    primaryAppRouterDir(repoRoot)
+  if (!appDir) {
+    // Pages-router-only (or no roots): treat as no-route for App Router model.
+    return routeRoots.length === 0 ? null : 'no-route'
+  }
+  return resolvePath(appDir, urlPath).kind
 }
 
 /**
@@ -65,6 +93,10 @@ export async function detectBrokenInternalLinks(
   const findings: Topic1Finding[] = []
   const suppressed: DetectTopic1Result['suppressed'] = []
   const seen = new Set<string>()
+
+  const routeRoots: RouteRoot[] =
+    options.routeRoots ??
+    (options.repoRoot ? detectRouteRoots(options.repoRoot) : [])
 
   for (const anchor of extractAnchors(sourceHtml)) {
     if (isSkippableHref(anchor.href)) {
@@ -105,12 +137,15 @@ export async function detectBrokenInternalLinks(
 
     if (outcome.kind === 'http' && outcome.status === 404) {
       const path = new URL(targetUrl).pathname
+      const routeKind = resolveRouteKind(options.repoRoot, routeRoots, path)
+
       const git =
         options.repoRoot && options.runGit
           ? await findDeletedRouteEvidence(
               options.repoRoot,
               path,
               options.runGit,
+              { routeRoots, requireRouteRoots: true },
             )
           : gitEvidenceUnavailable(
               'history-unavailable: repoRoot/runGit not provided',
@@ -131,6 +166,7 @@ export async function detectBrokenInternalLinks(
       const decision = decide404Branch({
         git,
         successors,
+        routeKind,
         gscImpressions: options.gscImpressionsByPath?.[path] ?? null,
       })
 
