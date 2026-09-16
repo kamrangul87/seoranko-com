@@ -31,16 +31,23 @@ destination takes more than one hop.
 
 ## threshold
 
-**Hard failure:** chain length exceeds 10 hops. Google abandons it; the
-destination is never reached. Sourced, not a judgement.
+Severity bands use Google's own soft numbers from N15
+(`_internal_links_shared_facts.md`) plus the hard abandon limit:
 
-**Quality finding:** chain length is 2 or more hops where a single hop would
-reach the same destination. Google follows it, so this is not breakage — it is
-avoidable indirection. Report as a lower severity than the hard failure, and
-never claim a ranking effect.
+| Chain length (hops) | Severity | Basis |
+|---|---|---|
+| 1 | none | direct redirect; not this finding |
+| 2–3 | moderate | within Google's "ideally no more than 3" (N15) |
+| 4 | high | beyond ideal, approaching "fewer than 5" (N15) |
+| 5–10 | high | outside the soft advice; still followed up to 10 |
+| more than 10 | **hard failure** | Google abandons the chain; destination never reached |
 
-The 10-hop number is Google's limit, not a target. Do not present 9 hops as
-acceptable.
+Google follows chains of 2 or more hops, so lengths ≤10 are not breakage —
+they are avoidable indirection. Report quality findings below the hard
+failure, and never claim a ranking effect.
+
+The 10-hop number is Google's hard limit, not a target. Do not present 9 hops
+as acceptable, and do not treat 2–10 as one undifferentiated band.
 
 ## detect
 
@@ -112,15 +119,17 @@ Synthetic repo with: a 3-hop chain ending at 200; a 2-hop chain where the
 middle hop is middleware; an 11-hop chain; a 1-hop redirect to 200; a chain
 ending at 404.
 
-CI asserts: hard failure raised for the 11-hop; quality finding for the 3-hop;
-`indeterminate` for the middleware chain; nothing for the 1-hop; the 404-ending
-chain routed to topic 7.
+CI asserts: hard failure raised for the 11-hop; moderate quality finding for
+the 3-hop (N15 ideal band); high quality finding for a 4–5 hop chain;
+`indeterminate` for the middleware chain; nothing for the 1-hop; the
+404-ending chain routed to topic 7.
 
 ## Cross-references
 
 - topic 5 — loops and self-redirects
 - topic 6 — 302 where 301 belongs
 - topic 7 — redirect target not 200
-- topic 42 — internal links pointing at redirects
+- topic 42 — internal links pointing at redirects (same N15 bands on the link)
+- N15 in `_internal_links_shared_facts.md` — soft ≤3 / &lt;5 guidance
 - topic 68 — evidence rules
 - topic 70 — middleware resolution

@@ -4,9 +4,10 @@ import {
   isSkippableHref,
 } from './extract-anchors'
 import { detectGoneAnchors } from './detect-410'
+import { detectGoneAnchorsFromFetch } from './detect-from-fetch'
 import { removeAnchorByHref } from './fix-remove-anchor'
 import { verifyAnchorAbsent } from './verify-anchor-absent'
-import type { FetchDeps } from '@/lib/fix-strategies/fetch'
+import type { FetchDeps, FetchOutcome } from '@/lib/fix-strategies/fetch'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -75,6 +76,25 @@ describe('detectGoneAnchors (410 branch)', () => {
     const reasons = result.suppressed.map((s) => s.reason)
     expect(reasons).toContain('scheme-filter')
     expect(reasons).toContain('healthy-200')
+  })
+})
+
+describe('detectGoneAnchorsFromFetch (topic 67 gate)', () => {
+  it('refuses when source streamComplete is false — does not parse anchors', async () => {
+    const deps = depsWithStatus({ '/gone-page': 410 })
+    const incomplete: FetchOutcome = {
+      kind: 'http',
+      status: 200,
+      statusClass: '2xx',
+      headers: new Headers(),
+      body: htmlFixture(),
+      url: PAGE_URL,
+      streamComplete: false,
+    }
+    const result = await detectGoneAnchorsFromFetch(incomplete, PAGE_URL, deps)
+    expect(result.refused).toBe(true)
+    if (result.refused) expect(result.reason).toBe('stream_incomplete')
+    expect(deps.fetch).not.toHaveBeenCalled()
   })
 })
 

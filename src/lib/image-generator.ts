@@ -12,7 +12,10 @@ import {
   isEvChargingTopic,
 } from '@/lib/stock-image-relevance';
 
-// ── Blog-standard size presets ────────────────────────────────────────────────
+// ── Blog-standard size presets (product decision — not Google thresholds) ───
+// Google Article guidance recommends ≥50K pixels (width × height); these
+// presets all exceed that. Hero 1200×630 is a social/OG crop size, not a
+// Google "1200px wide" eligibility rule (that figure is stale).
 
 export const BLOG_SIZES = {
   hero:      { width: 1200, height: 630 },

@@ -47,10 +47,10 @@ export function buildActionHint(issue: ActionHintIssue): string {
   if (issue.id === 'schema-Organization-logo-reachability') {
     return 'The logo URL in Brand Settings is set but a live check found it broken (dead link or not an image) — upload a working logo image in Brand Settings, then regenerate or re-run Fix All.'
   }
-  // M06 — likewise, no in-article fix; the image needs to be regenerated
-  // or replaced with one that meets Google's Top Stories/Discover minimum.
-  if (issue.id === 'schema-Article-image-width') {
-    return 'Regenerate the featured image (or upload a replacement at least 1200px wide) — the current image is too small for Google Top Stories/Discover eligibility.'
+  // M06 — likewise, no in-article fix; regenerate/replace so width×height ≥ 50K
+  // (Google Article recommendation). Image is recommended, not required.
+  if (issue.id === 'schema-Article-image-area' || issue.id === 'schema-Article-image-width') {
+    return 'Regenerate the featured image (or upload a replacement with at least 50,000 pixels — width × height). Google recommends this for Article images; image remains recommended, not required.'
   }
 
   switch (issue.category) {

@@ -12,6 +12,8 @@ export type {
   Topic1Finding,
 } from './detect'
 export type { Detect410Result, GoneAnchorFinding } from './detect-410'
+export { detectGoneAnchorsFromFetch } from './detect-from-fetch'
+export type { DetectGoneFromFetchResult } from './detect-from-fetch'
 export { removeAnchorByHref } from './fix-remove-anchor'
 export { verifyAnchorAbsent } from './verify-anchor-absent'
 export { decide404Branch } from './decide-404'

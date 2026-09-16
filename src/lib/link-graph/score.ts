@@ -48,7 +48,7 @@ export function rankFindings(findings: LinkFinding[]): LinkFinding[] {
 const RULE_TITLES: Record<string, { title: string; why: string; change: string }> = {
   L01: {
     title: 'Internal links point to 4xx URLs',
-    why: 'Broken links waste crawl budget and send users to dead pages.',
+    why: 'Broken links send users to dead pages and leave crawlers without a usable destination.',
     change: 'Update or remove the href on each source page listed in the findings.',
   },
   L02: {
@@ -63,12 +63,12 @@ const RULE_TITLES: Record<string, { title: string; why: string; change: string }
   },
   L04: {
     title: 'Internal redirect chains longer than one hop',
-    why: 'Multi-hop chains dilute link equity and slow crawling.',
+    why: 'Multi-hop chains slow crawling and make the final destination harder to resolve.',
     change: 'Point the href at the final URL in the chain.',
   },
   L05: {
     title: 'Internal links that redirect once',
-    why: 'Each redirect burns crawl budget; link to the final URL instead.',
+    why: 'Extra redirect hops add latency for users and crawlers; link to the final URL instead.',
     change: 'Replace the href with the final destination URL.',
   },
   L06: {
@@ -88,7 +88,7 @@ const RULE_TITLES: Record<string, { title: string; why: string; change: string }
   },
   L23: {
     title: 'Indexable pages with no in-content internal links',
-    why: 'A page that never links onward in its main content is a dead end for crawlers and readers — equity and discovery stop there.',
+    why: 'A page that never links onward in its main content is a dead end for crawlers and readers.',
     change: 'Add contextual links in the main body to related indexable pages (nav/footer alone is not enough).',
   },
   L24: {
@@ -98,7 +98,7 @@ const RULE_TITLES: Record<string, { title: string; why: string; change: string }
   },
   L25: {
     title: 'Internal targets that did not respond',
-    why: 'Unresolved destinations waste crawl budget and hide whether the link is live.',
+    why: 'Unresolved destinations hide whether the link is live and leave crawlers without a usable target.',
     change: 'Fix the destination, remove the link, or raise the crawl timeout and re-run.',
   },
   L26: {
