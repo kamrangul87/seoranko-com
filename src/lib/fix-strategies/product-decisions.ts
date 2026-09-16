@@ -70,6 +70,32 @@ export const FIX_STRATEGY_PRODUCT_DECISIONS = {
    * 4:3-vs-16:9 mistakes; loose enough for ±1px rounding on large images.
    */
   imageIntrinsicRatioComparisonTolerance: 0.02 as number,
+
+  /**
+   * Topic 12a — known tracking / session parameter names that MAY be
+   * duplicates when content is proven identical. Product decision for the
+   * allow-list boundary (Google documents the class, not an exhaustive list).
+   * Chosen 2026-09-16. Name alone is never sufficient — content must match.
+   */
+  trackingParameterAllowlist: [
+    'utm_source',
+    'utm_medium',
+    'utm_campaign',
+    'utm_term',
+    'utm_content',
+    'utm_id',
+    'gclid',
+    'gbraid',
+    'wbraid',
+    'fbclid',
+    'msclkid',
+    'mc_eid',
+    'mc_cid',
+    'sessionid',
+    'session_id',
+    '_ga',
+    '_gl',
+  ] as readonly string[],
 } as const
 
 export type FixStrategyProductDecisions = typeof FIX_STRATEGY_PRODUCT_DECISIONS

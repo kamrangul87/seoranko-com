@@ -51,6 +51,12 @@ export type ClassifyTopic13Result = {
   verdict: Topic13Verdict
   severity: Topic13Severity
   detail: string
+  /**
+   * When body-misplaced: topic 29 (non-metadata / tags outside head) is the
+   * structural CAUSE. Report both — absent AND the cause routing.
+   */
+  causeTopic: 29 | null
+  causeDetail: string | null
 }
 
 export function classifyCanonicalAbsent(
@@ -58,20 +64,26 @@ export function classifyCanonicalAbsent(
 ): ClassifyTopic13Result {
   // Body misplaced is always its own defect when present — even alongside a
   // valid head/header (Google disregards the body one; author intended one).
-  // When ONLY body exists, treat as absent+misplaced.
+  // When ONLY body exists, treat as absent+misplaced AND route topic 29 cause.
   if (input.hasBodyMisplaced && !input.headPresent && !input.headerPresent) {
     if (input.hasNoindex) {
       return {
         verdict: 'suppress-noindex',
         severity: null,
         detail: 'Body canonical only, but page is noindex — canonical not required',
+        causeTopic: 29,
+        causeDetail:
+          'Canonical landed in <body> (C2) — topic 29 explains structural cause; suppressed because noindex',
       }
     }
     return {
       verdict: 'finding-body-misplaced',
       severity: 'finding',
       detail:
-        'Canonical only in <body> — Google disregards it (C2); counts as absent',
+        'Canonical only in <body> — Google disregards it (C2); counts as absent. Cause: topic 29 (non-metadata content / tags outside <head>)',
+      causeTopic: 29,
+      causeDetail:
+        'Parser placed canonical in <body> (often after implicit </head> from non-metadata in head) — topic 29 owns the structural fix',
     }
   }
 
@@ -84,6 +96,8 @@ export function classifyCanonicalAbsent(
       severity: null,
       detail:
         'Head/header canonical present — not absent; body duplicate is topic 17',
+      causeTopic: null,
+      causeDetail: null,
     }
   }
 
@@ -96,6 +110,8 @@ export function classifyCanonicalAbsent(
       detail: input.headerPresent && !input.headPresent
         ? 'HTTP Link canonical present — not absent (topic 16 if HTML disagrees)'
         : 'Head canonical present — not absent',
+      causeTopic: null,
+      causeDetail: null,
     }
   }
 
@@ -105,6 +121,8 @@ export function classifyCanonicalAbsent(
       verdict: 'suppress-noindex',
       severity: null,
       detail: 'Page is noindex — canonical not required (guard 4)',
+      causeTopic: null,
+      causeDetail: null,
     }
   }
 
@@ -113,6 +131,8 @@ export function classifyCanonicalAbsent(
       verdict: 'suppress-non-html',
       severity: null,
       detail: 'Non-HTML resource — HTML canonical fix does not apply (guard 6)',
+      causeTopic: null,
+      causeDetail: null,
     }
   }
 
@@ -122,6 +142,8 @@ export function classifyCanonicalAbsent(
       severity: null,
       detail:
         'generateMetadata may set canonical conditionally — indeterminate (guard 3)',
+      causeTopic: null,
+      causeDetail: null,
     }
   }
 
@@ -131,6 +153,8 @@ export function classifyCanonicalAbsent(
       severity: 'informational',
       detail:
         'No canonical declared and no duplicate URL forms proven — informational only (guard 1)',
+      causeTopic: null,
+      causeDetail: null,
     }
   }
 
@@ -141,6 +165,8 @@ export function classifyCanonicalAbsent(
       severity: 'finding',
       detail:
         'Duplicates proven but fix would land in layout — never cascade (rejected)',
+      causeTopic: null,
+      causeDetail: null,
     }
   }
 
@@ -150,6 +176,8 @@ export function classifyCanonicalAbsent(
       severity: 'finding',
       detail:
         'Duplicates proven, preferred form unresolved — human-review (topics 8–12)',
+      causeTopic: null,
+      causeDetail: null,
     }
   }
 
@@ -158,6 +186,8 @@ export function classifyCanonicalAbsent(
       verdict: 'auto-add-self-canonical',
       severity: 'finding',
       detail: `Duplicates proven — add self-referential canonical to ${input.preferredForm} on page file`,
+      causeTopic: null,
+      causeDetail: null,
     }
   }
 
@@ -166,5 +196,7 @@ export function classifyCanonicalAbsent(
     severity: 'finding',
     detail:
       'Duplicates proven, no canonical — declaration site unknown; human-review',
+    causeTopic: null,
+    causeDetail: null,
   }
 }
