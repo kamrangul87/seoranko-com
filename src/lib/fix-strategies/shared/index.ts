@@ -66,6 +66,31 @@ export type {
 } from './canonical-declaration-sites'
 
 export {
+  generateVariant,
+  isSiteRootUrl,
+} from './duplicate-url-variants'
+export type {
+  DuplicateUrlStrategy,
+  VariantPair,
+} from './duplicate-url-variants'
+
+export {
+  proveContentSameness,
+  normalizeMainContent,
+  sha256Hex,
+} from './content-sameness'
+export type { ContentSamenessResult } from './content-sameness'
+
+export {
+  derivePreferredForm,
+  httpsPreferred,
+} from './preferred-form'
+export type {
+  PreferredFormResult,
+  PreferredFormSignals,
+} from './preferred-form'
+
+export {
   fetchImageHeaderBytes,
   readImageIntrinsicSize,
   IMAGE_HEADER_PROBE_BYTES,

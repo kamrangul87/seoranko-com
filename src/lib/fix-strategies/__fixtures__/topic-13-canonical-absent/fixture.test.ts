@@ -43,10 +43,14 @@ describe('topic 13 — canonical tag absent', () => {
         duplicatesProven: false,
         artefactPath: 'app/unique/page.tsx',
       },
-      // 3. body only → body-misplaced finding
+      // 3. body only via premature head close → body-misplaced + topic 29 cause
       {
         url: `${ORIGIN}/body-only`,
-        body: pageHtml({ bodyCanonical: `${ORIGIN}/body-only` }),
+        body: `<!doctype html><html><head>
+          <title>t</title>
+          <div id="premature">closes head</div>
+          <link rel="canonical" href="${ORIGIN}/body-only">
+        </head><body><p>hi</p></body></html>`,
         duplicatesProven: true,
         preferredForm: `${ORIGIN}/body-only`,
         artefactPath: 'app/body-only/page.tsx',
@@ -100,6 +104,13 @@ describe('topic 13 — canonical tag absent', () => {
     )
     expect(bodyFinding?.kind).toBe('canonical/body-misplaced')
     expect(bodyFinding?.verdict).toBe('finding-body-misplaced')
+    expect(bodyFinding?.causeTopic).toBe(29)
+    expect(bodyFinding?.causeDetail).toMatch(/topic 29/i)
+    expect(
+      result.routedCauses.some(
+        (r) => r.pageUrl === `${ORIGIN}/body-only` && r.topic === 29,
+      ),
+    ).toBe(true)
 
     expect(
       result.suppressed.some(

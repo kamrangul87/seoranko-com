@@ -30,12 +30,21 @@ export type Topic13Finding = {
   extraction: CanonicalExtraction
   fixTarget: FixTargetResult
   repoFiles: string[]
+  /** Topic 29 cause when body-misplaced (absent AND structural cause). */
+  causeTopic: 29 | null
+  causeDetail: string | null
 }
 
 export type DetectTopic13Result = {
   findings: Topic13Finding[]
   suppressed: Array<{ pageUrl: string; reason: string; verdict: Topic13Verdict }>
   informational: Array<{ pageUrl: string; detail: string }>
+  /** Structural cause routes (topic 29) paired with body-misplaced findings. */
+  routedCauses: Array<{
+    pageUrl: string
+    topic: 29
+    detail: string
+  }>
 }
 
 export type DetectTopic13Page = {
@@ -91,6 +100,7 @@ export function detectCanonicalAbsent(
   const findings: Topic13Finding[] = []
   const suppressed: DetectTopic13Result['suppressed'] = []
   const informational: DetectTopic13Result['informational'] = []
+  const routedCauses: DetectTopic13Result['routedCauses'] = []
 
   for (const page of pages) {
     const headers = page.headers ?? new Headers()
@@ -186,6 +196,8 @@ export function detectCanonicalAbsent(
         extraction,
         fixTarget,
         repoFiles,
+        causeTopic: classified.causeTopic,
+        causeDetail: classified.causeDetail,
       })
       continue
     }
@@ -205,8 +217,18 @@ export function detectCanonicalAbsent(
       extraction,
       fixTarget,
       repoFiles,
+      causeTopic: classified.causeTopic,
+      causeDetail: classified.causeDetail,
     })
+
+    if (classified.causeTopic === 29 && classified.causeDetail) {
+      routedCauses.push({
+        pageUrl: page.url,
+        topic: 29,
+        detail: classified.causeDetail,
+      })
+    }
   }
 
-  return { findings, suppressed, informational }
+  return { findings, suppressed, informational, routedCauses }
 }
