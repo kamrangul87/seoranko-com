@@ -30,10 +30,13 @@ So the threshold is per-type, sourced from a **maintained requirement table**:
 | type not in the requirement table | no finding. Absence of a table entry is not evidence of a requirement |
 | type's feature is deprecated | topic 39, not this finding |
 
-The requirement table lives in the repo, one entry per supported feature, each
-with the Google feature-page URL and the date verified. A type with no entry
-produces no finding — the correct behaviour when the product does not know a
-feature's requirements.
+The requirement table lives in the repo:
+
+[`_structured_data_requirement_table.md`](./_structured_data_requirement_table.md)
+
+— one entry per supported feature, each with the Google feature-page URL and the
+date verified. A type with no entry produces no finding — the correct behaviour
+when the product does not know a feature's requirements.
 
 **Recommended-vs-required is never blurred.** Reporting a missing recommended
 property as an error is the central false positive in this topic, and it is

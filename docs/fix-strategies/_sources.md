@@ -88,3 +88,23 @@ this file identifies which strategies are now suspect.
 | 81 | https://developers.google.com/search/docs/appearance/structured-data/article | Article structured data | Feature-specific required/recommended properties (Article doc verified 2026-09-08). | 2026-09-15 | _structured_data_shared_facts.md, structured-data__required_properties_absent.md, structured-data__urls_dont_resolve.md, structured-data__invalid_or_mismatched_type.md, structured-data__contradicts_visible_page.md, structured-data__deprecated_types.md |
 | 82 | https://schema.org/ | schema.org vocabulary | Vocabulary only — not Google rich-result eligibility. | 2026-09-15 | _structured_data_shared_facts.md, structured-data__required_properties_absent.md, structured-data__urls_dont_resolve.md, structured-data__invalid_or_mismatched_type.md, structured-data__contradicts_visible_page.md, structured-data__deprecated_types.md |
 | 83 | https://developers.google.com/search/docs/appearance/structured-data/ | Structured data / deprecated features | HowTo and FAQPage rich-result deprecations; unused markup does not by itself cause Search problems. | 2026-09-15 | structured-data__deprecated_types.md, _structured_data_shared_facts.md |
+
+## Hygiene flags (consistency pass 2026-09-15)
+
+Rows with Source `—` have **no URL** (product decision or absence-of-spec). Flagged:
+
+| # | Reason |
+|---|---|
+| 18 | UNVERIFIED guard — no authoritative URL |
+| 19 | UNVERIFIED guard — no authoritative URL |
+| 24 | Absence of RFC for `X-RateLimit-*` |
+| 25 | Product / engineering convention (noindex declaration sites) |
+| 26 | Product / engineering convention (conditional generateMetadata) |
+| 28 | Absence of published soft-404 classifier |
+| 42 | Absence of RFC for redirect-loop detection |
+| 47 | SEORANKO product decision (loop normalisation) |
+| 56 | SEORANKO product decision (fetch evidence knobs) |
+
+**Stale vs source last-updated:** Article structured-data page last updated **2026-09-08**; row 79 verified-on **2026-09-15** (verified after source update — OK). No row currently has verified-on earlier than a known later source last-updated date. Re-check before raising findings when a Google page's "Last updated" exceeds the row's verified-on date (see topic 35 guard 6).
+
+**Historical sources with outdated-content warnings:** rows 61–62 (2009/2013 Google blogs) remain usable only with the scoped wording already in the dossiers (C12 "likely"; outdated-content warning).

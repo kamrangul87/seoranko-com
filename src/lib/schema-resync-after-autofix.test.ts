@@ -114,8 +114,8 @@ describe('schema re-validate after QG autofix', () => {
     expect(fromGate).not.toContain('schema-faq-parity')
   })
 
-  it('still reports real schema errors that autofix does not fix', async () => {
-    // Article schema missing required headline — autofix does not invent it
+  it('still reports real schema gaps that autofix does not invent content for', async () => {
+    // Article schema missing recommended headline — autofix does not invent it
     const brokenArticle = `
 <script type="application/ld+json">
 {

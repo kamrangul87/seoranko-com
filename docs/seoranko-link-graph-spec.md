@@ -358,7 +358,7 @@ covered by crawlability and site-structure *guidance*, not a rule with a
 penalty attached.
 
 Accurate framings to use instead:
-- "Finds links that waste crawl budget or send Google contradictory signals"
+- "Finds links that point at broken or contradictory destinations"
 - "Broken, redirected and non-canonical internal links"
 - "Pages Google can't reach through your own links"
 

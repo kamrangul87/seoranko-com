@@ -955,12 +955,14 @@ export function qualityGateStageStatus(gate: Pick<QualityGateResult, 'autoFixedC
  * Used for the initial RULE 6 pass AND the post-autofix refresh so the
  * returned Quality Gate issues always describe articleAfterAutoFix.
  */
-const MIN_PRIMARY_IMAGE_WIDTH_PX = 1200
+/** Google Article guidance: min 50K pixels when multiplying width × height (recommended). */
+const MIN_PRIMARY_IMAGE_AREA_PX = 50_000
 
 export function collectSchemaQualityIssues(
   html: string,
   expectOrganizationLogo?: boolean,
   primaryImageWidth?: number,
+  primaryImageHeight?: number,
 ): QualityIssue[] {
   const schemaResult = validateSchema(html, { expectOrganizationLogo })
   const out: QualityIssue[] = []
@@ -976,17 +978,22 @@ export function collectSchemaQualityIssues(
     })
   }
 
-  // M06 — Google's Top Stories/Discover eligibility needs a primary image
-  // at least 1200px wide; an 800x450 featured image does not qualify. Only
-  // checked when the pipeline actually knows the shipped image's width
-  // (primaryImageWidth undefined means "unknown", not "missing" — no issue).
-  if (primaryImageWidth !== undefined && primaryImageWidth < MIN_PRIMARY_IMAGE_WIDTH_PX) {
+  // M06 — Google recommends high-resolution Article images of at least
+  // 50K pixels (width × height). Image is recommended, not required.
+  // Only checked when both dimensions are known (undefined = unknown, no issue).
+  // Stale "1200px wide" / "800,000 total pixels" thresholds must not be used.
+  if (
+    primaryImageWidth !== undefined &&
+    primaryImageHeight !== undefined &&
+    primaryImageWidth * primaryImageHeight < MIN_PRIMARY_IMAGE_AREA_PX
+  ) {
+    const area = primaryImageWidth * primaryImageHeight
     out.push({
-      id: 'schema-Article-image-width',
-      severity: 'critical',
+      id: 'schema-Article-image-area',
+      severity: 'warning',
       category: 'schema',
-      title: 'Article: image width',
-      description: `Primary image is ${primaryImageWidth}px wide — Google requires at least ${MIN_PRIMARY_IMAGE_WIDTH_PX}px for Top Stories and Discover eligibility.`,
+      title: 'Article: image resolution',
+      description: `Primary image is ${primaryImageWidth}×${primaryImageHeight}px (${area.toLocaleString()} pixels) — Google recommends at least ${MIN_PRIMARY_IMAGE_AREA_PX.toLocaleString()} pixels (width × height) for Article images. Image remains recommended, not required.`,
       autoFixable: false,
     })
   }
@@ -1356,6 +1363,8 @@ export async function runQualityGate(
     skipLiveVerification?: boolean
     /** M06 — pipeline-known width of the primary shipped image, in px. */
     primaryImageWidth?: number
+    /** M06 — pipeline-known height of the primary shipped image, in px. */
+    primaryImageHeight?: number
     /**
      * M07 — the exact Organization.logo URL the schema actually emitted
      * (schemaResult.organizationLogoUrl), when set. When present and
@@ -1391,6 +1400,7 @@ export async function runQualityGate(
     freshnessResearchProvider,
     skipLiveVerification,
     primaryImageWidth,
+    primaryImageHeight,
     organizationLogoUrl,
   } = {
     expectOrganizationLogo: false,
@@ -1410,6 +1420,7 @@ export async function runQualityGate(
     secondaryKeywords?: string[]
     skipLiveVerification?: boolean
     primaryImageWidth?: number
+    primaryImageHeight?: number
     organizationLogoUrl?: string
     extraIssues?: QualityIssue[]
     expectOrganizationLogo?: boolean
@@ -1604,7 +1615,7 @@ export async function runQualityGate(
   // ---- RULE 6: Schema validation (full schema.org property-level check) ----
   // Collected via shared helper so the post-autofix refresh below uses the
   // exact same rules (including FAQ parity).
-  issues.push(...collectSchemaQualityIssues(articleContent, expectOrganizationLogo, primaryImageWidth))
+  issues.push(...collectSchemaQualityIssues(articleContent, expectOrganizationLogo, primaryImageWidth, primaryImageHeight))
 
   // ---- RULE 7: Author byline ----
   if (!articleContent.includes(authorName)) {
@@ -1886,7 +1897,7 @@ export async function runQualityGate(
     )
 
     finalIssues = [...preserved]
-    finalIssues.push(...collectSchemaQualityIssues(articleAfterAutoFix, expectOrganizationLogo, primaryImageWidth))
+    finalIssues.push(...collectSchemaQualityIssues(articleAfterAutoFix, expectOrganizationLogo, primaryImageWidth, primaryImageHeight))
     finalIssues.push(
       ...collectFactualClaimIssues(
         articleAfterAutoFix,
