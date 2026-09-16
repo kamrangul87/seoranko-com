@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeFixStrategyUrl } from './url-normalize'
+import {
+  normalizeFixStrategyUrl,
+  preserveQueryAndFragment,
+  wouldDropQueryOrFragment,
+} from './url-normalize'
 
 describe('normalizeFixStrategyUrl', () => {
   it('MUST NOT collapse trailing slash — /page !== /page/', () => {
@@ -51,5 +55,44 @@ describe('normalizeFixStrategyUrl', () => {
   it('returns null for unparseable input', () => {
     expect(normalizeFixStrategyUrl('not a url')).toBeNull()
     expect(normalizeFixStrategyUrl('')).toBeNull()
+  })
+})
+
+describe('preserveQueryAndFragment (topic 42 condition 5)', () => {
+  it('preserves utm query and fragment onto the final path', () => {
+    expect(
+      preserveQueryAndFragment(
+        '/old?utm_source=x#section',
+        'https://example.com/new',
+        'https://example.com/page',
+      ),
+    ).toBe('/new?utm_source=x#section')
+  })
+
+  it('does not drop query when destination already has other params', () => {
+    expect(
+      preserveQueryAndFragment(
+        '/old?utm_source=x#section',
+        'https://example.com/new?id=1',
+        'https://example.com/page',
+      ),
+    ).toBe('/new?id=1&utm_source=x#section')
+  })
+
+  it('wouldDropQueryOrFragment detects a bare /new rewrite', () => {
+    expect(
+      wouldDropQueryOrFragment(
+        '/old?utm_source=x#section',
+        '/new',
+        'https://example.com/',
+      ),
+    ).toBe(true)
+    expect(
+      wouldDropQueryOrFragment(
+        '/old?utm_source=x#section',
+        '/new?utm_source=x#section',
+        'https://example.com/',
+      ),
+    ).toBe(false)
   })
 })

@@ -1,6 +1,6 @@
 # internal-links__pointing_at_redirects
 
-Status: READY
+Status: READY — implemented, see `TOPIC42_STAGE_REPORT.md`
 Topic: 42 of the issue register
 Tier: A
 Shared facts: `_internal_links_shared_facts.md`
