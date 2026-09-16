@@ -15,7 +15,7 @@ function htmlWithCanonical(target: string): string {
 
 describe('topic 14 — canonical points to non-200', () => {
   it('classifies the dossier fixture set', async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
       const path = new URL(url).pathname
 
