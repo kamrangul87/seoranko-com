@@ -18,4 +18,10 @@ describe('hasNoindexDirective', () => {
       '<!doctype html><html><head><title>Ok</title></head><body></body></html>'
     expect(hasNoindexDirective(new Headers(), body, 'text/html')).toBe(false)
   })
+
+  it('R8: detects robots noindex in <body> (unlike canonical C2)', () => {
+    const body =
+      '<!doctype html><html><head><title>Ok</title></head><body><meta name="robots" content="noindex"><p>x</p></body></html>'
+    expect(hasNoindexDirective(new Headers(), body, 'text/html')).toBe(true)
+  })
 })
