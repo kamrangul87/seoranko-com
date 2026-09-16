@@ -107,6 +107,10 @@ this file identifies which strategies are now suspect.
 | 100 | https://developers.google.com/webmaster-tools/v1/urlInspection.index/inspect | URL Inspection API | Programmatic inspection of index/crawl/canonical state; labels may be coarser than the UI. | 2026-09-15 | _gsc_shared_facts.md, gsc__google_chosen_canonical_mismatch.md, gsc__discovered_not_indexed.md, gsc__crawled_not_indexed.md, gsc__indexed_vs_crawl_mismatch.md |
 | 101 | https://developers.google.com/webmaster-tools/limits | Search Console API limits | Quota/rate limits for Search Console API usage (Tier B connection-required). | 2026-09-15 | _gsc_shared_facts.md |
 | 102 | https://developers.google.com/webmaster-tools/v1/searchanalytics/query | Search Analytics query API | Impressions/clicks query surface used with internal-link graph checks (topic 59). | 2026-09-15 | _gsc_shared_facts.md, gsc__impressions_no_internal_links.md |
+| 103 | https://developers.google.com/search/docs/fundamentals/creating-helpful-content | Creating helpful, reliable, people-first content | Self-assessment questions, not machine-checkable thresholds (Tier C reason 1). | 2026-09-15 | _tier_c_shared_facts.md, content__thin_content.md, content__eeat_authorship.md, content__search_intent_mismatch.md, content__keyword_cannibalisation.md |
+| 104 | https://developers.google.com/search/docs/essentials/spam-policies | Spam policies | Scaled content / spam framing; not a word-count or thinness threshold. | 2026-09-15 | _tier_c_shared_facts.md, content__thin_content.md, content__keyword_cannibalisation.md |
+| 105 | https://web.dev/articles/vitals-tools | Core Web Vitals workflows and tools | CWV are field metrics over time — published criteria with unassertable repo postconditions (Tier C reason 2). | 2026-09-15 | _tier_c_shared_facts.md, content__lcp_cls_inp_metrics.md, content__render_blocking_scripts.md |
+| 106 | https://support.google.com/webmasters/answer/2648487 | Disavow links | Off-page / backlink remediation is outside in-repo transforms (Tier C reason 3 context). | 2026-09-15 | _tier_c_shared_facts.md, content__off_page_backlinks_citations.md |
 
 ## Hygiene flags (consistency pass 2026-09-15)
 
