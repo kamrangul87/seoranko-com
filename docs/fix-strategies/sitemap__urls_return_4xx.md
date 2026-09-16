@@ -22,11 +22,11 @@ and where several URLs lead to the same content, only the preferred one (S15).
 | Listed URL's state | Treatment |
 |---|---|
 | confirmed 4xx (topic 68) | remove from sitemap |
-| persistent 5xx (topic 3) | report; do not remove on transient failure |
+| 5xx stable across the re-fetch pair (`stableAcrossRefetch`) | human-review — do not remove on a transient flip; topic 3 owns the longer `persistent-5xx` window |
 | redirects | replace with the final 200 URL |
 | repo-declared `noindex` (topic 70) | remove — direct contradiction with S14 |
 | 200 with injected `noindex` | topic 2a. The page is gone; remove |
-| canonicalises to a different URL | replace with the canonical target (S15) |
+| canonicalises to a different URL | **human-review** — the declared canonical may itself be wrong, so replacing the sitemap `loc` with it would propagate a bad target (S15 still informs the report, not an auto-replace) |
 | 200, indexable, self-canonical | correct. Not a finding |
 
 Note S17: these entries do not invalidate the XML. They create conflicting
@@ -38,8 +38,10 @@ the claim is about coherence, not about lost ranking.
 1. Parse the sitemap; collect every `loc`.
 2. Fetch each, without following redirects.
 3. Classify using the existing detectors — topic 68 for 4xx confirmation,
-   topic 3 for 5xx persistence, topic 2a for injected `noindex`, topic 70 for
-   declared `noindex`, and the page's canonical for S15.
+   topic 68 re-fetch pair for `stableAcrossRefetch` 5xx (topic 3 owns the
+   longer `persistent-5xx` observation window), topic 2a for injected
+   `noindex`, topic 70 for declared `noindex`, and the page's canonical for
+   S15 (report / human-review only).
 4. Re-fetch before raising.
 
 ## fix
@@ -74,8 +76,10 @@ blast radius by design.
 `auto-fixable` for: removing confirmed 4xx entries, removing repo-declared
 `noindex` entries, and replacing a single-hop redirect with its target.
 
-`human-review` for canonicalises-elsewhere (the canonical may itself be wrong)
-and for persistent 5xx.
+`human-review` for canonicalises-elsewhere (the canonical may itself be wrong,
+so auto-replacing the sitemap entry would propagate it) and for 5xx that is
+`stableAcrossRefetch` (stable across the topic-68 re-fetch pair — not the same
+as topic 3's windowed `persistent-5xx`).
 
 ## false-positive guards
 

@@ -308,6 +308,49 @@ describe('topic 26 — sitemap not indexable', () => {
     fs.rmSync(appDir, { recursive: true, force: true })
   })
 
+  it('classifies 5xx stableAcrossRefetch as human-review (not topic-3 persistent)', async () => {
+    const loc = `${ORIGIN}/always-5xx`
+    const xml = sitemapListing([loc])
+    const fetchMock = vi.fn(async () => new Response('down', { status: 503 }))
+    const deps: FetchDeps = {
+      fetch: fetchMock as unknown as typeof fetch,
+      sleep: vi.fn(async () => {}),
+      now: () => 1_000_000,
+      config: {
+        fallbackDelayMs: 1,
+        maxAttempts: 2,
+        maxRetryAfterMs: 10,
+        timeoutMs: 100,
+      },
+    }
+    const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'topic26-5xx-'))
+    fs.writeFileSync(
+      path.join(appDir, 'page.tsx'),
+      'export default function P(){return null}',
+    )
+
+    const detected = await detectSitemapNotIndexable(
+      xml,
+      {
+        artefactPath: 'public/sitemap.xml',
+        isGenerated: false,
+        generatorPath: null,
+        appDir,
+        siteOrigin: ORIGIN,
+      },
+      deps,
+    )
+
+    expect(detected.findings).toHaveLength(1)
+    expect(detected.findings[0]?.verdict).toBe(
+      'human-review-5xx-stableAcrossRefetch',
+    )
+    expect(detected.findings[0]?.detail).toMatch(/stableAcrossRefetch/)
+    expect(detected.findings[0]?.detail).not.toMatch(/persistent-5xx/)
+
+    fs.rmSync(appDir, { recursive: true, force: true })
+  })
+
   it('targets the generator, never emitted XML, when the sitemap is generated', async () => {
     const xml = sitemapListing([`${ORIGIN}/missing`])
     const deps: FetchDeps = {

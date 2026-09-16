@@ -297,13 +297,15 @@ history and no matching deletion with `no-route` (`no-deletion-found` →
 `no-action`), one anchor to a 404 on a shallow clone with no matching deletion
 (`history-unavailable` → human-review), **one anchor to a dynamic route
 with `loading.tsx` present whose `notFound()` fires mid-stream (returns 200 +
-`noindex`)**, **one anchor to a deliberately noindexed valid page**, one
-`mailto:` href, one `#` href.
+`noindex`)**, **one anchor to a deliberately noindexed valid page**, **one
+anchor to a page whose `generateMetadata` sets robots conditionally
+(indeterminate)**, one `mailto:` href, one `#` href.
 
 CI asserts: the correct branch for each evidence state (including both
 `no-deletion-found` and `history-unavailable`), scheme/healthy suppressions,
-and specifically that the streamed soft 404 is raised while the deliberately
-noindexed valid page is not.
+and specifically that the streamed soft 404 is raised, the deliberately
+noindexed valid page is not, and the conditional-`generateMetadata` case is
+`human-review` / indeterminate.
 
 ---
 

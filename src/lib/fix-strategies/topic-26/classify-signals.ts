@@ -6,25 +6,8 @@
 import { parseHtml } from '../shared/html-parser'
 import { normalizeFixStrategyUrl } from '../shared/url-normalize'
 
-export function hasNoindexDirective(
-  headers: Headers,
-  body: string,
-  contentType: string | null,
-): boolean {
-  const xRobots = headers.get('x-robots-tag')
-  if (xRobots && /\bnoindex\b/i.test(xRobots)) return true
-
-  if (!isHtmlContentType(contentType) && !looksLikeHtml(body)) return false
-
-  const parsed = parseHtml(body)
-  for (const meta of parsed.headElements('meta')) {
-    const name = (meta.attrs.name ?? meta.attrs.Name ?? '').toLowerCase()
-    if (name !== 'robots' && name !== 'googlebot') continue
-    const content = meta.attrs.content ?? meta.attrs.Content ?? ''
-    if (/\bnoindex\b/i.test(content)) return true
-  }
-  return false
-}
+/** Re-export shared helper so topic-26 callers keep a single import surface. */
+export { hasNoindexDirective } from '../shared/response-signals'
 
 export function extractHtmlCanonical(
   body: string,

@@ -8,7 +8,7 @@
  *
  * Routed / review:
  * - transient 5xx → topic 3
- * - persistent 5xx → human-review
+ * - 5xx stableAcrossRefetch → human-review (not topic 3's windowed persistent-5xx)
  * - injected noindex → topic 2a (still remove, different cause)
  * - canonicalises-elsewhere → human-review
  * - multi-hop redirect → topic 4
@@ -20,6 +20,7 @@ import {
 } from '@/lib/fix-strategies/fetch'
 import {
   checkRepoDeclaredNoindex,
+  hasNoindexDirective,
   normalizeFixStrategyUrl,
   recordRedirectHops,
   resolveFixTarget,
@@ -27,7 +28,6 @@ import {
 import { resolvePath } from '@/lib/fix-strategies/site-model'
 import {
   extractHtmlCanonical,
-  hasNoindexDirective,
   isNonHtmlIndexableResource,
   isSelfCanonical,
 } from './classify-signals'
@@ -39,7 +39,7 @@ export type Topic26Verdict =
   | 'auto-remove-injected-noindex' // topic 2a cause; still remove
   | 'auto-replace-single-hop-redirect'
   | 'route-topic-3-transient-5xx'
-  | 'human-review-persistent-5xx'
+  | 'human-review-5xx-stableAcrossRefetch'
   | 'human-review-canonical-elsewhere'
   | 'human-review-indeterminate-noindex'
   | 'route-topic-4-redirect-chain'
@@ -161,19 +161,20 @@ async function classifyLoc(
 
   const status = hops.finalStatus
 
-  // 5xx — re-fetch to separate transient vs persistent (topic 3 / human-review)
+  // 5xx — re-fetch to separate transient vs stableAcrossRefetch
+  // (topic 3's windowed persistent-5xx is a separate, longer classification)
   if (status >= 500 && status < 600) {
     const evidence = await fetchWithEvidence(loc, deps)
     const httpAttempts = evidence.attempts.filter((a) => a.kind === 'http')
-    const all5xx =
+    const stableAcrossRefetch =
       httpAttempts.length >= 2 &&
       httpAttempts.every((a) => a.kind === 'http' && a.status >= 500 && a.status < 600)
 
-    if (all5xx) {
+    if (stableAcrossRefetch) {
       return {
         loc,
-        verdict: 'human-review-persistent-5xx',
-        detail: `Persistent 5xx across ${httpAttempts.length} attempts`,
+        verdict: 'human-review-5xx-stableAcrossRefetch',
+        detail: `5xx stableAcrossRefetch across ${httpAttempts.length} attempts (not topic-3 persistent window)`,
       }
     }
 

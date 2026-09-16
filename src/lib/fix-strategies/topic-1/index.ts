@@ -9,6 +9,8 @@ export type {
   DetectTopic1Result,
   Finding404,
   Finding410,
+  FindingIndeterminateNoindex,
+  FindingSoft404,
   Topic1Finding,
 } from './detect'
 export type { Detect410Result, GoneAnchorFinding } from './detect-410'

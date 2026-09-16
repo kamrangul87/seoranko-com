@@ -40,26 +40,37 @@ WordPress/PHP/`.htaccess` diagnosis. Out of stack and unsourced.
 
 ## threshold
 
-A single 5xx observation is never a finding (topic 68). The finding is
-**reproducibility**, not occurrence:
+A single 5xx observation is never a finding (topic 68). Two related but
+**distinct** classifications:
 
-- observed 5xx on initial fetch **and** on re-fetch → `persistent-5xx`, report
-- differing statuses across attempts → `transient-5xx`, record, do not report
-  as a site problem
+| Term | Meaning | Owner |
+|---|---|---|
+| `stableAcrossRefetch` | 5xx on the initial fetch **and** on the topic-68 confirming re-fetch (same status class across the pair) | precondition / short evidence — used by topic 26 to defer removal |
+| `persistent-5xx` | 5xx sustained over an **observation window** (product decision). The re-fetch pair alone is not enough | topic 3 finding |
+
+Threshold for this topic's reportable finding:
+
+- `stableAcrossRefetch` **and** still 5xx across the observation window →
+  `persistent-5xx`, report
+- differing statuses across the re-fetch pair → `transient-5xx`, record, do
+  not report as a site problem
 - 5xx observed only in GSC, 200 on live fetch → historical. Report as a past
   crawl failure with the crawl date, never as a current fault
 
-The observation window (how long a 5xx must persist to be called persistent)
-is a **SEORANKO product decision**. No primary source publishes a figure for
-general 5xx. Google's two-or-three-day 503/429 crawl-rate guidance is the
-nearest anchor and should be cited as context, not as the threshold.
+The observation window (how long a 5xx must persist to be called
+`persistent-5xx`) is a **SEORANKO product decision**
+(`persistent5xxObservationWindowMs` — still unset). No primary source
+publishes a figure for general 5xx. Google's two-or-three-day 503/429
+crawl-rate guidance is the nearest anchor and should be cited as context, not
+as the threshold.
 
 ## detect
 
 1. Fetch. Record status, timeout, connection reset and DNS failure as distinct
    outcomes — they are not interchangeable.
 2. Re-fetch per topic 68, honouring `Retry-After` where present.
-3. Classify as persistent, transient, or historical per the threshold above.
+3. Classify as `stableAcrossRefetch`, transient, historical, or — once the
+   observation window is set — `persistent-5xx`.
 
 ## fix
 
@@ -98,18 +109,21 @@ from GSC. Hand the human a specific task.
 
 ## fixture
 
-Synthetic target returning: persistent 500 on both fetches; 503 on the first
-fetch and 200 on the re-fetch; 503 with `Retry-After: 2`; a connection
-timeout.
+Synthetic target returning: 500 on both fetches of a re-fetch pair
+(`stableAcrossRefetch`); 503 on the first fetch and 200 on the re-fetch
+(transient); 503 with `Retry-After: 2`; a connection timeout.
 
-CI asserts: first reported as persistent, second recorded as transient and not
-reported, third honours the header before classifying, fourth recorded as a
-timeout and not as a 500.
+CI asserts: first classified `stableAcrossRefetch` (and `persistent-5xx` only
+once the observation window product decision is set and satisfied); second
+recorded as transient and not reported; third honours the header before
+classifying; fourth recorded as a timeout and not as a 500.
 
 ## Open questions
 
 1. Set the observation window for `persistent-5xx` as a documented product
-   decision.
+   decision (`persistent5xxObservationWindowMs`). Until set, detectors may
+   record `stableAcrossRefetch` but must not claim the longer
+   `persistent-5xx` finding.
 
 ## Cross-references
 

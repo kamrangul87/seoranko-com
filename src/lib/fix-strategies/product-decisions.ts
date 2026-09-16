@@ -33,6 +33,8 @@ export const FIX_STRATEGY_PRODUCT_DECISIONS = {
 
   /**
    * Topic 3 — observation window before classifying `persistent-5xx`.
+   * Distinct from topic 26's `stableAcrossRefetch` (5xx across one re-fetch
+   * pair only). Still unset — see `_open-questions.md`.
    */
   persistent5xxObservationWindowMs: null as UnsetProductDecision,
 

@@ -24,8 +24,11 @@ Last consolidated: 2026-09-16
 - **(1)** Guards 2 and 3 (auth-protected / WAF 404) remain unverified —
   flag-only until a primary source exists.
 - **(3)** Set the observation window for `persistent-5xx` as a documented
-  product decision (see `product-decisions.ts`). Source:
-  `status__5xx_responses.md`.
+  product decision (`persistent5xxObservationWindowMs` in
+  `product-decisions.ts` — still `null`). Until set: topic 26 / short evidence
+  may use **`stableAcrossRefetch`** (5xx stable across the topic-68 re-fetch
+  pair); do not call that `persistent`. Source: `status__5xx_responses.md`,
+  `sitemap__urls_return_4xx.md`.
 
 ## Evidence / plumbing
 
