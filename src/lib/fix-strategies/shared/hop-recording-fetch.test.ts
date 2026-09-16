@@ -45,6 +45,7 @@ describe('recordRedirectHops', () => {
     expect(result.finalUrl).toBe('https://example.com/final')
     expect(result.finalStatus).toBe(200)
     expect(result.stoppedReason).toBe('non-3xx')
+    expect(result.finalBody).toBe('ok')
   })
 
   it('detects a redirect loop via repeat URL', async () => {

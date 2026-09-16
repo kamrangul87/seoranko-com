@@ -2,8 +2,9 @@
  * Product decisions for the fix-strategies register.
  *
  * Every field here is a SEORANKO product choice, NOT a Google-sourced
- * threshold. Values are deliberately unset (`null`) until product sets them.
- * Do not invent defaults that look like research findings.
+ * threshold. Values left `null` are still unset. Setting a number here is a
+ * product act — record the decision date in git history / PR, not by citing
+ * a Google URL.
  *
  * Owning topics noted in comments. See docs/fix-strategies/_open-questions.md.
  */
@@ -11,21 +12,24 @@
 export type UnsetProductDecision = null
 
 /**
- * Collects unset knobs called out by the register audit. Setting a number
- * here is a product act — record the decision date in git history / PR, not
- * by citing a Google URL.
+ * Collects product knobs called out by the register audit.
  */
 export const FIX_STRATEGY_PRODUCT_DECISIONS = {
   /**
    * Topic 68 — re-fetch evidence.
-   * Fallback delay when Retry-After is absent; max HTTP attempts; max
-   * honoured Retry-After. (Operational fetch defaults may live in
-   * fetch/config.ts for topic-1 plumbing; those remain labelled product
-   * decisions there too.)
+   * Product decision, not a sourced threshold: RFC 9110 / 6585 leave fallback
+   * delay, attempt cap, and max honoured Retry-After unspecified.
+   *
+   * Chosen 2026-09-16 for Stage 2 (topic 26):
+   * - 1_000 ms fallback — short enough for CI/crawl throughput, long enough to
+   *   clear brief overload without treating Retry-After as zero.
+   * - 2 attempts — one confirming re-fetch (topic 68) without a retry storm.
+   * - 60_000 ms max honoured Retry-After — caps crawl stalls on huge headers.
+   * Aligns with existing FETCH_EVIDENCE_CONFIG operational defaults.
    */
-  refetchFallbackIntervalMs: null as UnsetProductDecision,
-  refetchMaxAttempts: null as UnsetProductDecision,
-  refetchMaxHonouredRetryAfterMs: null as UnsetProductDecision,
+  refetchFallbackIntervalMs: 1_000 as number,
+  refetchMaxAttempts: 2 as number,
+  refetchMaxHonouredRetryAfterMs: 60_000 as number,
 
   /**
    * Topic 3 — observation window before classifying `persistent-5xx`.
