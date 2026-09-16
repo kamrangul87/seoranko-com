@@ -1,4 +1,5 @@
 import { FETCH_EVIDENCE_CONFIG } from './config'
+import { readResponseBodyToCompletion } from './read-body'
 import type { FetchDeps, FetchOutcome, HttpStatusClass } from './types'
 
 export function classifyHttpStatus(status: number): HttpStatusClass {
@@ -53,6 +54,10 @@ function classifyNetworkError(
 /**
  * Fetch a URL without following redirects. Returns status + headers + body,
  * or a classified network failure.
+ *
+ * Topic 67: the body is always read via stream completion. `streamComplete`
+ * is false if the stream ends early; content detectors must refuse that
+ * outcome rather than classify a prefix.
  */
 export async function fetchUrl(
   url: string,
@@ -77,7 +82,7 @@ export async function fetchUrl(
       headers,
       cache: options?.bypassCache ? 'no-store' : undefined,
     })
-    const body = await response.text()
+    const { body, streamComplete } = await readResponseBodyToCompletion(response)
     return {
       kind: 'http',
       status: response.status,
@@ -85,12 +90,14 @@ export async function fetchUrl(
       headers: response.headers,
       body,
       url,
+      streamComplete,
     }
   } catch (err) {
     return {
       kind: classifyNetworkError(err),
       error: err instanceof Error ? err.message : String(err),
       url,
+      streamComplete: false,
     }
   } finally {
     clearTimeout(timer)

@@ -50,8 +50,9 @@ Validate against the composed rule, not a single standard:
 - grammar-only (BCP 47) validation **passes** `es-419` and `en-UK` — wrong
 - hardcoded-list validation **fails** `zh-Hans-US` — also wrong
 
-The rule above avoids both. Record the ISO table versions and their
-verified-on date, as with the topic 35 requirement table.
+The rule above avoids both. ISO table versions and verified-on dates live in
+`_hreflang_iso_code_tables.md` (same maintenance pattern as the topic 35
+requirement table).
 
 ## fix
 

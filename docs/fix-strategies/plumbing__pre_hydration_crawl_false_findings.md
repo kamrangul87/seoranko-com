@@ -214,12 +214,18 @@ Google, and each is mechanically detectable.
 
 ## Open questions
 
+See `_open-questions.md` (topic 67). Summary:
+
 1. Should SEORANKO acquire a rendered-DOM fetch mode at all, or stay
    served-HTML-only and report `client-only` honestly? A rendering pipeline is
    a large dependency; the honest-reporting path may be sufficient for every
    Tier A topic. Product decision.
 2. Guards 11–14 describe genuinely-hidden-content cases. Whether they become a
    finding of their own, or a variant within topics 2 and 60, is undecided.
+
+**Autodun check (2026-09-16):** complete-stream root fetch is still ~28 words
+and 0 anchors — step 3 (`client_only`), not step 2. The three stuck findings
+are suppressed by this guard's presence model; they are not content defects.
 
 ## Cross-references
 

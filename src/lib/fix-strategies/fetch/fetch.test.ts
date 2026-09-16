@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { classifyHttpStatus, fetchUrl } from './fetch-url'
 import { parseRetryAfter } from './parse-retry-after'
 import { fetchWithEvidence } from './evidence'
-import type { FetchDeps } from './types'
+import { probeContentSignals, requireCompleteStream } from './detector-guard'
+import type { FetchDeps, FetchOutcome } from './types'
 
 function httpResponse(
   status: number,
@@ -10,6 +11,38 @@ function httpResponse(
   headerInit?: Record<string, string>,
 ): Response {
   return new Response(body, { status, headers: headerInit })
+}
+
+function streamingResponse(chunks: string[], status = 200): Response {
+  const encoder = new TextEncoder()
+  let i = 0
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (i < chunks.length) {
+        controller.enqueue(encoder.encode(chunks[i]!))
+        i += 1
+      } else {
+        controller.close()
+      }
+    },
+  })
+  return new Response(stream, { status })
+}
+
+function truncatedStreamResponse(firstChunk: string): Response {
+  const encoder = new TextEncoder()
+  let sent = false
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (!sent) {
+        controller.enqueue(encoder.encode(firstChunk))
+        sent = true
+        return
+      }
+      controller.error(new Error('stream truncated'))
+    },
+  })
+  return new Response(stream, { status: 200 })
 }
 
 function depsWith(
@@ -75,9 +108,32 @@ describe('fetchUrl', () => {
       expect(outcome.status).toBe(302)
       expect(outcome.headers.get('location')).toBe('/elsewhere')
       expect(outcome.body).toBe('moved')
+      expect(outcome.streamComplete).toBe(true)
     }
     const init = (deps.fetch as ReturnType<typeof vi.fn>).mock.calls[0]![1]
     expect(init.redirect).toBe('manual')
+  })
+
+  it('reads a multi-chunk stream to completion (topic 67)', async () => {
+    const deps = depsWith(() =>
+      streamingResponse(['<html><body>', 'hello world', '</body></html>']),
+    )
+    const outcome = await fetchUrl('https://example.com/stream', deps)
+    expect(outcome.kind).toBe('http')
+    if (outcome.kind === 'http') {
+      expect(outcome.streamComplete).toBe(true)
+      expect(outcome.body).toBe('<html><body>hello world</body></html>')
+    }
+  })
+
+  it('marks streamComplete false when the body stream errors mid-read', async () => {
+    const deps = depsWith(() => truncatedStreamResponse('<html>partial'))
+    const outcome = await fetchUrl('https://example.com/trunc', deps)
+    expect(outcome.kind).toBe('http')
+    if (outcome.kind === 'http') {
+      expect(outcome.streamComplete).toBe(false)
+      expect(outcome.body).toContain('partial')
+    }
   })
 
   it('classifies timeout', async () => {
@@ -88,6 +144,7 @@ describe('fetchUrl', () => {
     })
     const outcome = await fetchUrl('https://example.com/slow', deps)
     expect(outcome.kind).toBe('timeout')
+    expect(outcome.streamComplete).toBe(false)
   })
 
   it('classifies DNS failure', async () => {
@@ -96,6 +153,7 @@ describe('fetchUrl', () => {
     })
     const outcome = await fetchUrl('https://example.invalid/', deps)
     expect(outcome.kind).toBe('dns-failure')
+    expect(outcome.streamComplete).toBe(false)
   })
 
   it('classifies connection reset', async () => {
@@ -104,6 +162,7 @@ describe('fetchUrl', () => {
     })
     const outcome = await fetchUrl('https://example.com/reset', deps)
     expect(outcome.kind).toBe('connection-reset')
+    expect(outcome.streamComplete).toBe(false)
   })
 
   it('sends cache-bypass headers when requested', async () => {
@@ -113,6 +172,70 @@ describe('fetchUrl', () => {
     const headers = new Headers(init.headers)
     expect(headers.get('Cache-Control')).toBe('no-cache')
     expect(init.cache).toBe('no-store')
+  })
+})
+
+describe('topic 67 stream-completion detector guard', () => {
+  const lateStreamHtml = [
+    '<!doctype html><html><head>',
+    '<title>Streamed</title>',
+    '<meta name="description" content="later chunk">',
+    '<script type="application/ld+json">{"@type":"WebPage"}</script>',
+    '</head><body>',
+    '<p>Substantial streamed article body with enough words for content.</p>',
+    '<a href="/about">About</a>',
+    '</body></html>',
+  ]
+
+  const emptyHtml = '<!doctype html><html><head></head><body></body></html>'
+
+  it('complete stream with content in later chunks → zero content/link/metadata/SD findings', async () => {
+    const deps = depsWith(() => streamingResponse(lateStreamHtml))
+    const outcome = await fetchUrl('https://example.com/late', deps)
+    const probed = probeContentSignals(outcome)
+    expect(probed.refused).toBe(false)
+    if (!probed.refused) expect(probed.findings).toEqual([])
+  })
+
+  it('genuinely empty complete HTML → content, link, metadata and SD findings', async () => {
+    const deps = depsWith(() => httpResponse(200, emptyHtml))
+    const outcome = await fetchUrl('https://example.com/empty', deps)
+    const probed = probeContentSignals(outcome)
+    expect(probed.refused).toBe(false)
+    if (!probed.refused) {
+      const kinds = probed.findings.map((f) => f.kind).sort()
+      expect(kinds).toEqual([
+        'missing-internal-link',
+        'missing-metadata',
+        'missing-structured-data',
+        'thin-or-empty-content',
+      ])
+      for (const f of probed.findings) {
+        expect(f.presence).toBe('client_only')
+      }
+    }
+  })
+
+  it('incomplete stream → detectors refuse rather than classify the prefix', async () => {
+    const deps = depsWith(() => truncatedStreamResponse('<html><body></body>'))
+    const outcome = await fetchUrl('https://example.com/incomplete', deps)
+    expect(requireCompleteStream(outcome).refused).toBe(true)
+    const probed = probeContentSignals(outcome)
+    expect(probed.refused).toBe(true)
+    if (probed.refused) expect(probed.reason).toBe('stream_incomplete')
+  })
+
+  it('manual incomplete outcome is refused', () => {
+    const outcome: FetchOutcome = {
+      kind: 'http',
+      status: 200,
+      statusClass: '2xx',
+      headers: new Headers(),
+      body: '<html></html>',
+      url: 'https://example.com/',
+      streamComplete: false,
+    }
+    expect(probeContentSignals(outcome).refused).toBe(true)
   })
 })
 
