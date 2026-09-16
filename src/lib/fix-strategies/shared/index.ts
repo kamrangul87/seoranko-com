@@ -42,6 +42,30 @@ export {
 } from './response-signals'
 
 export {
+  extractCanonicalDeclarations,
+  extractLinkHeaderCanonicals,
+  distinctNormalizedTargets,
+} from './canonical-extraction'
+export type {
+  CanonicalDeclaration,
+  CanonicalExtraction,
+  CanonicalLocation,
+} from './canonical-extraction'
+
+export { resolveHeaderCanonicalScope } from './header-canonical-scope'
+export type { HeaderCanonicalScope } from './header-canonical-scope'
+
+export {
+  resolveCanonicalRepoSites,
+  findAllCanonicalDeclarationFiles,
+  resolvePageFileForPath,
+} from './canonical-declaration-sites'
+export type {
+  CanonicalRepoSite,
+  CanonicalRepoSiteKind,
+} from './canonical-declaration-sites'
+
+export {
   fetchImageHeaderBytes,
   readImageIntrinsicSize,
   IMAGE_HEADER_PROBE_BYTES,

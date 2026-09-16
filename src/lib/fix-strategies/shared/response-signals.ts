@@ -1,10 +1,14 @@
 /**
  * Structural response signals (headers + HTML tree) shared across topics.
  * Uses the shared HTML parser — not regex on page prose.
+ *
+ * Canonical extraction is a thin wrapper over `extractCanonicalDeclarations`
+ * (topics 13–17). Do not add a second extractor here.
  */
 
 import { parseHtml } from './html-parser'
 import { normalizeFixStrategyUrl } from './url-normalize'
+import { extractCanonicalDeclarations } from './canonical-extraction'
 
 export function hasNoindexDirective(
   headers: Headers,
@@ -17,7 +21,11 @@ export function hasNoindexDirective(
   if (!isHtmlContentType(contentType) && !looksLikeHtml(body)) return false
 
   const parsed = parseHtml(body)
-  for (const meta of parsed.headElements('meta')) {
+  // R8: robots meta IS respected in <body> (unlike canonical C2). Check both.
+  for (const meta of [
+    ...parsed.headElements('meta'),
+    ...parsed.bodyElements('meta'),
+  ]) {
     const name = (meta.attrs.name ?? meta.attrs.Name ?? '').toLowerCase()
     if (name !== 'robots' && name !== 'googlebot') continue
     const content = meta.attrs.content ?? meta.attrs.Content ?? ''
@@ -26,21 +34,22 @@ export function hasNoindexDirective(
   return false
 }
 
+/**
+ * First (and only when unique) head canonical — body-only does not count (C2).
+ * Prefer `extractCanonicalDeclarations` when callers need header/body/multi.
+ */
 export function extractHtmlCanonical(
   body: string,
   pageUrl: string,
   contentType: string | null,
 ): string | null {
-  if (!isHtmlContentType(contentType) && !looksLikeHtml(body)) return null
-  const parsed = parseHtml(body)
-  for (const link of parsed.headElements('link')) {
-    const rel = (link.attrs.rel ?? '').toLowerCase().split(/\s+/)
-    if (!rel.includes('canonical')) continue
-    const href = link.attrs.href?.trim()
-    if (!href) continue
-    return normalizeFixStrategyUrl(href, pageUrl)
-  }
-  return null
+  const extracted = extractCanonicalDeclarations(
+    body,
+    new Headers(),
+    pageUrl,
+    contentType,
+  )
+  return extracted.effectiveHead?.normalized ?? null
 }
 
 export function isSelfCanonical(
