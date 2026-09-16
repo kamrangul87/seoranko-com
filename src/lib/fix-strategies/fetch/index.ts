@@ -4,11 +4,12 @@ export { parseRetryAfter } from './parse-retry-after'
 export { classifyHttpStatus, fetchUrl } from './fetch-url'
 export { fetchWithEvidence } from './evidence'
 export { readResponseBodyToCompletion } from './read-body'
-export { presenceAfterServedHtml } from './content-presence'
+export { presenceAfterServedHtml, presenceAfterRenderedDom, presenceLabel } from './content-presence'
 export type { ContentPresenceState } from './content-presence'
-export { requireCompleteStream, probeContentSignals } from './detector-guard'
+export { requireCompleteStream, probeContentSignals, defectFindings } from './detector-guard'
 export type {
   ContentSignalFinding,
+  ContentSignalKind,
   DetectorFetchGate,
   DetectorRefusal,
 } from './detector-guard'

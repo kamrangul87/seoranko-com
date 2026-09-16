@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { classifyHttpStatus, fetchUrl } from './fetch-url'
 import { parseRetryAfter } from './parse-retry-after'
 import { fetchWithEvidence } from './evidence'
-import { probeContentSignals, requireCompleteStream } from './detector-guard'
+import {
+  defectFindings,
+  probeContentSignals,
+  requireCompleteStream,
+} from './detector-guard'
+import { presenceLabel } from './content-presence'
 import type { FetchDeps, FetchOutcome } from './types'
 
 function httpResponse(
@@ -212,7 +217,12 @@ describe('topic 67 stream-completion detector guard', () => {
       ])
       for (const f of probed.findings) {
         expect(f.presence).toBe('client_only')
+        expect(f.raiseAsDefect).toBe(false)
+        expect(f.summary).toContain(presenceLabel('client_only'))
+        expect(f.summary).not.toMatch(/\bmissing\b/i)
       }
+      // Guard suppresses defect-class output (autodun path) — not hardcoded.
+      expect(defectFindings(probed.findings)).toEqual([])
     }
   })
 
@@ -225,7 +235,7 @@ describe('topic 67 stream-completion detector guard', () => {
     if (probed.refused) expect(probed.reason).toBe('stream_incomplete')
   })
 
-  it('manual incomplete outcome is refused', () => {
+  it('manual incomplete outcome is refused — body must not be classified', () => {
     const outcome: FetchOutcome = {
       kind: 'http',
       status: 200,
@@ -235,7 +245,15 @@ describe('topic 67 stream-completion detector guard', () => {
       url: 'https://example.com/',
       streamComplete: false,
     }
+    const gate = requireCompleteStream(outcome)
+    expect(gate.refused).toBe(true)
     expect(probeContentSignals(outcome).refused).toBe(true)
+  })
+
+  it('client_only and absent stay distinct end-to-end on findings', () => {
+    expect(presenceLabel('client_only')).toContain('after rendering')
+    expect(presenceLabel('absent')).toContain('rendered DOM')
+    expect(presenceLabel('client_only')).not.toEqual(presenceLabel('absent'))
   })
 })
 

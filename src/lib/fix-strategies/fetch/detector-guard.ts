@@ -3,7 +3,11 @@
  * must refuse incomplete stream reads rather than classify a prefix.
  */
 
-import type { ContentPresenceState } from './content-presence'
+import {
+  presenceAfterServedHtml,
+  presenceLabel,
+  type ContentPresenceState,
+} from './content-presence'
 import type { FetchOutcome } from './types'
 
 export type DetectorRefusal = {
@@ -17,6 +21,10 @@ export type DetectorFetchGate = {
   streamComplete: true
 }
 
+/**
+ * Hard gate: incomplete (or non-HTTP) outcomes never reach content classifiers.
+ * Callers must return this refusal instead of reading `outcome.body`.
+ */
 export function requireCompleteStream(
   outcome: FetchOutcome,
 ): DetectorRefusal | DetectorFetchGate {
@@ -33,20 +41,52 @@ export function requireCompleteStream(
   }
 }
 
+export type ContentSignalKind =
+  | 'thin-or-empty-content'
+  | 'missing-internal-link'
+  | 'missing-metadata'
+  | 'missing-structured-data'
+
+/**
+ * Finding carried end-to-end: presence is on the finding, not only the fetch.
+ * `client_only` signals are observations, not content defects (topic 67 R7/R28).
+ */
 export type ContentSignalFinding = {
-  kind:
-    | 'thin-or-empty-content'
-    | 'missing-internal-link'
-    | 'missing-metadata'
-    | 'missing-structured-data'
+  kind: ContentSignalKind
   presence: ContentPresenceState
+  /** False when presence is client_only — suppresses defect-class output. */
+  raiseAsDefect: boolean
+  /** User-facing line; never says "missing" for client_only. */
+  summary: string
+}
+
+function signalFinding(
+  kind: ContentSignalKind,
+  hasSignal: boolean,
+): ContentSignalFinding | null {
+  if (hasSignal) return null
+  const presence = presenceAfterServedHtml(false)
+  const raiseAsDefect = presence === 'absent'
+  const label = presenceLabel(presence)
+  const summaries: Record<ContentSignalKind, string> = {
+    'thin-or-empty-content': `Main content: ${label}`,
+    'missing-internal-link': `Crawlable anchors: ${label}`,
+    'missing-metadata': `Title/description metadata: ${label}`,
+    'missing-structured-data': `JSON-LD structured data: ${label}`,
+  }
+  return {
+    kind,
+    presence,
+    raiseAsDefect,
+    summary: summaries[kind],
+  }
 }
 
 /**
- * Minimal content/link/metadata/SD probe used by topic 67 fixtures.
- * Not a shipping detector for topics 29–39 / 43 / 60 — only the stream guard
- * contract: incomplete → refuse; complete empty → findings; complete with
- * late-stream content → no false absence findings.
+ * Minimal content/link/metadata/SD probe used by topic 67 fixtures and as the
+ * pattern for later detectors. Incomplete → refuse. Complete empty → findings
+ * with presence client_only (not defects). Complete with late-stream content →
+ * no absence findings.
  */
 export function probeContentSignals(
   outcome: FetchOutcome,
@@ -54,6 +94,7 @@ export function probeContentSignals(
   const gate = requireCompleteStream(outcome)
   if (gate.refused) return gate
 
+  // Body is only read after the gate — never on streamComplete: false.
   const body = gate.body
   const findings: ContentSignalFinding[] = []
 
@@ -65,33 +106,34 @@ export function probeContentSignals(
     .trim()
   const wordCount = text.length === 0 ? 0 : text.split(' ').filter(Boolean).length
 
-  if (wordCount === 0) {
-    findings.push({
-      kind: 'thin-or-empty-content',
-      presence: 'client_only',
-    })
-  }
+  const thin = signalFinding('thin-or-empty-content', wordCount > 0)
+  if (thin) findings.push(thin)
 
-  if (!/<a\s[^>]*href\s*=/i.test(body)) {
-    findings.push({
-      kind: 'missing-internal-link',
-      presence: 'client_only',
-    })
-  }
+  const links = signalFinding(
+    'missing-internal-link',
+    /<a\s[^>]*href\s*=/i.test(body),
+  )
+  if (links) findings.push(links)
 
-  if (!/<title[\s>]/i.test(body) && !/<meta\s[^>]*name\s*=\s*["']description["']/i.test(body)) {
-    findings.push({
-      kind: 'missing-metadata',
-      presence: 'client_only',
-    })
-  }
+  const meta = signalFinding(
+    'missing-metadata',
+    /<title[\s>]/i.test(body) ||
+      /<meta\s[^>]*name\s*=\s*["']description["']/i.test(body),
+  )
+  if (meta) findings.push(meta)
 
-  if (!/<script[^>]*type\s*=\s*["']application\/ld\+json["']/i.test(body)) {
-    findings.push({
-      kind: 'missing-structured-data',
-      presence: 'client_only',
-    })
-  }
+  const sd = signalFinding(
+    'missing-structured-data',
+    /<script[^>]*type\s*=\s*["']application\/ld\+json["']/i.test(body),
+  )
+  if (sd) findings.push(sd)
 
   return { refused: false, findings }
+}
+
+/** Defect-class findings only — client_only observations are suppressed here. */
+export function defectFindings(
+  findings: ContentSignalFinding[],
+): ContentSignalFinding[] {
+  return findings.filter((f) => f.raiseAsDefect)
 }
