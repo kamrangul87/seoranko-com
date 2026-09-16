@@ -2,8 +2,8 @@ import { parse, type DefaultTreeAdapterMap } from 'parse5'
 
 type Document = DefaultTreeAdapterMap['document']
 type Element = DefaultTreeAdapterMap['element']
-type ChildNode = DefaultTreeAdapterMap['childNodes'][number]
-type ParentNode = DefaultTreeAdapterMap['parentNode']
+type ParentNode = Document | Element
+type ChildNode = ParentNode['childNodes'][number]
 
 export type HtmlElement = {
   tagName: string
