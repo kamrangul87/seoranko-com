@@ -1,9 +1,10 @@
-export { recordRedirectHops } from './hop-recording-fetch'
+export { recordRedirectHops, normalizeHopUrl } from './hop-recording-fetch'
 export type {
   RedirectHop,
   HopRecordingResult,
   HopRecordingDeps,
   HopRecordingOptions,
+  HopStoppedReason,
 } from './hop-recording-fetch'
 
 export { normalizeFixStrategyUrl, preserveQueryAndFragment, wouldDropQueryOrFragment } from './url-normalize'

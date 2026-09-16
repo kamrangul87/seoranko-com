@@ -48,7 +48,7 @@ describe('recordRedirectHops', () => {
     expect(result.finalBody).toBe('ok')
   })
 
-  it('detects a redirect loop via repeat URL', async () => {
+  it('detects a redirect loop via visited-set (A → B → A), not consecutive only', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
       if (url === 'https://example.com/loop-a') {
@@ -67,7 +67,63 @@ describe('recordRedirectHops', () => {
     expect(result.stoppedReason).toBe('repeat-url')
     expect(result.hops).toHaveLength(2)
     expect(result.hops[1]!.location).toBe('https://example.com/loop-a')
+    expect(result.visitedNormalized).toEqual([
+      'https://example.com/loop-a',
+      'https://example.com/loop-b',
+      'https://example.com/loop-a',
+    ])
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does NOT treat /page → /page/ as a loop (slash must stay distinct)', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === 'https://example.com/page') {
+        return redirectResponse(301, 'https://example.com/page/')
+      }
+      if (url === 'https://example.com/page/') {
+        return okResponse(200)
+      }
+      throw new Error(`unexpected url ${url}`)
+    })
+
+    const result = await recordRedirectHops('https://example.com/page', {
+      fetch: fetchMock as unknown as typeof fetch,
+    })
+
+    expect(result.stoppedReason).toBe('non-3xx')
+    expect(result.finalStatus).toBe(200)
+    expect(result.hops).toHaveLength(2)
+  })
+
+  it('reports 3xx with no Location as missing-location (not a loop)', async () => {
+    const fetchMock = vi.fn(async () => redirectResponse(302, null))
+
+    const result = await recordRedirectHops('https://example.com/broken', {
+      fetch: fetchMock as unknown as typeof fetch,
+    })
+
+    expect(result.stoppedReason).toBe('missing-location')
+    expect(result.hops).toHaveLength(1)
+    expect(result.hops[0]!.location).toBeNull()
+  })
+
+  it('normalises host case for visited-set but not path case', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === 'https://Example.com/About') {
+        return redirectResponse(301, 'https://example.com/About')
+      }
+      // Same path after host lowercasing → self/loop
+      throw new Error(`should not fetch again: ${url}`)
+    })
+
+    const result = await recordRedirectHops('https://Example.com/About', {
+      fetch: fetchMock as unknown as typeof fetch,
+    })
+
+    expect(result.stoppedReason).toBe('repeat-url')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it('stops at max-hops and does not follow an 11th hop (default 10)', async () => {
