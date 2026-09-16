@@ -34,3 +34,5 @@ export type {
 
 export { parseHtml } from './html-parser'
 export type { HtmlElement, ParsedHtml } from './html-parser'
+
+export { hasNoindexDirective } from './response-signals'

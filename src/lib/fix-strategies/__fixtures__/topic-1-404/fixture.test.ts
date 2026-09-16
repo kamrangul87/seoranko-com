@@ -265,4 +265,76 @@ describe('topic-1 404 decision-tree fixture', () => {
       expect(finding.verdict).toBe('human-review')
     }
   })
+
+  it('dynamic-route pattern + no slug deletion → no-action (guard 9), never recreate-scaffold', async () => {
+    const fs = await import('node:fs')
+    const os = await import('node:os')
+    const path = await import('node:path')
+
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'topic1-dyn-'))
+    const appDir = path.join(repoRoot, 'app')
+    const slugDir = path.join(appDir, 'blog', '[slug]')
+    fs.mkdirSync(slugDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(slugDir, 'page.tsx'),
+      'export default function Page(){return null}\n',
+    )
+    fs.writeFileSync(
+      path.join(slugDir, 'loading.tsx'),
+      'export default function Loading(){return null}\n',
+    )
+    fs.writeFileSync(
+      path.join(appDir, 'page.tsx'),
+      'export default function Home(){return null}\n',
+    )
+
+    const roots: RouteRoot[] = [
+      { relDir: 'app', absDir: appDir, kind: 'app-router' },
+    ]
+
+    const runGitNoSlugDelete: GitRunner = async (args) => {
+      if (args[0] === 'rev-parse' && args[1] === '--is-shallow-repository') {
+        return { code: 0, stdout: 'false\n', stderr: '' }
+      }
+      if (
+        args[0] === 'log' &&
+        args[1] === '-1' &&
+        args[2] === '--pretty=format:%H'
+      ) {
+        // Slug-specific candidates never existed as static files
+        return { code: 0, stdout: '', stderr: '' }
+      }
+      if (args[0] === 'log' && args.includes('--diff-filter=D')) {
+        return { code: 0, stdout: '', stderr: '' }
+      }
+      return { code: 1, stdout: '', stderr: `unexpected: ${args.join(' ')}` }
+    }
+
+    const html = `<!doctype html><html><body>
+      <a href="/blog/missing-slug">gone slug</a>
+    </body></html>`
+
+    const deps = depsWithStatus({ '/blog/missing-slug': 404 })
+
+    const result = await detectBrokenInternalLinks(html, `${HOST}/home`, {
+      deps,
+      repoRoot,
+      routeRoots: roots,
+      runGit: runGitNoSlugDelete,
+      livePages: [],
+    })
+
+    const finding = result.findings.find((f) => f.href === '/blog/missing-slug')
+    expect(finding?.kind).toBe('broken-internal-link/404')
+    if (finding?.kind === 'broken-internal-link/404') {
+      expect(finding.routeKind).toBe('dynamic-route')
+      expect(finding.git.status).toBe('no-deletion-found')
+      expect(finding.verdict).toBe('human-review')
+      expect(finding.action).toBe('no-action')
+      expect(finding.action).not.toBe('recreate-scaffold')
+      expect(finding.reason).toMatch(/guard 9|pattern|slug-specific/i)
+    }
+
+    fs.rmSync(repoRoot, { recursive: true, force: true })
+  })
 })

@@ -22,8 +22,8 @@ All other product-decision fields remain `null`.
 
 - `parse-sitemap.ts` — extract / remove / replace `<url>` blocks by `<loc>`
   (per-block, never spans neighbours)
-- `classify-signals.ts` — noindex + canonical via shared `parseHtml` + headers;
-  PDF via content-type
+- `classify-signals.ts` — canonical + PDF via shared `parseHtml` + headers;
+  `hasNoindexDirective` re-exported from shared `response-signals`
 - `detect.ts` — classifies each loc using:
   - `recordRedirectHops` (shared)
   - `fetchWithEvidence` (topic 68)
@@ -60,15 +60,16 @@ sitemap of only healthy locs.
 ## Dossier notes (wrong / underspecified)
 
 1. **Threshold table vs verdict on canonicalises-elsewhere:** the threshold
-   table says “replace with the canonical target”; the verdict (and Stage 2
-   brief) say `human-review`. **Implemented human-review** per verdict /
-   Stage 2.
+   table previously said “replace with the canonical target”; the verdict
+   said `human-review`. **Dossier corrected** — table now matches verdict
+   (canonical may itself be wrong; replacing would propagate it).
 2. **Injected noindex:** dossier says remove and route to topic 2a. Stage 2
    CI says “routed to topic 2a”. Implemented as
    `auto-remove-injected-noindex` — still removes, cause tagged for topic 2a.
-3. **Persistent vs transient 5xx:** topic 68’s `fetchWithEvidence` treats
-   matching 5xx pairs as `non-actionable` rather than stable evidence.
-   Topic 26 therefore inspects attempt statuses directly: all attempts 5xx →
-   `human-review-persistent-5xx`; status flip → `route-topic-3-transient-5xx`.
-4. **`persistent5xxObservationWindowMs`** remains unset — persistence here
-   means “confirmed across the topic-68 re-fetch pair”, not a long window.
+3. **`stableAcrossRefetch` vs `persistent-5xx`:** topic 68’s
+   `fetchWithEvidence` treats matching 5xx pairs as `non-actionable` rather
+   than stable evidence. Topic 26 therefore inspects attempt statuses
+   directly: all attempts 5xx → `human-review-5xx-stableAcrossRefetch`
+   (stable across the re-fetch pair only); status flip →
+   `route-topic-3-transient-5xx`. Topic 3 owns the longer windowed
+   `persistent-5xx` finding (`persistent5xxObservationWindowMs` still unset).

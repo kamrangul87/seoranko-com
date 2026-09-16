@@ -47,7 +47,7 @@ conditional `generateMetadata` → indeterminate.
   *does* exist, keep indeterminate for all paths (matcher precision still not
   worth guessing). No Autodun-specific defaults in code.
 
-## Stage 3 — topic 1, 410 branch only
+## Stage 3 — topic 1, 410 branch (initial slice)
 
 **Built:** `src/lib/fix-strategies/topic-1/`
 - extract `<a href>`, scheme filter, internal filter
@@ -59,7 +59,7 @@ conditional `generateMetadata` → indeterminate.
 fix removes href; verifier passes on fixed HTML and fails on original;
 verifier source has no fixer import.
 
-## Stage 4 — fixture / CI
+## Stage 4 — fixture / CI (410)
 
 **Built:** `src/lib/fix-strategies/__fixtures__/topic-1-410/`
 - source page with four anchors: 410, mailto, `#`, healthy 200
@@ -67,11 +67,6 @@ verifier source has no fixer import.
 
 **CI asserts:** one finding raised; three suppressed; fix applied;
 postcondition passes against the served (fixed) HTML.
-
-## Not in this task (original Stage 1–4)
-
-404 branch (git history / successor similarity), soft-404 discriminator
-wiring into Fix Agent, and customer-repo writes.
 
 ## Follow-up — 404 branch + Autodun middleware (2026-09-14)
 
@@ -85,3 +80,36 @@ question: key off rewrite calls, not middleware file presence.
 - `decide-404.ts` — remove / proposed-301 / ambiguous / recreate-scaffold
 - GSC impressions accepted but never gate
 - Fixture exercises all four 404 outcomes plus 410
+
+## Stage 3 (continued) — 200 + injected noindex (2026-09-16)
+
+**Built:** soft-404 / deliberate-noindex / indeterminate branches in
+`topic-1/detect.ts`, using shared `hasNoindexDirective` +
+`checkRepoDeclaredNoindex` (topic 70).
+
+| Live 200 + noindex | Repo declaration | Outcome |
+|---|---|---|
+| yes | `true` (static metadata / layout) | suppress `deliberate-noindex` |
+| yes | `false` (not declared) | raise `soft-404` / injected — treat as 404 branch (R32 streamed `notFound`) |
+| yes | `indeterminate` (`generateMetadata` robots) | `human-review` / `indeterminate-noindex` |
+| no noindex | n/a | suppress `healthy-200` |
+
+**Interaction with Stage 1 (topic 67):** a streamed `notFound()` after
+headers are committed yields HTTP 200 + injected `<meta robots noindex>`
+(R32). That is exactly the `declared === false` raise path — destination
+gone, not a deliberate exclusion.
+
+**Fixture:** `__fixtures__/topic-1-200-noindex/`
+- dynamic `/blog/[slug]` + `loading.tsx`; live 200 + noindex → raises soft-404
+- `/private` with static `robots: { index: false }` → suppressed
+- `/draft` with conditional `generateMetadata` robots → indeterminate
+
+**Dossier notes:**
+- Topic 1 fixture section omitted the indeterminate
+  `generateMetadata` case — Stage 3 brief requires it — added to CI.
+- Soft-404 on a still-present dynamic route with no slug-specific git
+  deletion must **not** propose `recreate-scaffold` (guard 9 / topic 41):
+  pattern ≠ resource. Finding is raised as `soft-404` with `no-action`.
+  `recreate-scaffold` remains only for exact `static-route` files; the
+  action is a decision label only — no executor emits page files or slug
+  content.
