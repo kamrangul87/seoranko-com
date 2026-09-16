@@ -13,6 +13,12 @@ describe('hasNoindexDirective', () => {
     expect(hasNoindexDirective(new Headers(), body, 'text/html')).toBe(true)
   })
 
+  it('R7: expands none to noindex case-insensitively', () => {
+    const body =
+      '<!doctype html><html><head><meta name="Robots" content="None"></head><body></body></html>'
+    expect(hasNoindexDirective(new Headers(), body, 'text/html')).toBe(true)
+  })
+
   it('returns false when neither header nor meta carries noindex', () => {
     const body =
       '<!doctype html><html><head><title>Ok</title></head><body></body></html>'
