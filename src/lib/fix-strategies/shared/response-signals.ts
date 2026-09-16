@@ -4,6 +4,7 @@
  */
 
 import { parseHtml } from './html-parser'
+import { normalizeFixStrategyUrl } from './url-normalize'
 
 export function hasNoindexDirective(
   headers: Headers,
@@ -23,6 +24,34 @@ export function hasNoindexDirective(
     if (/\bnoindex\b/i.test(content)) return true
   }
   return false
+}
+
+export function extractHtmlCanonical(
+  body: string,
+  pageUrl: string,
+  contentType: string | null,
+): string | null {
+  if (!isHtmlContentType(contentType) && !looksLikeHtml(body)) return null
+  const parsed = parseHtml(body)
+  for (const link of parsed.headElements('link')) {
+    const rel = (link.attrs.rel ?? '').toLowerCase().split(/\s+/)
+    if (!rel.includes('canonical')) continue
+    const href = link.attrs.href?.trim()
+    if (!href) continue
+    return normalizeFixStrategyUrl(href, pageUrl)
+  }
+  return null
+}
+
+export function isSelfCanonical(
+  pageUrl: string,
+  canonical: string | null,
+): boolean {
+  if (canonical == null) return true // no canonical ≠ "canonicalises elsewhere"
+  const page = normalizeFixStrategyUrl(pageUrl)
+  const canon = normalizeFixStrategyUrl(canonical)
+  if (!page || !canon) return false
+  return page === canon
 }
 
 function isHtmlContentType(contentType: string | null): boolean {

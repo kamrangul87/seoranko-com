@@ -6,7 +6,7 @@ export type {
   HopRecordingOptions,
 } from './hop-recording-fetch'
 
-export { normalizeFixStrategyUrl } from './url-normalize'
+export { normalizeFixStrategyUrl, preserveQueryAndFragment, wouldDropQueryOrFragment } from './url-normalize'
 
 export { normalizeCanonicalForGscMatch } from './canonical-normalize'
 
@@ -35,4 +35,8 @@ export type {
 export { parseHtml } from './html-parser'
 export type { HtmlElement, ParsedHtml } from './html-parser'
 
-export { hasNoindexDirective } from './response-signals'
+export {
+  extractHtmlCanonical,
+  hasNoindexDirective,
+  isSelfCanonical,
+} from './response-signals'

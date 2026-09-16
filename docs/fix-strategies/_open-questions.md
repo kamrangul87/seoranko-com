@@ -32,6 +32,11 @@ Last consolidated: 2026-09-16
 
 ## Evidence / plumbing
 
+- **(42)** Guard 2 (conditional redirects: auth, locale, device, geo, A/B) —
+  only **locale path-swap** is statically detectable from a single Location
+  hop (e.g. `/products` → `/en/products`). Auth, device, geo and A/B redirects
+  need multi-request evidence the product does not gather — a known coverage
+  boundary. Source: `internal-links__pointing_at_redirects.md`.
 - **(68)** Confirm the three PENDING rows against RFC 9110 §15.6.4 directly
   (Retry-After MAY on 503, etc.). Fallback interval remains a product
   decision. Source: `plumbing__single_fetch_insufficiency_refetch.md`.

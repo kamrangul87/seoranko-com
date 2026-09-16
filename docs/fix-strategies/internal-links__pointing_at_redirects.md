@@ -1,6 +1,6 @@
 # internal-links__pointing_at_redirects
 
-Status: READY
+Status: READY — implemented, see `TOPIC42_STAGE_REPORT.md`
 Topic: 42 of the issue register
 Tier: A
 Shared facts: `_internal_links_shared_facts.md`
@@ -23,14 +23,18 @@ An internal `<a href>` target returns 3xx and resolves to a healthy 200.
 guidance is to link to the canonical URL rather than a duplicate (N13), and on
 site moves to update internal links to the new URLs (N14).
 
-Severity by chain length, using Google's own soft numbers (N15):
+Severity by chain length, using Google's own soft numbers (N15).
+**Severity and auto-fixability are independent:** a long chain can be
+`high` severity and still `auto-fixable` when all five rewrite conditions
+hold. Severity ranks the finding; the five conditions decide whether a
+mechanical rewrite is safe.
 
 | Chain from the link target | Severity |
 |---|---|
 | 1 hop to a healthy 200 | low |
 | 2–3 hops | moderate — within Google's "ideally no more than 3" |
 | 4 hops | high — beyond ideal, approaching the "fewer than 5" advice |
-| 5 or more hops | high |
+| 5 or more hops | high — still this finding (and auto-fixable if all five conditions hold) |
 | more than 10 hops | topic 4, not this finding — Google abandons it |
 | resolves to non-200 | topic 1 or topic 7, not this finding |
 
@@ -118,10 +122,12 @@ chain; to a 302; to a locale redirect; a link with `?utm_source=x#section`
 through a redirect; a nav link through a redirect appearing on 20 pages; a
 link to a redirect resolving to 404.
 
-CI asserts: auto-fix for the first; moderate for the second; high for the
-third; `human-review` for the fourth and fifth; parameters preserved in the
-sixth; **one** finding naming the component for the seventh; routed to topic 1
-for the eighth.
+CI asserts: auto-fix for the first (**low** severity); auto-fix for the
+second (**moderate** severity) and third (**high** severity) when all five
+conditions hold — severity and auto-fixability are independent;
+`human-review` for the fourth and fifth; parameters preserved in the sixth;
+**one** finding naming the component for the seventh; routed to topic 1 for
+the eighth.
 
 ## Cross-references
 
