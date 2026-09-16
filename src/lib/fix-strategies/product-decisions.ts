@@ -64,8 +64,12 @@ export const FIX_STRATEGY_PRODUCT_DECISIONS = {
   /**
    * Topic 49 — tolerance when comparing intrinsic image ratio to width/height
    * attributes (rounding at integer attributes is unavoidable).
+   *
+   * Product decision, not a sourced threshold. Chosen 2026-09-16: relative
+   * |declaredRatio / intrinsicRatio - 1| ≤ 0.02 (2%). Tight enough to catch
+   * 4:3-vs-16:9 mistakes; loose enough for ±1px rounding on large images.
    */
-  imageIntrinsicRatioComparisonTolerance: null as UnsetProductDecision,
+  imageIntrinsicRatioComparisonTolerance: 0.02 as number,
 } as const
 
 export type FixStrategyProductDecisions = typeof FIX_STRATEGY_PRODUCT_DECISIONS

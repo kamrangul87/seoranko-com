@@ -40,3 +40,10 @@ export {
   hasNoindexDirective,
   isSelfCanonical,
 } from './response-signals'
+
+export {
+  fetchImageHeaderBytes,
+  readImageIntrinsicSize,
+  IMAGE_HEADER_PROBE_BYTES,
+} from './image-intrinsic-size'
+export type { IntrinsicSize } from './image-intrinsic-size'

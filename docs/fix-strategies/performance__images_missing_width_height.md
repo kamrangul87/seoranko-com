@@ -1,6 +1,6 @@
 # performance__images_missing_width_height
 
-Status: READY
+Status: READY — implemented, see `TOPIC49_STAGE_REPORT.md`
 Topic: 49 of the issue register
 Tier: A-minus
 Shared facts: `_performance_adjacent_shared_facts.md`
