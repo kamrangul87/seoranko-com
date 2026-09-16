@@ -321,7 +321,19 @@ describe('decide404Branch', () => {
     expect(d.action).not.toBe('recreate-scaffold')
   })
 
-  it('static-route + no-deletion-found → recreate-scaffold (positive existence)', () => {
+  it('dynamic-route + no-deletion-found → no-action (guard 9 — pattern ≠ resource)', () => {
+    const d = decide404Branch({
+      git: noDeletion,
+      successors: [],
+      routeKind: 'dynamic-route',
+    })
+    expect(d.verdict).toBe('human-review')
+    expect(d.action).toBe('no-action')
+    expect(d.action).not.toBe('recreate-scaffold')
+    expect(d.reason).toMatch(/guard 9|pattern|slug-specific/i)
+  })
+
+  it('static-route + no-deletion-found → recreate-scaffold (exact path file)', () => {
     const d = decide404Branch({
       git: noDeletion,
       successors: [],

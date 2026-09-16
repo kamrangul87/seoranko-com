@@ -3,7 +3,7 @@ import type { SuccessorCandidate } from './successor-similarity'
 import type { RouteKind } from '@/lib/fix-strategies/site-model'
 
 /**
- * Topic 1 — 404 branch decision tree (dossier fix router).
+ * Topic 1 — 404 branch decision tree (dossier fix router / topic 41).
  *
  * Outcomes:
  * - remove-anchor (auto) — git deletion evidence and zero successors
@@ -11,11 +11,17 @@ import type { RouteKind } from '@/lib/fix-strategies/site-model'
  * - ambiguous-successors (human-review) — two or more successors
  * - history-unavailable (human-review) — git history cannot be trusted for a
  *   negative result. Never treated as recreate-scaffold or auto remove-anchor.
- * - no-action (human-review) — site model says no-route and git says
- *   no-deletion-found. Intent is unknown; propose nothing (guard 9).
- * - recreate-scaffold (human-review) — only when there is positive evidence the
- *   route existed/should exist (site model static/dynamic route) and git found
- *   no deletion, with zero successors.
+ * - no-action (human-review) — guard 9: no deletion evidence and zero
+ *   successors, when site-model does not prove the *resource* should exist
+ *   (`no-route` / indeterminate / unknown, **or** `dynamic-route` pattern
+ *   match only). A dynamic pattern matching `/blog/[slug]` does not prove
+ *   `/blog/missing-post` was intended — proposing scaffold would invent
+ *   intent (and for soft-404 would imply slug content generation).
+ * - recreate-scaffold (human-review) — only when there is positive evidence
+ *   the *exact* resource should exist: site model `static-route` (exact page
+ *   file for this path) with no deletion and zero successors. Never from a
+ *   dynamic pattern alone. Scaffold = empty route stub proposal label only;
+ *   this module does not emit files or page copy.
  *
  * GSC impressions are connection-required enrichment and must not gate.
  */
@@ -101,27 +107,38 @@ export function decide404Branch(input: {
   }
 
   // status === 'no-deletion-found'
-  // Guard 9: no-route + no deletion history ⇒ intent unknown ⇒ propose nothing.
-  if (routeKind === 'no-route' || routeKind == null || routeKind === 'indeterminate') {
+  // Guard 9: absence of deletion evidence does not establish intent.
+  // Dynamic pattern match proves a route *pattern*, not that this slug/resource
+  // should exist (topic 70 / soft-404 discriminator lesson). Never scaffold.
+  if (
+    routeKind === 'no-route' ||
+    routeKind == null ||
+    routeKind === 'indeterminate' ||
+    routeKind === 'dynamic-route'
+  ) {
+    const reason =
+      routeKind === 'dynamic-route'
+        ? 'dynamic-route pattern matches but no slug-specific deletion evidence — resource intent unknown; propose nothing (guard 9)'
+        : routeKind === 'no-route'
+          ? 'no-route in site model and no git deletion evidence — intent unknown; propose nothing'
+          : 'no git deletion evidence and route kind unknown/indeterminate — propose nothing'
     return {
       verdict: 'human-review',
       action: 'no-action',
-      reason:
-        routeKind === 'no-route'
-          ? 'no-route in site model and no git deletion evidence — intent unknown; propose nothing'
-          : 'no git deletion evidence and route kind unknown/indeterminate — propose nothing',
+      reason,
       git,
       successors,
       routeKind,
     }
   }
 
-  // Positive evidence the route exists in the repo (static/dynamic) but live
-  // 404 with no deletion record → destination should exist; scaffold for review.
+  // static-route: exact page file exists for this path — positive site-model
+  // evidence the resource should exist; live miss with no deletion → scaffold
+  // proposal for human review (empty stub label only — no content generation).
   return {
     verdict: 'human-review',
     action: 'recreate-scaffold',
-    reason: `site model resolves ${routeKind} with no git deletion — destination may still be intended`,
+    reason: `site model resolves static-route with no git deletion — destination may still be intended`,
     git,
     successors,
     routeKind,

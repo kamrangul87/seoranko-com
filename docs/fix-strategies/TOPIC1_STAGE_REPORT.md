@@ -105,8 +105,11 @@ gone, not a deliberate exclusion.
 - `/draft` with conditional `generateMetadata` robots → indeterminate
 
 **Dossier notes:**
-- Topic 1 fixture section originally omitted the conditional-
-  `generateMetadata` case; Stage 3 brief requires it — added to CI.
+- Topic 1 fixture section omitted the indeterminate
+  `generateMetadata` case — Stage 3 brief requires it — added to CI.
 - Soft-404 on a still-present dynamic route with no slug-specific git
-  deletion resolves to `recreate-scaffold` (404 tree), not auto
-  remove-anchor — correct: the route pattern exists; the resource does not.
+  deletion must **not** propose `recreate-scaffold` (guard 9 / topic 41):
+  pattern ≠ resource. Finding is raised as `soft-404` with `no-action`.
+  `recreate-scaffold` remains only for exact `static-route` files; the
+  action is a decision label only — no executor emits page files or slug
+  content.

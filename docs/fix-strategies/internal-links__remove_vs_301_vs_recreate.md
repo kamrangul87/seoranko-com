@@ -29,18 +29,25 @@ This dossier documents what was built, and corrects one row.
 | target 404, git shows deletion, zero successors | remove anchor | `auto-fixable` |
 | target 404, exactly one successor above the similarity floor | propose 301 | `human-review` |
 | target 404, two or more successors above the floor | no proposal | `human-review` — never tie-break |
-| target 404, git shows no deletion, zero successors | **no action** | `human-review` — intent unknown (guard 9) |
+| target 404, git shows no deletion, zero successors, site model `no-route` / indeterminate / unknown | **no action** | `human-review` — intent unknown (guard 9) |
+| target 404 (or soft-404), git shows no deletion, zero successors, site model `dynamic-route` only | **no action** | `human-review` — pattern ≠ resource (guard 9) |
+| target 404, git shows no deletion, zero successors, site model `static-route` (exact page file) | recreate-scaffold | `human-review` — exact path file is positive site-model evidence |
 | target 404, git history unavailable | no action | `human-review` — absence of evidence is not evidence |
 
-The last two rows were corrected during implementation. `recreate-scaffold`
-was originally proposed for "no deletion found, zero successors" and was
-wrong: no route and no deletion history means the destination may never have
-been intended to exist, so proposing a scaffold invents intent.
+`recreate-scaffold` from "no deletion + any route kind" was wrong. Guard 9
+covers absence of deletion evidence when the site model does not prove the
+*resource* should exist. A dynamic pattern (`app/blog/[slug]/page.tsx`)
+matching `/blog/missing-post` proves a pattern, never that the slug was
+intended — same lesson as topic 70's soft-404 discriminator. Scaffolding
+there would invent intent; for a streamed soft 404 it would also imply
+generating slug content, which is out of bounds.
 
 ## evidence sources, in order of strength
 
 1. **Target status.** 410 versus 404 is a declaration by the server about
    permanence. Deterministic, free, and decides the tree's top branch.
+   Soft-404 (200 + injected noindex) follows the same tree once the topic 70
+   discriminator confirms the destination is gone.
 2. **Git history of the connected repo.** Whether the route ever existed and
    when it was deleted. Path candidates must come from the site model's
    detected route roots (topic 70), not a default `app/**` list — this was a
@@ -59,8 +66,18 @@ must not appear in the tree.
 ## the recreate branch
 
 Scaffold only, never content. Proposed only where there is **positive**
-evidence the route existed — git deletion evidence, or a sitemap or GSC record
-of the URL. Never proposed from absence.
+evidence the *exact* resource should exist:
+
+- site model `static-route` (exact page file for this path), or
+- a sitemap or GSC record of the URL (not yet wired into `decide404Branch`)
+
+Never proposed from absence, and never from a `dynamic-route` pattern match
+alone.
+
+**What the implementation emits today:** the decision label
+`recreate-scaffold` on the finding — an empty-route-stub *proposal* for human
+review. There is no executor that writes a page file or generates slug copy.
+Content generation is explicitly out of bounds.
 
 For legal or policy pages the topic 44 rule applies: scaffold the route,
 never generate the copy.
@@ -85,11 +102,14 @@ executor:
 | 5 | Successor is the homepage | reject. Redirecting a deleted page to the homepage is a soft-404 pattern (topic 7) |
 | 6 | Proposed 301 target is itself non-200 or a redirect | resolve first (topics 4, 7) |
 | 7 | GSC not connected | the tree must still return an outcome |
+| 9 | No deletion evidence + zero successors, and site model does not prove the resource (`no-route` / indeterminate / unknown / **`dynamic-route` pattern only**) | `no-action`, `human-review`. Never `recreate-scaffold` |
 
 ### Explicitly rejected
 
 - **`recreate-scaffold` from absence of evidence.** Corrected during
-  implementation.
+  implementation; extended so dynamic pattern match cannot bypass guard 9.
+- **`recreate-scaffold` as slug content generation.** Out of bounds. The
+  action is a stub proposal label only.
 - **Tie-breaking between successors.**
 - **Redirecting to the homepage.**
 - **Any branch gated on external backlink data.**

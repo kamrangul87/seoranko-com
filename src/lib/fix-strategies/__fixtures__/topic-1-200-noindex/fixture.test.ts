@@ -185,10 +185,11 @@ describe('topic-1 Stage 3 — 200 + noindex discriminator', () => {
     expect(soft).toHaveLength(1)
     expect(soft[0]?.href).toBe('/blog/missing-post')
     expect(soft[0]?.cause).toBe('injected-noindex')
-    // Dynamic route still exists in repo; slug-specific path has no deletion
-    // match → 404-branch recreate-scaffold (raised, not suppressed).
+    // Dynamic pattern match ≠ resource intent (guard 9). Raise the finding,
+    // but propose nothing — never recreate-scaffold / slug content.
     expect(soft[0]?.verdict).toBe('human-review')
-    expect(soft[0]?.action).toBe('recreate-scaffold')
+    expect(soft[0]?.action).toBe('no-action')
+    expect(soft[0]?.reason).toMatch(/guard 9|pattern|slug-specific/i)
 
     expect(indeterminate).toHaveLength(1)
     expect(indeterminate[0]?.href).toBe('/draft')

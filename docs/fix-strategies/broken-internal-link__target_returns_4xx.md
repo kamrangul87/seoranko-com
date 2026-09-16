@@ -152,7 +152,7 @@ whose metadata is checked — but it is not the discriminator by itself.
 | 6 | Fetch may have hit a stale cached 404 at the CDN | never raise until re-fetched | routed to topic 68 |
 | 7 | Target returns 200 with `noindex` and is a deliberately noindexed valid page | never raise | Next.js streaming docs — requires the discriminator above to separate from a streamed soft 404 |
 | 8 | Absence of git deletion evidence is not evidence the route never existed — shallow clone (`--depth N`), failed `git log`, missing runner/repo, unreachable path history, **or unconfirmed route-root coverage** (probe must use site-model `detectRouteRoots`, never a hard-coded `app/**` default) | never treat as `no-deletion-found`; emit `history-unavailable` → `human-review`. Never `recreate-scaffold`, never auto `remove-anchor` | git semantics: `git log --diff-filter=D` on a shallow tip cannot see deletions older than the shallow boundary; probing the wrong tree is the same class of false negative |
-| 9 | Site model resolves `no-route` (or route kind is unknown/indeterminate) **and** git status is `no-deletion-found` | intent unknown — propose **nothing** (`no-action`, `human-review`). Never `recreate-scaffold`. Scaffold is only proposed when there is positive evidence the route existed/should exist (site model `static-route` / `dynamic-route`) | live autodun run 2026-09-15: `/charging-map` linked from `/about` is a client SPA target with no App Router file and no deletion under `src/app` — recreate was a false product action |
+| 9 | Site model resolves `no-route` (or route kind is unknown/indeterminate) **or** `dynamic-route` (pattern match only) **and** git status is `no-deletion-found` | intent unknown — propose **nothing** (`no-action`, `human-review`). Never `recreate-scaffold`. A dynamic pattern does not prove the slug resource should exist. Scaffold is only proposed when there is positive evidence for the *exact* path (site model `static-route`) | live autodun run 2026-09-15: `/charging-map` linked from `/about` is a client SPA target with no App Router file and no deletion under `src/app` — recreate was a false product action; soft-404 on `/blog/[slug]` with no slug deletion is the same class |
 
 ### Explicitly rejected as guards
 
@@ -219,9 +219,16 @@ decides only when successors are zero.
 | exactly 1 | any | any | `human-review` | `proposed-301` |
 | 2 or more | any | any | `human-review` | `ambiguous-successors` |
 | 0 | `deleted` | any | `auto-fixable` | `remove-anchor` |
-| 0 | `no-deletion-found` | `static-route` or `dynamic-route` | `human-review` | `recreate-scaffold` |
+| 0 | `no-deletion-found` | `static-route` (exact page file) | `human-review` | `recreate-scaffold` |
+| 0 | `no-deletion-found` | `dynamic-route` (pattern only) | `human-review` | `no-action` (guard 9) |
 | 0 | `no-deletion-found` | `no-route`, indeterminate, or unknown | `human-review` | `no-action` (guard 9) |
 | 0 | `history-unavailable` | any | `human-review` | `history-unavailable` |
+
+Guard 9: absence of deletion evidence does not establish intent. A
+`dynamic-route` match proves a route *pattern* (`app/blog/[slug]`), never that
+the specific slug resource should exist — proposing `recreate-scaffold` would
+invent intent (and for streamed soft 404s would imply slug content generation,
+which is out of bounds). Agree with topic 41.
 
 `history-unavailable` covers: shallow clone with no matching deletion in the
 tip, `git` command failure, missing `repoRoot`/`runGit`, empty/unconfirmed
@@ -278,8 +285,9 @@ Revert the commit. For the 301 branch, also confirm no chain was introduced.
   (proposed 301)
 - 404 target with two or more candidate successors → `human-review`
 - 404 target with `no-deletion-found`, no successor, and site-model
-  `static-route`/`dynamic-route` → scaffold only, `human-review`
-  (`recreate-scaffold`)
+  `static-route` → scaffold only, `human-review` (`recreate-scaffold`)
+- 404 / soft-404 target with `no-deletion-found`, no successor, and site-model
+  `dynamic-route` → `human-review` (`no-action`) — pattern ≠ resource (guard 9)
 - 404 target with `no-deletion-found`, no successor, and site-model `no-route`
   (or unknown/indeterminate) → `human-review` (`no-action`) — propose nothing
   (guard 9)
