@@ -26,11 +26,14 @@ export type FetchOutcome =
       headers: Headers
       body: string
       url: string
+      /** Topic 67: true only when the response stream was read to completion. */
+      streamComplete: boolean
     }
   | {
       kind: 'timeout' | 'connection-reset' | 'dns-failure' | 'network-error'
       error: string
       url: string
+      streamComplete: false
     }
 
 export type EvidenceResult =

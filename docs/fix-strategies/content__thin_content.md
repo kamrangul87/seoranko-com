@@ -39,7 +39,10 @@ Only observations with a stated method, never a quality judgement:
 | that the page is in "Crawled — currently not indexed" | topic 57 — reported as itself, never as evidence of thinness |
 
 The second and third rows matter most: the autodun "thin content: 28 words"
-finding was almost certainly one of those, not a content problem.
+finding was confirmed 2026-09-16 against a **complete** stream
+(`streamComplete: true`, 2497 bytes, 28 words, 0 anchors) — dossier topic 67
+step 3 (`client_only` shell), not a truncated prefix. Suppress as a crawler
+artefact / client-only state; do not treat as a content defect.
 
 ## fix
 

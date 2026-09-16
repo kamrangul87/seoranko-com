@@ -1,6 +1,6 @@
 # head__missing_og_twitter
 
-Status: READY — social preview, not indexing
+Status: READY — Open Graph researched; Twitter Card portion NOT RESEARCHED
 Topic: 32 of the issue register
 Tier: A
 Shared facts: `_head_shared_facts.md`

@@ -116,6 +116,10 @@ this file identifies which strategies are now suspect.
 | 109 | https://developers.google.com/search/docs/crawling-indexing/javascript/dynamic-rendering | Dynamic rendering as a workaround | Dynamic rendering was a workaround, not a recommended long-term solution; not cloaking when content is equivalent. | 2026-09-15 | plumbing__pre_hydration_crawl_false_findings.md |
 | 110 | https://nextjs.org/docs/app/getting-started/server-and-client-components | Server and Client Components | Server Components by default; Client Components can still contribute initial HTML; useEffect/browser-only fetch is post-execution content. | 2026-09-15 | plumbing__pre_hydration_crawl_false_findings.md |
 | 111 | https://nextjs.org/docs/app/api-reference/file-conventions/loading | Loading UI and streaming | Streaming commits headers; scanners must read the complete response stream, not the first chunk. | 2026-09-15 | plumbing__pre_hydration_crawl_false_findings.md |
+| 112 | https://developers.google.com/crawling/docs/troubleshooting/http-status-codes | How HTTP status codes and network/DNS errors affect Google Search | All 4xx except 429 are treated identically for indexing — content signalled as non-existent, URL removed from the index if previously indexed, crawl frequency gradually decreasing. | 2026-09-10 | broken-internal-link__target_returns_4xx.md, redirect__target_not_200.md |
+| 113 | https://developers.google.com/crawling/docs/troubleshooting/http-status-codes | How HTTP status codes and network/DNS errors affect Google Search | 404 and 410 sit in the same treatment row for Google Search indexing behaviour. | 2026-09-10 | broken-internal-link__target_returns_4xx.md |
+| 114 | https://developers.google.com/crawling/docs/troubleshooting/http-status-codes | How HTTP status codes affect Google's crawlers (2xx) | For Google Search, HTTP 2xx does not guarantee indexing; if the content suggests an error, an empty page, or an error message, Search Console shows a soft 404 error. | 2026-09-14 | soft-404__200_no_real_content.md |
+| 115 | https://developers.google.com/crawling/docs/troubleshooting/http-status-codes | How HTTP status codes affect Google's crawlers (5xx / 429) | 5xx and 429 prompt Google's crawlers to temporarily slow down; for Google Search, already indexed URLs are preserved but eventually dropped; content from 5xx responses is ignored. Persistent server errors lead to index removal. | 2026-09-14 | status__5xx_responses.md, plumbing__single_fetch_insufficiency_refetch.md, redirect__target_not_200.md |
 
 ## Hygiene flags (consistency pass 2026-09-15)
 
@@ -136,3 +140,13 @@ Rows with Source `—` have **no URL** (product decision or absence-of-spec). Fl
 **Stale vs source last-updated:** Article structured-data page last updated **2026-09-08**; row 79 verified-on **2026-09-15** (verified after source update — OK). No row currently has verified-on earlier than a known later source last-updated date. Re-check before raising findings when a Google page's "Last updated" exceeds the row's verified-on date (see topic 35 guard 6).
 
 **Historical sources with outdated-content warnings:** rows 61–62 (2009/2013 Google blogs) remain usable only with the scoped wording already in the dossiers (C12 "likely"; outdated-content warning).
+
+## Hygiene flags (audit 2026-09-16)
+
+Rows with Source `—` have **no URL** (product decision or absence-of-spec): **18, 19, 24, 25, 26, 28, 42, 47, 56**.
+
+**URL migration:** rows that formerly cited `/search/docs/crawling-indexing/http-network-errors` now point at `https://developers.google.com/crawling/docs/troubleshooting/http-status-codes` (content moved). Re-verify against the live page on next review.
+
+**Review cadence (proposed):** weekly check of https://developers.google.com/search/updates against requirement/deprecation/ISO tables; re-verify any row whose source "Last updated" is later than verified-on before raising findings from it.
+
+**Maintained dated tables:** `_structured_data_requirement_table.md` (35), `_structured_data_deprecation_table.md` (39), `_hreflang_iso_code_tables.md` (47). Open questions consolidated in `_open-questions.md`. Unset product knobs collected in `src/lib/fix-strategies/product-decisions.ts` (values deliberately null).

@@ -1,6 +1,6 @@
 # content__render_blocking_scripts
 
-Status: READY — documented refusal, with a research gap named
+Status: READY with research gap — documented refusal; dedicated research pass not run
 Topic: 62 of the issue register
 Tier: C — reason 2
 Shared facts: `_tier_c_shared_facts.md`
