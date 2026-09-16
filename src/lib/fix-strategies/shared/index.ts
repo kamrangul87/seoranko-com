@@ -20,6 +20,28 @@ export {
 export type { PathAllowedResult } from './robots-txt-matcher'
 
 export {
+  expandRobotsDirectives,
+  extractPageRobotsDirectives,
+  effectiveRobotsTokens,
+  setHasNoindex,
+  tokenSetsEqual,
+} from './robots-directives'
+export type {
+  PageRobotsDirectives,
+  RobotsDirectiveSet,
+} from './robots-directives'
+
+export {
+  fetchAndInspectRobotsTxt,
+  inspectRobotsTxtBody,
+  isPathAllowedFromInspection,
+} from './robots-txt-inspect'
+export type {
+  RobotsTxtInspection,
+  RobotsTxtFetchStatus,
+} from './robots-txt-inspect'
+
+export {
   checkRepoDeclaredNoindex,
   declaresNoindex,
   inspectNoindexSource,

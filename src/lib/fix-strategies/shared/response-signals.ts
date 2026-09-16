@@ -9,6 +9,10 @@
 import { parseHtml } from './html-parser'
 import { normalizeFixStrategyUrl } from './url-normalize'
 import { extractCanonicalDeclarations } from './canonical-extraction'
+import {
+  expandRobotsDirectives,
+  setHasNoindex,
+} from './robots-directives'
 
 export function hasNoindexDirective(
   headers: Headers,
@@ -16,7 +20,7 @@ export function hasNoindexDirective(
   contentType: string | null,
 ): boolean {
   const xRobots = headers.get('x-robots-tag')
-  if (xRobots && /\bnoindex\b/i.test(xRobots)) return true
+  if (xRobots && setHasNoindex(expandRobotsDirectives(xRobots))) return true
 
   if (!isHtmlContentType(contentType) && !looksLikeHtml(body)) return false
 
@@ -29,7 +33,8 @@ export function hasNoindexDirective(
     const name = (meta.attrs.name ?? meta.attrs.Name ?? '').toLowerCase()
     if (name !== 'robots' && name !== 'googlebot') continue
     const content = meta.attrs.content ?? meta.attrs.Content ?? ''
-    if (/\bnoindex\b/i.test(content)) return true
+    // R7: none → noindex, nofollow
+    if (setHasNoindex(expandRobotsDirectives(content))) return true
   }
   return false
 }
