@@ -37,5 +37,5 @@ function hrefVariants(href: string): string[] {
   } catch {
     // keep raw
   }
-  return [...out]
+  return Array.from(out)
 }

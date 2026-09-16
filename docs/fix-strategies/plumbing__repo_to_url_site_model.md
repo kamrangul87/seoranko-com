@@ -1,6 +1,6 @@
 # plumbing__repo_to_url_site_model
 
-Status: DRAFT — one open question
+Status: READY — middleware open question closed against Autodun middleware
 Topic: 70 of the issue register
 Tier: A (cross-cutting plumbing)
 Blocks: topic 1 and every fix branch
@@ -150,9 +150,19 @@ serves the URL. Topic 1 depends on it for the discriminator.
 
 ## Open questions
 
-1. Can `middleware.ts` rewrites be resolved statically often enough to be
+1. ~~Can `middleware.ts` rewrites be resolved statically often enough to be
    useful, or should any site with a middleware rewrite mark all affected
-   paths `indeterminate` by default? Needs a look at real middleware.
+   paths `indeterminate` by default?~~
+   **CLOSED 2026-09-14 — Autodun middleware answer.** Inspected real Autodun
+   middleware (`autodun-ev-finder/middleware.ts`, `fix-autodun-com/app/middleware.js`)
+   and SEORANKO's own `src/middleware.ts`. None call `NextResponse.rewrite()`:
+   they use `next()`, auth redirects, or response headers only. Therefore:
+   - presence of `middleware.ts` alone must **not** mark paths indeterminate
+   - only an actual `rewrite(` call triggers indeterminacy
+   - when a rewrite *does* exist, keep the conservative default: affected
+     paths are `indeterminate` (matcher precision still not worth guessing)
+   Implementation already keys on `rewrite(` / `NextResponse.rewrite(`, not
+   on file presence. Do not special-case Autodun in code.
 2. ~~Confirm the six facts above against the Next.js docs directly.~~
    **Corroborated 2026-09-14** by a second independent pass covering route
    groups, parallel slots, catch-all vs optional catch-all, and middleware

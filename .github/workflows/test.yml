@@ -20,6 +20,8 @@ jobs:
         run: npm ci
       - name: Lint
         run: npm run lint
+      - name: Typecheck (production sources, mirrors next build)
+        run: npm run typecheck
       - name: Permanent audit-site fixture suite
         run: npm run test:fixtures
       - name: Index Diagnosis / Sitemap / Link Graph / Fix Agent / beta regressions
@@ -48,3 +50,4 @@ jobs:
           src/lib/fix-agent-issues
           src/lib/developer-snippet-placements.test.ts
           src/lib/manual-paste-fix.test.ts
+          src/lib/fix-strategies
