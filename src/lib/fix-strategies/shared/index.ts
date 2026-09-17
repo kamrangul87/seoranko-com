@@ -116,6 +116,44 @@ export {
 } from './response-signals'
 
 export {
+  extractStructuredData,
+  collectUrlProperties,
+  getProp,
+  hasNonEmptyProp,
+} from './structured-data-extract'
+export type {
+  StructuredDataExtraction,
+  StructuredDataNode,
+  StructuredDataFormat,
+  JsonLdParseFailure,
+} from './structured-data-extract'
+
+export {
+  STRUCTURED_DATA_REQUIREMENT_TABLE,
+  lookupRequirement,
+  ARTICLE_IMAGE_MIN_PIXELS,
+} from './structured-data-requirement-table'
+export type {
+  FeatureRequirementEntry,
+  RequirementProperty,
+} from './structured-data-requirement-table'
+
+export {
+  STRUCTURED_DATA_DEPRECATION_TABLE,
+  lookupDeprecation,
+} from './structured-data-deprecation-table'
+export type { DeprecationEntry } from './structured-data-deprecation-table'
+
+export {
+  SCHEMA_ORG_VOCAB_SNAPSHOT,
+  classifyTypeName,
+  isKnownSchemaOrgType,
+  isPropertyValidForType,
+  propertiesForType,
+  suggestTypeSpelling,
+} from './schema-org-vocabulary'
+
+export {
   extractCanonicalDeclarations,
   extractLinkHeaderCanonicals,
   distinctNormalizedTargets,
