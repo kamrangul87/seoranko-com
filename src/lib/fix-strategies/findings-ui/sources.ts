@@ -72,7 +72,13 @@ export function sourcesForDossier(
     if (!a.url && b.url) return 1
     return a.sourceId - b.sourceId
   })
-  return sorted.slice(0, limit).map(({ usedBy: _u, ...rest }) => rest)
+  return sorted.slice(0, limit).map((row) => ({
+    sourceId: row.sourceId,
+    url: row.url,
+    section: row.section,
+    requirement: row.requirement,
+    verifiedOn: row.verifiedOn,
+  }))
 }
 
 /** Test helper — inject parsed rows without reading disk. */
