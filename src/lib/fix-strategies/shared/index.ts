@@ -245,3 +245,17 @@ export {
   IMAGE_HEADER_PROBE_BYTES,
 } from './image-intrinsic-size'
 export type { IntrinsicSize } from './image-intrinsic-size'
+
+export {
+  buildInternalLinkGraph,
+  extractPageLinkSignals,
+  recordNonCrawlableInbound,
+} from './internal-link-graph'
+export type {
+  InternalLinkGraph,
+  LinkGraphNode,
+  LinkGraphEdge,
+  LinkGraphPageInput,
+  RenderedLinkEdge,
+  BuildLinkGraphOptions,
+} from './internal-link-graph'
