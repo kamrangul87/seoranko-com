@@ -40,6 +40,8 @@ export type Topic49Finding = {
   /** Selector hint: src attribute value as it appeared. */
   srcAttr: string
   fixTarget: FixTargetResult
+  /** Topic 70 / caller-resolved declaration site for register-wide rollup. */
+  declarationSite: string | null
 }
 
 export type DetectTopic49Result = {
@@ -52,6 +54,11 @@ export type DetectTopic49Options = {
   artefactPath?: string
   isGenerated?: boolean
   generatorPath?: string | null
+  /**
+   * Repo path or logical id of the declaring layout/component/generator
+   * (topic 70). Defaults to generatorPath when fixing a generator.
+   */
+  declarationSite?: string | null
 }
 
 export async function detectImgMissingDimensions(
@@ -73,6 +80,9 @@ export async function detectImgMissingDimensions(
     isGenerated: options.isGenerated ?? false,
     generatorPath: options.generatorPath ?? null,
   })
+  const declarationSite =
+    options.declarationSite ??
+    (fixTarget.action === 'fix-generator' ? fixTarget.targetPath : null)
 
   for (const img of imgs) {
     const srcAttr = img.attrs.src ?? ''
@@ -158,6 +168,7 @@ export async function detectImgMissingDimensions(
       proposed: classified.proposed,
       srcAttr,
       fixTarget,
+      declarationSite,
     })
   }
 

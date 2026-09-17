@@ -23,12 +23,13 @@ Last consolidated: 2026-09-16
   Source: `broken-internal-link__target_returns_4xx.md`.
 - **(1)** Guards 2 and 3 (auth-protected / WAF 404) remain unverified —
   flag-only until a primary source exists.
-- **(3)** Set the observation window for `persistent-5xx` as a documented
-  product decision (`persistent5xxObservationWindowMs` in
-  `product-decisions.ts` — still `null`). Until set: topic 26 / short evidence
-  may use **`stableAcrossRefetch`** (5xx stable across the topic-68 re-fetch
-  pair); do not call that `persistent`. Source: `status__5xx_responses.md`,
-  `sitemap__urls_return_4xx.md`.
+- **(3)** ~~Set the observation window for `persistent-5xx`~~ **CLOSED
+  2026-09-17:** `persistent5xxObservationWindowMs = 172_800_000` (48h).
+  A single topic-68 re-fetch pair cannot mint `persistent-5xx`; observations
+  must span the window. Source: `status__5xx_responses.md`.
+- **(1 / 41)** ~~`successorSimilarityFloor` unset~~ **CLOSED 2026-09-17:**
+  `successorSimilarityFloor = 0.55` (wired into topic-1/config.ts). Exactly
+  one successor above floor → proposed-301 (human-review); never auto-301.
 
 ## Evidence / plumbing
 

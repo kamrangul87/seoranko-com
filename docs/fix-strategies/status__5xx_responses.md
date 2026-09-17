@@ -59,10 +59,10 @@ Threshold for this topic's reportable finding:
 
 The observation window (how long a 5xx must persist to be called
 `persistent-5xx`) is a **SEORANKO product decision**
-(`persistent5xxObservationWindowMs` — still unset). No primary source
-publishes a figure for general 5xx. Google's two-or-three-day 503/429
-crawl-rate guidance is the nearest anchor and should be cited as context, not
-as the threshold.
+(`persistent5xxObservationWindowMs = 172_800_000` / 48h, set 2026-09-17).
+No primary source publishes a figure for general 5xx. Google's two-or-three-day
+503/429 crawl-rate guidance is the nearest anchor and is cited as context, not
+as the threshold. A single topic-68 re-fetch pair cannot satisfy the window.
 
 ## detect
 
@@ -120,10 +120,7 @@ classifying; fourth recorded as a timeout and not as a 500.
 
 ## Open questions
 
-1. Set the observation window for `persistent-5xx` as a documented product
-   decision (`persistent5xxObservationWindowMs`). Until set, detectors may
-   record `stableAcrossRefetch` but must not claim the longer
-   `persistent-5xx` finding.
+None remaining for the observation window (set 2026-09-17).
 
 ## Cross-references
 

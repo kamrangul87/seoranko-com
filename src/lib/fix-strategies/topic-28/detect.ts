@@ -13,7 +13,6 @@ import {
   resolveFixTarget,
   type FixTargetResult,
 } from '@/lib/fix-strategies/shared'
-import { normalizeFixStrategyUrl } from '@/lib/fix-strategies/shared/url-normalize'
 
 export type Topic28Verdict =
   | 'ok'
@@ -204,34 +203,8 @@ export function detectSitemapNotReferencedInRobots(
   return { findings, informational, suppressed }
 }
 
-/** Propose adding a Sitemap: line. Never creates robots.txt from scratch. */
-export function proposeAddSitemapRecord(
-  robotsBody: string | null,
-  sitemapAbsoluteUrl: string,
-): {
-  body: string | null
-  updated: boolean
-  rejectedCreate: boolean
-} {
-  if (robotsBody == null) {
-    return { body: null, updated: false, rejectedCreate: true }
-  }
-  const abs =
-    normalizeFixStrategyUrl(sitemapAbsoluteUrl) ?? sitemapAbsoluteUrl
-  if (/^\s*sitemap\s*:/im.test(robotsBody)) {
-    // Already has some record — caller should check coverage
-    if (robotsBody.toLowerCase().includes(abs.toLowerCase())) {
-      return { body: robotsBody, updated: false, rejectedCreate: false }
-    }
-  }
-  const trimmed = robotsBody.replace(/\s*$/, '')
-  const next = `${trimmed}\nSitemap: ${abs}\n`
-  return { body: next, updated: true, rejectedCreate: false }
-}
-
-/** REJECTED — never create robots.txt just to add Sitemap:. */
-export function rejectedCreateRobotsTxtForSitemap(): never {
-  throw new Error(
-    'REJECTED: never create a robots.txt just to add a Sitemap: record — a 404 robots.txt is normal',
-  )
-}
+export {
+  proposeAddSitemapRecord,
+  applyAddSitemapRecord,
+  rejectedCreateRobotsTxtForSitemap,
+} from './fix-add-sitemap-record'

@@ -159,7 +159,7 @@ export function detectOrphanPages(
         pageUrl: node.urlNormalized,
         detail:
           'Orphaned in the crawlable link graph — reachable only via onclick/javascript: (N1, N3). Convert to a real <a href>.',
-        autoFixable: true,
+        autoFixable: false,
         inSitemap: node.inSitemap,
         convertNonCrawlableToAnchor: true,
       })

@@ -51,6 +51,12 @@ this topic.
 Add the missing reciprocal annotation to the target page, using the method the
 site already uses.
 
+Shipped HTML path: `topic-46/fix-add-reciprocal.ts`
+(`addReciprocalHreflangAnnotation`) — inserts
+`<link rel="alternate" hreflang …>` into `<head>` when locales are
+repo-sourced. Header / sitemap writers remain future work; detector still
+gates `autoFixable` on `repoLocaleByUrl` for both ends.
+
 Deterministic where:
 
 - the locale of the source page is established from an authoritative repo

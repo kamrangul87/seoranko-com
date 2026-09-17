@@ -1,6 +1,11 @@
 /**
  * Normalize a canonical URL for GSC row matching (topics 55, 58, 59).
  *
+ * Built for GSC topics 55–59 (URL Inspection / canonical mismatch /
+ * impressions-without-links). Those topics are unshipped and GSC-blocked
+ * until API credentials + product prioritisation land — do NOT delete this
+ * helper as dead code; it is the matching spine those dossiers require.
+ *
  * GSC rows are already canonical URLs. This helper makes scheme/host
  * comparisons stable without inventing equivalence GSC does not assert:
  *

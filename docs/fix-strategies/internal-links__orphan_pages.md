@@ -74,14 +74,19 @@ Revert.
 
 ## verdict
 
-`auto-fixable` where converting a non-crawlable inbound control to `<a href>`
-is sufficient, or where a single deterministic source page already carries a
-related-link slot the product can fill from existing site structure.
+`detect-and-report` for link-graph orphans. The only mechanical remediation
+that is even theoretically deterministic is converting a non-crawlable inbound
+control (`onclick` / `javascript:`) to a real `<a href>` when the target URL
+is already known — and that rewriter is **not shipped**. Code flags
+`finding-orphan-onclick-only` with a `convertNonCrawlableToAnchor` remediation
+hint (`autoFixable: false` until a fixer lands).
 
 `human-review` for campaign/landing pages that may be intentionally unlinked,
 and for any case requiring editorial choice of source page or anchor text.
 
-`not_mechanically_fixable` for inventing relatedness or navigation IA.
+`not_mechanically_fixable` for inventing relatedness, navigation IA, or
+filling a related-link slot (editorial). Sitemap inclusion lowers severity; it
+does not close the finding (N9).
 
 ## false-positive guards
 

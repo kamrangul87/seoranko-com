@@ -34,14 +34,30 @@ export const FIX_STRATEGY_PRODUCT_DECISIONS = {
   /**
    * Topic 3 — observation window before classifying `persistent-5xx`.
    * Distinct from topic 26's `stableAcrossRefetch` (5xx across one re-fetch
-   * pair only). Still unset — see `_open-questions.md`.
+   * pair only).
+   *
+   * Chosen 2026-09-17: 48 hours (172_800_000 ms).
+   * Reasoning: Google's crawl-stats guidance warns against returning 503/429
+   * for more than two or three days (context only — not our threshold). A
+   * 48h window sits inside that band so a sustained outage is reportable as
+   * `persistent-5xx`, while a single topic-68 re-fetch pair (~1s apart) cannot
+   * mint the longer classification. Requires observations whose
+   * `observedAtMs` span ≥ this window (scheduled crawls / stored evidence).
    */
-  persistent5xxObservationWindowMs: null as UnsetProductDecision,
+  persistent5xxObservationWindowMs: 172_800_000 as number,
 
   /**
    * Topics 1 / 41 — successor similarity floor for 301-vs-remove proposals.
+   * Combined path+content Jaccard must clear this floor to count as a
+   * successor candidate. Exactly one candidate → proposed-301 (human-review);
+   * two or more → ambiguous, no tie-break. Never auto-applies the 301.
+   *
+   * Chosen 2026-09-17: 0.55 — already documented in `_sources.md` row 57 and
+   * previously hard-coded in topic-1/config.ts. Wiring it here makes the
+   * product decision authoritative so the successor-proposal branch can run
+   * without a silent local default.
    */
-  successorSimilarityFloor: null as UnsetProductDecision,
+  successorSimilarityFloor: 0.55 as number,
 
   /**
    * Topic 45 — click-depth reporting threshold, if any.
