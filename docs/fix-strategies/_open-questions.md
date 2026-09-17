@@ -82,13 +82,15 @@ Last consolidated: 2026-09-16
 |---|---|---|
 | 44 | `internal-links__missing_destination_routes.md` | NOT RESEARCHED |
 | 54 | `performance__missing_security_compression_headers.md` | NOT RESEARCHED |
-| 69 | `plumbing__final_url_definition.md` | NOT RESEARCHED |
 | 40 | `remove-dead-anchors.md` | stub / open questions empty |
 
 ---
 
 ## Closed (retained for audit trail)
 
+- **(69)** Final URL definition — CLOSED 2026-09-17 (consolidation audit).
+  Satisfied by `url-normalize` + `recordRedirectHops` /
+  `walkRedirectChain`. Dossier marked SATISFIED BY EXISTING HELPERS.
 - **(1)** `notFound()` status on Vercel / Next.js streaming — CLOSED 2026-09-10.
 - **(1)** Soft-404 vs deliberate-noindex discriminator — CLOSED 2026-09-10
   (site model).
