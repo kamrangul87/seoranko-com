@@ -96,6 +96,19 @@ export type {
 export { parseHtml } from './html-parser'
 export type { HtmlElement, ParsedHtml } from './html-parser'
 
+export { inspectDocumentHead, normalizeMetaText } from './head-inspect'
+export type {
+  HeadInspection,
+  HeadCasualty,
+  HeadCasualtyKind,
+  PrematureHeadClose,
+  TitleRecord,
+  DescriptionRecord,
+  InLanguageRecord,
+} from './head-inspect'
+
+export { isValidBcp47, isIso6391 } from './bcp47'
+
 export {
   extractHtmlCanonical,
   hasNoindexDirective,
