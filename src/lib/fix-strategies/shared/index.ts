@@ -39,7 +39,45 @@ export {
 export type {
   RobotsTxtInspection,
   RobotsTxtFetchStatus,
+  RobotsSitemapRecord,
 } from './robots-txt-inspect'
+
+export {
+  extractSitemapLocs,
+  removeSitemapLoc,
+  replaceSitemapLoc,
+  parseSitemapXml,
+  ensureSitemapNamespace,
+  stripChangefreqAndPriority,
+  escapeXmlText,
+  isAbsoluteHttpLoc,
+  absolutizeLoc,
+  SITEMAP_NAMESPACE,
+  SITEMAP_MAX_URLS,
+  SITEMAP_MAX_BYTES,
+  SITEMAP_MAX_LOC_CHARS,
+} from './sitemap-xml'
+export type {
+  ParsedSitemapXml,
+  SitemapUrlEntry,
+  SitemapIndexEntry,
+  SitemapKind,
+} from './sitemap-xml'
+
+export {
+  inspectSiteSitemaps,
+  buildSitemapInspection,
+  documentFromBody,
+  robotsInspectionFromBody,
+  declarationsFromRobots,
+} from './sitemap-inspect'
+export type {
+  SitemapInspection,
+  SitemapDocument,
+  SitemapDeclaration,
+  SitemapFetchOutcome,
+  InspectSiteSitemapsOptions,
+} from './sitemap-inspect'
 
 export {
   checkRepoDeclaredNoindex,
