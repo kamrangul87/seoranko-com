@@ -72,6 +72,16 @@ export const FIX_STRATEGY_PRODUCT_DECISIONS = {
   imageIntrinsicRatioComparisonTolerance: 0.02 as number,
 
   /**
+   * Topics 30 / 31 — display-truncation character hint for titles/descriptions.
+   * Product decision, NOT a Google-sourced threshold (H9 / H15 are explicit that
+   * no fixed length limit is published). Left unset: a 200-character title must
+   * produce NOTHING. If set later, UI must label it "product decision" and never
+   * attribute it to Google or call it a defect / auto-fix.
+   */
+  titleDisplayTruncationHintChars: null as UnsetProductDecision,
+  descriptionDisplayTruncationHintChars: null as UnsetProductDecision,
+
+  /**
    * Topic 12a — known tracking / session parameter names that MAY be
    * duplicates when content is proven identical. Product decision for the
    * allow-list boundary (Google documents the class, not an exhaustive list).
