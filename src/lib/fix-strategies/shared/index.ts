@@ -47,6 +47,7 @@ export {
   removeSitemapLoc,
   replaceSitemapLoc,
   parseSitemapXml,
+  extractSitemapHreflangLinks,
   ensureSitemapNamespace,
   stripChangefreqAndPriority,
   escapeXmlText,
@@ -62,6 +63,7 @@ export type {
   SitemapUrlEntry,
   SitemapIndexEntry,
   SitemapKind,
+  SitemapHreflangLink,
 } from './sitemap-xml'
 
 export {
@@ -157,12 +159,47 @@ export {
   extractCanonicalDeclarations,
   extractLinkHeaderCanonicals,
   distinctNormalizedTargets,
+  splitLinkHeader,
 } from './canonical-extraction'
 export type {
   CanonicalDeclaration,
   CanonicalExtraction,
   CanonicalLocation,
 } from './canonical-extraction'
+
+export {
+  collectHreflangAnnotations,
+  collectSitemapHreflangAnnotations,
+  extractLinkHeaderHreflang,
+  hreflangKey,
+  localeTargetMap,
+  declaresReturnTo,
+} from './hreflang-inspect'
+export type {
+  HreflangInspection,
+  HreflangAnnotation,
+  HreflangMethod,
+  HreflangPageInput,
+  PageHreflangRecord,
+  CollectHreflangOptions,
+} from './hreflang-inspect'
+
+export {
+  HREFLANG_ISO_SNAPSHOT_META,
+  ISO_639_1_CODES,
+  ISO_3166_1_ALPHA2_CODES,
+  ISO_15924_SCRIPT_CODES,
+  GOOGLE_HREFLANG_EXCLUSIONS,
+  isoTablesAreDated,
+  validateGoogleHreflangCode,
+} from './hreflang-iso-tables'
+export type {
+  HreflangIsoSnapshotMeta,
+  GoogleHreflangExclusion,
+  HreflangCodeValidation,
+  HreflangCodeOk,
+  HreflangCodeFail,
+} from './hreflang-iso-tables'
 
 export { resolveHeaderCanonicalScope } from './header-canonical-scope'
 export type { HeaderCanonicalScope } from './header-canonical-scope'

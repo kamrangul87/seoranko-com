@@ -230,6 +230,7 @@ describe('topic 25 — sitemap XML invalid', () => {
           lastmod: null,
           changefreq: null,
           priority: null,
+          hreflangLinks: [],
           rawBlock: '',
         })),
         locs: [`${ORIGIN}/x`],

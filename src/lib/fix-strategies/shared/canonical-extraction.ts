@@ -135,8 +135,9 @@ function linkParamHasCanonicalRel(params: string): boolean {
 
 /**
  * Split a Link header on commas that separate entries, not those inside `<>`.
+ * Exported for hreflang HTTP Link collection (topics 46–48).
  */
-function splitLinkHeader(value: string): string[] {
+export function splitLinkHeader(value: string): string[] {
   const parts: string[] = []
   let current = ''
   let inAngle = false
