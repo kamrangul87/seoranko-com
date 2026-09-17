@@ -1,0 +1,550 @@
+{
+  "origin": "https://autodun.com",
+  "crawledPages": [
+    {
+      "requested": "https://autodun.com/",
+      "finalUrl": "https://autodun.com/",
+      "status": 200,
+      "hops": 0
+    },
+    {
+      "requested": "https://autodun.com/blog",
+      "finalUrl": "https://autodun.com/blog",
+      "status": 200,
+      "hops": 0
+    },
+    {
+      "requested": "https://autodun.com/blog/electric-car-charger-map-uk.html",
+      "finalUrl": "https://autodun.com/blog/electric-car-charger-map-uk.html",
+      "status": 200,
+      "hops": 0
+    },
+    {
+      "requested": "https://autodun.com/blog/ev-charging-on-uk-motorways.html",
+      "finalUrl": "https://autodun.com/blog/ev-charging-on-uk-motorways.html",
+      "status": 200,
+      "hops": 0
+    },
+    {
+      "requested": "https://autodun.com/blog/ev-charging-reliability-uk.html",
+      "finalUrl": "https://autodun.com/blog/ev-charging-reliability-uk.html",
+      "status": 200,
+      "hops": 0
+    },
+    {
+      "requested": "https://autodun.com/blog/mot-advisories-explained-uk.html",
+      "finalUrl": "https://autodun.com/blog/mot-advisories-explained-uk.html",
+      "status": 200,
+      "hops": 0
+    },
+    {
+      "requested": "https://autodun.com/blog/mot-changes-2026-dvsa-updates.html",
+      "finalUrl": "https://autodun.com/blog/mot-changes-2026-dvsa-updates.html",
+      "status": 200,
+      "hops": 0
+    },
+    {
+      "requested": "https://autodun.com/blog/mot-cost-uk-2026.html",
+      "finalUrl": "https://autodun.com/blog/mot-cost-uk-2026.html",
+      "status": 200,
+      "hops": 0
+    },
+    {
+      "requested": "https://autodun.com/blog/mot-history-check-uk.html",
+      "finalUrl": "https://autodun.com/blog/mot-history-check-uk.html",
+      "status": 200,
+      "hops": 0
+    },
+    {
+      "requested": "https://autodun.com/blog/uk-vehicle-data-tools.html",
+      "finalUrl": "https://autodun.com/blog/uk-vehicle-data-tools.html",
+      "status": 200,
+      "hops": 0
+    },
+    {
+      "requested": "https://autodun.com/blog/ulez-checker-uk.html",
+      "finalUrl": "https://autodun.com/blog/ulez-checker-uk.html",
+      "status": 200,
+      "hops": 0
+    }
+  ],
+  "topicsCovered": [
+    "13",
+    "15",
+    "16",
+    "17",
+    "19",
+    "21",
+    "22",
+    "24",
+    "25",
+    "27",
+    "28",
+    "29",
+    "2b",
+    "3",
+    "30",
+    "31",
+    "33",
+    "34",
+    "35",
+    "36",
+    "37",
+    "38",
+    "39",
+    "4",
+    "4-7",
+    "43",
+    "45",
+    "46",
+    "47",
+    "48",
+    "49",
+    "5",
+    "6",
+    "7"
+  ],
+  "skippedDetectors": [
+    {
+      "topic": "20",
+      "reason": "pages is not iterable"
+    }
+  ],
+  "totals": {
+    "rows": 435,
+    "actionableFindings": 85,
+    "suppressedOrRouted": 321,
+    "informational": 17,
+    "metrics": 0,
+    "observations": 0,
+    "ok": 12
+  },
+  "byKind": {
+    "suppressed": 321,
+    "finding": 85,
+    "informational": 17,
+    "ok": 12
+  },
+  "bySeverity": {
+    "(none)": 349,
+    "moderate": 27,
+    "high": 40,
+    "informational": 17,
+    "low": 2
+  },
+  "findingsByTopic": {
+    "22": 1,
+    "25": 1,
+    "34": 2,
+    "38": 33,
+    "39": 2,
+    "43": 1,
+    "45": 15,
+    "49": 30
+  },
+  "byVerdict": {
+    "suppress-unknown-type": 139,
+    "ok": 106,
+    "auto-fix-entity-url-self": 33,
+    "human-review-no-height-auto": 20,
+    "suppress-article-recommended-only": 19,
+    "route-topic-43-depth-undefined": 15,
+    "suppress-listed-in-index-child": 11,
+    "suppress-healthy-target": 11,
+    "informational-recommended-absent": 10,
+    "suppress-supported-type": 9,
+    "suppress-at-id-identifier": 8,
+    "route-topic-39-deprecated": 7,
+    "suppress-live-external-profile": 7,
+    "informational-deprecated-type": 7,
+    "finding-wrong-ratio": 7,
+    "ok-no-redirect": 4,
+    "suppress-dateModified-equals-datePublished": 3,
+    "auto-set-dimensions": 3,
+    "suppress-allowed-by-allow-rule": 2,
+    "suppress-not-indexable": 2,
+    "d17-faq-markup-not-visible": 2,
+    "low-lang-inlanguage-disagree": 2,
+    "ok-single-hop": 2,
+    "moderate-out-of-scope": 1,
+    "suppress-record-present": 1,
+    "suppress-cross-origin": 1,
+    "finding-orphan-in-sitemap-lower": 1,
+    "suppress-homepage": 1,
+    "suppress-x-default-absent": 1
+  },
+  "suppressByGuard": {
+    "suppress-unknown-type": 139,
+    "ok": 93,
+    "suppress-article-recommended-only": 19,
+    "suppress-listed-in-index-child": 11,
+    "suppress-healthy-target": 11,
+    "suppress-supported-type": 9,
+    "suppress-at-id-identifier": 8,
+    "route-topic-39-deprecated": 7,
+    "suppress-live-external-profile": 7,
+    "ok-no-redirect": 4,
+    "suppress-dateModified-equals-datePublished": 3,
+    "suppress-allowed-by-allow-rule": 2,
+    "suppress-not-indexable": 2,
+    "ok-single-hop": 2,
+    "suppress-record-present": 1,
+    "suppress-cross-origin": 1,
+    "suppress-homepage": 1,
+    "suppress-x-default-absent": 1
+  },
+  "sampleFindings": [
+    {
+      "topic": "25",
+      "verdict": "moderate-out-of-scope",
+      "severity": "moderate",
+      "detail": "loc host mot.autodun.com outside sitemap host autodun.com (S5/S6)"
+    },
+    {
+      "topic": "22",
+      "verdict": "ok",
+      "severity": null,
+      "detail": "Valid robots.txt"
+    },
+    {
+      "topic": "43",
+      "verdict": "finding-orphan-in-sitemap-lower",
+      "severity": "moderate",
+      "pageUrl": "https://autodun.com/blog",
+      "detail": "Orphaned in the link graph but listed in the XML sitemap — discovery is not blocked (N8, N9); sitemap does not close the graph orphan."
+    },
+    {
+      "topic": "45",
+      "verdict": "route-topic-43-depth-undefined",
+      "severity": null,
+      "pageUrl": "https://autodun.com/blog",
+      "detail": "Depth undefined (no inbound crawlable path from homepage) — topic 43, not infinite depth"
+    },
+    {
+      "topic": "45",
+      "verdict": "route-topic-43-depth-undefined",
+      "severity": null,
+      "pageUrl": "https://autodun.com/blog/electric-car-charger-map-uk.html",
+      "detail": "Depth undefined (no inbound crawlable path from homepage) — topic 43, not infinite depth"
+    },
+    {
+      "topic": "45",
+      "verdict": "route-topic-43-depth-undefined",
+      "severity": null,
+      "pageUrl": "https://autodun.com/blog/ev-charging-on-uk-motorways.html",
+      "detail": "Depth undefined (no inbound crawlable path from homepage) — topic 43, not infinite depth"
+    },
+    {
+      "topic": "45",
+      "verdict": "route-topic-43-depth-undefined",
+      "severity": null,
+      "pageUrl": "https://autodun.com/blog/ev-charging-reliability-uk.html",
+      "detail": "Depth undefined (no inbound crawlable path from homepage) — topic 43, not infinite depth"
+    },
+    {
+      "topic": "45",
+      "verdict": "route-topic-43-depth-undefined",
+      "severity": null,
+      "pageUrl": "https://autodun.com/blog/mot-advisories-explained-uk.html",
+      "detail": "Depth undefined (no inbound crawlable path from homepage) — topic 43, not infinite depth"
+    },
+    {
+      "topic": "45",
+      "verdict": "route-topic-43-depth-undefined",
+      "severity": null,
+      "pageUrl": "https://autodun.com/blog/mot-changes-2026-dvsa-updates.html",
+      "detail": "Depth undefined (no inbound crawlable path from homepage) — topic 43, not infinite depth"
+    },
+    {
+      "topic": "45",
+      "verdict": "route-topic-43-depth-undefined",
+      "severity": null,
+      "pageUrl": "https://autodun.com/blog/mot-cost-uk-2026.html",
+      "detail": "Depth undefined (no inbound crawlable path from homepage) — topic 43, not infinite depth"
+    },
+    {
+      "topic": "45",
+      "verdict": "route-topic-43-depth-undefined",
+      "severity": null,
+      "pageUrl": "https://autodun.com/blog/mot-history-check-uk.html",
+      "detail": "Depth undefined (no inbound crawlable path from homepage) — topic 43, not infinite depth"
+    },
+    {
+      "topic": "45",
+      "verdict": "route-topic-43-depth-undefined",
+      "severity": null,
+      "pageUrl": "https://autodun.com/blog/uk-vehicle-data-tools.html",
+      "detail": "Depth undefined (no inbound crawlable path from homepage) — topic 43, not infinite depth"
+    },
+    {
+      "topic": "45",
+      "verdict": "route-topic-43-depth-undefined",
+      "severity": null,
+      "pageUrl": "https://autodun.com/blog/ulez-checker-uk.html",
+      "detail": "Depth undefined (no inbound crawlable path from homepage) — topic 43, not infinite depth"
+    },
+    {
+      "topic": "45",
+      "verdict": "route-topic-43-depth-undefined",
+      "severity": null,
+      "pageUrl": "https://autodun.com/blog/index.html",
+      "detail": "Depth undefined (no inbound crawlable path from homepage) — topic 43, not infinite depth"
+    },
+    {
+      "topic": "45",
+      "verdict": "route-topic-43-depth-undefined",
+      "severity": null,
+      "pageUrl": "https://autodun.com/blog/why-uk-councils-are-flying-blind-on-ev-charging-infrastructure.html",
+      "detail": "Depth undefined (no inbound crawlable path from homepage) — topic 43, not infinite depth"
+    },
+    {
+      "topic": "45",
+      "verdict": "route-topic-43-depth-undefined",
+      "severity": null,
+      "pageUrl": "https://autodun.com/blog/",
+      "detail": "Depth undefined (no inbound crawlable path from homepage) — topic 43, not infinite depth"
+    },
+    {
+      "topic": "45",
+      "verdict": "route-topic-43-depth-undefined",
+      "severity": null,
+      "pageUrl": "https://autodun.com/blog/%E2%80%9Dhttps://www.gov.uk/government/collections/electric-vehicle-charging%E2%80%9D",
+      "detail": "Depth undefined (no inbound crawlable path from homepage) — topic 43, not infinite depth"
+    },
+    {
+      "topic": "45",
+      "verdict": "route-topic-43-depth-undefined",
+      "severity": null,
+      "pageUrl": "https://autodun.com/blog/%E2%80%9Dhttps://ev.autodun.com%E2%80%9D",
+      "detail": "Depth undefined (no inbound crawlable path from homepage) — topic 43, not infinite depth"
+    },
+    {
+      "topic": "38",
+      "verdict": "auto-fix-entity-url-self",
+      "severity": "high",
+      "pageUrl": "https://autodun.com/blog",
+      "detail": "Entity url (https://autodun.com/blog/mot-advisories-explained-uk.html) points at a different page than the one carrying the markup (D6)"
+    },
+    {
+      "topic": "38",
+      "verdict": "auto-fix-entity-url-self",
+      "severity": "high",
+      "pageUrl": "https://autodun.com/blog",
+      "detail": "Entity url (https://autodun.com/blog/mot-history-check-uk.html) points at a different page than the one carrying the markup (D6)"
+    },
+    {
+      "topic": "38",
+      "verdict": "auto-fix-entity-url-self",
+      "severity": "high",
+      "pageUrl": "https://autodun.com/blog",
+      "detail": "Entity url (https://autodun.com/blog/electric-car-charger-map-uk.html) points at a different page than the one carrying the markup (D6)"
+    },
+    {
+      "topic": "38",
+      "verdict": "auto-fix-entity-url-self",
+      "severity": "high",
+      "pageUrl": "https://autodun.com/blog",
+      "detail": "Entity url (https://autodun.com/blog/why-uk-councils-are-flying-blind-on-ev-charging-infrastructure.html) points at a different page than the one carrying the markup (D6)"
+    },
+    {
+      "topic": "38",
+      "verdict": "auto-fix-entity-url-self",
+      "severity": "high",
+      "pageUrl": "https://autodun.com/blog",
+      "detail": "Entity url (https://autodun.com/blog/ev-charging-on-uk-motorways.html) points at a different page than the one carrying the markup (D6)"
+    },
+    {
+      "topic": "38",
+      "verdict": "auto-fix-entity-url-self",
+      "severity": "high",
+      "pageUrl": "https://autodun.com/blog",
+      "detail": "Entity url (https://autodun.com/blog/ev-charging-reliability-uk.html) points at a different page than the one carrying the markup (D6)"
+    },
+    {
+      "topic": "38",
+      "verdict": "auto-fix-entity-url-self",
+      "severity": "high",
+      "pageUrl": "https://autodun.com/blog",
+      "detail": "Entity url (https://autodun.com/blog/ulez-checker-uk.html) points at a different page than the one carrying the markup (D6)"
+    },
+    {
+      "topic": "38",
+      "verdict": "auto-fix-entity-url-self",
+      "severity": "high",
+      "pageUrl": "https://autodun.com/blog",
+      "detail": "Entity url (https://autodun.com/blog/uk-vehicle-data-tools.html) points at a different page than the one carrying the markup (D6)"
+    },
+    {
+      "topic": "38",
+      "verdict": "auto-fix-entity-url-self",
+      "severity": "high",
+      "pageUrl": "https://autodun.com/blog",
+      "detail": "Entity url (https://autodun.com/blog/mot-cost-uk-2026.html) points at a different page than the one carrying the markup (D6)"
+    },
+    {
+      "topic": "38",
+      "verdict": "auto-fix-entity-url-self",
+      "severity": "high",
+      "pageUrl": "https://autodun.com/blog/electric-car-charger-map-uk.html",
+      "detail": "Entity url (https://autodun.com) points at a different page than the one carrying the markup (D6)"
+    },
+    {
+      "topic": "38",
+      "verdict": "auto-fix-entity-url-self",
+      "severity": "high",
+      "pageUrl": "https://autodun.com/blog/electric-car-charger-map-uk.html",
+      "detail": "Entity url (https://autodun.com) points at a different page than the one carrying the markup (D6)"
+    },
+    {
+      "topic": "38",
+      "verdict": "auto-fix-entity-url-self",
+      "severity": "high",
+      "pageUrl": "https://autodun.com/blog/electric-car-charger-map-uk.html",
+      "detail": "Entity url (https://autodun.com) points at a different page than the one carrying the markup (D6)"
+    },
+    {
+      "topic": "39",
+      "verdict": "d17-faq-markup-not-visible",
+      "severity": "moderate",
+      "detail": "FAQPage markup present but Q&A content is not visible on the page (D17) — substantive visible-content defect under the deprecation"
+    },
+    {
+      "topic": "49",
+      "verdict": "human-review-no-height-auto",
+      "severity": "moderate",
+      "pageUrl": "https://autodun.com/blog/electric-car-charger-map-uk.html",
+      "detail": "Missing dimensions and no height:auto — applying attributes may change layout (P4)"
+    },
+    {
+      "topic": "49",
+      "verdict": "human-review-no-height-auto",
+      "severity": "moderate",
+      "pageUrl": "https://autodun.com/blog/electric-car-charger-map-uk.html",
+      "detail": "Missing dimensions and no height:auto — applying attributes may change layout (P4)"
+    },
+    {
+      "topic": "49",
+      "verdict": "human-review-no-height-auto",
+      "severity": "moderate",
+      "pageUrl": "https://autodun.com/blog/electric-car-charger-map-uk.html",
+      "detail": "Missing dimensions and no height:auto — applying attributes may change layout (P4)"
+    },
+    {
+      "topic": "49",
+      "verdict": "human-review-no-height-auto",
+      "severity": "moderate",
+      "pageUrl": "https://autodun.com/blog/electric-car-charger-map-uk.html",
+      "detail": "Missing dimensions and no height:auto — applying attributes may change layout (P4)"
+    },
+    {
+      "topic": "49",
+      "verdict": "human-review-no-height-auto",
+      "severity": "moderate",
+      "pageUrl": "https://autodun.com/blog/electric-car-charger-map-uk.html",
+      "detail": "Missing dimensions and no height:auto — applying attributes may change layout (P4)"
+    },
+    {
+      "topic": "38",
+      "verdict": "auto-fix-entity-url-self",
+      "severity": "high",
+      "pageUrl": "https://autodun.com/blog/ev-charging-on-uk-motorways.html",
+      "detail": "Entity url (https://autodun.com) points at a different page than the one carrying the markup (D6)"
+    },
+    {
+      "topic": "49",
+      "verdict": "human-review-no-height-auto",
+      "severity": "moderate",
+      "pageUrl": "https://autodun.com/blog/ev-charging-on-uk-motorways.html",
+      "detail": "Missing dimensions and no height:auto — applying attributes may change layout (P4)"
+    },
+    {
+      "topic": "49",
+      "verdict": "human-review-no-height-auto",
+      "severity": "moderate",
+      "pageUrl": "https://autodun.com/blog/ev-charging-on-uk-motorways.html",
+      "detail": "Missing dimensions and no height:auto — applying attributes may change layout (P4)"
+    },
+    {
+      "topic": "49",
+      "verdict": "human-review-no-height-auto",
+      "severity": "moderate",
+      "pageUrl": "https://autodun.com/blog/ev-charging-on-uk-motorways.html",
+      "detail": "Missing dimensions and no height:auto — applying attributes may change layout (P4)"
+    },
+    {
+      "topic": "38",
+      "verdict": "auto-fix-entity-url-self",
+      "severity": "high",
+      "pageUrl": "https://autodun.com/blog/ev-charging-reliability-uk.html",
+      "detail": "Entity url (https://autodun.com) points at a different page than the one carrying the markup (D6)"
+    },
+    {
+      "topic": "38",
+      "verdict": "auto-fix-entity-url-self",
+      "severity": "high",
+      "pageUrl": "https://autodun.com/blog/ev-charging-reliability-uk.html",
+      "detail": "Entity url (https://autodun.com) points at a different page than the one carrying the markup (D6)"
+    },
+    {
+      "topic": "49",
+      "verdict": "human-review-no-height-auto",
+      "severity": "moderate",
+      "pageUrl": "https://autodun.com/blog/ev-charging-reliability-uk.html",
+      "detail": "Missing dimensions and no height:auto — applying attributes may change layout (P4)"
+    },
+    {
+      "topic": "49",
+      "verdict": "human-review-no-height-auto",
+      "severity": "moderate",
+      "pageUrl": "https://autodun.com/blog/ev-charging-reliability-uk.html",
+      "detail": "Missing dimensions and no height:auto — applying attributes may change layout (P4)"
+    },
+    {
+      "topic": "38",
+      "verdict": "auto-fix-entity-url-self",
+      "severity": "high",
+      "pageUrl": "https://autodun.com/blog/mot-advisories-explained-uk.html",
+      "detail": "Entity url (https://autodun.com/) points at a different page than the one carrying the markup (D6)"
+    },
+    {
+      "topic": "49",
+      "verdict": "auto-set-dimensions",
+      "severity": "moderate",
+      "pageUrl": "https://autodun.com/blog/mot-advisories-explained-uk.html",
+      "detail": "One dimension absent — set both from image header"
+    },
+    {
+      "topic": "49",
+      "verdict": "auto-set-dimensions",
+      "severity": "moderate",
+      "pageUrl": "https://autodun.com/blog/mot-advisories-explained-uk.html",
+      "detail": "One dimension absent — set both from image header"
+    },
+    {
+      "topic": "49",
+      "verdict": "auto-set-dimensions",
+      "severity": "moderate",
+      "pageUrl": "https://autodun.com/blog/mot-advisories-explained-uk.html",
+      "detail": "One dimension absent — set both from image header"
+    },
+    {
+      "topic": "38",
+      "verdict": "auto-fix-entity-url-self",
+      "severity": "high",
+      "pageUrl": "https://autodun.com/blog/mot-changes-2026-dvsa-updates.html",
+      "detail": "Entity url (https://autodun.com) points at a different page than the one carrying the markup (D6)"
+    },
+    {
+      "topic": "38",
+      "verdict": "auto-fix-entity-url-self",
+      "severity": "high",
+      "pageUrl": "https://autodun.com/blog/mot-changes-2026-dvsa-updates.html",
+      "detail": "Entity url (https://autodun.com/) points at a different page than the one carrying the markup (D6)"
+    }
+  ],
+  "graph": {
+    "clientOnly": false,
+    "nodes": 16,
+    "crawlableEdges": 68
+  }
+}
