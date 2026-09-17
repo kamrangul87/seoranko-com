@@ -19,14 +19,25 @@ const LOC_RE = /<loc\s*>([\s\S]*?)<\/loc\s*>/i
 const LASTMOD_RE = /<lastmod\s*>([\s\S]*?)<\/lastmod\s*>/i
 const CHANGEFREQ_RE = /<changefreq\s*>([\s\S]*?)<\/changefreq\s*>/i
 const PRIORITY_RE = /<priority\s*>([\s\S]*?)<\/priority\s*>/i
+/** Self-closing or paired xhtml:link / link under a url block. */
+const XHTML_LINK_TAG_RE =
+  /<(?:xhtml:)?link\b([^>]*?)(?:\/>|>[\s\S]*?<\/(?:xhtml:)?link\s*>)/gi
 
 export type SitemapKind = 'urlset' | 'sitemapindex' | 'unknown'
+
+/** Google xhtml:link alternate under a `<url>` block (hreflang sitemap method). */
+export type SitemapHreflangLink = {
+  hreflang: string
+  href: string
+}
 
 export type SitemapUrlEntry = {
   loc: string | null
   lastmod: string | null
   changefreq: string | null
   priority: string | null
+  /** `xhtml:link rel="alternate" hreflang="…" href="…"` children (topics 46–48). */
+  hreflangLinks: SitemapHreflangLink[]
   rawBlock: string
 }
 
@@ -70,6 +81,37 @@ function fieldFromBlock(block: string, re: RegExp): string | null {
   const m = re.exec(block)
   if (!m) return null
   return decodeXmlText((m[1] ?? '').trim()) || null
+}
+
+function attrFromTag(attrs: string, name: string): string | null {
+  const re = new RegExp(
+    `\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`,
+    'i',
+  )
+  const m = attrs.match(re)
+  if (!m) return null
+  return decodeXmlText((m[1] ?? m[2] ?? m[3] ?? '').trim()) || null
+}
+
+/**
+ * Extract Google hreflang xhtml:link alternates from a `<url>` block.
+ */
+export function extractSitemapHreflangLinks(
+  urlBlock: string,
+): SitemapHreflangLink[] {
+  const out: SitemapHreflangLink[] = []
+  XHTML_LINK_TAG_RE.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = XHTML_LINK_TAG_RE.exec(urlBlock)) !== null) {
+    const attrs = m[1] ?? ''
+    const rel = (attrFromTag(attrs, 'rel') ?? '').toLowerCase()
+    if (!rel.split(/\s+/).includes('alternate')) continue
+    const hreflang = attrFromTag(attrs, 'hreflang')
+    const href = attrFromTag(attrs, 'href')
+    if (!hreflang || !href) continue
+    out.push({ hreflang, href })
+  }
+  return out
 }
 
 function decodeXmlText(s: string): string {
@@ -134,6 +176,7 @@ export function parseSitemapXml(sitemapXml: string): ParsedSitemapXml {
       lastmod: fieldFromBlock(block, LASTMOD_RE),
       changefreq: fieldFromBlock(block, CHANGEFREQ_RE),
       priority: fieldFromBlock(block, PRIORITY_RE),
+      hreflangLinks: extractSitemapHreflangLinks(block),
       rawBlock: block,
     })
   }
