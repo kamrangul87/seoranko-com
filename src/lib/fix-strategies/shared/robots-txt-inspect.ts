@@ -17,6 +17,14 @@ export type RobotsTxtFetchStatus =
   | 'server-error' // 5xx / unreachable — assume complete disallow (R21)
   | 'transient-5xx' // not stable across re-fetch → topic 3
 
+export type RobotsSitemapRecord = {
+  /** 1-based line number. */
+  line: number
+  /** Raw value after `Sitemap:`. */
+  value: string
+  raw: string
+}
+
 export type RobotsTxtInspection = {
   url: string
   status: number | null
@@ -36,6 +44,11 @@ export type RobotsTxtInspection = {
   noindexLines: Array<{ line: number; raw: string }>
   /** Lines that look like rules but failed to parse. */
   malformedLines: Array<{ line: number; raw: string }>
+  /**
+   * `Sitemap:` records anywhere in the file (S19 — independent of
+   * User-agent groups). Topics 24 / 28 read these; do not re-parse.
+   */
+  sitemapRecords: RobotsSitemapRecord[]
   detail: string
 }
 
@@ -66,6 +79,7 @@ export function inspectRobotsTxtBody(
   const crawlDelayLines: RobotsTxtInspection['crawlDelayLines'] = []
   const noindexLines: RobotsTxtInspection['noindexLines'] = []
   const malformedLines: RobotsTxtInspection['malformedLines'] = []
+  const sitemapRecords: RobotsSitemapRecord[] = []
 
   const lines = body.split(/\r\n|\n|\r/)
   for (let i = 0; i < lines.length; i++) {
@@ -81,11 +95,16 @@ export function inspectRobotsTxtBody(
       continue
     }
     const key = stripped.slice(0, colon).trim().toLowerCase()
+    const value = stripped.slice(colon + 1).trim()
     if (key === 'crawl-delay') {
       crawlDelayLines.push({ line: i + 1, raw: stripped })
     }
     if (key === 'noindex') {
       noindexLines.push({ line: i + 1, raw: stripped })
+    }
+    // S19: Sitemap: may appear anywhere; independent of User-agent groups
+    if (key === 'sitemap') {
+      sitemapRecords.push({ line: i + 1, value, raw: stripped })
     }
   }
 
@@ -112,6 +131,7 @@ export function inspectRobotsTxtBody(
     crawlDelayLines,
     noindexLines,
     malformedLines,
+    sitemapRecords,
     detail: summarise(opts.fetchStatus, opts.status),
   }
 }
