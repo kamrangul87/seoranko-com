@@ -1,0 +1,42 @@
+{
+  "origin": "https://autodun.com",
+  "crawled": 11,
+  "priorFullRegisterRows": 435,
+  "topic38": {
+    "before": 33,
+    "after": 1
+  },
+  "topic49": {
+    "before": 30,
+    "after": 3
+  },
+  "combined38_49": {
+    "before": 63,
+    "after": 4
+  },
+  "fullRegisterApprox": {
+    "before": 435,
+    "after": 376,
+    "rowsRemovedByRollup": 59
+  },
+  "rolledUpGroups": [
+    {
+      "topicId": "38",
+      "verdict": "human-review-entity-url-mismatch",
+      "declarationSite": "generator:autodun-blog-jsonld",
+      "affectedUrlCount": 10
+    },
+    {
+      "topicId": "49",
+      "verdict": "human-review-no-height-auto",
+      "declarationSite": "generator:autodun-blog-images",
+      "affectedUrlCount": 5
+    },
+    {
+      "topicId": "49",
+      "verdict": "finding-wrong-ratio",
+      "declarationSite": "generator:autodun-blog-images",
+      "affectedUrlCount": 2
+    }
+  ]
+}

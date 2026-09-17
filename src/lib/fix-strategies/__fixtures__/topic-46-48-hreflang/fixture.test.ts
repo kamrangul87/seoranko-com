@@ -18,6 +18,7 @@ import {
 } from '@/lib/fix-strategies/shared'
 import {
   detectMissingReturnLinks,
+  addReciprocalHreflangAnnotation,
   rejectedGuessLocaleToCompleteCluster,
   rejectedSiteWideFromOnePair,
 } from '@/lib/fix-strategies/topic-46'
@@ -385,6 +386,48 @@ describe('topic 46 — missing return links', () => {
   it('rejects guessing locale and site-wide reporting', () => {
     expect(() => rejectedGuessLocaleToCompleteCluster()).toThrow(/never guess/)
     expect(() => rejectedSiteWideFromOnePair()).toThrow(/per pair/)
+  })
+
+  it('auto-fix HTML path adds missing reciprocal when locales are repo-sourced', () => {
+    const deHtml = htmlPage('/de', [{ lang: 'de', href: DE }])
+    const fixed = addReciprocalHreflangAnnotation(deHtml, {
+      hreflang: 'en',
+      href: EN,
+    })
+    expect(fixed.added).toBe(true)
+    expect(fixed.html).toMatch(
+      /rel="alternate"[^>]*hreflang="en"[^>]*href="https:\/\/example\.com\/en"/,
+    )
+    const idempotent = addReciprocalHreflangAnnotation(fixed.html, {
+      hreflang: 'en',
+      href: EN,
+    })
+    expect(idempotent.added).toBe(false)
+
+    const rFix = detectMissingReturnLinks({
+      collect: {
+        originUrl: ORIGIN,
+        pages: [
+          {
+            url: EN,
+            html: htmlPage('/en', [
+              { lang: 'en', href: EN },
+              { lang: 'de', href: DE },
+            ]),
+            status: 200,
+          },
+          {
+            url: DE,
+            html: fixed.html,
+            status: 200,
+          },
+        ],
+      },
+      repoLocaleByUrl: { [EN]: 'en', [DE]: 'de' },
+    })
+    expect(
+      rFix.findings.some((f) => f.verdict === 'finding-missing-return'),
+    ).toBe(false)
   })
 })
 

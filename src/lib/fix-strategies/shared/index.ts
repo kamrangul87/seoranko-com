@@ -1,3 +1,17 @@
+export {
+  classifyDeclarationSite,
+  isCollapsibleDeclarationSite,
+} from './declaration-site'
+export type { DeclarationSiteKind } from './declaration-site'
+
+export {
+  rollupFindingsByDeclarationSite,
+} from './finding-rollup'
+export type {
+  RollupFindingInput,
+  RolledUpFinding,
+} from './finding-rollup'
+
 export { recordRedirectHops, normalizeHopUrl } from './hop-recording-fetch'
 export type {
   RedirectHop,

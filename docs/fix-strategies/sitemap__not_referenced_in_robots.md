@@ -50,6 +50,9 @@ Separate, genuine findings in the same area:
 Add a `Sitemap:` record with the absolute URL. Where a sitemap index exists,
 declare the index only (S21).
 
+Shipped as `topic-28/fix-add-sitemap-record.ts` (`proposeAddSitemapRecord` /
+`applyAddSitemapRecord`). Never creates `robots.txt` from scratch.
+
 Deterministic and low risk — it adds a discoverability hint and changes no
 crawl permissions.
 

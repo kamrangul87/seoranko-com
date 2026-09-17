@@ -86,7 +86,9 @@ bug, not per-page data — worth saying so in the finding.
 `human-review` for all of 38a. `not_mechanically_fixable` for 38b.
 
 Nothing here is auto-fixed: every case is two conflicting claims by the site,
-and choosing between them is intent.
+and choosing between them is intent. An entity `url` pointing elsewhere may be
+deliberate (syndication) — surface both values for human review; never rewrite
+to self.
 
 ## reporting language
 
@@ -133,8 +135,9 @@ date differing in actual value; paywalled content marked up but not visible; a
 page whose markup describes an unrelated subject.
 
 CI asserts: human-review for the first, second, third, fourth and sixth;
-auto-fix for the fourth's `url` where it should be self-referential; nothing
-for the fifth and seventh; 38b observation only for the eighth.
+human-review for the fourth's entity `url` with both the declared entity URL
+and the page URL shown (never auto-fix — syndication may be deliberate);
+nothing for the fifth and seventh; 38b observation only for the eighth.
 
 ## Cross-references
 

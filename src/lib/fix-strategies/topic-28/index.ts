@@ -1,6 +1,7 @@
 export {
   detectSitemapNotReferencedInRobots,
   proposeAddSitemapRecord,
+  applyAddSitemapRecord,
   rejectedCreateRobotsTxtForSitemap,
 } from './detect'
 export type {

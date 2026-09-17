@@ -5,7 +5,8 @@
  * - stableAcrossRefetch — both fetches in the re-fetch pair are 5xx-class
  * - transient — statuses differ across the pair
  * - historical — GSC-only; report with crawl date, never as current fault
- * - persistent-5xx — only when persistent5xxObservationWindowMs is set
+ * - persistent-5xx — when observations span persistent5xxObservationWindowMs
+ *   (product decision: 48h)
  *
  * No repo fix exists for a 5xx.
  */

@@ -92,10 +92,28 @@ describe('topic 3 — 5xx reproducibility', () => {
     expect(
       r1.findings.some((f) => f.classification === 'stableAcrossRefetch'),
     ).toBe(true)
+    // Re-fetch pair alone is not persistent — observedAtMs span required
     expect(r1.findings.some((f) => f.classification === 'persistent-5xx')).toBe(
       false,
     )
-    expect(PD.persistent5xxObservationWindowMs).toBeNull()
+    expect(PD.persistent5xxObservationWindowMs).toBe(172_800_000)
+
+    // Persistent when observations span the product window
+    const windowMs = PD.persistent5xxObservationWindowMs
+    const rPersistent = detect5xxResponses({
+      pageUrl: `${ORIGIN}/a-persistent`,
+      attempts: [
+        { status: 500, kind: 'http', observedAtMs: 1_000_000 },
+        {
+          status: 500,
+          kind: 'http',
+          observedAtMs: 1_000_000 + windowMs,
+        },
+      ],
+    })
+    expect(
+      rPersistent.findings.some((f) => f.classification === 'persistent-5xx'),
+    ).toBe(true)
 
     // 2. 503 then 200 → transient
     const r2 = detect5xxResponses({
@@ -310,7 +328,7 @@ describe('topic 38 — structured vs structured (38a) / observation (38b)', () =
       }).findings.some((f) => f.verdict === 'human-review-rating-inconsistent'),
     ).toBe(true)
 
-    // 4. entity url → auto-fix self
+    // 4. entity url → human-review (both values shown; never auto-fix)
     const r4 = detectStructuredDataContradictsVisible({
       html: page({
         '@context': 'https://schema.org',
@@ -320,13 +338,18 @@ describe('topic 38 — structured vs structured (38a) / observation (38b)', () =
       pageUrl: ORIGIN,
       nowMs: now,
     })
-    expect(
-      r4.findings.some((f) => f.verdict === 'auto-fix-entity-url-self'),
-    ).toBe(true)
-    expect(
-      r4.findings.find((f) => f.verdict === 'auto-fix-entity-url-self')
-        ?.proposedEntityUrl,
-    ).toBe(ORIGIN + '/')
+    const entity = r4.findings.find(
+      (f) => f.verdict === 'human-review-entity-url-mismatch',
+    )
+    expect(entity).toBeTruthy()
+    expect(entity!.autoFixable).toBe(false)
+    expect(entity!.proposedEntityUrl).toBeNull()
+    expect(entity!.values).toEqual({
+      left: 'https://other.example/',
+      right: ORIGIN + '/',
+    })
+    expect(entity!.detail).toMatch(/other\.example/)
+    expect(entity!.detail).toMatch(ORIGIN)
 
     // 5. format-only date diff → nothing
     const r5 = detectStructuredDataContradictsVisible({

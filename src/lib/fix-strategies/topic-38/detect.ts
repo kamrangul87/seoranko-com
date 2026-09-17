@@ -22,7 +22,7 @@ export type Topic38Verdict =
   | 'human-review-item-count-mismatch'
   | 'human-review-structured-vs-structured'
   | 'human-review-event-date-ordering'
-  | 'auto-fix-entity-url-self'
+  | 'human-review-entity-url-mismatch'
   | 'observation-38b'
   | 'suppress-format-only-date-diff'
   | 'suppress-dateModified-equals-datePublished'
@@ -36,9 +36,15 @@ export type Topic38Finding = {
   pageUrl: string
   detail: string
   autoFixable: boolean
-  /** Proposed self URL when entity url mismatch is auto-fixable. */
+  /**
+   * Always null for entity-url mismatches — choosing self vs the declared
+   * URL is intent (syndication may be deliberate). Kept for type stability.
+   */
   proposedEntityUrl: string | null
+  /** For entity-url: left = entity `url`, right = page URL carrying markup. */
   values: { left: string; right: string } | null
+  /** Topic 70 / caller-resolved declaration site for register-wide rollup. */
+  declarationSite: string | null
 }
 
 export type DetectTopic38Result = {
@@ -60,6 +66,11 @@ export type DetectTopic38Options = {
   observation38b?: { detail: string; method: string } | null
   /** "now" for future datePublished checks (ISO or ms). */
   nowMs?: number
+  /**
+   * Repo path or logical id of the declaring layout/component/generator
+   * (topic 70). When set, register-wide rollup can collapse N pages to one.
+   */
+  declarationSite?: string | null
 }
 
 function asString(v: unknown): string | null {
@@ -187,6 +198,7 @@ export function detectStructuredDataContradictsVisible(
   const now = options.nowMs ?? Date.now()
   const pageNorm =
     normalizeFixStrategyUrl(options.pageUrl) ?? options.pageUrl
+  const declarationSite = options.declarationSite ?? null
 
   if (options.paywalledContentMarkup) {
     suppressed.push({
@@ -219,6 +231,7 @@ export function detectStructuredDataContradictsVisible(
             detail: `dateModified (${modified}) earlier than datePublished (${published})`,
             autoFixable: false,
             proposedEntityUrl: null,
+            declarationSite,
             values: { left: modified, right: published },
           })
         }
@@ -236,6 +249,7 @@ export function detectStructuredDataContradictsVisible(
           detail: `datePublished is in the future: ${published}`,
           autoFixable: false,
           proposedEntityUrl: null,
+          declarationSite,
           values: { left: published, right: new Date(now).toISOString() },
         })
       }
@@ -262,6 +276,7 @@ export function detectStructuredDataContradictsVisible(
             detail: `Marked-up datePublished (${published}) disagrees with <time datetime> (${dt})`,
             autoFixable: false,
             proposedEntityUrl: null,
+            declarationSite,
             values: { left: published, right: dt },
           })
         }
@@ -284,6 +299,7 @@ export function detectStructuredDataContradictsVisible(
             detail: `offers.price (${price}) disagrees with itemprop=price (${ip})`,
             autoFixable: false,
             proposedEntityUrl: null,
+            declarationSite,
             values: { left: price, right: ip },
           })
         }
@@ -300,6 +316,7 @@ export function detectStructuredDataContradictsVisible(
         detail: ratingBad.detail,
         autoFixable: false,
         proposedEntityUrl: null,
+        declarationSite,
         values: null,
       })
     }
@@ -320,6 +337,7 @@ export function detectStructuredDataContradictsVisible(
             detail: `Event endDate (${end}) before startDate (${start})`,
             autoFixable: false,
             proposedEntityUrl: null,
+            declarationSite,
             values: { left: end, right: start },
           })
         }
@@ -343,6 +361,7 @@ export function detectStructuredDataContradictsVisible(
             detail: `numberOfItems (${n}) disagrees with itemListElement length (${elements.length})`,
             autoFixable: false,
             proposedEntityUrl: null,
+            declarationSite,
             values: {
               left: String(n),
               right: String(elements.length),
@@ -352,19 +371,21 @@ export function detectStructuredDataContradictsVisible(
       }
     }
 
-    // Entity url mismatch (D6) — auto-fix when should be self
+    // Entity url mismatch (D6) — human-review: both sides are site claims
+    // (syndication / cross-page entity url may be deliberate). Never auto-fix.
     const entityUrl = asString(getProp(node, 'url'))
     if (entityUrl) {
       const entNorm = normalizeFixStrategyUrl(entityUrl, options.pageUrl)
       if (entNorm && entNorm !== pageNorm) {
         findings.push({
           kind: 'structured-data/contradicts-visible-page',
-          verdict: 'auto-fix-entity-url-self',
+          verdict: 'human-review-entity-url-mismatch',
           severity: 'high',
           pageUrl: options.pageUrl,
-          detail: `Entity url (${entityUrl}) points at a different page than the one carrying the markup (D6)`,
-          autoFixable: true,
-          proposedEntityUrl: pageNorm,
+          detail: `Entity url (${entNorm}) ≠ page url (${pageNorm}) carrying the markup (D6). Both are site claims — syndication may be deliberate; human review.`,
+          autoFixable: false,
+          proposedEntityUrl: null,
+          declarationSite,
           values: { left: entNorm, right: pageNorm },
         })
       }
@@ -380,6 +401,7 @@ export function detectStructuredDataContradictsVisible(
       detail: `Observation (${options.observation38b.method}): ${options.observation38b.detail}. Not a spam-policy violation (D23).`,
       autoFixable: false,
       proposedEntityUrl: null,
+      declarationSite,
       values: null,
     })
   }

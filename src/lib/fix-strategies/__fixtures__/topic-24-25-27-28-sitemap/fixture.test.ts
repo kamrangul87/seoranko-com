@@ -18,6 +18,7 @@ import { detectIndexableUrlsAbsent } from '@/lib/fix-strategies/topic-27'
 import {
   detectSitemapNotReferencedInRobots,
   proposeAddSitemapRecord,
+  applyAddSitemapRecord,
   rejectedCreateRobotsTxtForSitemap,
 } from '@/lib/fix-strategies/topic-28'
 
@@ -582,6 +583,12 @@ describe('topic 28 — sitemap not referenced in robots.txt', () => {
     expect(proposeAddSitemapRecord(null, `${ORIGIN}/sitemap.xml`).rejectedCreate).toBe(
       true,
     )
+    const applied = applyAddSitemapRecord(
+      'User-agent: *\nDisallow:\n',
+      `${ORIGIN}/sitemap.xml`,
+    )
+    expect(applied.updated).toBe(true)
+    expect(applied.body).toContain(`Sitemap: ${ORIGIN}/sitemap.xml`)
     expect(() => rejectedCreateRobotsTxtForSitemap()).toThrow(/REJECTED/)
 
     // 6. multiple records → ok
