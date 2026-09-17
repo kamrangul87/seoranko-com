@@ -52,6 +52,16 @@ const NAV_ITEMS: Array<{
     ),
   },
   {
+    href: '/dashboard/findings',
+    label: 'Findings',
+    description: 'Fix-strategies register',
+    icon: (
+      <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h10M4 18h10" />
+      </svg>
+    ),
+  },
+  {
     href: '/dashboard/experiments',
     label: 'Google status',
     description: 'GSC, interventions, recrawl',
