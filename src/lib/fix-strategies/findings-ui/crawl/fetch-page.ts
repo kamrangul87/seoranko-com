@@ -63,6 +63,14 @@ function httpBody(outcome: FetchOutcome): {
 
 /** Heuristic: served HTML has almost no text → client_only (topic 67). */
 function looksClientOnly(html: string): boolean {
+  const hasAppBundle =
+    /<script[^>]+src=["'][^"']+\.js["']/i.test(html) ||
+    /type=["']module["']/i.test(html)
+  const anchorCount = (html.match(/<a\s[^>]*href\s*=/gi) || []).length
+  // SPA / client-nav shell: JS bundle present, zero crawlable anchors in the
+  // complete stream — outbound links only appear after rendering (topic 67).
+  if (hasAppBundle && anchorCount === 0) return true
+
   const text = html
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')

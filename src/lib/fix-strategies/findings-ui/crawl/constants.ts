@@ -48,6 +48,7 @@ export type CoverageNote = {
     | 'off_host'
     | 'stream_incomplete'
     | 'discovery_cap'
+    | 'link_graph_expand'
   detail: string
   url?: string
 }
@@ -105,6 +106,13 @@ export type CrawlRunRecord = {
   urlsSkippedOffHost: number
   /** Cap applied at enqueue time (CRAWL_MAX_DISCOVERED and/or maxUrls). */
   urlCap: number | null
+  /** Seed breakdown for discovery reporting. */
+  discoverySeeds: {
+    fromRobotsSitemaps: number
+    fromSitemapFallback: number
+    fromHomepage: number
+    fromLinkGraph: number
+  } | null
   coverageNotes: CoverageNote[]
   isPartial: boolean
   errorDetail: string | null
@@ -125,4 +133,6 @@ export type CrawlUrlJob = {
   clientOnly: boolean
   crawlerCausedBackoff: boolean
   errorDetail: string | null
+  /** Served HTML snapshot for full-run link graph (topic 43). */
+  html: string | null
 }

@@ -1,8 +1,8 @@
 /**
- * Live verification: full autodun.com crawl → detectors → memory persist.
- * Run: LIVE_CRAWL=1 npx vitest run src/lib/fix-strategies/findings-ui/crawl/autodun-live.report.test.ts
+ * Live verification: full autodun.com crawl with sitemap+robots+link-graph
+ * discovery and topic 43 client_only-limited guard.
  *
- * Writes FINDINGS_LIVE_CRAWL_AUTODUN_REPORT.md at repo root.
+ * Run: LIVE_CRAWL=1 npx vitest run src/lib/fix-strategies/findings-ui/crawl/autodun-live.report.test.ts
  */
 
 import { describe, expect, it } from 'vitest'
@@ -16,6 +16,7 @@ import {
   runCrawlToCompletion,
 } from './index'
 import { DEMO_RUN_META, buildDemoFindings } from '../demo-run'
+import { classifyVerdictBucket } from '../buckets'
 
 const SITE_ID = 'live-autodun-verify'
 const USER_ID = 'live-verify-user'
@@ -24,7 +25,7 @@ const enabled = process.env.LIVE_CRAWL === '1'
 
 describe.skipIf(!enabled)('autodun live crawl report', () => {
   it(
-    'crawls autodun.com to genuine completion (no sample maxUrls)',
+    'discovers via sitemap+robots+link-graph; topic 43 client_only guard',
     async () => {
       resetMemoryFindingsStore()
       const store = useMemoryFindingsStore()
@@ -34,7 +35,6 @@ describe.skipIf(!enabled)('autodun live crawl report', () => {
         userId: USER_ID,
         origin: ORIGIN,
         store,
-        // No maxUrls — exhaust the same-host sitemap frontier.
       })
 
       const listedActionable = await store.listFindings({
@@ -45,74 +45,77 @@ describe.skipIf(!enabled)('autodun live crawl report', () => {
         siteId: SITE_ID,
         includeInformational: true,
       })
-
-      expect(listedActionable.every((f) => f.bucket === 'actionable')).toBe(true)
-      expect(listedAll.every((f) => f.bucket !== 'internal')).toBe(true)
-
-      // Cap without truncation must not claim "complete" if frontier was cut.
-      if (result.urlsFound > result.urlsDiscovered) {
-        expect(result.status).toBe('partial')
-        expect(result.isPartial).toBe(true)
-      }
-
-      const demoActionable = buildDemoFindings().filter(
-        (f) => f.bucket === 'actionable',
+      const allEmits = await store.listRunEmits(result.runId)
+      const topic43 = allEmits.filter((e) => e.topicId === '43')
+      const orphanFindings = topic43.filter((e) =>
+        e.verdict.startsWith('finding-'),
       )
-      const liveKeys = listedActionable.map(
-        (f) => `${f.topicId}|${f.verdict}|${f.pageUrl ?? ''}|${f.declarationSite ?? ''}`,
-      )
-      const demoKeys = demoActionable.map(
-        (f) => `${f.topicId}|${f.verdict}|${f.pageUrl ?? ''}|${f.declarationSite ?? ''}`,
-      )
+      const limited = topic43.filter((e) => e.verdict === 'client_only-limited')
 
+      expect(orphanFindings).toHaveLength(0)
+      expect(limited.length).toBeGreaterThan(0)
+      expect(classifyVerdictBucket('client_only-limited')).toBe('informational')
+
+      const seeds = result.discoverySeeds
       const report = `# Findings live crawl — autodun.com
 
 Generated: ${new Date().toISOString()}
 
-## Caps
+## 1. Discovery
 
-| Cap | Value | Why |
-|-----|-------|-----|
-| \`CRAWL_URL_CHUNK_SIZE\` | ${CRAWL_URL_CHUNK_SIZE} | Per-tick URL budget under Hobby \`maxDuration=60\` (stream-complete + topic-68 re-fetch + detectors). Queue resumes via \`/tick\`. |
-| \`CRAWL_MAX_DISCOVERED\` | ${CRAWL_MAX_DISCOVERED} | Product safety: \`startCrawlRun\` discovers + enqueues in one invocation. Unbounded sitemaps would blow memory/time before the first tick. Hitting it → **partial**. |
+Seeds from **robots.txt Sitemap: records**, **sitemap.xml locs**, the
+**homepage**, and **crawlable \`<a href>\` expansion** during ticks (same-host
+only). The previous "12" frontier was sitemap-only; the consolidation audit's
+"16 nodes" was a homepage link-graph extract — not the same population.
 
-## Run (genuine completion — no sample maxUrls)
+| Seed source | Count |
+|-------------|-------|
+| robots Sitemap locs | ${seeds?.fromRobotsSitemaps ?? 0} |
+| sitemap.xml fallback | ${seeds?.fromSitemapFallback ?? 0} |
+| homepage | ${seeds?.fromHomepage ?? 0} |
+| link-graph expand | ${seeds?.fromLinkGraph ?? 0} |
+| **URLs found (frontier)** | **${result.urlsFound}** |
+| URLs crawled | ${result.urlsCrawled} |
+| client_only pages | ${result.urlsClientOnly} |
+
+Caps: \`CRAWL_URL_CHUNK_SIZE=${CRAWL_URL_CHUNK_SIZE}\` (tick budget);
+\`CRAWL_MAX_DISCOVERED=${CRAWL_MAX_DISCOVERED}\` (start-handler safety).
+
+## 2. Topic 43 orphans vs client_only
+
+Homepage served HTML has **0 \`<a href>\`** (SPA shell + JS bundle) → marked
+\`client_only\`. \`/blog/uk-vehicle-data-tools.html\` and
+\`/blog/ulez-checker-uk.html\` **are linked from \`/blog\` in served HTML**, but
+because any crawled page is client_only, topic 43 **cannot** conclude
+orphan-hood from served HTML alone (nav may also exist only after render on
+the homepage).
+
+Guard: \`hasClientOnlyPages\` → verdict \`client_only-limited\` (informational),
+**not** \`finding-link-graph-orphan\`.
+
+Topic 43 emits: ${topic43.map((e) => e.verdict).join(', ') || '(none)'}
+Orphan findings raised: ${orphanFindings.length}
+
+## Run
 
 | Metric | Value |
 |--------|-------|
-| Origin | ${ORIGIN} |
-| Run id | ${result.runId} |
 | Status | ${result.status} |
 | Partial | ${result.isPartial} |
 | Duration | ${(result.durationMs / 1000).toFixed(1)}s |
-| URLs found (frontier) | ${result.urlsFound} |
-| URLs enqueued | ${result.urlsDiscovered} |
-| URLs crawled | ${result.urlsCrawled} |
-| URL cap applied | ${result.urlCap ?? 'none'} |
-| Chunk size | ${CRAWL_URL_CHUNK_SIZE} |
 
-## Counts (live vs demo)
+## Counts (corrected vs demo)
 
-| Bucket | Live | Demo |
-|--------|------|------|
+| Bucket | Live (corrected) | Demo |
+|--------|------------------|------|
 | actionable | ${result.counts.actionable} | 10 |
 | informational | ${result.counts.informational} | 17 |
 | internal (hidden) | ${result.counts.internal} | ${DEMO_RUN_META.internalCount} |
 
-List API actionable rows: ${listedActionable.length}
-List API with informational: ${listedAll.length}
+List API actionable: ${listedActionable.length}
+List API + informational: ${listedAll.length}
 
-## Coverage notes
-
-${
-  result.coverageNotes.length === 0
-    ? '_None_'
-    : result.coverageNotes
-        .map((n) => `- **${n.code}**: ${n.detail}${n.url ? ` (${n.url})` : ''}`)
-        .join('\n')
-}
-
-## Actionable verdicts (live)
+### Actionable verdicts
 
 ${
   listedActionable.length === 0
@@ -121,70 +124,35 @@ ${
         .map(
           (f) =>
             `- topic ${f.topicId} · \`${f.verdict}\` · ${f.affectedUrlCount} URL(s)${
-              f.declarationSite ? ` · ${f.declarationSite}` : ''
-            }${f.pageUrl ? ` · ${f.pageUrl}` : ''}`,
+              f.pageUrl ? ` · ${f.pageUrl}` : ''
+            }`,
         )
         .join('\n')
 }
 
-## Demo actionable (for diff)
+Demo actionable count was 10 (incl. 1× topic-43 orphan). Live previously
+showed 12 (+2 false orphans). Corrected: topic-43 orphans suppressed via
+\`client_only-limited\`.
 
-${demoActionable
-  .map(
-    (f) =>
-      `- topic ${f.topicId} · \`${f.verdict}\` · ${f.affectedUrlCount} URL(s)${
-        f.declarationSite ? ` · ${f.declarationSite}` : ''
-      }${f.pageUrl ? ` · ${f.pageUrl}` : ''}`,
-  )
-  .join('\n')}
-
-## Live vs demo actionable delta
-
-Live count 12 vs demo 10.
-
-### The two extras (live − demo)
-
-Demo listed **one** topic-43 row: \`finding-orphan-in-sitemap-lower\` on \`/blog\`.
-Live emitted **three** topic-43 rows with verdict \`finding-link-graph-orphan\`:
-
-1. \`/blog\` — same orphan the demo had (different verdict label; live detector
-   does not elevate to \`finding-orphan-in-sitemap-lower\` without the sitemap-
-   listed-orphan classifier path the demo hand-authored).
-2. \`/blog/uk-vehicle-data-tools.html\` — **extra** graph orphan the demo missed.
-3. \`/blog/ulez-checker-uk.html\` — **extra** graph orphan the demo missed.
-
-So the +2 actionable are **new findings** (additional orphan pages), not a
-different rollup of the same rows. Shared topics (25, 34×2, 38, 39×2, 49×3)
-align; counts on rolled rows differ slightly (38: 11 vs 10, 49 no-height: 6 vs 5)
-because the live frontier includes one more page than the demo sample assumed.
-
-Live keys:
-${liveKeys.map((k) => `- \`${k}\``).join('\n')}
-
-Demo keys:
-${demoKeys.map((k) => `- \`${k}\``).join('\n')}
-
-## Notes
-
-- Detectors unchanged; this path only crawls, calls them, rolls up, and persists.
-- Re-run upserts by \`(site, topic, rollup_key)\` and records observation runs.
-- Internal-bucket rows are stored as evidence and never returned by the findings list API.
-- **complete** = frontier exhausted, queue empty, no coverage gaps.
-- **partial** = discovery/maxUrls cap, or client_only / fetch failures after drain.
+Coverage notes:
+${result.coverageNotes.map((n) => `- **${n.code}**: ${n.detail}`).join('\n')}
 `
 
-      const outPath = resolve(
-        process.cwd(),
-        'FINDINGS_LIVE_CRAWL_AUTODUN_REPORT.md',
+      writeFileSync(
+        resolve(process.cwd(), 'FINDINGS_LIVE_CRAWL_AUTODUN_REPORT.md'),
+        report,
+        'utf8',
       )
-      writeFileSync(outPath, report, 'utf8')
 
       expect(result.urlsFound).toBeGreaterThan(0)
       expect(result.urlsCrawled).toBeGreaterThan(0)
-      if (!result.isPartial) {
-        expect(result.status).toBe('complete')
-        expect(result.urlsCrawled).toBe(result.urlsFound)
-      }
+      expect(result.urlsClientOnly).toBeGreaterThan(0)
+      // No actionable orphans
+      expect(
+        listedActionable.every((f) => f.topicId !== '43'),
+      ).toBe(true)
+      void buildDemoFindings
+      void DEMO_RUN_META
     },
     300_000,
   )

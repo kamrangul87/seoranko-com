@@ -350,23 +350,51 @@ export async function runDetectorsOnPages(
     takeBuckets('49', 'performance/img-missing-dimensions', img, out, pageUrl)
   }
 
-  if (usable.length > 0) {
-    const graph = buildInternalLinkGraph({
-      originUrl: origin,
-      pages: usable.map((p) => ({
-        url: p.finalUrl,
-        html: p.html,
-        status: p.status ?? 200,
-      })),
-    })
-    takeBuckets(
-      '43',
-      'internal-links/orphan-pages',
-      detectOrphanPages({ graph }),
-      out,
-    )
-  }
+  // Topic 43 runs once on the full crawl set (see runTopic43OnCrawl) so
+  // chunk boundaries cannot invent orphans.
 
+  return out
+}
+
+/**
+ * Build the full-run link graph and run topic 43.
+ * Includes client_only pages as empty shells so the incomplete-evidence
+ * guard can fire; HTML pages contribute crawlable <a href> edges.
+ */
+export async function runTopic43OnCrawl(
+  origin: string,
+  pages: Array<{
+    url: string
+    html: string
+    status: number | null
+    clientOnly: boolean
+    inSitemap?: boolean
+  }>,
+): Promise<DetectorEmit[]> {
+  const out: DetectorEmit[] = []
+  if (pages.length === 0) return out
+
+  const hasClientOnlyPages = pages.some((p) => p.clientOnly)
+  const graphPages = pages
+    .filter((p) => p.html || p.clientOnly)
+    .map((p) => ({
+      url: p.url,
+      // client_only shells contribute no crawlable edges (empty / minimal HTML)
+      html: p.clientOnly ? '' : p.html,
+      status: p.status,
+      inSitemap: p.inSitemap === true,
+    }))
+
+  const graph = buildInternalLinkGraph({
+    originUrl: origin,
+    pages: graphPages,
+  })
+  takeBuckets(
+    '43',
+    'internal-links/orphan-pages',
+    detectOrphanPages({ graph, hasClientOnlyPages }),
+    out,
+  )
   return out
 }
 

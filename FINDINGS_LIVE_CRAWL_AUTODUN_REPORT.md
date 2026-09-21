@@ -1,122 +1,80 @@
 # Findings live crawl — autodun.com
 
-Generated: 2026-09-21T07:24:13.554Z
+Generated: 2026-09-21T07:42:39.855Z
 
-## Caps
+## 1. Discovery
 
-| Cap | Value | Why |
-|-----|-------|-----|
-| `CRAWL_URL_CHUNK_SIZE` | 5 | Per-tick URL budget under Hobby `maxDuration=60` (stream-complete + topic-68 re-fetch + detectors). Queue resumes via `/tick`. |
-| `CRAWL_MAX_DISCOVERED` | 500 | Product safety: `startCrawlRun` discovers + enqueues in one invocation. Unbounded sitemaps would blow memory/time before the first tick. Hitting it → **partial**. |
+Seeds from **robots.txt Sitemap: records**, **sitemap.xml locs**, the
+**homepage**, and **crawlable `<a href>` expansion** during ticks (same-host
+only). The previous "12" frontier was sitemap-only; the consolidation audit's
+"16 nodes" was a homepage link-graph extract — not the same population.
 
-## Run (genuine completion — no sample maxUrls)
+| Seed source | Count |
+|-------------|-------|
+| robots Sitemap locs | 12 |
+| sitemap.xml fallback | 0 |
+| homepage | 1 |
+| link-graph expand | 2 |
+| **URLs found (frontier)** | **14** |
+| URLs crawled | 13 |
+| client_only pages | 1 |
+
+Caps: `CRAWL_URL_CHUNK_SIZE=5` (tick budget);
+`CRAWL_MAX_DISCOVERED=500` (start-handler safety).
+
+## 2. Topic 43 orphans vs client_only
+
+Homepage served HTML has **0 `<a href>`** (SPA shell + JS bundle) → marked
+`client_only`. `/blog/uk-vehicle-data-tools.html` and
+`/blog/ulez-checker-uk.html` **are linked from `/blog` in served HTML**, but
+because any crawled page is client_only, topic 43 **cannot** conclude
+orphan-hood from served HTML alone (nav may also exist only after render on
+the homepage).
+
+Guard: `hasClientOnlyPages` → verdict `client_only-limited` (informational),
+**not** `finding-link-graph-orphan`.
+
+Topic 43 emits: client_only-limited
+Orphan findings raised: 0
+
+## Run
 
 | Metric | Value |
 |--------|-------|
-| Origin | https://autodun.com |
-| Run id | e371f5ba-3d98-4071-aa64-4c498502d490 |
-| Status | complete |
-| Partial | false |
+| Status | partial |
+| Partial | true |
 | Duration | 1.1s |
-| URLs found (frontier) | 12 |
-| URLs enqueued | 12 |
-| URLs crawled | 12 |
-| URL cap applied | none |
-| Chunk size | 5 |
 
-## Counts (live vs demo)
+## Counts (corrected vs demo)
 
-| Bucket | Live | Demo |
-|--------|------|------|
-| actionable | 12 | 10 |
-| informational | 15 | 17 |
-| internal (hidden) | 269 | 349 |
+| Bucket | Live (corrected) | Demo |
+|--------|------------------|------|
+| actionable | 9 | 10 |
+| informational | 16 | 17 |
+| internal (hidden) | 290 | 349 |
 
-List API actionable rows: 12
-List API with informational: 27
+List API actionable: 9
+List API + informational: 25
 
-## Coverage notes
-
-- **off_host**: Skipped 1 off-host sitemap loc(s)
-
-## Actionable verdicts (live)
+### Actionable verdicts
 
 - topic 25 · `moderate-out-of-scope` · 1 URL(s) · https://autodun.com/sitemap.xml
-- topic 38 · `human-review-entity-url-mismatch` · 11 URL(s) · generator:site-jsonld · https://autodun.com/blog
+- topic 38 · `human-review-entity-url-mismatch` · 13 URL(s) · https://autodun.com/blog
 - topic 39 · `d17-faq-markup-not-visible` · 1 URL(s) · https://autodun.com/blog/electric-car-charger-map-uk.html
-- topic 49 · `human-review-no-height-auto` · 6 URL(s) · generator:site-images · https://autodun.com/blog/electric-car-charger-map-uk.html
-- topic 43 · `finding-link-graph-orphan` · 1 URL(s) · https://autodun.com/blog
-- topic 49 · `auto-set-dimensions` · 1 URL(s) · generator:site-images · https://autodun.com/blog/mot-advisories-explained-uk.html
-- topic 49 · `finding-wrong-ratio` · 2 URL(s) · generator:site-images · https://autodun.com/blog/mot-changes-2026-dvsa-updates.html
+- topic 49 · `human-review-no-height-auto` · 6 URL(s) · https://autodun.com/blog/electric-car-charger-map-uk.html
+- topic 49 · `auto-set-dimensions` · 1 URL(s) · https://autodun.com/blog/mot-advisories-explained-uk.html
+- topic 49 · `finding-wrong-ratio` · 2 URL(s) · https://autodun.com/blog/mot-changes-2026-dvsa-updates.html
 - topic 34 · `low-lang-inlanguage-disagree` · 1 URL(s) · https://autodun.com/blog/mot-history-check-uk.html
 - topic 34 · `low-lang-inlanguage-disagree` · 1 URL(s) · https://autodun.com/blog/uk-vehicle-data-tools.html
-- topic 43 · `finding-link-graph-orphan` · 1 URL(s) · https://autodun.com/blog/uk-vehicle-data-tools.html
 - topic 39 · `d17-faq-markup-not-visible` · 1 URL(s) · https://autodun.com/blog/ulez-checker-uk.html
-- topic 43 · `finding-link-graph-orphan` · 1 URL(s) · https://autodun.com/blog/ulez-checker-uk.html
 
-## Demo actionable (for diff)
+Demo actionable count was 10 (incl. 1× topic-43 orphan). Live previously
+showed 12 (+2 false orphans). Corrected: topic-43 orphans suppressed via
+`client_only-limited`.
 
-- topic 38 · `human-review-entity-url-mismatch` · 10 URL(s) · generator:autodun-blog-jsonld · https://autodun.com/blog
-- topic 49 · `human-review-no-height-auto` · 5 URL(s) · generator:autodun-blog-images · https://autodun.com/blog
-- topic 49 · `finding-wrong-ratio` · 2 URL(s) · generator:autodun-blog-images · https://autodun.com/blog/mot-cost-uk-2026.html
-- topic 49 · `auto-set-dimensions` · 1 URL(s) · generator:autodun-blog-images · https://autodun.com/blog/ulez-checker-uk.html
-- topic 39 · `d17-faq-markup-not-visible` · 1 URL(s) · https://autodun.com/blog
-- topic 39 · `d17-faq-markup-not-visible` · 1 URL(s) · https://autodun.com/
-- topic 34 · `low-lang-inlanguage-disagree` · 1 URL(s) · https://autodun.com/blog
-- topic 34 · `low-lang-inlanguage-disagree` · 1 URL(s) · https://autodun.com/
-- topic 25 · `moderate-out-of-scope` · 1 URL(s) · https://autodun.com/sitemap.xml
-- topic 43 · `finding-orphan-in-sitemap-lower` · 1 URL(s) · https://autodun.com/blog
-
-## Live vs demo actionable delta
-
-Live count 12 vs demo 10.
-
-### The two extras (live − demo)
-
-Demo listed **one** topic-43 row: `finding-orphan-in-sitemap-lower` on `/blog`.
-Live emitted **three** topic-43 rows with verdict `finding-link-graph-orphan`:
-
-1. `/blog` — same orphan the demo had (different verdict label; live detector
-   does not elevate to `finding-orphan-in-sitemap-lower` without the sitemap-
-   listed-orphan classifier path the demo hand-authored).
-2. `/blog/uk-vehicle-data-tools.html` — **extra** graph orphan the demo missed.
-3. `/blog/ulez-checker-uk.html` — **extra** graph orphan the demo missed.
-
-So the +2 actionable are **new findings** (additional orphan pages), not a
-different rollup of the same rows. Shared topics (25, 34×2, 38, 39×2, 49×3)
-align; counts on rolled rows differ slightly (38: 11 vs 10, 49 no-height: 6 vs 5)
-because the live frontier includes one more page than the demo sample assumed.
-
-Live keys:
-- `25|moderate-out-of-scope|https://autodun.com/sitemap.xml|`
-- `38|human-review-entity-url-mismatch|https://autodun.com/blog|generator:site-jsonld`
-- `39|d17-faq-markup-not-visible|https://autodun.com/blog/electric-car-charger-map-uk.html|`
-- `49|human-review-no-height-auto|https://autodun.com/blog/electric-car-charger-map-uk.html|generator:site-images`
-- `43|finding-link-graph-orphan|https://autodun.com/blog|`
-- `49|auto-set-dimensions|https://autodun.com/blog/mot-advisories-explained-uk.html|generator:site-images`
-- `49|finding-wrong-ratio|https://autodun.com/blog/mot-changes-2026-dvsa-updates.html|generator:site-images`
-- `34|low-lang-inlanguage-disagree|https://autodun.com/blog/mot-history-check-uk.html|`
-- `34|low-lang-inlanguage-disagree|https://autodun.com/blog/uk-vehicle-data-tools.html|`
-- `43|finding-link-graph-orphan|https://autodun.com/blog/uk-vehicle-data-tools.html|`
-- `39|d17-faq-markup-not-visible|https://autodun.com/blog/ulez-checker-uk.html|`
-- `43|finding-link-graph-orphan|https://autodun.com/blog/ulez-checker-uk.html|`
-
-Demo keys:
-- `38|human-review-entity-url-mismatch|https://autodun.com/blog|generator:autodun-blog-jsonld`
-- `49|human-review-no-height-auto|https://autodun.com/blog|generator:autodun-blog-images`
-- `49|finding-wrong-ratio|https://autodun.com/blog/mot-cost-uk-2026.html|generator:autodun-blog-images`
-- `49|auto-set-dimensions|https://autodun.com/blog/ulez-checker-uk.html|generator:autodun-blog-images`
-- `39|d17-faq-markup-not-visible|https://autodun.com/blog|`
-- `39|d17-faq-markup-not-visible|https://autodun.com/|`
-- `34|low-lang-inlanguage-disagree|https://autodun.com/blog|`
-- `34|low-lang-inlanguage-disagree|https://autodun.com/|`
-- `25|moderate-out-of-scope|https://autodun.com/sitemap.xml|`
-- `43|finding-orphan-in-sitemap-lower|https://autodun.com/blog|`
-
-## Notes
-
-- Detectors unchanged; this path only crawls, calls them, rolls up, and persists.
-- Re-run upserts by `(site, topic, rollup_key)` and records observation runs.
-- Internal-bucket rows are stored as evidence and never returned by the findings list API.
-- **complete** = frontier exhausted, queue empty, no coverage gaps.
-- **partial** = discovery/maxUrls cap, or client_only / fetch failures after drain.
+Coverage notes:
+- **off_host**: Skipped 1 off-host sitemap loc(s)
+- **link_graph_expand**: Seed discovery: robots Sitemap locs=12, sitemap fallback=0, homepage=1; link-graph expansion during ticks
+- **client_only**: Served HTML looks client_only — content detectors skipped; outbound links may appear only after rendering (topic 67)
+- **link_graph_expand**: Enqueued 1 same-host URL(s) from crawlable links on https://autodun.com/blog
+- **link_graph_expand**: Enqueued 1 same-host URL(s) from crawlable links on https://autodun.com/blog/electric-car-charger-map-uk.html
