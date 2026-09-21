@@ -7,6 +7,7 @@ import {
   processCrawlTick,
   getFindingsStore,
 } from '@/lib/fix-strategies/findings-ui/crawl'
+import { normalizePublicOrigin } from '@/lib/fix-strategies/findings-ui/crawl/normalize-public-origin'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -28,11 +29,10 @@ function authClient() {
 
 /**
  * POST /api/fix-strategies/findings/crawl
- * Body: { siteId, action: 'start' | 'tick', runId? }
  *
- * Chunk size = CRAWL_URL_CHUNK_SIZE (5): each URL does stream-complete fetch +
- * topic-68 re-fetch + multi-detector work. Five URLs fit a ~45s tick under
- * Hobby maxDuration=60 with backoff headroom; remaining URLs resume via tick.
+ * Connected: { siteId, action: 'start' | 'tick', runId? }
+ * Detect-only: { mode: 'detect', url, action: 'start' | 'tick', runId? }
+ *   — public URL, no connected_sites row, no repo, no stored site credentials.
  */
 export async function POST(request: Request) {
   const supabase = authClient()
@@ -45,9 +45,66 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => ({}))) as {
     siteId?: string
+    mode?: 'detect' | 'connected'
+    url?: string
     action?: 'start' | 'tick'
     runId?: string
     maxUrls?: number
+  }
+
+  const detectOnly = body.mode === 'detect'
+  const store = getFindingsStore()
+
+  if (detectOnly) {
+    if (body.action === 'start') {
+      const origin = normalizePublicOrigin(body.url ?? '')
+      if (!origin) {
+        return NextResponse.json(
+          { error: 'A valid public URL is required for detect-only mode' },
+          { status: 400 },
+        )
+      }
+      const { runId, urlsDiscovered } = await startCrawlRun({
+        siteId: null,
+        userId: user.id,
+        origin,
+        detectOnly: true,
+        store,
+        maxUrls: body.maxUrls,
+      })
+      return NextResponse.json({
+        runId,
+        urlsDiscovered,
+        chunkSize: CRAWL_URL_CHUNK_SIZE,
+        status: 'queued',
+        origin,
+        detectOnly: true,
+      })
+    }
+
+    if (body.action === 'tick') {
+      if (!body.runId) {
+        return NextResponse.json(
+          { error: 'runId is required for tick' },
+          { status: 400 },
+        )
+      }
+      const run = await store.getRun(body.runId)
+      if (
+        !run ||
+        run.userId !== user.id ||
+        !run.detectOnly
+      ) {
+        return NextResponse.json({ error: 'Run not found' }, { status: 404 })
+      }
+      const tick = await processCrawlTick(body.runId, { store })
+      return NextResponse.json({ ...tick, detectOnly: true, origin: run.origin })
+    }
+
+    return NextResponse.json(
+      { error: "action must be 'start' or 'tick'" },
+      { status: 400 },
+    )
   }
 
   const siteId = body.siteId
@@ -67,7 +124,6 @@ export async function POST(request: Request) {
   }
 
   const origin = `https://${String(site.domain).replace(/^www\./, '')}`
-  const store = getFindingsStore()
 
   if (body.action === 'start') {
     const { runId, urlsDiscovered } = await startCrawlRun({
@@ -83,6 +139,7 @@ export async function POST(request: Request) {
       chunkSize: CRAWL_URL_CHUNK_SIZE,
       status: 'queued',
       origin,
+      detectOnly: false,
     })
   }
 
@@ -106,7 +163,7 @@ export async function POST(request: Request) {
 
 /**
  * GET /api/fix-strategies/findings/crawl?siteId=&runId=
- * Returns latest (or specific) crawl run status for the UI.
+ * Detect-only: ?detectOrigin=&runId=
  */
 export async function GET(request: Request) {
   const supabase = authClient()
@@ -119,7 +176,39 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url)
   const siteId = url.searchParams.get('siteId')
+  const detectOriginRaw = url.searchParams.get('detectOrigin')
   const runId = url.searchParams.get('runId')
+  const store = getFindingsStore()
+
+  if (detectOriginRaw || (runId && !siteId)) {
+    if (runId) {
+      const run = await store.getRun(runId)
+      if (!run || run.userId !== user.id || !run.detectOnly) {
+        return NextResponse.json({ error: 'Run not found' }, { status: 404 })
+      }
+      return NextResponse.json({
+        run,
+        chunkSize: CRAWL_URL_CHUNK_SIZE,
+        detectOnly: true,
+      })
+    }
+    const origin = normalizePublicOrigin(detectOriginRaw ?? '')
+    if (!origin) {
+      return NextResponse.json(
+        { error: 'detectOrigin is required' },
+        { status: 400 },
+      )
+    }
+    const runs = await store.listRunsForDetectOrigin(user.id, origin)
+    return NextResponse.json({
+      run: runs[0] ?? null,
+      runs: runs.slice(0, 10),
+      chunkSize: CRAWL_URL_CHUNK_SIZE,
+      detectOnly: true,
+      origin,
+    })
+  }
+
   if (!siteId) {
     return NextResponse.json({ error: 'siteId is required' }, { status: 400 })
   }
@@ -134,7 +223,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Site not found' }, { status: 404 })
   }
 
-  const store = getFindingsStore()
   if (runId) {
     const run = await store.getRun(runId)
     if (!run || run.userId !== user.id || run.siteId !== siteId) {

@@ -23,12 +23,18 @@ import {
 
 export type FindingsStore = {
   createRun(input: {
-    siteId: string
+    siteId: string | null
     userId: string
     origin: string
+    /** Public-URL detection; no connected_sites row. */
+    detectOnly?: boolean
   }): Promise<CrawlRunRecord>
   getRun(runId: string): Promise<CrawlRunRecord | null>
   listRunsForSite(siteId: string): Promise<CrawlRunRecord[]>
+  listRunsForDetectOrigin(
+    userId: string,
+    detectOrigin: string,
+  ): Promise<CrawlRunRecord[]>
   updateRun(
     runId: string,
     patch: Partial<CrawlRunRecord>,
@@ -52,7 +58,8 @@ export type FindingsStore = {
     runId: string,
   ): Promise<Record<CrawlUrlJobStatus, number>>
   upsertFindings(input: {
-    siteId: string
+    siteId: string | null
+    detectOrigin?: string | null
     userId: string
     runId: string
     findings: RolledPersistCandidate[]
@@ -69,12 +76,18 @@ export type FindingsStore = {
   listRunEmits(runId: string): Promise<DetectorEmit[]>
   clearRunEvidence(runId: string): Promise<void>
   listFindings(input: {
-    siteId: string
+    siteId?: string | null
+    detectOrigin?: string | null
+    userId?: string
     includeInformational: boolean
   }): Promise<PersistedFindingRow[]>
   getFinding(id: string): Promise<PersistedFindingRow | null>
   listEvidenceForFinding(findingId: string): Promise<PersistedEvidenceRow[]>
-  counts(siteId: string): Promise<{
+  counts(input: {
+    siteId?: string | null
+    detectOrigin?: string | null
+    userId?: string
+  }): Promise<{
     actionable: number
     informational: number
     internal: number
@@ -122,19 +135,34 @@ export function resetMemoryFindingsStore(): void {
   activeStore = null
 }
 
-function findingKey(siteId: string, topicId: string, rollupKey: string): string {
-  return `${siteId}::${topicId}::${rollupKey}`
+function findingKey(
+  scope: string,
+  topicId: string,
+  rollupKey: string,
+): string {
+  return `${scope}::${topicId}::${rollupKey}`
+}
+
+function scopeKey(input: {
+  siteId: string | null
+  detectOrigin?: string | null
+}): string {
+  if (input.siteId) return input.siteId
+  return `detect:${input.detectOrigin ?? ''}`
 }
 
 export function createMemoryFindingsStore(): FindingsStore {
   return {
-    async createRun({ siteId, userId, origin }) {
+    async createRun({ siteId, userId, origin, detectOnly }) {
       const now = new Date().toISOString()
+      const originNorm = origin.replace(/\/$/, '')
       const run: CrawlRunRecord = {
         id: randomUUID(),
-        siteId,
+        siteId: siteId ?? null,
+        detectOnly: detectOnly === true,
+        detectOrigin: detectOnly ? originNorm : null,
         userId,
-        origin,
+        origin: originNorm,
         status: 'queued',
         chunkSize: CRAWL_URL_CHUNK_SIZE,
         urlsFound: 0,
@@ -164,6 +192,18 @@ export function createMemoryFindingsStore(): FindingsStore {
     async listRunsForSite(siteId) {
       return Array.from(state().runs.values())
         .filter((r) => r.siteId === siteId)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    },
+
+    async listRunsForDetectOrigin(userId, detectOrigin) {
+      const originNorm = detectOrigin.replace(/\/$/, '')
+      return Array.from(state().runs.values())
+        .filter(
+          (r) =>
+            r.userId === userId &&
+            r.detectOnly &&
+            r.detectOrigin === originNorm,
+        )
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     },
 
@@ -265,10 +305,19 @@ export function createMemoryFindingsStore(): FindingsStore {
       return counts
     },
 
-    async upsertFindings({ siteId, userId, runId, findings, internalEvidence }) {
+    async upsertFindings({
+      siteId,
+      detectOrigin,
+      userId,
+      runId,
+      findings,
+      internalEvidence,
+    }) {
       const now = new Date().toISOString()
+      const originNorm = detectOrigin?.replace(/\/$/, '') ?? null
+      const scope = scopeKey({ siteId, detectOrigin: originNorm })
       for (const f of findings) {
-        const key = findingKey(siteId, f.topicId, f.rollupKey)
+        const key = findingKey(scope, f.topicId, f.rollupKey)
         const existing = state().findings.get(key)
         if (existing) {
           const updated: PersistedFindingRow = {
@@ -287,6 +336,7 @@ export function createMemoryFindingsStore(): FindingsStore {
             proposedDiff: f.proposedDiff,
             evidenceValues: f.evidenceValues,
             sourceRows: f.sourceRows,
+            detectOrigin: originNorm,
             lastSeenRunId: runId,
             lastSeenAt: now,
           }
@@ -295,7 +345,8 @@ export function createMemoryFindingsStore(): FindingsStore {
         } else {
           const row: PersistedFindingRow = {
             id: randomUUID(),
-            siteId,
+            siteId: siteId ?? null,
+            detectOrigin: originNorm,
             userId,
             topicId: f.topicId,
             kind: f.kind,
@@ -326,8 +377,12 @@ export function createMemoryFindingsStore(): FindingsStore {
       for (const e of internalEvidence) {
         let findingId: string | null = null
         for (const f of state().findings.values()) {
+          const sameScope =
+            siteId != null
+              ? f.siteId === siteId
+              : f.siteId == null && f.detectOrigin === originNorm
           if (
-            f.siteId === siteId &&
+            sameScope &&
             f.topicId === e.topicId &&
             (e.pageUrl === '' || f.pageUrl === e.pageUrl)
           ) {
@@ -368,9 +423,25 @@ export function createMemoryFindingsStore(): FindingsStore {
       state().evidence = state().evidence.filter((e) => e.runId !== runId)
     },
 
-    async listFindings({ siteId, includeInformational }) {
+    async listFindings({
+      siteId,
+      detectOrigin,
+      userId,
+      includeInformational,
+    }) {
+      const originNorm = detectOrigin?.replace(/\/$/, '') ?? null
       return Array.from(state().findings.values())
-        .filter((f) => f.siteId === siteId)
+        .filter((f) => {
+          if (siteId) return f.siteId === siteId
+          if (originNorm) {
+            return (
+              f.siteId == null &&
+              f.detectOrigin === originNorm &&
+              (userId == null || f.userId === userId)
+            )
+          }
+          return false
+        })
         .filter((f) => {
           if (f.bucket === 'internal') return false
           if (f.bucket === 'informational') return includeInformational
@@ -390,20 +461,36 @@ export function createMemoryFindingsStore(): FindingsStore {
       return state().evidence.filter((e) => e.findingId === findingId)
     },
 
-    async counts(siteId) {
+    async counts({ siteId, detectOrigin, userId }) {
       let actionable = 0
       let informational = 0
       let internal = 0
+      const originNorm = detectOrigin?.replace(/\/$/, '') ?? null
       for (const f of state().findings.values()) {
-        if (f.siteId !== siteId) continue
+        const match = siteId
+          ? f.siteId === siteId
+          : originNorm
+            ? f.siteId == null &&
+              f.detectOrigin === originNorm &&
+              (userId == null || f.userId === userId)
+            : false
+        if (!match) continue
         if (f.bucket === 'actionable') actionable++
         else if (f.bucket === 'informational') informational++
         else internal++
       }
-      // Internal evidence rows also count toward internal total
       const evidenceInternal = state().evidence.filter((e) => {
         const run = state().runs.get(e.runId)
-        return run?.siteId === siteId
+        if (!run) return false
+        if (siteId) return run.siteId === siteId
+        if (originNorm) {
+          return (
+            run.detectOnly &&
+            run.detectOrigin === originNorm &&
+            (userId == null || run.userId === userId)
+          )
+        }
+        return false
       }).length
       internal += evidenceInternal
       return { actionable, informational, internal }
