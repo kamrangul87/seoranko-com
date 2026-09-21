@@ -198,14 +198,32 @@ export default function FindingDetailPage() {
                       )}
                     </div>
                   )}
-                  {finding.surfaceClass === 'human-review' && (
+                  {(finding.surfaceClass === 'human-review' ||
+                    finding.surfaceClass === 'finding' ||
+                    finding.reportOnly) && (
                     <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-3 py-2 mt-3">
-                      Human review — proposal shown for decision. Never applied
-                      automatically.
+                      {finding.surfaceClass === 'human-review'
+                        ? 'Human review — evidence and proposal shown for your decision. Never applied automatically.'
+                        : 'Not auto-fixable — proposal shown for decision only. Never applied automatically.'}
                     </p>
                   )}
                 </section>
               )}
+
+              {!finding.proposedDiff &&
+                (finding.surfaceClass === 'human-review' ||
+                  finding.surfaceClass === 'finding') && (
+                  <section className="rounded-[10px] border border-amber-100 bg-amber-50 p-5">
+                    <h2 className="text-sm font-medium mb-2 text-amber-950">
+                      Awaiting your decision
+                    </h2>
+                    <p className="text-sm text-amber-900/80">
+                      This finding is not auto-fixable. Review the observation
+                      and evidence above — no change will be applied until you
+                      decide.
+                    </p>
+                  </section>
+                )}
 
               <section className="rounded-[10px] border border-[#E8E8E4] bg-white p-5">
                 <h2 className="text-sm font-medium mb-3">Sources</h2>
