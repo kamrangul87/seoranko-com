@@ -22,6 +22,7 @@ import {
 
 const VARIANT_STRATEGIES: DuplicateUrlStrategy[] = [
   'trailing-slash',
+  'index-html',
   'http-https',
   'www-non-www',
   'path-case',

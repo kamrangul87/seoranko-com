@@ -1,6 +1,6 @@
 /**
- * Topic 8 — trailing slash duplicate URL forms.
- * Template topic; uses shared duplicate-url detector with trailing-slash strategy.
+ * Topic 8 — trailing slash + directory index.html duplicate URL forms.
+ * Template topic; uses shared duplicate-url detector.
  */
 
 import {
@@ -15,6 +15,14 @@ export async function detectTrailingSlashDuplicates(
   options: Omit<DetectDuplicateUrlOptions, 'strategy'>,
 ): Promise<DetectDuplicateUrlResult> {
   return detectDuplicateUrls(pages, { ...options, strategy: 'trailing-slash' })
+}
+
+/** /x vs /x/index.html — not produced by trailing-slash generation. */
+export async function detectIndexHtmlDuplicates(
+  pages: DetectDuplicateUrlPage[],
+  options: Omit<DetectDuplicateUrlOptions, 'strategy'>,
+): Promise<DetectDuplicateUrlResult> {
+  return detectDuplicateUrls(pages, { ...options, strategy: 'index-html' })
 }
 
 export {

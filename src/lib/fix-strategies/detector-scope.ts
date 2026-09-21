@@ -111,30 +111,59 @@ export const UNSHIPPED_DETECTOR_SCOPE: Readonly<Record<string, DetectorScope>> =
 
 /** Topic ids that may run inside the per-chunk detector loop. */
 export const CHUNK_LOOP_TOPIC_IDS = [
+  '1',
+  '2b',
+  '3',
+  '4',
+  '5',
+  '6',
+  '7',
+  '8',
+  '9',
+  '10',
+  '11',
+  '12',
   '13',
+  '14',
+  '16',
   '17',
+  '20',
   '29',
   '30',
   '31',
   '34',
   '35',
+  '36',
   '37',
   '38',
   '39',
+  '42',
   '49',
 ] as const
 
 /** Topic ids run once when the crawl frontier is exhausted. */
 export const POST_CRAWL_TOPIC_IDS = [
+  '15',
+  '19',
+  '21',
+  '22',
   '24',
   '25',
+  '26',
   '27',
   '28',
   '33',
   '43',
   '45',
   '46',
+  '47',
+  '48',
 ] as const
+
+/** Every shipped detector that must be called from the crawl runners. */
+export const WIRED_TOPIC_IDS: readonly string[] = Array.from(
+  new Set<string>([...CHUNK_LOOP_TOPIC_IDS, ...POST_CRAWL_TOPIC_IDS]),
+).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
 
 export function scopeForTopic(topicId: string): DetectorScope | null {
   return (
@@ -171,5 +200,18 @@ export function assertPostCrawlTopics(topicIds: readonly string[]): void {
         `Post-crawl topic ${id} must be DETECTOR_SCOPE=whole-site (got ${scope})`,
       )
     }
+  }
+}
+
+/**
+ * Throws if any shipped DETECTOR_SCOPE_BY_TOPIC key is missing from WIRED_TOPIC_IDS.
+ */
+export function assertAllShippedTopicsWired(): void {
+  const wired = new Set(WIRED_TOPIC_IDS)
+  const missing = Object.keys(DETECTOR_SCOPE_BY_TOPIC).filter((id) => !wired.has(id))
+  if (missing.length > 0) {
+    throw new Error(
+      `Shipped-but-unwired detector topics: ${missing.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).join(', ')}`,
+    )
   }
 }

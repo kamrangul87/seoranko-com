@@ -215,6 +215,14 @@ export function classifyDuplicateUrl(
     }
   }
 
+  if (input.strategy === 'index-html') {
+    return {
+      verdict: 'auto-redirect',
+      detail: `Directory index.html duplicate — signals agree (${input.preferred.source}); prefer clean directory URL`,
+      preferCanonicalOverRedirect: false,
+    }
+  }
+
   if (input.strategy === 'www-non-www') {
     // Dossier: human-review by default (often outside repo); with resolved
     // preference still human-review for host choice convention.
