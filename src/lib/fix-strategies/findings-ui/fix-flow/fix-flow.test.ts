@@ -20,7 +20,7 @@ describe('topic 49 apply', () => {
     const fetchImpl = vi.fn(async (url: string | URL | Request) => {
       const u = String(url)
       if (u.includes('a.jpg')) {
-        return new Response(jpeg, {
+        return new Response(Buffer.from(jpeg), {
           status: 200,
           headers: { 'content-type': 'image/jpeg' },
         })
@@ -59,8 +59,7 @@ describe('fix-flow orchestrate (memory)', () => {
   it('approve → requires credentials for commit (no stub pass)', async () => {
     const finding = {
       id: 'f1',
-      siteId: null,
-      detectOrigin: null,
+      siteId: 'site-test',
       userId: 'u1',
       topicId: '49',
       kind: 'performance/img-missing-dimensions',
@@ -105,8 +104,7 @@ describe('fix-flow orchestrate (memory)', () => {
   it('verify refuses before commit', async () => {
     const finding = {
       id: 'f2',
-      siteId: null,
-      detectOrigin: null,
+      siteId: 'site-test',
       userId: 'u1',
       topicId: '49',
       kind: 'performance/img-missing-dimensions',

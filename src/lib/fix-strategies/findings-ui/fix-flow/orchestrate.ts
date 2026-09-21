@@ -98,7 +98,7 @@ function pathFromPageUrl(pageUrl: string): string | null {
 
 async function resolveGithubCreds(
   userId: string,
-  finding: Pick<PersistedFindingRow, 'siteId' | 'pageUrl'>,
+  finding: { siteId: string | null; pageUrl: string | null },
   ctx?: CommitContext,
 ): Promise<GithubPrCreds | null> {
   if (ctx?.github?.accessToken && ctx.github.owner && ctx.github.repo) {
