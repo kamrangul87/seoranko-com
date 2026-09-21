@@ -52,6 +52,10 @@ export type FindingsStore = {
     findings: RolledPersistCandidate[]
     internalEvidence: DetectorEmit[]
   }): Promise<void>
+  /** Stage page-level detector emits for a run (re-rolled on each tick). */
+  appendRunEmits(runId: string, emits: DetectorEmit[]): Promise<void>
+  listRunEmits(runId: string): Promise<DetectorEmit[]>
+  clearRunEvidence(runId: string): Promise<void>
   listFindings(input: {
     siteId: string
     includeInformational: boolean
@@ -71,6 +75,7 @@ type MemState = {
   findings: Map<string, PersistedFindingRow>
   observations: Set<string>
   evidence: PersistedEvidenceRow[]
+  runEmits: Map<string, DetectorEmit[]>
 }
 
 const g = globalThis as unknown as { __fsFindingsStore?: MemState }
@@ -87,6 +92,7 @@ function state(): MemState {
       findings: new Map(),
       observations: new Set(),
       evidence: [],
+      runEmits: new Map(),
     }
   }
   return g.__fsFindingsStore
@@ -99,6 +105,7 @@ export function resetMemoryFindingsStore(): void {
     findings: new Map(),
     observations: new Set(),
     evidence: [],
+    runEmits: new Map(),
   }
   activeStore = null
 }
@@ -268,7 +275,6 @@ export function createMemoryFindingsStore(): FindingsStore {
       }
 
       for (const e of internalEvidence) {
-        // Attach to matching finding when possible via topic+page
         let findingId: string | null = null
         for (const f of state().findings.values()) {
           if (
@@ -290,6 +296,19 @@ export function createMemoryFindingsStore(): FindingsStore {
           pageUrl: e.pageUrl || null,
         })
       }
+    },
+
+    async appendRunEmits(runId, emits) {
+      const cur = state().runEmits.get(runId) ?? []
+      state().runEmits.set(runId, cur.concat(emits))
+    },
+
+    async listRunEmits(runId) {
+      return state().runEmits.get(runId) ?? []
+    },
+
+    async clearRunEvidence(runId) {
+      state().evidence = state().evidence.filter((e) => e.runId !== runId)
     },
 
     async listFindings({ siteId, includeInformational }) {

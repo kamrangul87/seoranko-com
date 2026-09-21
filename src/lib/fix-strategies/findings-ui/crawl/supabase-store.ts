@@ -343,6 +343,34 @@ export function createSupabaseFindingsStore(
       }
     },
 
+    async appendRunEmits(runId, emits) {
+      if (emits.length === 0) return
+      const rows = emits.map((e) => ({
+        run_id: runId,
+        payload: e,
+      }))
+      const { error } = await db().from('fix_strategies_run_emits').insert(rows)
+      if (error) throw new Error(error.message)
+    },
+
+    async listRunEmits(runId) {
+      const { data, error } = await db()
+        .from('fix_strategies_run_emits')
+        .select('payload')
+        .eq('run_id', runId)
+        .order('created_at', { ascending: true })
+      if (error) throw new Error(error.message)
+      return (data ?? []).map((r) => r.payload as DetectorEmit)
+    },
+
+    async clearRunEvidence(runId) {
+      const { error } = await db()
+        .from('fix_strategies_finding_evidence')
+        .delete()
+        .eq('run_id', runId)
+      if (error) throw new Error(error.message)
+    },
+
     async listFindings({ siteId, includeInformational }) {
       let q = db()
         .from('fix_strategies_findings')

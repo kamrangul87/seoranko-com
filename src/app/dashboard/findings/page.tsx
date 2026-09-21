@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase-client'
+import { getSupabaseClient } from '@/lib/supabase-client'
 import { DashboardNav } from '@/components/DashboardNav'
 import type { FindingsListResponse, UiFinding } from '@/lib/fix-strategies/findings-ui/client'
 import type { User } from '@supabase/supabase-js'
@@ -55,7 +55,7 @@ export default function FindingsListPage() {
   const tickAbort = useRef(false)
 
   useEffect(() => {
-    const supabase = createClient()
+    const supabase = getSupabaseClient()
     void supabase.auth.getUser().then(
       async ({ data: { user } }: { data: { user: User | null } }) => {
         if (!user) return

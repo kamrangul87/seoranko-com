@@ -9,6 +9,7 @@ import {
   inspectDocumentHead,
   buildInternalLinkGraph,
   rollupFindingsByDeclarationSite,
+  inspectSiteSitemaps,
   type RollupFindingInput,
 } from '@/lib/fix-strategies/shared'
 import { detectStructuredDataContradictsVisible } from '@/lib/fix-strategies/topic-38'
@@ -23,10 +24,16 @@ import { detectMultipleCanonicals } from '@/lib/fix-strategies/topic-17'
 import { detectTitleMissingOrMalformed } from '@/lib/fix-strategies/topic-30'
 import { detectMetaDescriptionIssues } from '@/lib/fix-strategies/topic-31'
 import { detectTagsOutsideHead } from '@/lib/fix-strategies/topic-29'
+import { detectSitemapXmlInvalid } from '@/lib/fix-strategies/topic-25'
+import { detectSitemapMissingOrUnreachable } from '@/lib/fix-strategies/topic-24'
+import { detectSitemapNotReferencedInRobots } from '@/lib/fix-strategies/topic-28'
+import { detectIndexableUrlsAbsent } from '@/lib/fix-strategies/topic-27'
 import { classifyVerdictBucket, classifySurfaceClass } from '../buckets'
 import { sourcesForDossier } from '../sources'
 import { dossierSlugForTopic } from '../topic-registry'
 import type { CrawledPage } from './fetch-page'
+import { CRAWL_INTER_REQUEST_GAP_MS } from './constants'
+import type { FetchDeps } from '@/lib/fix-strategies/fetch/types'
 
 export type DetectorEmit = {
   topicId: string
@@ -47,11 +54,17 @@ function ingestArray(
   kindDefault: string,
   items: unknown[],
   out: DetectorEmit[],
+  opts?: { defaultVerdict?: string },
 ): void {
   for (const raw of items) {
     if (!raw || typeof raw !== 'object') continue
     const item = raw as Record<string, unknown>
-    const verdict = String(item.verdict ?? item.reason ?? 'unknown')
+    const verdict = String(
+      item.verdict ?? item.reason ?? opts?.defaultVerdict ?? '',
+    ).trim()
+    // Skip malformed rows (e.g. ok[] entries that only have pageUrl/detail
+    // were previously defaulting to "unknown" and polluting actionable).
+    if (!verdict) continue
     const pageUrl = String(
       item.pageUrl ?? item.sourceUrl ?? item.url ?? '',
     )
@@ -89,12 +102,26 @@ function takeBuckets(
   kind: string,
   result: unknown,
   out: DetectorEmit[],
+  pageUrlFallback?: string,
 ): void {
   if (!result || typeof result !== 'object') return
   const r = result as Record<string, unknown>
+  const inject = (items: unknown[]): unknown[] => {
+    if (!pageUrlFallback) return items
+    return items.map((raw) => {
+      if (!raw || typeof raw !== 'object') return raw
+      const item = raw as Record<string, unknown>
+      if (item.pageUrl || item.sourceUrl || item.url) return raw
+      return { ...item, pageUrl: pageUrlFallback }
+    })
+  }
+  // Surface buckets
+  for (const key of ['findings', 'informational'] as const) {
+    const arr = r[key]
+    if (Array.isArray(arr)) ingestArray(topicId, kind, inject(arr), out)
+  }
+  // Internal audit trail — normalize ok[] which often omit verdict
   for (const key of [
-    'findings',
-    'informational',
     'observations',
     'suppressed',
     'routed',
@@ -102,16 +129,22 @@ function takeBuckets(
     'ok',
   ] as const) {
     const arr = r[key]
-    if (Array.isArray(arr)) ingestArray(topicId, kind, arr, out)
+    if (!Array.isArray(arr)) continue
+    ingestArray(topicId, kind, inject(arr), out, {
+      defaultVerdict: key === 'ok' ? 'ok' : undefined,
+    })
   }
 }
 
 /**
  * Run detectors across a set of crawled pages (same origin).
+ * Site-level sitemap detectors run once when `runSiteLevel` is true
+ * (first tick / full batch) so topics 24–28 are included.
  */
 export async function runDetectorsOnPages(
   origin: string,
   pages: CrawledPage[],
+  opts?: { runSiteLevel?: boolean },
 ): Promise<DetectorEmit[]> {
   const out: DetectorEmit[] = []
   const usable = pages.filter(
@@ -127,6 +160,63 @@ export async function runDetectorsOnPages(
 
   const jsonLdSite = 'generator:site-jsonld'
   const imgSite = 'generator:site-images'
+
+  if (opts?.runSiteLevel !== false) {
+    try {
+      let lastAt = 0
+      const deps: FetchDeps = {
+        fetch: globalThis.fetch.bind(globalThis),
+        now: () => Date.now(),
+        sleep: async (ms: number) => {
+          const since = Date.now() - lastAt
+          const wait = Math.max(ms, CRAWL_INTER_REQUEST_GAP_MS - since, 0)
+          if (wait > 0) await new Promise((r) => setTimeout(r, wait))
+          lastAt = Date.now()
+        },
+      }
+      const inspection = await inspectSiteSitemaps({ originUrl: origin, deps })
+      takeBuckets(
+        '24',
+        'sitemap/missing-or-unreachable',
+        detectSitemapMissingOrUnreachable({ inspection }),
+        out,
+        `${origin}/sitemap.xml`,
+      )
+      takeBuckets(
+        '25',
+        'sitemap/xml-invalid',
+        detectSitemapXmlInvalid({ inspection }),
+        out,
+        `${origin}/sitemap.xml`,
+      )
+      takeBuckets(
+        '28',
+        'sitemap/not-referenced-in-robots',
+        detectSitemapNotReferencedInRobots({ inspection }),
+        out,
+        `${origin}/robots.txt`,
+      )
+      takeBuckets(
+        '27',
+        'sitemap/indexable-urls-absent',
+        detectIndexableUrlsAbsent({
+          inspection,
+          pages: usable.map((p) => ({
+            url: p.finalUrl,
+            status200: (p.status ?? 0) === 200,
+            body: p.html,
+            headers: p.headers,
+            internallyLinked: true,
+          })),
+        }),
+        out,
+        `${origin}/sitemap.xml`,
+      )
+    } catch {
+      // Site-level sitemap inspect failure is recorded as coverage elsewhere;
+      // do not abort page detectors.
+    }
+  }
 
   // Batch-style detectors (topic 13 / 17)
   if (usable.length > 0) {
@@ -168,6 +258,7 @@ export async function runDetectorsOnPages(
       'head/tags-outside-head',
       detectTagsOutsideHead({ inspection: head }),
       out,
+      pageUrl,
     )
     takeBuckets(
       '30',
@@ -181,6 +272,7 @@ export async function runDetectorsOnPages(
         },
       }),
       out,
+      pageUrl,
     )
     takeBuckets(
       '31',
@@ -194,12 +286,14 @@ export async function runDetectorsOnPages(
         },
       }),
       out,
+      pageUrl,
     )
     takeBuckets(
       '34',
       'head/missing-or-wrong-lang',
       detectLangDeclaration({ inspection: head }),
       out,
+      pageUrl,
     )
     takeBuckets(
       '35',
@@ -210,6 +304,7 @@ export async function runDetectorsOnPages(
         extraction,
       }),
       out,
+      pageUrl,
     )
     takeBuckets(
       '37',
@@ -220,6 +315,7 @@ export async function runDetectorsOnPages(
         extraction,
       }),
       out,
+      pageUrl,
     )
     takeBuckets(
       '38',
@@ -231,6 +327,7 @@ export async function runDetectorsOnPages(
         declarationSite: jsonLdSite,
       }),
       out,
+      pageUrl,
     )
     takeBuckets(
       '39',
@@ -241,6 +338,7 @@ export async function runDetectorsOnPages(
         extraction,
       }),
       out,
+      pageUrl,
     )
 
     const img = await detectImgMissingDimensions(p.html, pageUrl, {
@@ -249,7 +347,7 @@ export async function runDetectorsOnPages(
       generatorPath: imgSite,
       declarationSite: imgSite,
     })
-    takeBuckets('49', 'performance/img-missing-dimensions', img, out)
+    takeBuckets('49', 'performance/img-missing-dimensions', img, out, pageUrl)
   }
 
   if (usable.length > 0) {

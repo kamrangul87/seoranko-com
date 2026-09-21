@@ -134,6 +134,55 @@ describe('findings crawl persistence', () => {
 })
 
 describe('rollupAndClassify buckets', () => {
+  it('keeps ok and route verdicts internal, not unknown', () => {
+    const emits: DetectorEmit[] = [
+      {
+        topicId: '17',
+        kind: 'canonical/multiple-tags',
+        verdict: 'auto-collapse-redundant',
+        severity: null,
+        detail: 'collapse',
+        pageUrl: 'https://example.com/a',
+        declarationSite: null,
+        autoFixable: true,
+        proposedDiff: null,
+        evidenceValues: null,
+        bucket: classifyVerdictBucket('auto-collapse-redundant'),
+      },
+      {
+        topicId: '17',
+        kind: 'canonical/multiple-tags',
+        verdict: 'ok',
+        severity: null,
+        detail: 'single',
+        pageUrl: 'https://example.com/b',
+        declarationSite: null,
+        autoFixable: false,
+        proposedDiff: null,
+        evidenceValues: null,
+        bucket: classifyVerdictBucket('ok'),
+      },
+      {
+        topicId: '17',
+        kind: 'canonical/multiple-tags',
+        verdict: 'route-topic-16',
+        severity: null,
+        detail: 'routed',
+        pageUrl: 'https://example.com/c',
+        declarationSite: null,
+        autoFixable: false,
+        proposedDiff: null,
+        evidenceValues: null,
+        bucket: classifyVerdictBucket('route-topic-16'),
+      },
+    ]
+    const { findings, internalEvidence } = rollupAndClassify(emits)
+    expect(findings).toHaveLength(1)
+    expect(findings[0]!.verdict).toBe('auto-collapse-redundant')
+    expect(internalEvidence).toHaveLength(2)
+    expect(findings.every((f) => f.verdict !== 'unknown')).toBe(true)
+  })
+
   it('keeps internal emits as evidence only', () => {
     const emits: DetectorEmit[] = [
       {

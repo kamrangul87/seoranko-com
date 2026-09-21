@@ -1,6 +1,6 @@
 /**
  * Live verification: crawl autodun.com → detectors → memory persist.
- * Run: npx vitest run src/lib/fix-strategies/findings-ui/crawl/autodun-live.report.test.ts
+ * Run: LIVE_CRAWL=1 npx vitest run src/lib/fix-strategies/findings-ui/crawl/autodun-live.report.test.ts
  *
  * Writes FINDINGS_LIVE_CRAWL_AUTODUN_REPORT.md at repo root.
  */
@@ -20,8 +20,9 @@ import { DEMO_RUN_META } from '../demo-run'
 const SITE_ID = 'live-autodun-verify'
 const USER_ID = 'live-verify-user'
 const ORIGIN = 'https://autodun.com'
+const enabled = process.env.LIVE_CRAWL === '1'
 
-describe('autodun live crawl report', () => {
+describe.skipIf(!enabled)('autodun live crawl report', () => {
   it(
     'crawls autodun.com and reports counts vs demo 10/17',
     async () => {
@@ -33,7 +34,7 @@ describe('autodun live crawl report', () => {
         userId: USER_ID,
         origin: ORIGIN,
         store,
-        // Cap keeps CI/agent runs bounded; full product cap is CRAWL_MAX_DISCOVERED.
+        // Cap keeps agent runs bounded near the demo's 11-page sample.
         // Report notes the cap so partial coverage is explicit.
         maxUrls: 12,
       })
@@ -129,7 +130,7 @@ ${
 
       // Sanity: crawl did real work
       expect(result.urlsDiscovered).toBeGreaterThan(0)
-      expect(result.urlsCrawled + (result.isPartial ? 1 : 0)).toBeGreaterThan(0)
+      expect(result.urlsCrawled).toBeGreaterThan(0)
       void getFindingsStore
     },
     300_000,

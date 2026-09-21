@@ -62,15 +62,12 @@ export async function startCrawlRun(
   }
 
   await store.enqueueUrls(run.id, urls)
-  const discoveryPartial = notes.some(
-    (n) => n.code === 'discovery_cap' || n.code === 'off_host',
-  )
+  const discoveryPartial = notes.some((n) => n.code === 'discovery_cap')
   await store.updateRun(run.id, {
     status: 'queued',
     urlsDiscovered: urls.length,
     urlsSkippedOffHost: discovered.skippedOffHost,
     coverageNotes: notes,
-    // Cap / off-host skips mean coverage is incomplete once the run finishes.
     isPartial: discoveryPartial,
   })
 
@@ -228,8 +225,17 @@ export async function processCrawlTick(
   }
 
   if (crawled.length > 0) {
-    const emits = await runDetectorsOnPages(run.origin, crawled)
-    const { findings, internalEvidence } = rollupAndClassify(emits)
+    const priorEmits = await store.listRunEmits(runId)
+    const emits = await runDetectorsOnPages(run.origin, crawled, {
+      // Site-level sitemap/robots detectors once per run (not every chunk).
+      runSiteLevel: priorEmits.length === 0,
+    })
+    await store.appendRunEmits(runId, emits)
+    // Re-roll from all emits this run so chunk boundaries don't under-count
+    // generator-level rollups (UNIQUE site+topic+rollup_key upsert).
+    const allEmits = await store.listRunEmits(runId)
+    const { findings, internalEvidence } = rollupAndClassify(allEmits)
+    await store.clearRunEvidence(runId)
     await store.upsertFindings({
       siteId: run.siteId,
       userId: run.userId,
@@ -244,13 +250,13 @@ export async function processCrawlTick(
   const done = stillQueued === 0 && counts.running === 0
 
   // Tick-resume `time_limit` notes must not mark a finished run partial.
+  // Off-host skips are intentional (same-host only) — recorded but not partial.
   const enduringCodes = new Set([
     'client_only',
     'fetch_failure',
     'crawler_backoff',
     'stream_incomplete',
     'discovery_cap',
-    'off_host',
   ])
   const isPartial =
     clientOnlyN > 0 ||
