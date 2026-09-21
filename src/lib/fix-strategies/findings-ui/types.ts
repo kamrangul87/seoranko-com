@@ -68,6 +68,16 @@ export type FindingsListResponse = {
   origin: string
   crawledAt: string | null
   demo: boolean
+  siteId: string | null
+  crawl: {
+    runId: string | null
+    status: string | null
+    isPartial: boolean
+    coverageNotes: Array<{ code: string; detail: string; url?: string }>
+    urlsDiscovered: number
+    urlsCrawled: number
+    chunkSize: number
+  } | null
   counts: {
     actionable: number
     informational: number

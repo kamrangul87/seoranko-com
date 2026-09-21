@@ -1,9 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { createClient } from '@/lib/supabase-client'
 import { DashboardNav } from '@/components/DashboardNav'
 import type { FindingsListResponse, UiFinding } from '@/lib/fix-strategies/findings-ui/client'
+import type { User } from '@supabase/supabase-js'
+
+type Site = { id: string; domain: string; brand: string | null }
 
 function severityTone(severity: string | null): string {
   if (severity === 'high' || severity === 'critical') return 'text-red-700 bg-red-50 border-red-100'
@@ -30,18 +34,51 @@ function surfaceLabel(f: UiFinding): string {
   }
 }
 
+function crawlStatusLabel(status: string | null | undefined): string {
+  if (!status) return 'No crawl yet'
+  if (status === 'partial') return 'Partial coverage'
+  if (status === 'complete') return 'Complete'
+  if (status === 'running') return 'Running'
+  if (status === 'queued') return 'Queued'
+  if (status === 'failed') return 'Failed'
+  return status
+}
+
 export default function FindingsListPage() {
+  const [sites, setSites] = useState<Site[]>([])
+  const [siteId, setSiteId] = useState('')
   const [includeInformational, setIncludeInformational] = useState(false)
   const [data, setData] = useState<FindingsListResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
+  const [crawling, setCrawling] = useState(false)
+  const tickAbort = useRef(false)
 
-  const load = useCallback(async (informational: boolean) => {
+  useEffect(() => {
+    const supabase = createClient()
+    void supabase.auth.getUser().then(
+      async ({ data: { user } }: { data: { user: User | null } }) => {
+        if (!user) return
+        const { data: list } = await supabase
+          .from('connected_sites')
+          .select('id, domain, brand')
+          .eq('user_id', user.id)
+          .order('is_primary', { ascending: false })
+        const rows = (list || []) as Site[]
+        setSites(rows)
+        if (rows[0]) setSiteId(rows[0].id)
+      },
+    )
+  }, [])
+
+  const load = useCallback(async (id: string, informational: boolean) => {
+    if (!id) return
     setLoading(true)
     setError(null)
     try {
-      const q = informational ? '?informational=1' : ''
-      const res = await fetch(`/api/fix-strategies/findings${q}`)
+      const q = new URLSearchParams({ siteId: id })
+      if (informational) q.set('informational', '1')
+      const res = await fetch(`/api/fix-strategies/findings?${q}`)
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string }
         throw new Error(body.error || `HTTP ${res.status}`)
@@ -56,8 +93,64 @@ export default function FindingsListPage() {
   }, [])
 
   useEffect(() => {
-    void load(includeInformational)
-  }, [includeInformational, load])
+    if (siteId) void load(siteId, includeInformational)
+  }, [siteId, includeInformational, load])
+
+  async function runCrawl() {
+    if (!siteId || crawling) return
+    setCrawling(true)
+    setError(null)
+    tickAbort.current = false
+    try {
+      const startRes = await fetch('/api/fix-strategies/findings/crawl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteId, action: 'start' }),
+      })
+      const startBody = (await startRes.json()) as {
+        error?: string
+        runId?: string
+      }
+      if (!startRes.ok || !startBody.runId) {
+        throw new Error(startBody.error || 'Failed to start crawl')
+      }
+
+      let guard = 0
+      while (guard++ < 500 && !tickAbort.current) {
+        const tickRes = await fetch('/api/fix-strategies/findings/crawl', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            siteId,
+            action: 'tick',
+            runId: startBody.runId,
+          }),
+        })
+        const tickBody = (await tickRes.json()) as {
+          error?: string
+          done?: boolean
+        }
+        if (!tickRes.ok) {
+          throw new Error(tickBody.error || 'Crawl tick failed')
+        }
+        await load(siteId, includeInformational)
+        if (tickBody.done) break
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Crawl failed')
+    } finally {
+      setCrawling(false)
+      await load(siteId, includeInformational)
+    }
+  }
+
+  const crawl = data?.crawl ?? null
+  const showPartialBanner =
+    crawl &&
+    (crawl.isPartial || crawl.status === 'partial') &&
+    (crawl.status === 'partial' ||
+      crawl.status === 'complete' ||
+      crawl.status === 'failed')
 
   return (
     <div
@@ -73,10 +166,71 @@ export default function FindingsListPage() {
             </p>
             <h1 className="text-2xl font-semibold tracking-tight">Findings</h1>
             <p className="text-[#6B6B6B] mt-1">
-              Actionable findings from the register. Suppressed, ok, and routed
-              evidence stays internal.
+              Live crawl → detectors → persisted findings. Internal evidence is
+              stored but never listed here.
             </p>
           </div>
+
+          <div className="flex flex-wrap items-center gap-3 mb-6">
+            <label className="text-sm text-[#6B6B6B]">
+              Site{' '}
+              <select
+                className="ml-1 rounded-md border border-[#E8E8E4] bg-white px-2 py-1.5 text-[#0F0F0F]"
+                value={siteId}
+                onChange={(e) => setSiteId(e.target.value)}
+                disabled={crawling}
+              >
+                {sites.length === 0 && <option value="">No connected sites</option>}
+                {sites.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.brand || s.domain}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => void runCrawl()}
+              disabled={!siteId || crawling}
+              className="rounded-md bg-[#FF6B2C] text-white text-sm px-3 py-1.5 disabled:opacity-50"
+            >
+              {crawling ? 'Crawling…' : 'Run crawl'}
+            </button>
+          </div>
+
+          {crawl && (
+            <div className="mb-4 text-sm text-[#6B6B6B] flex flex-wrap gap-2 items-center">
+              <span className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]">
+                Status: {crawlStatusLabel(crawl.status)}
+              </span>
+              <span className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]">
+                {crawl.urlsCrawled}/{crawl.urlsDiscovered} URLs
+              </span>
+              <span className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]">
+                Chunk {crawl.chunkSize}
+              </span>
+            </div>
+          )}
+
+          {showPartialBanner && (
+            <div className="mb-6 rounded-[10px] border border-amber-200 bg-amber-50 text-amber-950 px-4 py-3 text-sm">
+              <p className="font-medium">Partial crawl coverage</p>
+              <p className="mt-1 text-amber-900/80">
+                This run did not cover the full site. Findings below reflect
+                only the URLs successfully crawled — do not treat this as a
+                complete audit.
+              </p>
+              {crawl.coverageNotes.length > 0 && (
+                <ul className="mt-2 list-disc pl-5 space-y-0.5 text-amber-900/70">
+                  {crawl.coverageNotes.slice(0, 8).map((n, i) => (
+                    <li key={`${n.code}-${i}`}>
+                      {n.code}: {n.detail}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
           {data && (
             <div className="flex flex-wrap items-center gap-3 mb-6 text-sm text-[#6B6B6B]">
@@ -92,9 +246,9 @@ export default function FindingsListPage() {
               >
                 {data.counts.internal} internal (hidden)
               </span>
-              {data.demo && (
+              {data.origin && (
                 <span className="px-2.5 py-1 rounded-md border border-dashed border-[#E8E8E4] text-[#9B9B9B]">
-                  Demo · {data.origin}
+                  {data.origin}
                 </span>
               )}
             </div>
@@ -129,7 +283,9 @@ export default function FindingsListPage() {
 
           {!loading && !error && data && data.findings.length === 0 && (
             <div className="rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-8 text-center text-[#6B6B6B]">
-              No findings in this view.
+              {crawl
+                ? 'No findings in this view.'
+                : 'No crawl yet. Connect a site and run a crawl.'}
             </div>
           )}
 
