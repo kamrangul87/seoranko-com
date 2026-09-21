@@ -33,7 +33,7 @@ Each of these compares two machine-readable values, not markup against prose:
 | `dateModified` earlier than `datePublished` | D20 | internal logical contradiction |
 | `datePublished` in the future | D20 | stale or wrong time-sensitive data |
 | `aggregateRating` present with `reviewCount` of zero, or a rating outside its declared scale | D19 | internally inconsistent |
-| marked-up entity `url` points to a different page than the one carrying the markup | D6 | structural |
+| the page's **primary** entity `url` (WebPage, Article, Product, or other type describing this page) points to a different page than the one carrying the markup. Does **not** apply to `ItemList` / `ListItem` (or other list-member) `url` values — those are supposed to point at other pages — nor to embedded publisher/author entities when a page-content type is present | D6 | structural; primary entity only |
 | `Event` `endDate` before `startDate` | D20 | internal contradiction |
 | item count in a `Carousel` or `ItemList` disagrees with the declared `numberOfItems` | D22 | both machine-readable |
 
@@ -66,8 +66,9 @@ spam-policy breach.
 - **internal contradictions** (date ordering, rating scale, item counts) →
   no automatic fix. Which value is correct is unknown; both are assertions by
   the site.
-- **entity `url` mismatch** (D6) → deterministic where the markup should
-  describe its own page.
+- **entity `url` mismatch** (D6) → deterministic where the **primary** markup
+  should describe its own page. `ListItem` / list-member urls are out of
+  scope.
 - **structured-vs-structured value mismatch** → `human-review` with both
   values shown.
 
@@ -113,6 +114,8 @@ still appear in Search. Claims of domain-wide suppression are not supported.
 | 6 | Paywalled or subscription content deliberately marked up but not fully visible | permitted with paywalled-content markup. Never raise as hidden content |
 | 7 | A spam-policy violation is asserted | reword as an observation (D23) |
 | 8 | Domain-wide suppression is claimed | not supported (D24, D25) |
+| 9 | `ItemList` / `ListItem` (or BreadcrumbList) `url` points at another page | expected. Not a D6 primary-entity check — suppress |
+| 10 | Embedded publisher/author `Organization` / `Person` `url` when the page also has Article/WebPage/Product (etc.) | not the page's primary entity — suppress |
 
 ### Explicitly rejected
 

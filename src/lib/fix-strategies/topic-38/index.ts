@@ -1,5 +1,6 @@
 export {
   detectStructuredDataContradictsVisible,
+  isPrimaryPageEntityForUrlCheck,
   normalizeDateForCompare,
   rejectedSpamPolicyAccusation,
   rejectedProseOrSemanticCompare,
