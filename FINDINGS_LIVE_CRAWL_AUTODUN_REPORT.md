@@ -1,6 +1,6 @@
 # Findings live crawl — autodun.com
 
-Generated: 2026-09-21T08:23:56.094Z
+Generated: 2026-09-21T08:45:24.608Z
 
 ## 1. Discovery
 
@@ -27,9 +27,28 @@ Topic 27 guard: `classifySitemapDuplicateVariant` → `index-html` →
 
 - report-omission for /blog/index.html: **0** (must be 0)
 - routed index.html variant emits: 1
-- Topic 8–12 emits this run: 78
 
-## 3. Detector wiring (shipped-but-unwired = 0)
+## 3. Topic 8 rollup + discoverability + auto-redirect
+
+| Cause | Emit count | Notes |
+|-------|------------|-------|
+| informational-generated-only | 10 | peer not in crawl/sitemap/links |
+| human-review-blast-radius | 0 | site-wide trailingSlash/cleanUrls |
+| human-review-preferred-absent | 1 | no site preferred-form signals |
+| auto-redirect | 0 | must be 0 (site-wide → human-review) |
+
+List actionable topic 8 (after rollup to `config:next.config.js`):
+- `human-review-preferred-conflict` · 3 URL(s) · site=config:next.config.js · https://autodun.com/blog
+- `human-review-preferred-absent` · 1 URL(s) · site=config:next.config.js · https://autodun.com/blog/
+
+## 4. Topic 26
+
+Previously unwired; now post-crawl. `human-review-canonical-elsewhere` fires when a
+sitemap loc is 200 but HTML canonical points elsewhere (slash twin common on autodun).
+Actionable topic 26 count: 1
+- `human-review-canonical-elsewhere` · https://autodun.com/blog
+
+## 5. Detector wiring (shipped-but-unwired = 0)
 
 Wired count: 43 / shipped 43.
 Unshipped reserved: topic 58 = whole-site.
@@ -43,7 +62,7 @@ Unshipped reserved: topic 58 = whole-site.
 | 5 | per-page | chunk |
 | 6 | per-page | chunk |
 | 7 | per-page | chunk |
-| 8 | per-page | chunk |
+| 8 | whole-site | post-crawl |
 | 9 | per-page | chunk |
 | 10 | per-page | chunk |
 | 11 | per-page | chunk |
@@ -81,6 +100,7 @@ Unshipped reserved: topic 58 = whole-site.
 | 49 | per-page | chunk |
 
 Post-crawl emit summary:
+- topic 8 (whole-site): 26 emit(s), 5 actionable
 - topic 15 (whole-site): 13 emit(s), 0 actionable
 - topic 19 (whole-site): 13 emit(s), 0 actionable
 - topic 21 (whole-site): 1 emit(s), 0 actionable
@@ -97,7 +117,7 @@ Post-crawl emit summary:
 - topic 47 (whole-site): 1 emit(s), 0 actionable
 - topic 48 (whole-site): 0 emit(s), 0 actionable
 
-## 4. Topic 43
+## 6. Topic 43
 
 Topic 43 emits: client_only-limited
 Orphan findings raised: 0
@@ -108,44 +128,31 @@ Orphan findings raised: 0
 |--------|-------|
 | Status | partial |
 | Partial | true |
-| Duration | 5.3s |
+| Duration | 6.8s |
 
 ## Counts
 
-| Bucket | Live | Prior (whole-site pass) | Demo |
-|--------|------|-------------------------|------|
-| actionable | 25 | 10 | 10 |
-| informational | 16 | 16 | 17 |
-| internal (hidden) | 963 | 315 | 349 |
+| Bucket | Live | Prior (wired 8–12) | Demo |
+|--------|------|--------------------|------|
+| actionable | 12 | 25 | 10 |
+| informational | 17 | 16 | 17 |
+| internal (hidden) | 963 | — | 349 |
 
-List API actionable: 25
-List API + informational: 41
+List API actionable: 12
+List API + informational: 29
 
 ### Actionable verdicts
 
-- topic 8 · `human-review-preferred-absent` · 1 URL(s) · https://autodun.com/blog
-- topic 8 · `human-review-preferred-absent` · 1 URL(s) · https://autodun.com/blog/electric-car-charger-map-uk.html
-- topic 8 · `human-review-preferred-absent` · 1 URL(s) · https://autodun.com/blog/ev-charging-on-uk-motorways.html
-- topic 8 · `human-review-preferred-absent` · 1 URL(s) · https://autodun.com/blog/ev-charging-reliability-uk.html
-- topic 8 · `auto-redirect` · 1 URL(s) · https://autodun.com/blog
 - topic 38 · `human-review-entity-url-mismatch` · 13 URL(s) · https://autodun.com/blog
 - topic 39 · `d17-faq-markup-not-visible` · 1 URL(s) · https://autodun.com/blog/electric-car-charger-map-uk.html
 - topic 49 · `human-review-no-height-auto` · 6 URL(s) · https://autodun.com/blog/electric-car-charger-map-uk.html
-- topic 8 · `human-review-preferred-absent` · 1 URL(s) · https://autodun.com/blog/mot-advisories-explained-uk.html
-- topic 8 · `human-review-preferred-absent` · 1 URL(s) · https://autodun.com/blog/mot-changes-2026-dvsa-updates.html
-- topic 8 · `human-review-preferred-absent` · 1 URL(s) · https://autodun.com/blog/mot-cost-uk-2026.html
-- topic 8 · `human-review-preferred-absent` · 1 URL(s) · https://autodun.com/blog/mot-history-check-uk.html
-- topic 8 · `human-review-preferred-absent` · 1 URL(s) · https://autodun.com/blog/uk-vehicle-data-tools.html
 - topic 49 · `auto-set-dimensions` · 1 URL(s) · https://autodun.com/blog/mot-advisories-explained-uk.html
 - topic 49 · `finding-wrong-ratio` · 2 URL(s) · https://autodun.com/blog/mot-changes-2026-dvsa-updates.html
 - topic 34 · `low-lang-inlanguage-disagree` · 1 URL(s) · https://autodun.com/blog/mot-history-check-uk.html
 - topic 34 · `low-lang-inlanguage-disagree` · 1 URL(s) · https://autodun.com/blog/uk-vehicle-data-tools.html
-- topic 8 · `human-review-preferred-absent` · 1 URL(s) · https://autodun.com/blog/ulez-checker-uk.html
-- topic 8 · `human-review-preferred-absent` · 1 URL(s) · https://autodun.com/blog/why-uk-councils-are-flying-blind-on-ev-charging-infrastructure.html
-- topic 8 · `human-review-preferred-absent` · 1 URL(s) · https://autodun.com/blog/
-- topic 8 · `auto-redirect` · 1 URL(s) · https://autodun.com/blog/index.html
-- topic 8 · `auto-redirect` · 1 URL(s) · https://autodun.com/blog/
 - topic 39 · `d17-faq-markup-not-visible` · 1 URL(s) · https://autodun.com/blog/ulez-checker-uk.html
+- topic 8 · `human-review-preferred-conflict` · 3 URL(s) · https://autodun.com/blog
+- topic 8 · `human-review-preferred-absent` · 1 URL(s) · https://autodun.com/blog/
 - topic 25 · `moderate-out-of-scope` · 1 URL(s) · https://autodun.com/sitemap.xml
 - topic 26 · `human-review-canonical-elsewhere` · 1 URL(s) · https://autodun.com/blog
 
