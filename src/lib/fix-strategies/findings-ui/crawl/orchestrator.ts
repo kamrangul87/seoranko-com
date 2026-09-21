@@ -114,11 +114,9 @@ export async function processCrawlTick(
   let crawledN = run.urlsCrawled
   let failedN = run.urlsFailed
   let clientOnlyN = run.urlsClientOnly
-  let hitDeadline = false
 
   for (const job of jobs) {
     if (Date.now() > deadline) {
-      hitDeadline = true
       // Re-queue unprocessed claimed jobs
       await store.updateUrlJob(job.id, { status: 'queued' })
       notes.push({
