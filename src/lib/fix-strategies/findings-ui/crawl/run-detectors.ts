@@ -48,6 +48,7 @@ import { detectSitemapMissingOrUnreachable } from '@/lib/fix-strategies/topic-24
 import { detectSitemapXmlInvalid } from '@/lib/fix-strategies/topic-25'
 import { detectSitemapNotIndexable } from '@/lib/fix-strategies/topic-26'
 import { detectIndexableUrlsAbsent } from '@/lib/fix-strategies/topic-27'
+import { linkCrossTopicRootCauses } from './link-cross-topic-root-causes'
 import { detectSitemapNotReferencedInRobots } from '@/lib/fix-strategies/topic-28'
 import { detectTagsOutsideHead } from '@/lib/fix-strategies/topic-29'
 import { detectTitleMissingOrMalformed } from '@/lib/fix-strategies/topic-30'
@@ -1031,6 +1032,13 @@ export function rollupAndClassify(emits: DetectorEmit[]): {
       declarationSite ?? r.pageUrl ?? '',
     ].join('|')
     const dossier = dossierSlugForTopic(r.topicId)
+    const baseEvidence =
+      (payload.evidenceValues as Record<string, unknown> | null) ?? null
+    // Preserve rollup members for cross-topic preferred-form linking
+    const evidenceValues: Record<string, unknown> | null =
+      r.memberUrls.length > 1
+        ? { ...(baseEvidence ?? {}), memberUrls: r.memberUrls }
+        : baseEvidence
     return {
       topicId: r.topicId,
       kind: String(payload.kind ?? `topic/${r.topicId}`),
@@ -1048,11 +1056,12 @@ export function rollupAndClassify(emits: DetectorEmit[]): {
       surfaceClass,
       proposedDiff:
         (payload.proposedDiff as Record<string, unknown> | null) ?? null,
-      evidenceValues:
-        (payload.evidenceValues as Record<string, unknown> | null) ?? null,
+      evidenceValues,
       sourceRows: sourcesForDossier(dossier),
     }
   })
+
+  linkCrossTopicRootCauses(findings)
 
   return { findings, internalEvidence }
 }

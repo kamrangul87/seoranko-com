@@ -105,24 +105,58 @@ export default function FindingDetailPage() {
                 <p className="text-[#6B6B6B] leading-relaxed">{finding.detail}</p>
                 {finding.evidenceValues && (
                   <dl className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                    <div className="rounded-md border border-[#E8E8E4] p-3">
-                      <dt className="text-xs text-[#9B9B9B] mb-1">
-                        {finding.evidenceValues.leftLabel ?? 'Left'}
-                      </dt>
-                      <dd className="font-mono break-all">
-                        {finding.evidenceValues.left}
-                      </dd>
-                    </div>
-                    <div className="rounded-md border border-[#E8E8E4] p-3">
-                      <dt className="text-xs text-[#9B9B9B] mb-1">
-                        {finding.evidenceValues.rightLabel ?? 'Right'}
-                      </dt>
-                      <dd className="font-mono break-all">
-                        {finding.evidenceValues.right}
-                      </dd>
-                    </div>
+                    {finding.evidenceValues.left != null && (
+                      <div className="rounded-md border border-[#E8E8E4] p-3">
+                        <dt className="text-xs text-[#9B9B9B] mb-1">
+                          {finding.evidenceValues.leftLabel ?? 'Left'}
+                        </dt>
+                        <dd className="font-mono break-all">
+                          {finding.evidenceValues.left}
+                        </dd>
+                      </div>
+                    )}
+                    {finding.evidenceValues.right != null && (
+                      <div className="rounded-md border border-[#E8E8E4] p-3">
+                        <dt className="text-xs text-[#9B9B9B] mb-1">
+                          {finding.evidenceValues.rightLabel ?? 'Right'}
+                        </dt>
+                        <dd className="font-mono break-all">
+                          {finding.evidenceValues.right}
+                        </dd>
+                      </div>
+                    )}
                   </dl>
                 )}
+                {finding.evidenceValues?.relatedFindings &&
+                  finding.evidenceValues.relatedFindings.length > 0 && (
+                    <div className="mt-4">
+                      <h3 className="text-xs uppercase tracking-wide text-[#9B9B9B] mb-2">
+                        Related evidence
+                        {finding.evidenceValues.rootCause
+                          ? ` · ${finding.evidenceValues.rootCause}`
+                          : ''}
+                      </h3>
+                      <ul className="space-y-2 text-sm">
+                        {finding.evidenceValues.relatedFindings.map((r, i) => (
+                          <li
+                            key={`${r.topicId}-${r.verdict}-${i}`}
+                            className="rounded-md border border-[#E8E8E4] p-3"
+                          >
+                            <p className="font-mono text-xs text-[#6B6B6B]">
+                              Topic {r.topicId} · {r.verdict}
+                              {r.relationship ? ` · ${r.relationship}` : ''}
+                            </p>
+                            {r.pageUrl && (
+                              <p className="font-mono text-xs break-all mt-1">
+                                {r.pageUrl}
+                              </p>
+                            )}
+                            <p className="text-[#6B6B6B] mt-1">{r.detail}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
               </section>
 
               <section className="rounded-[10px] border border-[#E8E8E4] bg-white p-5">

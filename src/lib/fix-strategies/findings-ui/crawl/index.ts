@@ -29,6 +29,15 @@ export type {
   RolledPersistCandidate,
   WholeSitePageInput,
 } from './run-detectors'
+export {
+  linkCrossTopicRootCauses,
+  arePreferredUrlFormVariants,
+  parseCanonicalElsewhereTarget,
+} from './link-cross-topic-root-causes'
+export type {
+  LinkableFinding,
+  RelatedFindingEvidence,
+} from './link-cross-topic-root-causes'
 
 export {
   createMemoryFindingsStore,

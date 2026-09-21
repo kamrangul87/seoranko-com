@@ -97,6 +97,33 @@ describe.skipIf(!enabled)('autodun live crawl report', () => {
       }
 
       const topic26 = listedActionable.filter((f) => f.topicId === '26')
+      const t8PreferredConflict = t8Actionable.filter(
+        (f) => f.verdict === 'human-review-preferred-conflict',
+      )
+      const linkedRootCause = t8PreferredConflict.filter((f) => {
+        const related = f.evidenceValues?.relatedFindings
+        return (
+          Array.isArray(related) &&
+          related.some(
+            (r) =>
+              r &&
+              typeof r === 'object' &&
+              (r as { topicId?: string }).topicId === '26',
+          )
+        )
+      })
+      // Topic 26 canonical-elsewhere on a preferred-form twin must not stay
+      // separately actionable when topic 8 preferred-conflict covers the family.
+      expect(
+        listedActionable.every(
+          (f) =>
+            !(
+              f.topicId === '26' &&
+              f.verdict === 'human-review-canonical-elsewhere' &&
+              linkedRootCause.length > 0
+            ),
+        ),
+      ).toBe(true)
 
       const wiringTable = Object.keys(DETECTOR_SCOPE_BY_TOPIC)
         .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))

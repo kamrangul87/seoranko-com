@@ -57,7 +57,24 @@ export type UiFinding = {
   reportOnly: boolean
   proposedDiff: ProposedDiff | null
   /** Values shown for human-review contradictions (e.g. entity url vs page). */
-  evidenceValues: { left: string; right: string; leftLabel?: string; rightLabel?: string } | null
+  evidenceValues: {
+    left?: string
+    right?: string
+    leftLabel?: string
+    rightLabel?: string
+    /** Shared root-cause links: symptoms attached to a primary finding. */
+    relatedFindings?: Array<{
+      topicId: string
+      verdict: string
+      detail: string
+      pageUrl?: string | null
+      relationship?: string
+      rootCause?: string
+    }>
+    rootCause?: string
+    memberUrls?: string[]
+    [key: string]: unknown
+  } | null
   sources: SourceCitation[]
   /** Suppress / ok / route rows related to this finding — never in the list. */
   internalEvidence: InternalEvidenceItem[]
