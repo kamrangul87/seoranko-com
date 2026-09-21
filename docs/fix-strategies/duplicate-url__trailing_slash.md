@@ -41,11 +41,16 @@ wording, no published figures. The finding stands on duplication alone.
 
 ## threshold
 
-Both `/page` and `/page/` return 200, and the responses are the same content.
+Both `/page` and `/page/` return 200, and the responses are the same content,
+**and the opposite form is discoverable** — it appears in the crawl frontier,
+a sitemap loc, or an internal link.
 
 Content sameness must be proven, not assumed — same normalised main content,
 or an identical response body hash. Two forms serving genuinely different
 content is not this finding.
+
+A variant that exists only because the detector generated and probed it
+(**GENERATED-ONLY**) is informational at most — Google may never encounter it.
 
 **Excluded:** the site root. `https://example.com` and `https://example.com/`
 are equivalent and must never be raised.
@@ -104,11 +109,15 @@ Revert commit. Note that a 301 may be browser-cached, as in topic 6.
 
 ## verdict
 
-`human-review`. Site-wide blast radius, and the preferred-form choice is the
-site owner's convention, not a mechanical fact.
+`human-review`. Site-wide blast radius (`next.config` `trailingSlash` /
+Vercel `cleanUrls`), and the preferred-form choice is the site owner's
+convention, not a mechanical fact.
 
-`auto-fixable` only where the site's own signals unambiguously agree on the
-preferred form and the change is a single `trailingSlash` setting.
+Never `auto-redirect` when the fix would change site-wide trailing-slash /
+clean-URL config — that is always human-review.
+
+`auto-fixable` does not apply to site-wide trailingSlash; per-route
+redirects outside that config would need a separate, named declaration site.
 
 ## false-positive guards
 
@@ -120,6 +129,7 @@ preferred form and the change is a single `trailingSlash` setting.
 | 4 | Site's own signals conflict on the preferred form | human-review. Do not guess |
 | 5 | A variant is produced by middleware | resolve via topic 70; `indeterminate` if not statically resolvable |
 | 6 | Observed once only | re-fetch first (topic 68) |
+| 7 | Generated peer is not in crawl, sitemap, or internal links | informational-generated-only — not actionable |
 
 ### Explicitly rejected
 

@@ -118,7 +118,6 @@ export const CHUNK_LOOP_TOPIC_IDS = [
   '5',
   '6',
   '7',
-  '8',
   '9',
   '10',
   '11',
@@ -143,6 +142,7 @@ export const CHUNK_LOOP_TOPIC_IDS = [
 
 /** Topic ids run once when the crawl frontier is exhausted. */
 export const POST_CRAWL_TOPIC_IDS = [
+  '8',
   '15',
   '19',
   '21',

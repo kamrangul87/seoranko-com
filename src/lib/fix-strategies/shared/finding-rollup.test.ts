@@ -12,6 +12,10 @@ describe('declaration-site classification', () => {
       'shared-component',
     )
     expect(classifyDeclarationSite('generator:blog-jsonld')).toBe('generator')
+    expect(classifyDeclarationSite('config:next.config.js')).toBe(
+      'shared-config',
+    )
+    expect(classifyDeclarationSite('next.config.mjs')).toBe('shared-config')
     expect(classifyDeclarationSite('app/blog/[slug]/page.tsx')).toBe('page')
     expect(classifyDeclarationSite(null)).toBe('unknown')
   })
@@ -19,6 +23,7 @@ describe('declaration-site classification', () => {
   it('marks shared kinds collapsible', () => {
     expect(isCollapsibleDeclarationSite('shared-layout')).toBe(true)
     expect(isCollapsibleDeclarationSite('generator')).toBe(true)
+    expect(isCollapsibleDeclarationSite('shared-config')).toBe(true)
     expect(isCollapsibleDeclarationSite('page')).toBe(false)
     expect(isCollapsibleDeclarationSite('unknown')).toBe(false)
   })

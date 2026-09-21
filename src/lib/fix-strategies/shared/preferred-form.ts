@@ -150,20 +150,9 @@ export function derivePreferredForm(
     }
   }
 
-  // Prefer the non-index.html directory form when one side is .../index.html
-  // (sitemap / clean URLs almost always list /blog not /blog/index.html).
-  if (strategy === 'index-html') {
-    try {
-      const pickNonIndex = (u: string) =>
-        /\/index\.html?$/i.test(new URL(u).pathname) ? null : u
-      const preferred = pickNonIndex(a) ?? pickNonIndex(b)
-      if (preferred) {
-        sources.push({ name: 'directory-index-clean', pick: preferred })
-      }
-    } catch {
-      // skip
-    }
-  }
+  // index-html: do NOT invent a preferred form — only site signals
+  // (canonical / sitemap / internal links) count. Directory-index bias is
+  // not a site convention signal.
 
   if (strategy === 'www-non-www' && signals.existingRedirectTarget) {
     const t = normalizeFixStrategyUrl(signals.existingRedirectTarget)

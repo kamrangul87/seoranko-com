@@ -3,6 +3,8 @@
  *
  * Variant generation is the only strategy-specific step
  * (`generateVariant` with six strategies). Content sameness must be proven.
+ * When a discovery set is provided, a generated peer absent from crawl /
+ * sitemap / internal links is GENERATED-ONLY (informational), not actionable.
  */
 
 import { FIX_STRATEGY_PRODUCT_DECISIONS } from '@/lib/fix-strategies/product-decisions'
@@ -21,6 +23,7 @@ import {
 import {
   recordRedirectHops,
   resolveFixTarget,
+  normalizeFixStrategyUrl,
   type FixTargetResult,
   type HopRecordingDeps,
 } from '@/lib/fix-strategies/shared'
@@ -30,6 +33,8 @@ import {
   hasAuthOrSignedParam,
   type DuplicateUrlVerdict,
 } from './classify'
+
+export type VariantDiscoverability = 'discovered' | 'generated-only'
 
 export type DuplicateUrlFinding = {
   kind: `duplicate-url/${DuplicateUrlStrategy}`
@@ -43,12 +48,17 @@ export type DuplicateUrlFinding = {
   preferCanonicalOverRedirect: boolean
   contentSame: boolean
   fixTarget: FixTargetResult
+  /** Collapsible config / artefact site for rollup (e.g. config:next.config.js). */
+  declarationSite: string
+  /** Whether the generated peer was found in crawl/sitemap/links. */
+  discoverability: VariantDiscoverability
   /** 12b report payload */
   paramNames?: string[]
 }
 
 export type DetectDuplicateUrlResult = {
   findings: DuplicateUrlFinding[]
+  informational: DuplicateUrlFinding[]
   suppressed: Array<{
     url: string
     strategy: DuplicateUrlStrategy
@@ -74,6 +84,13 @@ export type DetectDuplicateUrlOptions = {
   strategy: DuplicateUrlStrategy
   deps: HopRecordingDeps
   signals?: PreferredFormSignals
+  /**
+   * Normalized URLs known from the crawl frontier, sitemap locs, or internal
+   * links. When set, a generated peer absent from this set is GENERATED-ONLY
+   * (informational) — not an actionable finding. Omit in unit fixtures to
+   * skip the gate.
+   */
+  discoveredNormalized?: Set<string>
   httpsExceptions?: {
     invalidTls?: boolean
     mixedContent?: boolean
@@ -96,6 +113,12 @@ const STRATEGY_TOPIC: Record<DuplicateUrlStrategy, 8 | 9 | 10 | 11 | 12> = {
   'www-non-www': 10,
   'path-case': 11,
   'query-params': 12,
+}
+
+function urlInDiscovered(url: string, discovered?: Set<string>): boolean {
+  if (!discovered) return true
+  const n = normalizeFixStrategyUrl(url)
+  return n != null && discovered.has(n)
 }
 
 async function fetchManual(
@@ -138,14 +161,17 @@ export async function detectDuplicateUrls(
   options: DetectDuplicateUrlOptions,
 ): Promise<DetectDuplicateUrlResult> {
   const findings: DuplicateUrlFinding[] = []
+  const informational: DuplicateUrlFinding[] = []
   const suppressed: DetectDuplicateUrlResult['suppressed'] = []
   const reportOnly: DetectDuplicateUrlResult['reportOnly'] = []
 
+  const artefactPath = options.artefactPath ?? 'next.config.js'
   const fixTarget = resolveFixTarget({
-    artefactPath: options.artefactPath ?? 'next.config.js',
+    artefactPath,
     isGenerated: options.isGenerated ?? false,
     generatorPath: options.generatorPath ?? null,
   })
+  const declarationSite = `config:${artefactPath}`
 
   const allowlist = FIX_STRATEGY_PRODUCT_DECISIONS.trackingParameterAllowlist
 
@@ -176,17 +202,26 @@ export async function detectDuplicateUrls(
       continue
     }
 
-    const result = await assessPair(pair, page, options, fixTarget, allowlist)
+    const result = await assessPair(
+      pair,
+      page,
+      options,
+      fixTarget,
+      declarationSite,
+      allowlist,
+    )
     if (result.kind === 'suppressed') {
       suppressed.push(result.entry)
     } else if (result.kind === 'report') {
       reportOnly.push(result.entry)
+    } else if (result.kind === 'informational') {
+      informational.push(result.finding)
     } else {
       findings.push(result.finding)
     }
   }
 
-  return { findings, suppressed, reportOnly }
+  return { findings, informational, suppressed, reportOnly }
 }
 
 type AssessResult =
@@ -198,6 +233,7 @@ type AssessResult =
       kind: 'report'
       entry: DetectDuplicateUrlResult['reportOnly'][number]
     }
+  | { kind: 'informational'; finding: DuplicateUrlFinding }
   | { kind: 'finding'; finding: DuplicateUrlFinding }
 
 async function assessPair(
@@ -205,17 +241,15 @@ async function assessPair(
   page: DetectDuplicateUrlPage,
   options: DetectDuplicateUrlOptions,
   fixTarget: FixTargetResult,
+  declarationSite: string,
   allowlist: readonly string[],
 ): Promise<AssessResult> {
   const strategy = options.strategy
   const topic = STRATEGY_TOPIC[strategy]
 
-  // Fetch both forms without following redirects
   const urlA = pair.a
   const urlB = pair.b
 
-  // Always fetch both forms for status/redirect — never assume seed body ⇒ 200
-  // (a pre-fetched body may be from a different hop than the live redirect check).
   const fa = await fetchManual(urlA, options.deps)
   const fb = await fetchManual(urlB, options.deps)
 
@@ -226,7 +260,6 @@ async function assessPair(
   const bodyB = fb.body
   const locB = fb.location
 
-  // Prefer caller-supplied body only when the live fetch confirmed 200.
   if (
     statusA === 200 &&
     page.body != null &&
@@ -235,7 +268,6 @@ async function assessPair(
     bodyA = page.body
   }
 
-  // Already normalises?
   const aToB = redirectsToPeer(statusA, locA, urlB, urlA)
   const bToA = redirectsToPeer(statusB, locB, urlA, urlB)
   if (aToB || bToA) {
@@ -250,7 +282,6 @@ async function assessPair(
     }
   }
 
-  // Both must be 200 for a duplicate finding
   if (statusA !== 200 || statusB !== 200) {
     return {
       kind: 'suppressed',
@@ -263,7 +294,6 @@ async function assessPair(
     }
   }
 
-  // Topic 68 lite: re-fetch B once to confirm stable 200
   const confirm = await fetchManual(urlB, options.deps)
   if (confirm.status !== 200) {
     return {
@@ -330,23 +360,42 @@ async function assessPair(
     }
   }
 
-  return {
-    kind: 'finding',
-    finding: {
-      kind: `duplicate-url/${strategy}`,
-      strategy,
-      topic,
-      urlA,
-      urlB,
-      verdict: classified.verdict,
-      detail: classified.detail,
-      preferred,
-      preferCanonicalOverRedirect: classified.preferCanonicalOverRedirect,
-      contentSame: sameness.same,
-      fixTarget,
-      paramNames: pair.paramNames.length > 0 ? pair.paramNames : undefined,
-    },
+  // Discoverability: pair.b is the generated opposite. Absent from discovery
+  // set → GENERATED-ONLY (informational at most).
+  const peerDiscovered = urlInDiscovered(urlB, options.discoveredNormalized)
+  const discoverability: VariantDiscoverability = peerDiscovered
+    ? 'discovered'
+    : 'generated-only'
+
+  const finding: DuplicateUrlFinding = {
+    kind: `duplicate-url/${strategy}`,
+    strategy,
+    topic,
+    urlA,
+    urlB,
+    verdict: classified.verdict,
+    detail: classified.detail,
+    preferred,
+    preferCanonicalOverRedirect: classified.preferCanonicalOverRedirect,
+    contentSame: sameness.same,
+    fixTarget,
+    declarationSite,
+    discoverability,
+    paramNames: pair.paramNames.length > 0 ? pair.paramNames : undefined,
   }
+
+  if (discoverability === 'generated-only') {
+    return {
+      kind: 'informational',
+      finding: {
+        ...finding,
+        verdict: 'informational-generated-only',
+        detail: `${classified.detail} — variant ${urlB} is GENERATED-ONLY (not in crawl, sitemap, or internal links); informational at most`,
+      },
+    }
+  }
+
+  return { kind: 'finding', finding }
 }
 
 function normalizeLoose(u: string): string {
