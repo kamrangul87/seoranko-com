@@ -78,8 +78,7 @@ import { sourcesForDossier } from '../sources'
 import { dossierSlugForTopic } from '../topic-registry'
 import type { CrawledPage } from './fetch-page'
 import { CRAWL_INTER_REQUEST_GAP_MS } from './constants'
-import type { FetchDeps } from '@/lib/fix-strategies/fetch/types'
-import type { FetchOutcome } from '@/lib/fix-strategies/fetch/types'
+import type { FetchDeps, FetchOutcome } from '@/lib/fix-strategies/fetch/types'
 
 export type DetectorEmit = {
   topicId: string
@@ -291,49 +290,37 @@ export async function runDetectorsOnPages(
     takeBuckets(
       '8',
       'duplicate-url/trailing-slash',
-      await detectTrailingSlashDuplicates(dupPages, {
-        deps: hopDeps as HopRecordingDeps,
-      }),
+      await detectTrailingSlashDuplicates(dupPages, { deps: hopDeps }),
       out,
     )
     takeBuckets(
       '8',
       'duplicate-url/index-html',
-      await detectIndexHtmlDuplicates(dupPages, {
-        deps: hopDeps as HopRecordingDeps,
-      }),
+      await detectIndexHtmlDuplicates(dupPages, { deps: hopDeps }),
       out,
     )
     takeBuckets(
       '9',
       'duplicate-url/http-https',
-      await detectHttpHttpsDuplicates(dupPages, {
-        deps: hopDeps as HopRecordingDeps,
-      }),
+      await detectHttpHttpsDuplicates(dupPages, { deps: hopDeps }),
       out,
     )
     takeBuckets(
       '10',
       'duplicate-url/www-non-www',
-      await detectWwwNonWwwDuplicates(dupPages, {
-        deps: hopDeps as HopRecordingDeps,
-      }),
+      await detectWwwNonWwwDuplicates(dupPages, { deps: hopDeps }),
       out,
     )
     takeBuckets(
       '11',
       'duplicate-url/path-case',
-      await detectPathCaseDuplicates(dupPages, {
-        deps: hopDeps as HopRecordingDeps,
-      }),
+      await detectPathCaseDuplicates(dupPages, { deps: hopDeps }),
       out,
     )
     takeBuckets(
       '12',
       'duplicate-url/query-params',
-      await detectQueryParamDuplicates(dupPages, {
-        deps: hopDeps as HopRecordingDeps,
-      }),
+      await detectQueryParamDuplicates(dupPages, { deps: hopDeps }),
       out,
     )
 
@@ -510,18 +497,26 @@ export async function runDetectorsOnPages(
       out,
       pageUrl,
     )
-    // Topic 36: probes omitted (partial OK)
-    takeBuckets(
-      '36',
-      'structured-data/urls-dont-resolve',
-      detectSchemaUrlsDontResolve({
+    // Topic 36: probes omitted (partial OK). Findings use `url` for the
+    // schema property value — map pageUrl explicitly so ingestArray does
+    // not treat that property URL as the crawl page.
+    {
+      const t36 = detectSchemaUrlsDontResolve({
         html: p.html,
         pageUrl,
         extraction,
-      }),
-      out,
-      pageUrl,
-    )
+      })
+      takeBuckets(
+        '36',
+        'structured-data/urls-dont-resolve',
+        {
+          ...t36,
+          findings: t36.findings.map((f) => ({ ...f, pageUrl })),
+        },
+        out,
+        pageUrl,
+      )
+    }
     takeBuckets(
       '37',
       'structured-data/invalid-or-mismatched-type',
