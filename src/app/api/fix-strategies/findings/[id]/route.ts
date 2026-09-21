@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import {
-  buildDemoFindings,
-  getFixFlow,
-} from '@/lib/fix-strategies/findings-ui'
+import { getFindingsStore } from '@/lib/fix-strategies/findings-ui/crawl'
+import { persistedToUiFinding } from '@/lib/fix-strategies/findings-ui/map-persisted'
+import { getFixFlow } from '@/lib/fix-strategies/findings-ui/fix-flow-store'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,10 +34,17 @@ export async function GET(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const finding = buildDemoFindings().find((f) => f.id === params.id)
-  if (!finding) {
+  const store = getFindingsStore()
+  const row = await store.getFinding(params.id)
+  if (!row || row.userId !== user.id) {
     return NextResponse.json({ error: 'Finding not found' }, { status: 404 })
   }
+  if (row.bucket === 'internal') {
+    return NextResponse.json({ error: 'Finding not found' }, { status: 404 })
+  }
+
+  const evidence = await store.listEvidenceForFinding(row.id)
+  const finding = persistedToUiFinding(row, evidence)
   const fixFlow = getFixFlow(params.id)
   return NextResponse.json({ finding, fixFlow })
 }
