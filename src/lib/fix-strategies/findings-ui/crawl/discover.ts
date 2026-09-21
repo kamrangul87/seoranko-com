@@ -1,5 +1,6 @@
 /**
- * Discover same-host URLs from robots Sitemap: + /sitemap.xml.
+ * Discover same-host URLs from robots Sitemap: + /sitemap.xml, then expand
+ * via the crawlable link graph during ticks (see orchestrator).
  */
 
 import { CRAWL_MAX_DISCOVERED } from './constants'
@@ -36,23 +37,35 @@ function extractLocs(xml: string): string[] {
   )
 }
 
+export type DiscoverySeedCounts = {
+  /** Locs from robots.txt Sitemap: documents. */
+  fromRobotsSitemaps: number
+  /** Locs from fallback /sitemap.xml when robots yielded none. */
+  fromSitemapFallback: number
+  /** Homepage always seeded. */
+  fromHomepage: number
+  /** Added later from crawlable <a href> during ticks. */
+  fromLinkGraph: number
+}
+
 /**
- * Returns absolute http(s) URLs on the same host as `origin`.
- * Applies CRAWL_MAX_DISCOVERED at enqueue time — capped runs are partial.
+ * Seed frontier from robots.txt Sitemap: records and/or /sitemap.xml, plus
+ * the homepage. Link-graph expansion happens during the crawl (not here).
  */
 export async function discoverSameHostUrls(origin: string): Promise<{
-  /** Enqueued subset (≤ CRAWL_MAX_DISCOVERED). */
   urls: string[]
-  /** Total same-host locs found before the product cap. */
   foundTotal: number
   skippedOffHost: number
   capped: boolean
   notes: string[]
+  seeds: DiscoverySeedCounts
 }> {
   const originUrl = origin.replace(/\/$/, '')
   const notes: string[] = []
   const candidates = new Set<string>()
   let skippedOffHost = 0
+  let fromRobotsSitemaps = 0
+  let fromSitemapFallback = 0
 
   const robots = await fetchText(`${originUrl}/robots.txt`)
   if (robots.ok) {
@@ -77,7 +90,11 @@ export async function discoverSameHostUrls(origin: string): Promise<{
           skippedOffHost++
           continue
         }
-        candidates.add(loc.split('#')[0]!)
+        const clean = loc.split('#')[0]!
+        if (!candidates.has(clean)) {
+          candidates.add(clean)
+          fromRobotsSitemaps++
+        }
       }
     }
   }
@@ -90,7 +107,11 @@ export async function discoverSameHostUrls(origin: string): Promise<{
           skippedOffHost++
           continue
         }
-        candidates.add(loc.split('#')[0]!)
+        const clean = loc.split('#')[0]!
+        if (!candidates.has(clean)) {
+          candidates.add(clean)
+          fromSitemapFallback++
+        }
       }
     } else {
       notes.push(`fallback /sitemap.xml failed (${sm.status})`)
@@ -98,7 +119,14 @@ export async function discoverSameHostUrls(origin: string): Promise<{
   }
 
   // Always include homepage
-  candidates.add(`${originUrl}/`)
+  const home = `${originUrl}/`
+  let fromHomepage = 0
+  if (!candidates.has(home)) {
+    candidates.add(home)
+    fromHomepage = 1
+  } else {
+    fromHomepage = 1 // still credited as a seed source
+  }
 
   const foundTotal = candidates.size
   const capped = foundTotal > CRAWL_MAX_DISCOVERED
@@ -109,5 +137,44 @@ export async function discoverSameHostUrls(origin: string): Promise<{
     )
   }
 
-  return { urls, foundTotal, skippedOffHost, capped, notes }
+  return {
+    urls,
+    foundTotal,
+    skippedOffHost,
+    capped,
+    notes,
+    seeds: {
+      fromRobotsSitemaps,
+      fromSitemapFallback,
+      fromHomepage,
+      fromLinkGraph: 0,
+    },
+  }
+}
+
+/**
+ * Extract same-host absolute http(s) URLs from crawlable <a href> in HTML.
+ */
+export function extractSameHostLinks(html: string, pageUrl: string, origin: string): string[] {
+  const originHost = hostOf(origin)
+  if (!originHost) return []
+  const out = new Set<string>()
+  const re = /<a\s[^>]*href\s*=\s*(["'])([^"']+)\1/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html))) {
+    const raw = m[2]!.trim()
+    if (!raw || raw.startsWith('#') || raw.toLowerCase().startsWith('javascript:')) {
+      continue
+    }
+    let abs: string
+    try {
+      abs = new URL(raw, pageUrl).href
+    } catch {
+      continue
+    }
+    if (hostOf(abs) !== originHost) continue
+    if (!/^https?:/i.test(abs)) continue
+    out.add(abs.split('#')[0]!)
+  }
+  return Array.from(out)
 }

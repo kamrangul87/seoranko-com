@@ -23,6 +23,8 @@ export type Topic43Verdict =
   | 'suppress-non-indexable'
   | 'suppress-js-rendered-inbound'
   | 'report-client-only-graph'
+  /** Served HTML from one or more crawl pages is client_only — cannot assert orphans. */
+  | 'client_only-limited'
   | 'ok'
 
 export type Topic43Finding = {
@@ -55,6 +57,12 @@ export type DetectTopic43Options = {
     targetUrl: string
     kind: 'onclick' | 'javascript'
   }>
+  /**
+   * True when any crawled page that could contribute inbound links was
+   * client_only (topic 67). Orphan assertions from served HTML alone are
+   * incomplete — emit client_only-limited instead of finding-*-orphan.
+   */
+  hasClientOnlyPages?: boolean
 }
 
 /** Never claim Google cannot discover/index the page. */
@@ -94,6 +102,23 @@ export function detectOrphanPages(
       pageUrl: graph.originUrl,
       detail:
         'Served HTML yields no crawlable internal link graph (client_only) — cannot assert orphans without false positives (topic 67)',
+      autoFixable: false,
+      inSitemap: false,
+      convertNonCrawlableToAnchor: false,
+    })
+    return { findings, suppressed, graph }
+  }
+
+  // Partial client_only coverage: some pages' outbound links are invisible in
+  // served HTML. Zero-inbound on other pages is not conclusive orphan-hood.
+  if (options.hasClientOnlyPages) {
+    findings.push({
+      kind: 'internal-links/orphan-pages',
+      verdict: 'client_only-limited',
+      severity: null,
+      pageUrl: graph.originUrl,
+      detail:
+        'One or more crawled pages are client_only (topic 67) — outbound links may exist only after rendering. Topic 43 cannot conclude orphan-hood from served HTML alone; potential orphans are not raised as findings.',
       autoFixable: false,
       inSitemap: false,
       convertNonCrawlableToAnchor: false,

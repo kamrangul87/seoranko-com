@@ -32,6 +32,8 @@ function mapRun(row: Record<string, unknown>): CrawlRunRecord {
     urlsClientOnly: Number(row.urls_client_only ?? 0),
     urlsSkippedOffHost: Number(row.urls_skipped_off_host ?? 0),
     urlCap: row.url_cap == null ? null : Number(row.url_cap),
+    discoverySeeds:
+      (row.discovery_seeds as CrawlRunRecord['discoverySeeds']) ?? null,
     coverageNotes: (row.coverage_notes as CoverageNote[]) ?? [],
     isPartial: Boolean(row.is_partial),
     errorDetail: (row.error_detail as string | null) ?? null,
@@ -54,6 +56,7 @@ function mapJob(row: Record<string, unknown>): CrawlUrlJob {
     clientOnly: Boolean(row.client_only),
     crawlerCausedBackoff: Boolean(row.crawler_caused_backoff),
     errorDetail: (row.error_detail as string | null) ?? null,
+    html: (row.body_html as string | null) ?? null,
   }
 }
 
@@ -152,6 +155,8 @@ export function createSupabaseFindingsStore(
       if (patch.urlsSkippedOffHost != null)
         row.urls_skipped_off_host = patch.urlsSkippedOffHost
       if (patch.urlCap !== undefined) row.url_cap = patch.urlCap
+      if (patch.discoverySeeds !== undefined)
+        row.discovery_seeds = patch.discoverySeeds
       if (patch.coverageNotes != null) row.coverage_notes = patch.coverageNotes
       if (patch.isPartial != null) row.is_partial = patch.isPartial
       if (patch.errorDetail !== undefined) row.error_detail = patch.errorDetail
@@ -179,6 +184,16 @@ export function createSupabaseFindingsStore(
         .from('fix_strategies_crawl_url_jobs')
         .upsert(rows, { onConflict: 'run_id,url', ignoreDuplicates: true })
       if (error) throw new Error(error.message)
+    },
+
+    async enqueueUrlsReturningNew(runId, urls) {
+      if (urls.length === 0) return 0
+      const before = await this.countJobsByStatus(runId)
+      const beforeTotal = Object.values(before).reduce((a, b) => a + b, 0)
+      await this.enqueueUrls(runId, urls)
+      const after = await this.countJobsByStatus(runId)
+      const afterTotal = Object.values(after).reduce((a, b) => a + b, 0)
+      return Math.max(0, afterTotal - beforeTotal)
     },
 
     async claimUrlChunk(runId, limit) {
@@ -216,6 +231,7 @@ export function createSupabaseFindingsStore(
       if (patch.crawlerCausedBackoff != null)
         row.crawler_caused_backoff = patch.crawlerCausedBackoff
       if (patch.errorDetail !== undefined) row.error_detail = patch.errorDetail
+      if (patch.html !== undefined) row.body_html = patch.html
       if (patch.status === 'crawled' || patch.status === 'failed' || patch.status === 'client_only') {
         row.processed_at = new Date().toISOString()
       }
@@ -224,6 +240,15 @@ export function createSupabaseFindingsStore(
         .update(row)
         .eq('id', jobId)
       if (error) throw new Error(error.message)
+    },
+
+    async listJobsForRun(runId) {
+      const { data, error } = await db()
+        .from('fix_strategies_crawl_url_jobs')
+        .select('*')
+        .eq('run_id', runId)
+      if (error) throw new Error(error.message)
+      return (data ?? []).map((j) => mapJob(j as Record<string, unknown>))
     },
 
     async countJobsByStatus(runId) {
@@ -355,6 +380,16 @@ export function createSupabaseFindingsStore(
       }))
       const { error } = await db().from('fix_strategies_run_emits').insert(rows)
       if (error) throw new Error(error.message)
+    },
+
+    async replaceRunEmitsForTopic(runId, topicId, emits) {
+      const { error: delErr } = await db()
+        .from('fix_strategies_run_emits')
+        .delete()
+        .eq('run_id', runId)
+        .filter('payload->>topicId', 'eq', topicId)
+      if (delErr) throw new Error(delErr.message)
+      await this.appendRunEmits(runId, emits)
     },
 
     async listRunEmits(runId) {

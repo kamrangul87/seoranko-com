@@ -34,6 +34,11 @@ export type FindingsStore = {
     patch: Partial<CrawlRunRecord>,
   ): Promise<CrawlRunRecord>
   enqueueUrls(runId: string, urls: string[]): Promise<void>
+  /** How many newly enqueued (not already present). */
+  enqueueUrlsReturningNew(
+    runId: string,
+    urls: string[],
+  ): Promise<number>
   claimUrlChunk(
     runId: string,
     limit: number,
@@ -42,6 +47,7 @@ export type FindingsStore = {
     jobId: string,
     patch: Partial<CrawlUrlJob>,
   ): Promise<void>
+  listJobsForRun(runId: string): Promise<CrawlUrlJob[]>
   countJobsByStatus(
     runId: string,
   ): Promise<Record<CrawlUrlJobStatus, number>>
@@ -54,6 +60,12 @@ export type FindingsStore = {
   }): Promise<void>
   /** Stage page-level detector emits for a run (re-rolled on each tick). */
   appendRunEmits(runId: string, emits: DetectorEmit[]): Promise<void>
+  /** Drop emits for a topic then append replacements (full-run recompute). */
+  replaceRunEmitsForTopic(
+    runId: string,
+    topicId: string,
+    emits: DetectorEmit[],
+  ): Promise<void>
   listRunEmits(runId: string): Promise<DetectorEmit[]>
   clearRunEvidence(runId: string): Promise<void>
   listFindings(input: {
@@ -132,6 +144,7 @@ export function createMemoryFindingsStore(): FindingsStore {
         urlsClientOnly: 0,
         urlsSkippedOffHost: 0,
         urlCap: null,
+        discoverySeeds: null,
         coverageNotes: [],
         isPartial: false,
         errorDetail: null,
@@ -180,6 +193,7 @@ export function createMemoryFindingsStore(): FindingsStore {
           clientOnly: false,
           crawlerCausedBackoff: false,
           errorDetail: null,
+          html: null,
         }
         // De-dupe by run+url
         const exists = Array.from(state().jobs.values()).some(
@@ -187,6 +201,32 @@ export function createMemoryFindingsStore(): FindingsStore {
         )
         if (!exists) state().jobs.set(id, job)
       }
+    },
+
+    async enqueueUrlsReturningNew(runId, urls) {
+      let added = 0
+      for (const url of urls) {
+        const exists = Array.from(state().jobs.values()).some(
+          (j) => j.runId === runId && j.url === url,
+        )
+        if (exists) continue
+        const id = randomUUID()
+        state().jobs.set(id, {
+          id,
+          runId,
+          url,
+          status: 'queued',
+          httpStatus: null,
+          finalUrl: null,
+          streamComplete: null,
+          clientOnly: false,
+          crawlerCausedBackoff: false,
+          errorDetail: null,
+          html: null,
+        })
+        added++
+      }
+      return added
     },
 
     async claimUrlChunk(runId, limit) {
@@ -204,6 +244,10 @@ export function createMemoryFindingsStore(): FindingsStore {
       const cur = state().jobs.get(jobId)
       if (!cur) return
       state().jobs.set(jobId, { ...cur, ...patch })
+    },
+
+    async listJobsForRun(runId) {
+      return Array.from(state().jobs.values()).filter((j) => j.runId === runId)
     },
 
     async countJobsByStatus(runId) {
@@ -303,6 +347,14 @@ export function createMemoryFindingsStore(): FindingsStore {
     async appendRunEmits(runId, emits) {
       const cur = state().runEmits.get(runId) ?? []
       state().runEmits.set(runId, cur.concat(emits))
+    },
+
+    async replaceRunEmitsForTopic(runId, topicId, emits) {
+      const cur = state().runEmits.get(runId) ?? []
+      state().runEmits.set(
+        runId,
+        cur.filter((e) => e.topicId !== topicId).concat(emits),
+      )
     },
 
     async listRunEmits(runId) {

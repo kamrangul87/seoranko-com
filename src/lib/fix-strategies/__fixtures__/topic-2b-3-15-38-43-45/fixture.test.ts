@@ -684,6 +684,54 @@ describe('topics 43 + 45 — link graph / depth / client_only', () => {
     ).toBe(true)
   })
 
+  it('partial client_only pages → client_only-limited, not orphans', () => {
+    const home = ORIGIN + '/'
+    const blog = ORIGIN + '/blog'
+    const orphan = ORIGIN + '/lonely'
+    const graph = buildInternalLinkGraph({
+      originUrl: ORIGIN,
+      homepageUrl: home,
+      pages: [
+        {
+          url: home,
+          html: '', // client_only shell — no served links
+          status: 200,
+        },
+        {
+          url: blog,
+          html: `<html><body><a href="${orphan}">lonely</a></body></html>`,
+          status: 200,
+        },
+        {
+          url: orphan,
+          html: `<html><body><p>page</p></body></html>`,
+          status: 200,
+        },
+      ],
+    })
+    // Graph has crawlable edges from blog — not sitewide clientOnlyGraph
+    expect(graph.clientOnlyGraph).toBe(false)
+
+    const withoutGuard = detectOrphanPages({ graph })
+    // Without the guard, pages with zero inbound would raise (homepage excluded)
+    expect(
+      withoutGuard.findings.some((f) =>
+        f.verdict.startsWith('finding-'),
+      ),
+    ).toBe(true)
+
+    const withGuard = detectOrphanPages({
+      graph,
+      hasClientOnlyPages: true,
+    })
+    expect(
+      withGuard.findings.some((f) => f.verdict === 'client_only-limited'),
+    ).toBe(true)
+    expect(
+      withGuard.findings.some((f) => f.verdict.startsWith('finding-')),
+    ).toBe(false)
+  })
+
   it('rejects unsupported wording helpers', () => {
     expect(() => rejectedUndiscoverabilityClaim()).toThrow(/link-graph orphan/)
     expect(() => rejectedSitemapAsOrphanFix()).toThrow(/N9/)

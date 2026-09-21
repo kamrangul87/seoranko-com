@@ -14,11 +14,13 @@ export type {
   CrawlUrlJob,
 } from './constants'
 
-export { discoverSameHostUrls } from './discover'
+export { discoverSameHostUrls, extractSameHostLinks } from './discover'
+export type { DiscoverySeedCounts } from './discover'
 export { crawlOneUrl } from './fetch-page'
 export type { CrawledPage } from './fetch-page'
 export {
   runDetectorsOnPages,
+  runTopic43OnCrawl,
   rollupAndClassify,
 } from './run-detectors'
 export type { DetectorEmit, RolledPersistCandidate } from './run-detectors'

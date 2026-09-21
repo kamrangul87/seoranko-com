@@ -19,7 +19,9 @@ export function classifyVerdictBucket(verdict: string): FindingBucket {
     verdict.startsWith('informational-') ||
     verdict === 'informational' ||
     verdict.startsWith('report-sitewide') ||
-    verdict.startsWith('metric-')
+    verdict.startsWith('metric-') ||
+    verdict === 'client_only-limited' ||
+    verdict === 'report-client-only-graph'
   ) {
     return 'informational'
   }

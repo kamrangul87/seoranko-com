@@ -19,9 +19,13 @@ import {
   CRAWL_URL_CHUNK_SIZE,
   type CoverageNote,
 } from './constants'
-import { discoverSameHostUrls } from './discover'
+import { discoverSameHostUrls, extractSameHostLinks } from './discover'
 import { crawlOneUrl, type CrawledPage } from './fetch-page'
-import { runDetectorsOnPages, rollupAndClassify } from './run-detectors'
+import {
+  runDetectorsOnPages,
+  runTopic43OnCrawl,
+  rollupAndClassify,
+} from './run-detectors'
 import { getFindingsStore, type FindingsStore } from './store'
 
 export type StartCrawlInput = {
@@ -93,6 +97,11 @@ export async function startCrawlRun(
     })
   }
 
+  notes.push({
+    code: 'link_graph_expand',
+    detail: `Seed discovery: robots Sitemap locs=${discovered.seeds.fromRobotsSitemaps}, sitemap fallback=${discovered.seeds.fromSitemapFallback}, homepage=${discovered.seeds.fromHomepage}; link-graph expansion during ticks`,
+  })
+
   await store.enqueueUrls(run.id, urls)
   await store.updateRun(run.id, {
     status: 'queued',
@@ -100,6 +109,7 @@ export async function startCrawlRun(
     urlsDiscovered: urls.length,
     urlsSkippedOffHost: discovered.skippedOffHost,
     urlCap,
+    discoverySeeds: discovered.seeds,
     coverageNotes: dedupeNotes(notes),
     // Cap means frontier not exhausted → never complete.
     isPartial: capped,
@@ -148,6 +158,15 @@ export async function processCrawlTick(
   let crawledN = run.urlsCrawled
   let failedN = run.urlsFailed
   let clientOnlyN = run.urlsClientOnly
+  let urlsDiscovered = run.urlsDiscovered
+  let urlsFound = run.urlsFound
+  let linkGraphAdded = run.discoverySeeds?.fromLinkGraph ?? 0
+  const seedsBase = run.discoverySeeds ?? {
+    fromRobotsSitemaps: 0,
+    fromSitemapFallback: 0,
+    fromHomepage: 0,
+    fromLinkGraph: 0,
+  }
 
   for (const job of jobs) {
     if (Date.now() > deadline) {
@@ -207,15 +226,14 @@ export async function processCrawlTick(
           finalUrl: page.finalUrl,
           streamComplete: true,
           clientOnly: true,
+          html: page.html || '',
         })
         notes.push({
           code: 'client_only',
           detail:
-            'Served HTML looks client-only — content detectors skipped (topic 67)',
+            'Served HTML looks client_only — content detectors skipped; outbound links may appear only after rendering (topic 67)',
           url: job.url,
         })
-        // Still keep page for link-graph if it has any HTML
-        if (page.html) crawled.push(page)
         continue
       }
 
@@ -243,8 +261,34 @@ export async function processCrawlTick(
         finalUrl: page.finalUrl,
         streamComplete: true,
         clientOnly: false,
+        html: page.html,
       })
       crawled.push(page)
+
+      // Link-graph frontier expansion (same-host <a href> only).
+      const links = extractSameHostLinks(page.html, page.finalUrl, run.origin)
+      if (links.length > 0) {
+        let toAdd = links
+        if (run.urlCap != null) {
+          const room = Math.max(0, run.urlCap - urlsDiscovered)
+          toAdd = links.slice(0, room)
+        } else if (urlsDiscovered >= CRAWL_MAX_DISCOVERED) {
+          toAdd = []
+        } else {
+          toAdd = links.slice(0, CRAWL_MAX_DISCOVERED - urlsDiscovered)
+        }
+        const added = await store.enqueueUrlsReturningNew(runId, toAdd)
+        if (added > 0) {
+          urlsDiscovered += added
+          urlsFound = Math.max(urlsFound, urlsDiscovered)
+          linkGraphAdded += added
+          notes.push({
+            code: 'link_graph_expand',
+            detail: `Enqueued ${added} same-host URL(s) from crawlable links on ${page.finalUrl}`,
+            url: page.finalUrl,
+          })
+        }
+      }
     } catch (err) {
       failedN++
       const detail = err instanceof Error ? err.message : String(err)
@@ -263,27 +307,48 @@ export async function processCrawlTick(
       runSiteLevel: priorEmits.length === 0,
     })
     await store.appendRunEmits(runId, emits)
-    // Re-roll from all emits this run so chunk boundaries don't under-count
-    // generator-level rollups (UNIQUE site+topic+rollup_key upsert).
-    const allEmits = await store.listRunEmits(runId)
-    const { findings, internalEvidence } = rollupAndClassify(allEmits)
-    await store.clearRunEvidence(runId)
-    await store.upsertFindings({
-      siteId: run.siteId,
-      userId: run.userId,
-      runId,
-      findings,
-      internalEvidence,
-    })
   }
 
   const counts = await store.countJobsByStatus(runId)
   const stillQueued = counts.queued
   const done = stillQueued === 0 && counts.running === 0
 
+  // Full-run topic 43 once the frontier is drained (avoids chunk false orphans).
+  if (done) {
+    const allJobs = await store.listJobsForRun(runId)
+    const sitemapUrls = new Set(
+      allJobs.map((j) => j.url.replace(/\/$/, '')),
+    )
+    const topic43Pages = allJobs
+      .filter(
+        (j) =>
+          (j.status === 'crawled' || j.status === 'client_only') &&
+          (j.html != null || j.clientOnly),
+      )
+      .map((j) => ({
+        url: j.finalUrl || j.url,
+        html: j.html ?? '',
+        status: j.httpStatus,
+        clientOnly: j.clientOnly,
+        inSitemap: sitemapUrls.has((j.finalUrl || j.url).replace(/\/$/, '')),
+      }))
+    const topic43Emits = await runTopic43OnCrawl(run.origin, topic43Pages)
+    await store.replaceRunEmitsForTopic(runId, '43', topic43Emits)
+  }
+
+  const allEmits = await store.listRunEmits(runId)
+  const { findings, internalEvidence } = rollupAndClassify(allEmits)
+  await store.clearRunEvidence(runId)
+  await store.upsertFindings({
+    siteId: run.siteId,
+    userId: run.userId,
+    runId,
+    findings,
+    internalEvidence,
+  })
+
   // Mid-tick time_limit with work left → stay running (resume on next tick).
-  // Terminal partial when queue drains but coverage is incomplete:
-  // discovery/maxUrls cap, client_only, fetch failures, backoff, stream gaps.
+  // Terminal partial when queue drains but coverage is incomplete.
   const enduringCodes = new Set([
     'client_only',
     'fetch_failure',
@@ -295,7 +360,7 @@ export async function processCrawlTick(
     clientOnlyN > 0 ||
     failedN > 0 ||
     notes.some((n) => enduringCodes.has(n.code)) ||
-    (run.urlsFound > 0 && run.urlsDiscovered < run.urlsFound) ||
+    (urlsFound > 0 && urlsDiscovered < urlsFound && done) ||
     run.isPartial
 
   let status: CrawlRunRecordStatus = 'running'
@@ -304,7 +369,6 @@ export async function processCrawlTick(
     status = coverageIncomplete ? 'partial' : 'complete'
     isPartial = coverageIncomplete
   } else if (stillQueued > 0 && notes.some((n) => n.code === 'time_limit')) {
-    // Resume — do not freeze as partial while the frontier is still queued.
     status = 'running'
     isPartial = coverageIncomplete
   }
@@ -314,6 +378,12 @@ export async function processCrawlTick(
     urlsCrawled: crawledN,
     urlsFailed: failedN,
     urlsClientOnly: clientOnlyN,
+    urlsDiscovered,
+    urlsFound,
+    discoverySeeds: {
+      ...seedsBase,
+      fromLinkGraph: linkGraphAdded,
+    },
     coverageNotes: dedupeNotes(notes),
     isPartial,
     finishedAt: done ? new Date().toISOString() : null,
@@ -356,7 +426,14 @@ export async function runCrawlToCompletion(
   urlsFound: number
   urlsDiscovered: number
   urlsCrawled: number
+  urlsClientOnly: number
   urlCap: number | null
+  discoverySeeds: {
+    fromRobotsSitemaps: number
+    fromSitemapFallback: number
+    fromHomepage: number
+    fromLinkGraph: number
+  } | null
   status: string
   isPartial: boolean
   coverageNotes: CoverageNote[]
@@ -379,10 +456,12 @@ export async function runCrawlToCompletion(
   return {
     runId,
     durationMs: Date.now() - started,
-    urlsFound,
-    urlsDiscovered,
+    urlsFound: run.urlsFound || urlsFound,
+    urlsDiscovered: run.urlsDiscovered || urlsDiscovered,
     urlsCrawled: run.urlsCrawled,
+    urlsClientOnly: run.urlsClientOnly,
     urlCap: run.urlCap,
+    discoverySeeds: run.discoverySeeds,
     status: run.status,
     isPartial: run.isPartial,
     coverageNotes: run.coverageNotes,
