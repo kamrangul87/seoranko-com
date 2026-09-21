@@ -27,7 +27,7 @@ export type LinkableFinding = {
   topicId: string
   verdict: string
   detail: string
-  pageUrl: string
+  pageUrl: string | null
   bucket: 'actionable' | 'informational' | 'internal'
   reportOnly: boolean
   surfaceClass: string
