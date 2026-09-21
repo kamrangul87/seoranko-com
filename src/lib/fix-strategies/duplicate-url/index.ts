@@ -4,6 +4,7 @@ export type {
   DetectDuplicateUrlPage,
   DetectDuplicateUrlResult,
   DuplicateUrlFinding,
+  VariantDiscoverability,
 } from './detect'
 
 export {

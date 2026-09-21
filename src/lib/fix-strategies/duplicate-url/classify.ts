@@ -18,6 +18,7 @@ export type DuplicateUrlVerdict =
   | 'human-review-https-exception'
   | 'human-review-blast-radius'
   | 'human-review-outside-repo'
+  | 'informational-generated-only'
   | 'report-only-12b'
   | 'suppress-tracking-content-differs'
   | 'suppress-auth-token-param'
@@ -208,17 +209,19 @@ export function classifyDuplicateUrl(
 
   // Signals agree
   if (input.strategy === 'trailing-slash') {
+    // next.config trailingSlash (and vercel cleanUrls) are site-wide —
+    // dossier: human-review by default for blast radius. Never auto-redirect.
     return {
-      verdict: 'auto-redirect',
-      detail: `Trailing-slash duplicate — signals agree (${input.preferred.source}); prefer redirect via trailingSlash`,
+      verdict: 'human-review-blast-radius',
+      detail: `Trailing-slash duplicate — signals agree (${input.preferred.source}); fix touches site-wide trailingSlash/cleanUrls — human-review`,
       preferCanonicalOverRedirect: false,
     }
   }
 
   if (input.strategy === 'index-html') {
     return {
-      verdict: 'auto-redirect',
-      detail: `Directory index.html duplicate — signals agree (${input.preferred.source}); prefer clean directory URL`,
+      verdict: 'human-review-blast-radius',
+      detail: `Directory index.html duplicate — signals agree (${input.preferred.source}); cleanUrls / directory-index is site-wide — human-review`,
       preferCanonicalOverRedirect: false,
     }
   }

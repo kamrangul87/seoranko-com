@@ -58,8 +58,10 @@ describe('topic 8 — trailing slash duplicates', () => {
         },
       },
     )
-    expect(identical.findings[0]?.verdict).toBe('auto-redirect')
+    expect(identical.findings[0]?.verdict).toBe('human-review-blast-radius')
     expect(identical.findings[0]?.contentSame).toBe(true)
+    expect(identical.findings[0]?.declarationSite).toBe('config:next.config.js')
+    expect(identical.findings[0]?.discoverability).toBe('discovered')
 
     // 2. different content → suppressed
     const different = await detectTrailingSlashDuplicates(

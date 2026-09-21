@@ -77,9 +77,26 @@ describe.skipIf(!enabled)('autodun live crawl report', () => {
       // Finding must NOT survive as omission — identical content to /blog
       expect(t27OmissionIndex).toHaveLength(0)
 
-      const topic8to12 = allEmits.filter((e) =>
-        ['8', '9', '10', '11', '12'].includes(e.topicId),
+      const topic8 = allEmits.filter((e) => e.topicId === '8')
+      const t8Actionable = listedActionable.filter((f) => f.topicId === '8')
+      const t8Generated = topic8.filter(
+        (e) => e.verdict === 'informational-generated-only',
       )
+      const t8AutoRedirect = topic8.filter((e) => e.verdict === 'auto-redirect')
+      const t8Blast = topic8.filter(
+        (e) => e.verdict === 'human-review-blast-radius',
+      )
+      const t8Absent = topic8.filter(
+        (e) => e.verdict === 'human-review-preferred-absent',
+      )
+      // Site-wide trailingSlash must never auto-redirect
+      expect(t8AutoRedirect).toHaveLength(0)
+      // Rolled findings name config:next.config.js
+      for (const f of t8Actionable) {
+        expect(f.declarationSite ?? f.rollupKey).toMatch(/next\.config|config:/)
+      }
+
+      const topic26 = listedActionable.filter((f) => f.topicId === '26')
 
       const wiringTable = Object.keys(DETECTOR_SCOPE_BY_TOPIC)
         .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
@@ -142,9 +159,36 @@ Topic 27 guard: \`classifySitemapDuplicateVariant\` → \`index-html\` →
 
 - report-omission for /blog/index.html: **${t27OmissionIndex.length}** (must be 0)
 - routed index.html variant emits: ${t27RoutedIndex.length}
-- Topic 8–12 emits this run: ${topic8to12.length}
 
-## 3. Detector wiring (shipped-but-unwired = 0)
+## 3. Topic 8 rollup + discoverability + auto-redirect
+
+| Cause | Emit count | Notes |
+|-------|------------|-------|
+| informational-generated-only | ${t8Generated.length} | peer not in crawl/sitemap/links |
+| human-review-blast-radius | ${t8Blast.length} | site-wide trailingSlash/cleanUrls |
+| human-review-preferred-absent | ${t8Absent.length} | no site preferred-form signals |
+| auto-redirect | ${t8AutoRedirect.length} | must be 0 (site-wide → human-review) |
+
+List actionable topic 8 (after rollup to \`config:next.config.js\`):
+${
+  t8Actionable.length === 0
+    ? '_None_'
+    : t8Actionable
+        .map(
+          (f) =>
+            `- \`${f.verdict}\` · ${f.affectedUrlCount} URL(s) · site=${f.declarationSite ?? '(none)'} · ${f.pageUrl ?? ''}`,
+        )
+        .join('\n')
+}
+
+## 4. Topic 26
+
+Previously unwired; now post-crawl. \`human-review-canonical-elsewhere\` fires when a
+sitemap loc is 200 but HTML canonical points elsewhere (slash twin common on autodun).
+Actionable topic 26 count: ${topic26.length}
+${topic26.map((f) => `- \`${f.verdict}\` · ${f.pageUrl}`).join('\n') || '_None_'}
+
+## 5. Detector wiring (shipped-but-unwired = 0)
 
 Wired count: ${WIRED_TOPIC_IDS.length} / shipped ${Object.keys(DETECTOR_SCOPE_BY_TOPIC).length}.
 Unshipped reserved: topic 58 = ${UNSHIPPED_DETECTOR_SCOPE['58']}.
@@ -156,7 +200,7 @@ ${wiringTable}
 Post-crawl emit summary:
 ${wholeSiteSummary}
 
-## 4. Topic 43
+## 6. Topic 43
 
 Topic 43 emits: ${topic43.map((e) => e.verdict).join(', ') || '(none)'}
 Orphan findings raised: ${orphanFindings.length}
@@ -171,11 +215,11 @@ Orphan findings raised: ${orphanFindings.length}
 
 ## Counts
 
-| Bucket | Live | Prior (whole-site pass) | Demo |
-|--------|------|-------------------------|------|
-| actionable | ${result.counts.actionable} | 10 | 10 |
+| Bucket | Live | Prior (wired 8–12) | Demo |
+|--------|------|--------------------|------|
+| actionable | ${result.counts.actionable} | 25 | 10 |
 | informational | ${result.counts.informational} | 16 | 17 |
-| internal (hidden) | ${result.counts.internal} | 315 | ${DEMO_RUN_META.internalCount} |
+| internal (hidden) | ${result.counts.internal} | — | ${DEMO_RUN_META.internalCount} |
 
 List API actionable: ${listedActionable.length}
 List API + informational: ${listedAll.length}
@@ -210,8 +254,8 @@ ${result.coverageNotes.map((n) => `- **${n.code}**: ${n.detail}`).join('\n')}
             ),
         ),
       ).toBe(true)
-      // 8–12 wired into chunk loop
-      expect(topic8to12.length).toBeGreaterThan(0)
+      // 8–12: topic 8 post-crawl; 9–12 chunk
+      expect(allEmits.some((e) => e.topicId === '8')).toBe(true)
       for (const id of ['8', '24', '25', '27', '28', '43', '45'] as const) {
         expect(allEmits.some((e) => e.topicId === id)).toBe(true)
       }

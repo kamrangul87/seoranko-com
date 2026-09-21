@@ -292,19 +292,8 @@ export async function runDetectorsOnPages(
       }
     }
 
-    // Topics 8–12: duplicate URL forms
-    takeBuckets(
-      '8',
-      'duplicate-url/trailing-slash',
-      await detectTrailingSlashDuplicates(dupPages, { deps: hopDeps }),
-      out,
-    )
-    takeBuckets(
-      '8',
-      'duplicate-url/index-html',
-      await detectIndexHtmlDuplicates(dupPages, { deps: hopDeps }),
-      out,
-    )
+    // Topics 9–12: duplicate URL forms (per-page; peer probe). Topic 8
+    // (trailing-slash + index-html) runs post-crawl with a full discovery set.
     takeBuckets(
       '9',
       'duplicate-url/http-https',
@@ -743,6 +732,58 @@ export async function runWholeSiteDetectorsOnCrawl(
   )
   // Homepage is reachable by definition
   if (graph.homepageNormalized) inboundLinked.add(graph.homepageNormalized)
+
+  // Discovery set for topic 8: crawl URLs + sitemap locs + internal link targets
+  const discoveredNormalized = new Set<string>()
+  const addDiscovered = (u: string | null | undefined) => {
+    if (!u) return
+    const n = normalizeFixStrategyUrl(u)
+    if (n) discoveredNormalized.add(n)
+  }
+  for (const p of pages) addDiscovered(p.url)
+  if (inspection) {
+    for (const loc of inspection.allLocsNormalized) discoveredNormalized.add(loc)
+  }
+  for (const e of graph.edges) {
+    addDiscovered(e.fromNormalized)
+    addDiscovered(e.toNormalized)
+  }
+
+  // Topic 8: trailing-slash + index.html (needs full discovery set)
+  if (usableHtml.length > 0) {
+    const hopDeps = hopDepsFromFetch(fetchDeps)
+    const dupPages = usableHtml.map((p) => ({ url: p.url, body: p.html }))
+    const sitemapUrls = inspection
+      ? Array.from(inspection.allLocsNormalized)
+      : []
+    const internalLinkUrls = Array.from(inboundLinked)
+    const signals = {
+      sitemapUrls,
+      internalLinkUrls,
+    }
+    takeBuckets(
+      '8',
+      'duplicate-url/trailing-slash',
+      await detectTrailingSlashDuplicates(dupPages, {
+        deps: hopDeps,
+        discoveredNormalized,
+        signals,
+        artefactPath: 'next.config.js',
+      }),
+      out,
+    )
+    takeBuckets(
+      '8',
+      'duplicate-url/index-html',
+      await detectIndexHtmlDuplicates(dupPages, {
+        deps: hopDeps,
+        discoveredNormalized,
+        signals,
+        artefactPath: 'next.config.js',
+      }),
+      out,
+    )
+  }
 
   if (inspection) {
     takeBuckets(

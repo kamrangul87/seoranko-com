@@ -22,7 +22,8 @@ export function classifyVerdictBucket(verdict: string): FindingBucket {
     verdict.startsWith('report-sitewide') ||
     verdict.startsWith('metric-') ||
     verdict === 'client_only-limited' ||
-    verdict === 'report-client-only-graph'
+    verdict === 'report-client-only-graph' ||
+    verdict === 'informational-generated-only'
   ) {
     return 'informational'
   }

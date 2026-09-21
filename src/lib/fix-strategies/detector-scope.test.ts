@@ -26,8 +26,10 @@ describe('detector-scope', () => {
     expect(scopeForTopic('26')).toBe('whole-site')
     expect(scopeForTopic('47')).toBe('whole-site')
     expect(scopeForTopic('48')).toBe('whole-site')
-    // 8–12 probe the peer via live fetch — per-page safe when wired
-    for (const id of ['8', '9', '10', '11', '12']) {
+    // Topic 8 needs the full discovery set → whole-site post-crawl.
+    // 9–12 probe peers via live fetch — still per-page.
+    expect(scopeForTopic('8')).toBe('whole-site')
+    for (const id of ['9', '10', '11', '12']) {
       expect(scopeForTopic(id)).toBe('per-page')
     }
     // Unshipped: index vs crawl set divergence
@@ -62,8 +64,10 @@ describe('detector-scope', () => {
     expect(CHUNK_LOOP_TOPIC_IDS).toContain('1')
     expect(CHUNK_LOOP_TOPIC_IDS).toContain('42')
     expect(CHUNK_LOOP_TOPIC_IDS).toContain('49')
+    expect(POST_CRAWL_TOPIC_IDS).toContain('8')
     expect(POST_CRAWL_TOPIC_IDS).toContain('15')
     expect(POST_CRAWL_TOPIC_IDS).toContain('26')
     expect(POST_CRAWL_TOPIC_IDS).toContain('48')
+    expect(CHUNK_LOOP_TOPIC_IDS).not.toContain('8')
   })
 })
