@@ -7,7 +7,7 @@
  */
 
 import type { HeadInspection } from '@/lib/fix-strategies/shared/head-inspect'
-import { isValidBcp47, isIso6391 } from '@/lib/fix-strategies/shared/bcp47'
+import { isValidBcp47, isIso6391, bcp47TagsCompatible } from '@/lib/fix-strategies/shared/bcp47'
 import {
   resolveFixTarget,
   type FixTargetResult,
@@ -123,10 +123,16 @@ export function detectLangDeclaration(
         )
       }
     } else {
-      // Valid lang — check inLanguage disagreement at document level
+      // Valid lang — check inLanguage disagreement at document level.
+      // Primary-subtag prefix matches (en vs en-GB) are compatible, not
+      // disagreement — only raise when tags are incompatible.
       const docLangs = insp.inLanguage.filter((r) => r.documentLevel)
       for (const rec of docLangs) {
-        if (rec.value && rec.value !== lang && isValidBcp47(rec.value)) {
+        if (
+          rec.value &&
+          isValidBcp47(rec.value) &&
+          !bcp47TagsCompatible(lang, rec.value)
+        ) {
           findings.push(
             make(
               'low-lang-inlanguage-disagree',

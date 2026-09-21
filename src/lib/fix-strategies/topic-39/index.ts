@@ -1,6 +1,7 @@
 export {
   detectDeprecatedTypes,
   pageHasVisibleFaq,
+  faqSchemaTextPresentInBody,
   removeDeprecatedTypeFromJsonLd,
   rejectedAutoRemoveDeprecated,
   STRUCTURED_DATA_DEPRECATION_TABLE,

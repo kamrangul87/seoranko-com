@@ -5,10 +5,12 @@
  * is preferred), keep ONE primary finding actionable and attach the others as
  * related evidence — do not list them as separate actionable rows.
  *
- * Topic 8 preferred-form conflict is primary when topic 26
- * human-review-canonical-elsewhere only points at a trailing-slash or
- * index.html variant of the sitemap loc (canonical/sitemap disagreement is a
- * symptom of the unresolved preferred form).
+ * Topic 8 preferred-form conflict is primary when:
+ * - topic 26 human-review-canonical-elsewhere only points at a trailing-slash
+ *   or index.html variant of the sitemap loc
+ * - topic 38 entity url is a preferred-form variant of the page url
+ * - topic 8 preferred-absent covers the same URL family (one preferred-form
+ *   decision, not two findings)
  */
 
 import {
@@ -93,9 +95,7 @@ function preferredFormClosure(url: string): Set<string> {
 
 /** Parse canonical target from topic 26 human-review-canonical-elsewhere detail. */
 export function parseCanonicalElsewhereTarget(detail: string): string | null {
-  const arrow = detail.match(
-    /Canonicalises elsewhere\s*→\s*(\S+)/i,
-  )
+  const arrow = detail.match(/Canonicalises elsewhere\s*→\s*(\S+)/i)
   if (arrow?.[1]) return arrow[1].replace(/[.,;)]+$/, '')
   const url = detail.match(/→\s*(https?:\/\/\S+)/i)
   if (url?.[1]) return url[1].replace(/[.,;)]+$/, '')
@@ -116,21 +116,26 @@ function candidateUrls(f: LinkableFinding): string[] {
 
 function overlapsPreferredFormFamily(
   primary: LinkableFinding,
-  loc: string,
-  canonical: string,
+  ...urls: string[]
 ): boolean {
-  const urls = candidateUrls(primary)
-  if (urls.length === 0) return false
-  return urls.some(
-    (u) =>
-      arePreferredUrlFormVariants(u, loc) ||
-      arePreferredUrlFormVariants(u, canonical),
+  const primaryUrls = candidateUrls(primary)
+  if (primaryUrls.length === 0) return false
+  return urls.some((u) =>
+    primaryUrls.some((p) => arePreferredUrlFormVariants(p, u)),
   )
+}
+
+function entityUrlFromEvidence(f: LinkableFinding): string | null {
+  const ev = f.evidenceValues
+  if (!ev) return null
+  if (typeof ev.left === 'string' && ev.left) return ev.left
+  return null
 }
 
 function attachRelated(
   primary: LinkableFinding,
   related: RelatedFindingEvidence,
+  note: string,
 ): void {
   const base =
     primary.evidenceValues && typeof primary.evidenceValues === 'object'
@@ -139,27 +144,39 @@ function attachRelated(
   const existing = Array.isArray(base.relatedFindings)
     ? (base.relatedFindings as RelatedFindingEvidence[])
     : []
-  // Dedupe by topic+verdict+pageUrl
   const key = `${related.topicId}|${related.verdict}|${related.pageUrl ?? ''}`
   if (
-    existing.some(
+    !existing.some(
       (r) => `${r.topicId}|${r.verdict}|${r.pageUrl ?? ''}` === key,
     )
   ) {
-    primary.evidenceValues = {
-      ...base,
-      rootCause: 'preferred-url-form',
-      relatedFindings: existing,
-    }
-    return
+    existing.push(related)
   }
   primary.evidenceValues = {
     ...base,
     rootCause: 'preferred-url-form',
-    relatedFindings: [...existing, related],
+    relatedFindings: existing,
   }
-  if (!primary.detail.includes('Related: topic 26')) {
-    primary.detail = `${primary.detail} Related: topic 26 canonical-elsewhere is a symptom of this preferred-form decision.`
+  if (!primary.detail.includes(note)) {
+    primary.detail = `${primary.detail} ${note}`
+  }
+}
+
+function demoteAsSymptom(
+  f: LinkableFinding,
+  primary: LinkableFinding,
+): void {
+  f.bucket = 'internal'
+  f.reportOnly = true
+  f.surfaceClass = 'internal'
+  f.evidenceValues = {
+    ...(f.evidenceValues ?? {}),
+    linkedToPrimary: {
+      topicId: primary.topicId,
+      verdict: primary.verdict,
+      pageUrl: primary.pageUrl,
+      rootCause: 'preferred-url-form',
+    },
   }
 }
 
@@ -176,8 +193,40 @@ export function linkCrossTopicRootCauses<T extends LinkableFinding>(
       f.verdict === 'human-review-preferred-conflict' &&
       f.bucket === 'actionable',
   )
+
+  // --- Topic 8 preferred-absent shares the preferred-form decision ---
+  // Conflict is more informative; absent is a symptom of the same unresolved
+  // preferred form when URL families overlap.
+  if (primaries.length > 0) {
+    for (const f of findings) {
+      if (f.topicId !== '8') continue
+      if (f.verdict !== 'human-review-preferred-absent') continue
+      if (f.bucket !== 'actionable') continue
+      const loc = f.pageUrl
+      if (!loc) continue
+      const primary = primaries.find((p) =>
+        overlapsPreferredFormFamily(p, loc, ...candidateUrls(f)),
+      )
+      if (!primary) continue
+      attachRelated(
+        primary,
+        {
+          topicId: '8',
+          verdict: f.verdict,
+          detail: f.detail,
+          pageUrl: f.pageUrl,
+          relationship: 'symptom',
+          rootCause: 'preferred-url-form',
+        },
+        'Related: preferred-absent is the same preferred-form decision.',
+      )
+      demoteAsSymptom(f, primary)
+    }
+  }
+
   if (primaries.length === 0) return findings
 
+  // --- Topic 26 canonical-elsewhere ---
   for (const f of findings) {
     if (f.topicId !== '26') continue
     if (f.verdict !== 'human-review-canonical-elsewhere') continue
@@ -187,9 +236,6 @@ export function linkCrossTopicRootCauses<T extends LinkableFinding>(
     if (!loc) continue
     const canonical = parseCanonicalElsewhereTarget(f.detail)
     if (!canonical) continue
-
-    // Only link when canonical is a preferred-form variant of the loc —
-    // a truly different page is a distinct decision.
     if (!arePreferredUrlFormVariants(loc, canonical)) continue
 
     const primary = primaries.find((p) =>
@@ -197,28 +243,50 @@ export function linkCrossTopicRootCauses<T extends LinkableFinding>(
     )
     if (!primary) continue
 
-    attachRelated(primary, {
-      topicId: '26',
-      verdict: f.verdict,
-      detail: f.detail,
-      pageUrl: f.pageUrl,
-      relationship: 'symptom',
-      rootCause: 'preferred-url-form',
-    })
-
-    // Demote — not listed separately as actionable
-    f.bucket = 'internal'
-    f.reportOnly = true
-    f.surfaceClass = 'internal'
-    f.evidenceValues = {
-      ...(f.evidenceValues ?? {}),
-      linkedToPrimary: {
-        topicId: primary.topicId,
-        verdict: primary.verdict,
-        pageUrl: primary.pageUrl,
+    attachRelated(
+      primary,
+      {
+        topicId: '26',
+        verdict: f.verdict,
+        detail: f.detail,
+        pageUrl: f.pageUrl,
+        relationship: 'symptom',
         rootCause: 'preferred-url-form',
       },
-    }
+      'Related: topic 26 canonical-elsewhere is a symptom of this preferred-form decision.',
+    )
+    demoteAsSymptom(f, primary)
+  }
+
+  // --- Topic 38 entity-url mismatch when entity is a preferred-form twin ---
+  for (const f of findings) {
+    if (f.topicId !== '38') continue
+    if (f.verdict !== 'human-review-entity-url-mismatch') continue
+    if (f.bucket !== 'actionable') continue
+
+    const page = f.pageUrl
+    const entity = entityUrlFromEvidence(f)
+    if (!page || !entity) continue
+    if (!arePreferredUrlFormVariants(page, entity)) continue
+
+    const primary = primaries.find((p) =>
+      overlapsPreferredFormFamily(p, page, entity),
+    )
+    if (!primary) continue
+
+    attachRelated(
+      primary,
+      {
+        topicId: '38',
+        verdict: f.verdict,
+        detail: f.detail,
+        pageUrl: f.pageUrl,
+        relationship: 'symptom',
+        rootCause: 'preferred-url-form',
+      },
+      'Related: topic 38 entity-url mismatch is a preferred-form twin, not a separate entity decision.',
+    )
+    demoteAsSymptom(f, primary)
   }
 
   return findings

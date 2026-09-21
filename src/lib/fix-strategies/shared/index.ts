@@ -123,7 +123,7 @@ export type {
   InLanguageRecord,
 } from './head-inspect'
 
-export { isValidBcp47, isIso6391 } from './bcp47'
+export { isValidBcp47, isIso6391, bcp47TagsCompatible } from './bcp47'
 
 export {
   extractHtmlCanonical,

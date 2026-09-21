@@ -146,3 +146,17 @@ export function isValidBcp47(tag: string): boolean {
 export function isIso6391(tag: string): boolean {
   return /^[a-zA-Z]{2}$/.test(tag)
 }
+
+/**
+ * True when two BCP 47 tags are compatible for topic 34 —
+ * exact match (case-insensitive) OR one is a prefix extension of the other
+ * (e.g. `en` vs `en-GB`). Distinct region tags (`en-GB` vs `en-US`) disagree.
+ */
+export function bcp47TagsCompatible(a: string, b: string): boolean {
+  const la = a.trim().toLowerCase()
+  const lb = b.trim().toLowerCase()
+  if (!la || !lb) return false
+  if (la === lb) return true
+  if (la.startsWith(`${lb}-`) || lb.startsWith(`${la}-`)) return true
+  return false
+}

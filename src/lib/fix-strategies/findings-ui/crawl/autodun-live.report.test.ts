@@ -91,9 +91,11 @@ describe.skipIf(!enabled)('autodun live crawl report', () => {
       )
       // Site-wide trailingSlash must never auto-redirect
       expect(t8AutoRedirect).toHaveLength(0)
-      // Rolled findings name config:next.config.js
+      // Rolled findings name the resolved routing artefact (vercel.json for Vite/static)
       for (const f of t8Actionable) {
-        expect(f.declarationSite ?? f.rollupKey).toMatch(/next\.config|config:/)
+        expect(f.declarationSite ?? f.rollupKey).toMatch(
+          /vercel\.json|next\.config|config:/,
+        )
       }
 
       const topic26 = listedActionable.filter((f) => f.topicId === '26')
@@ -196,7 +198,7 @@ Topic 27 guard: \`classifySitemapDuplicateVariant\` → \`index-html\` →
 | human-review-preferred-absent | ${t8Absent.length} | no site preferred-form signals |
 | auto-redirect | ${t8AutoRedirect.length} | must be 0 (site-wide → human-review) |
 
-List actionable topic 8 (after rollup to \`config:next.config.js\`):
+List actionable topic 8 (after rollup to resolved routing config):
 ${
   t8Actionable.length === 0
     ? '_None_'

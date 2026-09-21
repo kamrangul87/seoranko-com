@@ -1,6 +1,6 @@
 # Findings live crawl — autodun.com
 
-Generated: 2026-09-21T08:57:20.721Z
+Generated: 2026-09-21T09:22:35.533Z
 
 ## 1. Discovery
 
@@ -37,9 +37,8 @@ Topic 27 guard: `classifySitemapDuplicateVariant` → `index-html` →
 | human-review-preferred-absent | 1 | no site preferred-form signals |
 | auto-redirect | 0 | must be 0 (site-wide → human-review) |
 
-List actionable topic 8 (after rollup to `config:next.config.js`):
-- `human-review-preferred-conflict` · 3 URL(s) · site=config:next.config.js · https://autodun.com/blog
-- `human-review-preferred-absent` · 1 URL(s) · site=config:next.config.js · https://autodun.com/blog/
+List actionable topic 8 (after rollup to resolved routing config):
+- `human-review-preferred-conflict` · 3 URL(s) · site=config:vercel.json · https://autodun.com/blog
 
 ## 4. Topic 26 + cross-topic root cause
 
@@ -50,6 +49,7 @@ topic 8 is primary; topic 26 is related evidence, not a separate actionable row.
 
 Linked preferred-form primaries (topic 8 with related topic 26): 1
 - primary topic 8 `human-review-preferred-conflict` · https://autodun.com/blog
+  - related topic 8 `human-review-preferred-absent` · https://autodun.com/blog/
   - related topic 26 `human-review-canonical-elsewhere` · https://autodun.com/blog
 
 List-API actionable topic 26 (must be 0 when linked): 0
@@ -135,32 +135,27 @@ Orphan findings raised: 0
 |--------|-------|
 | Status | partial |
 | Partial | true |
-| Duration | 6.6s |
+| Duration | 6.3s |
 
 ## Counts
 
 | Bucket | Live | Prior (wired 8–12) | Demo |
 |--------|------|--------------------|------|
-| actionable | 11 | 25 | 10 |
+| actionable | 6 | 25 | 10 |
 | informational | 17 | 16 | 17 |
-| internal (hidden) | 964 | — | 349 |
+| internal (hidden) | 967 | — | 349 |
 
-List API actionable: 11
-List API + informational: 28
+List API actionable: 6
+List API + informational: 23
 
 ### Actionable verdicts
 
 - topic 38 · `human-review-entity-url-mismatch` · 13 URL(s) · https://autodun.com/blog
-- topic 39 · `d17-faq-markup-not-visible` · 1 URL(s) · https://autodun.com/blog/electric-car-charger-map-uk.html
 - topic 49 · `human-review-no-height-auto` · 6 URL(s) · https://autodun.com/blog/electric-car-charger-map-uk.html
 - topic 49 · `auto-set-dimensions` · 1 URL(s) · https://autodun.com/blog/mot-advisories-explained-uk.html
 - topic 49 · `finding-wrong-ratio` · 2 URL(s) · https://autodun.com/blog/mot-changes-2026-dvsa-updates.html
-- topic 34 · `low-lang-inlanguage-disagree` · 1 URL(s) · https://autodun.com/blog/mot-history-check-uk.html
-- topic 34 · `low-lang-inlanguage-disagree` · 1 URL(s) · https://autodun.com/blog/uk-vehicle-data-tools.html
-- topic 39 · `d17-faq-markup-not-visible` · 1 URL(s) · https://autodun.com/blog/ulez-checker-uk.html
 - topic 8 · `human-review-preferred-conflict` · 3 URL(s) · https://autodun.com/blog
-- topic 8 · `human-review-preferred-absent` · 1 URL(s) · https://autodun.com/blog/
-- topic 25 · `moderate-out-of-scope` · 1 URL(s) · https://autodun.com/sitemap.xml
+- topic 25 · `moderate-out-of-scope` · 1 URL(s) · https://mot.autodun.com/
 
 Coverage notes:
 - **off_host**: Skipped 1 off-host sitemap loc(s)

@@ -453,6 +453,19 @@ describe('topic 34 — lang declaration', () => {
     expect(r5.findings[0]?.verdict).toBe('low-lang-inlanguage-disagree')
     expect(r5.findings[0]?.severity).toBe('low')
 
+    // 5b. lang=en inLanguage=en-GB → compatible (primary-subtag prefix)
+    const r5b = detectLangDeclaration({
+      inspection: inspectDocumentHead(
+        page({
+          lang: 'en',
+          head: `<title>T</title><script type="application/ld+json">{"@type":"WebPage","inLanguage":"en-GB"}</script>`,
+        }),
+      ),
+    })
+    expect(
+      r5b.findings.some((f) => f.verdict === 'low-lang-inlanguage-disagree'),
+    ).toBe(false)
+
     // 6. Book no inLanguage → high
     const r6 = detectLangDeclaration({
       inspection: inspectDocumentHead(

@@ -31,6 +31,7 @@ import {
   detectTrailingSlashDuplicates,
   detectIndexHtmlDuplicates,
 } from '@/lib/fix-strategies/topic-8'
+import { resolveDuplicateUrlArtefactPath } from '@/lib/fix-strategies/duplicate-url'
 import { detectHttpHttpsDuplicates } from '@/lib/fix-strategies/topic-9'
 import { detectWwwNonWwwDuplicates } from '@/lib/fix-strategies/topic-10'
 import { detectPathCaseDuplicates } from '@/lib/fix-strategies/topic-11'
@@ -161,6 +162,7 @@ function ingestArray(
         item.sourceUrl ??
         item.url ??
         item.urlA ??
+        item.loc ??
         (memberUrls[0] as string | undefined) ??
         '',
     )
@@ -762,6 +764,8 @@ export async function runWholeSiteDetectorsOnCrawl(
       sitemapUrls,
       internalLinkUrls,
     }
+    const htmlSamples = usableHtml.map((p) => p.html).slice(0, 5)
+    const artefactPath = resolveDuplicateUrlArtefactPath({ htmlSamples })
     takeBuckets(
       '8',
       'duplicate-url/trailing-slash',
@@ -769,7 +773,8 @@ export async function runWholeSiteDetectorsOnCrawl(
         deps: hopDeps,
         discoveredNormalized,
         signals,
-        artefactPath: 'next.config.js',
+        artefactPath,
+        htmlSamples,
       }),
       out,
     )
@@ -780,7 +785,8 @@ export async function runWholeSiteDetectorsOnCrawl(
         deps: hopDeps,
         discoveredNormalized,
         signals,
-        artefactPath: 'next.config.js',
+        artefactPath,
+        htmlSamples,
       }),
       out,
     )

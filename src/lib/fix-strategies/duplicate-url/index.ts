@@ -26,3 +26,5 @@ export {
 
 export { verifyLiveDuplicateNormalized } from './verify-live'
 export type { LiveDuplicateUrlVerification } from './verify-live'
+
+export { resolveDuplicateUrlArtefactPath } from './resolve-artefact'

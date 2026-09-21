@@ -47,12 +47,21 @@ export type Topic25Finding = {
   verdict: Topic25Verdict
   severity: 'critical' | 'high' | 'moderate' | 'informational' | null
   sitemapUrl: string
+  /** Offending loc when the finding is loc-specific (list/detail pageUrl). */
+  pageUrl?: string
   detail: string
   autoFixable: boolean
   /** Never auto-rewrite lastmod. */
   lastmodRewriteRejected: true
   fixTarget: FixTargetResult
   loc?: string
+  /** Host comparison for out-of-scope (UI evidence). */
+  values?: {
+    left: string
+    right: string
+    leftLabel?: string
+    rightLabel?: string
+  }
 }
 
 export type DetectTopic25Result = {
@@ -107,17 +116,21 @@ function classifyDocument(
     detail: string,
     autoFixable: boolean,
     loc?: string,
+    values?: Topic25Finding['values'],
   ) => {
     const row: Topic25Finding = {
       kind: 'sitemap/xml-invalid',
       verdict,
       severity,
       sitemapUrl: doc.url,
+      // Loc-specific findings list under the offending URL, not only sitemap.xml
+      pageUrl: loc ?? doc.url,
       detail,
       autoFixable,
       lastmodRewriteRejected: true,
       fixTarget,
       loc,
+      values,
     }
     if (verdict === 'informational-changefreq-priority') informational.push(row)
     else findings.push(row)
@@ -288,9 +301,15 @@ function classifyDocument(
           push(
             'moderate-out-of-scope',
             'moderate',
-            `loc host ${host} outside sitemap host ${sitemapHost} (S5/S6)`,
+            `Out-of-scope loc: ${entry.loc} is on host ${host}, outside this sitemap’s host ${sitemapHost} (S5/S6). Cross-submission hosts must be allowlisted.`,
             false,
             entry.loc,
+            {
+              left: sitemapHost,
+              right: host,
+              leftLabel: 'sitemap host',
+              rightLabel: 'loc host',
+            },
           )
         }
       } catch {

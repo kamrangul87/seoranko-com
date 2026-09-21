@@ -121,6 +121,93 @@ describe('linkCrossTopicRootCauses', () => {
     expect(t25.bucket).toBe('actionable')
   })
 
+  it('demotes preferred-absent onto preferred-conflict for same URL family', () => {
+    const findings = [
+      baseFinding({
+        topicId: '8',
+        verdict: 'human-review-preferred-conflict',
+        pageUrl: 'https://autodun.com/blog',
+        detail: 'conflict',
+        evidenceValues: {
+          memberUrls: [
+            'https://autodun.com/blog',
+            'https://autodun.com/blog/',
+            'https://autodun.com/blog/index.html',
+          ],
+        },
+      }),
+      baseFinding({
+        topicId: '8',
+        verdict: 'human-review-preferred-absent',
+        pageUrl: 'https://autodun.com/blog/',
+        detail: 'no preferred-form signals',
+      }),
+    ]
+    linkCrossTopicRootCauses(findings)
+    expect(findings[0]!.bucket).toBe('actionable')
+    expect(findings[1]!.bucket).toBe('internal')
+    expect(findings[0]!.evidenceValues?.relatedFindings).toEqual([
+      expect.objectContaining({
+        verdict: 'human-review-preferred-absent',
+      }),
+    ])
+  })
+
+  it('demotes topic 38 when entity url is preferred-form twin of page', () => {
+    const findings = [
+      baseFinding({
+        topicId: '8',
+        verdict: 'human-review-preferred-conflict',
+        pageUrl: 'https://autodun.com/blog',
+        detail: 'conflict',
+        evidenceValues: {
+          memberUrls: [
+            'https://autodun.com/blog',
+            'https://autodun.com/blog/index.html',
+          ],
+        },
+      }),
+      baseFinding({
+        topicId: '38',
+        verdict: 'human-review-entity-url-mismatch',
+        pageUrl: 'https://autodun.com/blog',
+        detail: 'Entity url mismatch',
+        evidenceValues: {
+          left: 'https://autodun.com/blog/index.html',
+          right: 'https://autodun.com/blog',
+        },
+      }),
+    ]
+    linkCrossTopicRootCauses(findings)
+    expect(findings[1]!.bucket).toBe('internal')
+    expect(findings[0]!.evidenceValues?.relatedFindings).toEqual([
+      expect.objectContaining({ topicId: '38' }),
+    ])
+  })
+
+  it('does not link topic 38 when entity url is a different page', () => {
+    const findings = [
+      baseFinding({
+        topicId: '8',
+        verdict: 'human-review-preferred-conflict',
+        pageUrl: 'https://autodun.com/blog',
+        detail: 'conflict',
+      }),
+      baseFinding({
+        topicId: '38',
+        verdict: 'human-review-entity-url-mismatch',
+        pageUrl: 'https://autodun.com/blog',
+        detail: 'Entity url mismatch',
+        evidenceValues: {
+          left: 'https://autodun.com/blog/mot-history-check-uk.html',
+          right: 'https://autodun.com/blog',
+        },
+      }),
+    ]
+    linkCrossTopicRootCauses(findings)
+    expect(findings[1]!.bucket).toBe('actionable')
+  })
+
   it('does not link when canonical points at a different page', () => {
     const findings = [
       baseFinding({
@@ -152,7 +239,7 @@ describe('linkCrossTopicRootCauses', () => {
         severity: null,
         detail: 'preferred form conflict',
         pageUrl: 'https://autodun.com/blog',
-        declarationSite: 'config:next.config.js',
+        declarationSite: 'config:vercel.json',
         autoFixable: false,
         proposedDiff: null,
         evidenceValues: null,
@@ -165,7 +252,7 @@ describe('linkCrossTopicRootCauses', () => {
         severity: null,
         detail: 'preferred form conflict',
         pageUrl: 'https://autodun.com/blog/',
-        declarationSite: 'config:next.config.js',
+        declarationSite: 'config:vercel.json',
         autoFixable: false,
         proposedDiff: null,
         evidenceValues: null,
@@ -178,7 +265,7 @@ describe('linkCrossTopicRootCauses', () => {
         severity: null,
         detail: 'preferred form conflict',
         pageUrl: 'https://autodun.com/blog/index.html',
-        declarationSite: 'config:next.config.js',
+        declarationSite: 'config:vercel.json',
         autoFixable: false,
         proposedDiff: null,
         evidenceValues: null,
