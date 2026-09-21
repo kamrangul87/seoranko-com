@@ -23,9 +23,10 @@ import { discoverSameHostUrls, extractSameHostLinks } from './discover'
 import { crawlOneUrl, type CrawledPage } from './fetch-page'
 import {
   runDetectorsOnPages,
-  runTopic43OnCrawl,
+  runWholeSiteDetectorsOnCrawl,
   rollupAndClassify,
 } from './run-detectors'
+import { POST_CRAWL_TOPIC_IDS } from '@/lib/fix-strategies/detector-scope'
 import { getFindingsStore, type FindingsStore } from './store'
 
 export type StartCrawlInput = {
@@ -301,11 +302,8 @@ export async function processCrawlTick(
   }
 
   if (crawled.length > 0) {
-    const priorEmits = await store.listRunEmits(runId)
-    const emits = await runDetectorsOnPages(run.origin, crawled, {
-      // Site-level sitemap/robots detectors once per run (not every chunk).
-      runSiteLevel: priorEmits.length === 0,
-    })
+    // PER-PAGE detectors only — WHOLE-SITE runs after frontier drain.
+    const emits = await runDetectorsOnPages(run.origin, crawled)
     await store.appendRunEmits(runId, emits)
   }
 
@@ -313,13 +311,14 @@ export async function processCrawlTick(
   const stillQueued = counts.queued
   const done = stillQueued === 0 && counts.running === 0
 
-  // Full-run topic 43 once the frontier is drained (avoids chunk false orphans).
+  // WHOLE-SITE detectors once the frontier is drained (avoids chunk false
+  // positives — same fix class as topic 43 orphans on a per-chunk graph).
   if (done) {
     const allJobs = await store.listJobsForRun(runId)
     const sitemapUrls = new Set(
       allJobs.map((j) => j.url.replace(/\/$/, '')),
     )
-    const topic43Pages = allJobs
+    const wholeSitePages = allJobs
       .filter(
         (j) =>
           (j.status === 'crawled' || j.status === 'client_only') &&
@@ -332,8 +331,17 @@ export async function processCrawlTick(
         clientOnly: j.clientOnly,
         inSitemap: sitemapUrls.has((j.finalUrl || j.url).replace(/\/$/, '')),
       }))
-    const topic43Emits = await runTopic43OnCrawl(run.origin, topic43Pages)
-    await store.replaceRunEmitsForTopic(runId, '43', topic43Emits)
+    const wholeSiteEmits = await runWholeSiteDetectorsOnCrawl(
+      run.origin,
+      wholeSitePages,
+    )
+    for (const topicId of POST_CRAWL_TOPIC_IDS) {
+      await store.replaceRunEmitsForTopic(
+        runId,
+        topicId,
+        wholeSiteEmits.filter((e) => e.topicId === topicId),
+      )
+    }
   }
 
   const allEmits = await store.listRunEmits(runId)

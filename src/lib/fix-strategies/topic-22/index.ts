@@ -22,3 +22,6 @@ export {
   isPathAllowedFromInspection,
 } from '@/lib/fix-strategies/shared/robots-txt-inspect'
 export type { RobotsTxtInspection } from '@/lib/fix-strategies/shared/robots-txt-inspect'
+
+/** Crawl wiring: 'per-page' = safe in chunk loop; 'whole-site' = post-crawl only. */
+export const DETECTOR_SCOPE = 'whole-site' as const

@@ -40,3 +40,6 @@ export {
 } from './successor-similarity'
 export type { LivePage, SuccessorCandidate } from './successor-similarity'
 export { SUCCESSOR_SIMILARITY_CONFIG } from './config'
+
+/** Crawl wiring: 'per-page' = safe in chunk loop; 'whole-site' = post-crawl only. */
+export const DETECTOR_SCOPE = 'per-page' as const
