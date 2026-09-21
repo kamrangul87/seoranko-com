@@ -208,11 +208,35 @@ ${
         .join('\n')
 }
 
-## 4. Topic 26
+## 4. Topic 26 + cross-topic root cause
 
-Previously unwired; now post-crawl. \`human-review-canonical-elsewhere\` fires when a
-sitemap loc is 200 but HTML canonical points elsewhere (slash twin common on autodun).
-Actionable topic 26 count: ${topic26.length}
+\`/blog\` HTML canonical → \`https://autodun.com/blog/index.html\` (index.html
+variant of the sitemap loc). Topic 26 \`human-review-canonical-elsewhere\` and
+topic 8 \`human-review-preferred-conflict\` share one preferred-form decision —
+topic 8 is primary; topic 26 is related evidence, not a separate actionable row.
+
+Linked preferred-form primaries (topic 8 with related topic 26): ${linkedRootCause.length}
+${
+  linkedRootCause.length === 0
+    ? '_None_'
+    : linkedRootCause
+        .map((f) => {
+          const related = (f.evidenceValues?.relatedFindings ?? []) as Array<{
+            topicId?: string
+            verdict?: string
+            pageUrl?: string
+          }>
+          return `- primary topic 8 \`${f.verdict}\` · ${f.pageUrl}\n${related
+            .map(
+              (r) =>
+                `  - related topic ${r.topicId} \`${r.verdict}\` · ${r.pageUrl ?? ''}`,
+            )
+            .join('\n')}`
+        })
+        .join('\n')
+}
+
+List-API actionable topic 26 (must be 0 when linked): ${topic26.length}
 ${topic26.map((f) => `- \`${f.verdict}\` · ${f.pageUrl}`).join('\n') || '_None_'}
 
 ## 5. Detector wiring (shipped-but-unwired = 0)

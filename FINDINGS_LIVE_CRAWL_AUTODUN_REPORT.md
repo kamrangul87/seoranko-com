@@ -1,6 +1,6 @@
 # Findings live crawl — autodun.com
 
-Generated: 2026-09-21T08:45:24.608Z
+Generated: 2026-09-21T08:57:20.721Z
 
 ## 1. Discovery
 
@@ -41,12 +41,19 @@ List actionable topic 8 (after rollup to `config:next.config.js`):
 - `human-review-preferred-conflict` · 3 URL(s) · site=config:next.config.js · https://autodun.com/blog
 - `human-review-preferred-absent` · 1 URL(s) · site=config:next.config.js · https://autodun.com/blog/
 
-## 4. Topic 26
+## 4. Topic 26 + cross-topic root cause
 
-Previously unwired; now post-crawl. `human-review-canonical-elsewhere` fires when a
-sitemap loc is 200 but HTML canonical points elsewhere (slash twin common on autodun).
-Actionable topic 26 count: 1
-- `human-review-canonical-elsewhere` · https://autodun.com/blog
+`/blog` HTML canonical → `https://autodun.com/blog/index.html` (index.html
+variant of the sitemap loc). Topic 26 `human-review-canonical-elsewhere` and
+topic 8 `human-review-preferred-conflict` share one preferred-form decision —
+topic 8 is primary; topic 26 is related evidence, not a separate actionable row.
+
+Linked preferred-form primaries (topic 8 with related topic 26): 1
+- primary topic 8 `human-review-preferred-conflict` · https://autodun.com/blog
+  - related topic 26 `human-review-canonical-elsewhere` · https://autodun.com/blog
+
+List-API actionable topic 26 (must be 0 when linked): 0
+_None_
 
 ## 5. Detector wiring (shipped-but-unwired = 0)
 
@@ -128,18 +135,18 @@ Orphan findings raised: 0
 |--------|-------|
 | Status | partial |
 | Partial | true |
-| Duration | 6.8s |
+| Duration | 6.6s |
 
 ## Counts
 
 | Bucket | Live | Prior (wired 8–12) | Demo |
 |--------|------|--------------------|------|
-| actionable | 12 | 25 | 10 |
+| actionable | 11 | 25 | 10 |
 | informational | 17 | 16 | 17 |
-| internal (hidden) | 963 | — | 349 |
+| internal (hidden) | 964 | — | 349 |
 
-List API actionable: 12
-List API + informational: 29
+List API actionable: 11
+List API + informational: 28
 
 ### Actionable verdicts
 
@@ -154,7 +161,6 @@ List API + informational: 29
 - topic 8 · `human-review-preferred-conflict` · 3 URL(s) · https://autodun.com/blog
 - topic 8 · `human-review-preferred-absent` · 1 URL(s) · https://autodun.com/blog/
 - topic 25 · `moderate-out-of-scope` · 1 URL(s) · https://autodun.com/sitemap.xml
-- topic 26 · `human-review-canonical-elsewhere` · 1 URL(s) · https://autodun.com/blog
 
 Coverage notes:
 - **off_host**: Skipped 1 off-host sitemap loc(s)
