@@ -31,6 +31,7 @@ import {
   detectTrailingSlashDuplicates,
   detectIndexHtmlDuplicates,
 } from '@/lib/fix-strategies/topic-8'
+import { resolveDuplicateUrlArtefactPath } from '@/lib/fix-strategies/duplicate-url'
 import { detectHttpHttpsDuplicates } from '@/lib/fix-strategies/topic-9'
 import { detectWwwNonWwwDuplicates } from '@/lib/fix-strategies/topic-10'
 import { detectPathCaseDuplicates } from '@/lib/fix-strategies/topic-11'
@@ -48,6 +49,7 @@ import { detectSitemapMissingOrUnreachable } from '@/lib/fix-strategies/topic-24
 import { detectSitemapXmlInvalid } from '@/lib/fix-strategies/topic-25'
 import { detectSitemapNotIndexable } from '@/lib/fix-strategies/topic-26'
 import { detectIndexableUrlsAbsent } from '@/lib/fix-strategies/topic-27'
+import { linkCrossTopicRootCauses } from './link-cross-topic-root-causes'
 import { detectSitemapNotReferencedInRobots } from '@/lib/fix-strategies/topic-28'
 import { detectTagsOutsideHead } from '@/lib/fix-strategies/topic-29'
 import { detectTitleMissingOrMalformed } from '@/lib/fix-strategies/topic-30'
@@ -160,6 +162,7 @@ function ingestArray(
         item.sourceUrl ??
         item.url ??
         item.urlA ??
+        item.loc ??
         (memberUrls[0] as string | undefined) ??
         '',
     )
@@ -761,6 +764,8 @@ export async function runWholeSiteDetectorsOnCrawl(
       sitemapUrls,
       internalLinkUrls,
     }
+    const htmlSamples = usableHtml.map((p) => p.html).slice(0, 5)
+    const artefactPath = resolveDuplicateUrlArtefactPath({ htmlSamples })
     takeBuckets(
       '8',
       'duplicate-url/trailing-slash',
@@ -768,7 +773,8 @@ export async function runWholeSiteDetectorsOnCrawl(
         deps: hopDeps,
         discoveredNormalized,
         signals,
-        artefactPath: 'next.config.js',
+        artefactPath,
+        htmlSamples,
       }),
       out,
     )
@@ -779,7 +785,8 @@ export async function runWholeSiteDetectorsOnCrawl(
         deps: hopDeps,
         discoveredNormalized,
         signals,
-        artefactPath: 'next.config.js',
+        artefactPath,
+        htmlSamples,
       }),
       out,
     )
@@ -1031,6 +1038,13 @@ export function rollupAndClassify(emits: DetectorEmit[]): {
       declarationSite ?? r.pageUrl ?? '',
     ].join('|')
     const dossier = dossierSlugForTopic(r.topicId)
+    const baseEvidence =
+      (payload.evidenceValues as Record<string, unknown> | null) ?? null
+    // Preserve rollup members for cross-topic preferred-form linking
+    const evidenceValues: Record<string, unknown> | null =
+      r.memberUrls.length > 1
+        ? { ...(baseEvidence ?? {}), memberUrls: r.memberUrls }
+        : baseEvidence
     return {
       topicId: r.topicId,
       kind: String(payload.kind ?? `topic/${r.topicId}`),
@@ -1048,11 +1062,12 @@ export function rollupAndClassify(emits: DetectorEmit[]): {
       surfaceClass,
       proposedDiff:
         (payload.proposedDiff as Record<string, unknown> | null) ?? null,
-      evidenceValues:
-        (payload.evidenceValues as Record<string, unknown> | null) ?? null,
+      evidenceValues,
       sourceRows: sourcesForDossier(dossier),
     }
   })
+
+  linkCrossTopicRootCauses(findings)
 
   return { findings, internalEvidence }
 }

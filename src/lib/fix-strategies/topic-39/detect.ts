@@ -137,8 +137,13 @@ export function detectDeprecatedTypes(
         ),
       )
 
-      // FAQ without visible Q&A → D17 (more useful)
-      if (entry.type === 'FAQPage' && !pageHasVisibleFaq(options.html)) {
+      // FAQ without visible Q&A → D17 (more useful). Accordion/details/tabs
+      // and FAQ text present in the HTML body all count as visible.
+      if (
+        entry.type === 'FAQPage' &&
+        !pageHasVisibleFaq(options.html) &&
+        !faqSchemaTextPresentInBody(options.html, extraction)
+      ) {
         findings.push(
           make(
             'd17-faq-markup-not-visible',
@@ -156,13 +161,13 @@ export function detectDeprecatedTypes(
 }
 
 /**
- * Structural check: visible FAQ-like pairs (heading/dt + answer) in the
- * HTML tree — not page-prose phrase matching.
+ * Structural + text check: FAQ Q&A is "visible" when present in the served
+ * HTML tree — including collapsed accordion / <details> / tabs. Only absent
+ * when the FAQ text is genuinely not in the document body.
  */
 export function pageHasVisibleFaq(html: string): boolean {
   const parsed = parseHtml(html)
-  // Look for elements with itemprop acceptedAnswer / name under Question,
-  // or a definition list, or details/summary pairs.
+  // <details>/<summary> accordion — collapsed still counts as visible content
   const details = parsed.bodyElements('details')
   if (details.length >= 1) {
     const summaries = parsed.bodyElements('summary')
@@ -181,23 +186,75 @@ export function pageHasVisibleFaq(html: string): boolean {
     if (itemtype.includes('question')) return true
   }
 
-  // JSON-LD FAQ with visible mirror: look for role=heading groups — weak.
-  // If the page has an element with id/class faq structurally via attributes:
-  for (const el of [
-    ...parsed.bodyElements('section'),
-    ...parsed.bodyElements('div'),
-  ]) {
-    const id = (el.attrs.id ?? '').toLowerCase()
-    const cls = (el.attrs.class ?? '').toLowerCase()
-    if (/\bfaq\b/.test(id) || /\bfaq\b/.test(cls)) {
-      // Has FAQ region — check for question-like children
-      const headings = ['h2', 'h3', 'h4']
-      for (const h of headings) {
-        if (parsed.bodyElements(h).length >= 1) return true
+  // FAQ region by id/class on common containers AND headings (h2#faq etc.)
+  const regionTags = [
+    'section',
+    'div',
+    'aside',
+    'article',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+  ]
+  for (const tag of regionTags) {
+    for (const el of parsed.bodyElements(tag)) {
+      const id = (el.attrs.id ?? '').toLowerCase()
+      const cls = (el.attrs.class ?? '').toLowerCase()
+      if (/\bfaqs?\b/.test(id) || /\bfaqs?\b/.test(cls)) {
+        // Region present — any h2–h4 on the page is enough structural signal
+        for (const h of ['h2', 'h3', 'h4']) {
+          if (parsed.bodyElements(h).length >= 1) return true
+        }
+        return true
       }
     }
   }
+
+  // Tabs / disclosure widgets
+  for (const el of [
+    ...parsed.bodyElements('button'),
+    ...parsed.bodyElements('div'),
+    ...parsed.bodyElements('section'),
+  ]) {
+    if (el.attrs['aria-expanded'] != null) {
+      const id = (el.attrs.id ?? '').toLowerCase()
+      const cls = (el.attrs.class ?? '').toLowerCase()
+      if (/\bfaqs?\b/.test(id) || /\bfaqs?\b/.test(cls)) return true
+    }
+  }
+
   return false
+}
+
+/**
+ * True when FAQPage schema questions appear as text in the served HTML body —
+ * including inside collapsed accordion/details/tabs. Script tags are stripped
+ * so JSON-LD itself does not count as visible.
+ */
+export function faqSchemaTextPresentInBody(
+  html: string,
+  extraction: StructuredDataExtraction,
+): boolean {
+  const body = html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+  const questions: string[] = []
+  for (const node of extraction.nodes) {
+    const isQuestion = node.types.some((t) => /question/i.test(t))
+    if (!isQuestion) continue
+    const name = node.properties.name
+    if (typeof name === 'string' && name.trim()) questions.push(name.trim())
+  }
+  if (questions.length === 0) return false
+  let found = 0
+  for (const q of questions) {
+    if (body.includes(q)) found++
+  }
+  // Majority of declared questions present in body → visible (accordion OK)
+  return found >= Math.max(1, Math.ceil(questions.length * 0.5))
 }
 
 /** Removal only on explicit request — never unprompted. */

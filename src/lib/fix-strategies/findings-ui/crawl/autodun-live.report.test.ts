@@ -91,12 +91,41 @@ describe.skipIf(!enabled)('autodun live crawl report', () => {
       )
       // Site-wide trailingSlash must never auto-redirect
       expect(t8AutoRedirect).toHaveLength(0)
-      // Rolled findings name config:next.config.js
+      // Rolled findings name the resolved routing artefact (vercel.json for Vite/static)
       for (const f of t8Actionable) {
-        expect(f.declarationSite ?? f.rollupKey).toMatch(/next\.config|config:/)
+        expect(f.declarationSite ?? f.rollupKey).toMatch(
+          /vercel\.json|next\.config|config:/,
+        )
       }
 
       const topic26 = listedActionable.filter((f) => f.topicId === '26')
+      const t8PreferredConflict = t8Actionable.filter(
+        (f) => f.verdict === 'human-review-preferred-conflict',
+      )
+      const linkedRootCause = t8PreferredConflict.filter((f) => {
+        const related = f.evidenceValues?.relatedFindings
+        return (
+          Array.isArray(related) &&
+          related.some(
+            (r) =>
+              r &&
+              typeof r === 'object' &&
+              (r as { topicId?: string }).topicId === '26',
+          )
+        )
+      })
+      // Topic 26 canonical-elsewhere on a preferred-form twin must not stay
+      // separately actionable when topic 8 preferred-conflict covers the family.
+      expect(
+        listedActionable.every(
+          (f) =>
+            !(
+              f.topicId === '26' &&
+              f.verdict === 'human-review-canonical-elsewhere' &&
+              linkedRootCause.length > 0
+            ),
+        ),
+      ).toBe(true)
 
       const wiringTable = Object.keys(DETECTOR_SCOPE_BY_TOPIC)
         .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
@@ -169,7 +198,7 @@ Topic 27 guard: \`classifySitemapDuplicateVariant\` → \`index-html\` →
 | human-review-preferred-absent | ${t8Absent.length} | no site preferred-form signals |
 | auto-redirect | ${t8AutoRedirect.length} | must be 0 (site-wide → human-review) |
 
-List actionable topic 8 (after rollup to \`config:next.config.js\`):
+List actionable topic 8 (after rollup to resolved routing config):
 ${
   t8Actionable.length === 0
     ? '_None_'
@@ -181,11 +210,35 @@ ${
         .join('\n')
 }
 
-## 4. Topic 26
+## 4. Topic 26 + cross-topic root cause
 
-Previously unwired; now post-crawl. \`human-review-canonical-elsewhere\` fires when a
-sitemap loc is 200 but HTML canonical points elsewhere (slash twin common on autodun).
-Actionable topic 26 count: ${topic26.length}
+\`/blog\` HTML canonical → \`https://autodun.com/blog/index.html\` (index.html
+variant of the sitemap loc). Topic 26 \`human-review-canonical-elsewhere\` and
+topic 8 \`human-review-preferred-conflict\` share one preferred-form decision —
+topic 8 is primary; topic 26 is related evidence, not a separate actionable row.
+
+Linked preferred-form primaries (topic 8 with related topic 26): ${linkedRootCause.length}
+${
+  linkedRootCause.length === 0
+    ? '_None_'
+    : linkedRootCause
+        .map((f) => {
+          const related = (f.evidenceValues?.relatedFindings ?? []) as Array<{
+            topicId?: string
+            verdict?: string
+            pageUrl?: string
+          }>
+          return `- primary topic 8 \`${f.verdict}\` · ${f.pageUrl}\n${related
+            .map(
+              (r) =>
+                `  - related topic ${r.topicId} \`${r.verdict}\` · ${r.pageUrl ?? ''}`,
+            )
+            .join('\n')}`
+        })
+        .join('\n')
+}
+
+List-API actionable topic 26 (must be 0 when linked): ${topic26.length}
 ${topic26.map((f) => `- \`${f.verdict}\` · ${f.pageUrl}`).join('\n') || '_None_'}
 
 ## 5. Detector wiring (shipped-but-unwired = 0)

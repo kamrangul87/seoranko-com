@@ -273,6 +273,9 @@ export function createMemoryFindingsStore(): FindingsStore {
         if (existing) {
           const updated: PersistedFindingRow = {
             ...existing,
+            kind: f.kind,
+            bucket: f.bucket,
+            verdict: f.verdict,
             detail: f.detail,
             severity: f.severity,
             affectedUrlCount: f.affectedUrlCount,

@@ -351,6 +351,52 @@ describe('topic 38 — structured vs structured (38a) / observation (38b)', () =
     expect(entity!.detail).toMatch(/other\.example/)
     expect(entity!.detail).toMatch(ORIGIN)
 
+    // 4b. ListItem urls pointing elsewhere — expected, not D6
+    const r4b = detectStructuredDataContradictsVisible({
+      html: page({
+        '@context': 'https://schema.org',
+        '@type': 'ItemList',
+        itemListElement: [
+          {
+            '@type': 'ListItem',
+            position: 1,
+            url: 'https://example.com/other-post',
+          },
+        ],
+      }),
+      pageUrl: ORIGIN,
+      nowMs: now,
+    })
+    expect(
+      r4b.findings.some((f) => f.verdict === 'human-review-entity-url-mismatch'),
+    ).toBe(false)
+    expect(
+      r4b.suppressed.some((s) => s.verdict === 'suppress-list-item-url-expected'),
+    ).toBe(true)
+
+    // 4c. Article + publisher Organization url elsewhere — Org is not primary
+    const r4c = detectStructuredDataContradictsVisible({
+      html: page({
+        '@context': 'https://schema.org',
+        '@type': 'Article',
+        headline: 'H',
+        url: ORIGIN + '/',
+        publisher: {
+          '@type': 'Organization',
+          name: 'Co',
+          url: 'https://example.com/',
+        },
+      }),
+      pageUrl: ORIGIN,
+      nowMs: now,
+    })
+    expect(
+      r4c.findings.some((f) => f.verdict === 'human-review-entity-url-mismatch'),
+    ).toBe(false)
+    expect(
+      r4c.suppressed.some((s) => s.verdict === 'suppress-non-primary-entity-url'),
+    ).toBe(true)
+
     // 5. format-only date diff → nothing
     const r5 = detectStructuredDataContradictsVisible({
       html: page(

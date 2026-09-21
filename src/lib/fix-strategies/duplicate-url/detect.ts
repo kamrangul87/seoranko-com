@@ -33,6 +33,7 @@ import {
   hasAuthOrSignedParam,
   type DuplicateUrlVerdict,
 } from './classify'
+import { resolveDuplicateUrlArtefactPath } from './resolve-artefact'
 
 export type VariantDiscoverability = 'discovered' | 'generated-only'
 
@@ -104,6 +105,13 @@ export type DetectDuplicateUrlOptions = {
   artefactPath?: string
   isGenerated?: boolean
   generatorPath?: string | null
+  /**
+   * Repo file inventory for resolving the routing artefact (next.config vs
+   * vercel.json). When omitted, HTML samples / defaults apply.
+   */
+  repoFiles?: string[] | null
+  /** Served HTML samples — used to detect Next.js vs static/Vite. */
+  htmlSamples?: string[] | null
 }
 
 const STRATEGY_TOPIC: Record<DuplicateUrlStrategy, 8 | 9 | 10 | 11 | 12> = {
@@ -165,7 +173,12 @@ export async function detectDuplicateUrls(
   const suppressed: DetectDuplicateUrlResult['suppressed'] = []
   const reportOnly: DetectDuplicateUrlResult['reportOnly'] = []
 
-  const artefactPath = options.artefactPath ?? 'next.config.js'
+  const artefactPath =
+    options.artefactPath ??
+    resolveDuplicateUrlArtefactPath({
+      repoFiles: options.repoFiles,
+      htmlSamples: options.htmlSamples,
+    })
   const fixTarget = resolveFixTarget({
     artefactPath,
     isGenerated: options.isGenerated ?? false,

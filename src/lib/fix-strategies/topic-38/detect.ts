@@ -27,6 +27,8 @@ export type Topic38Verdict =
   | 'suppress-format-only-date-diff'
   | 'suppress-dateModified-equals-datePublished'
   | 'suppress-paywalled-permitted'
+  | 'suppress-list-item-url-expected'
+  | 'suppress-non-primary-entity-url'
   | 'ok'
 
 export type Topic38Finding = {
@@ -184,6 +186,80 @@ export function rejectedProseOrSemanticCompare(): never {
   throw new Error(
     'topic 38: 38a compares structured values only — no prose / semantic similarity',
   )
+}
+
+/**
+ * Types whose `url` is expected to identify THIS page (38a / D6).
+ * ListItem / ItemList / BreadcrumbList and other list-member entities are
+ * excluded — their urls are supposed to point elsewhere.
+ */
+const PRIMARY_PAGE_ENTITY_TYPES = [
+  'webpage',
+  'aboutpage',
+  'contactpage',
+  'collectionpage',
+  'itempage',
+  'profilepage',
+  'searchresultspage',
+  'article',
+  'newsarticle',
+  'blogposting',
+  'techarticle',
+  'report',
+  'product',
+  'individualproduct',
+  'productgroup',
+  'recipe',
+  'event',
+  'faqpage',
+  'howto',
+  'course',
+  'jobposting',
+  'softwareapplication',
+  'mobileapplication',
+  'webapplication',
+  'videoobject',
+  'movie',
+  'book',
+  'dataset',
+]
+
+const ORG_PERSON_TYPES = [
+  'organization',
+  'localbusiness',
+  'person',
+  'corporation',
+]
+
+const LIST_MEMBER_TYPES = ['listitem', 'itemlist', 'breadcrumblist']
+
+function typeKey(t: string): string {
+  return t.replace(/^https?:\/\/schema\.org\//i, '').toLowerCase()
+}
+
+/**
+ * True when this node's `url` should be compared to the page URL (38a D6).
+ * Primary = WebPage / Article / Product / … describing this page.
+ * Org/Person only when no page-content type is present (about-page case).
+ * ListItem / ItemList never — those urls point at other pages by design.
+ */
+export function isPrimaryPageEntityForUrlCheck(
+  node: StructuredDataNode,
+  allNodes: StructuredDataNode[],
+): boolean {
+  const keys = node.types.map(typeKey)
+  if (keys.some((k) => LIST_MEMBER_TYPES.includes(k))) return false
+
+  if (keys.some((k) => PRIMARY_PAGE_ENTITY_TYPES.includes(k))) return true
+
+  if (keys.some((k) => ORG_PERSON_TYPES.includes(k))) {
+    const pageHasContentType = allNodes.some((n) =>
+      n.types.some((t) => PRIMARY_PAGE_ENTITY_TYPES.includes(typeKey(t))),
+    )
+    return !pageHasContentType
+  }
+
+  return false
 }
 
 export function detectStructuredDataContradictsVisible(
@@ -371,23 +447,39 @@ export function detectStructuredDataContradictsVisible(
       }
     }
 
-    // Entity url mismatch (D6) — human-review: both sides are site claims
-    // (syndication / cross-page entity url may be deliberate). Never auto-fix.
+    // Entity url mismatch (D6) — ONLY the page's primary entity
+    // (WebPage / Article / Product / …). ListItem urls are supposed to point
+    // at other pages; publisher/author Organization urls are not the page entity.
     const entityUrl = asString(getProp(node, 'url'))
     if (entityUrl) {
-      const entNorm = normalizeFixStrategyUrl(entityUrl, options.pageUrl)
-      if (entNorm && entNorm !== pageNorm) {
-        findings.push({
-          kind: 'structured-data/contradicts-visible-page',
-          verdict: 'human-review-entity-url-mismatch',
-          severity: 'high',
-          pageUrl: options.pageUrl,
-          detail: `Entity url (${entNorm}) ≠ page url (${pageNorm}) carrying the markup (D6). Both are site claims — syndication may be deliberate; human review.`,
-          autoFixable: false,
-          proposedEntityUrl: null,
-          declarationSite,
-          values: { left: entNorm, right: pageNorm },
+      const keys = node.types.map(typeKey)
+      if (keys.some((k) => LIST_MEMBER_TYPES.includes(k))) {
+        suppressed.push({
+          verdict: 'suppress-list-item-url-expected',
+          detail: `ListItem/ItemList url (${entityUrl}) points elsewhere by design — not a D6 primary-entity check`,
         })
+      } else if (
+        !isPrimaryPageEntityForUrlCheck(node, extraction.nodes)
+      ) {
+        suppressed.push({
+          verdict: 'suppress-non-primary-entity-url',
+          detail: `url on non-primary entity (${node.types.join(',') || 'unknown'}) — D6 applies to the page's own primary entity only`,
+        })
+      } else {
+        const entNorm = normalizeFixStrategyUrl(entityUrl, options.pageUrl)
+        if (entNorm && entNorm !== pageNorm) {
+          findings.push({
+            kind: 'structured-data/contradicts-visible-page',
+            verdict: 'human-review-entity-url-mismatch',
+            severity: 'high',
+            pageUrl: options.pageUrl,
+            detail: `Primary entity url (${entNorm}) ≠ page url (${pageNorm}) carrying the markup (D6). Both are site claims — syndication may be deliberate; human review.`,
+            autoFixable: false,
+            proposedEntityUrl: null,
+            declarationSite,
+            values: { left: entNorm, right: pageNorm },
+          })
+        }
       }
     }
   }

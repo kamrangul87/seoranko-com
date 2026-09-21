@@ -479,6 +479,50 @@ describe('topic 39 — deprecated types', () => {
       r4.findings.some((f) => f.verdict === 'd17-faq-markup-not-visible'),
     ).toBe(true)
 
+    // 4b. FAQ questions present under h2#faq → visible (not D17)
+    const r4b = detectDeprecatedTypes({
+      html: page(
+        JSON.stringify({
+          '@context': 'https://schema.org',
+          '@type': 'FAQPage',
+          mainEntity: [
+            {
+              '@type': 'Question',
+              name: 'Is this visible?',
+              acceptedAnswer: { '@type': 'Answer', text: 'Yes it is.' },
+            },
+          ],
+        }),
+        '<h2 id="faq">FAQ</h2><h3>Is this visible?</h3><p>Yes it is.</p>',
+      ),
+      pageUrl: ORIGIN,
+    })
+    expect(
+      r4b.findings.some((f) => f.verdict === 'd17-faq-markup-not-visible'),
+    ).toBe(false)
+
+    // 4c. FAQ text inside <details> accordion → visible
+    const r4c = detectDeprecatedTypes({
+      html: page(
+        JSON.stringify({
+          '@context': 'https://schema.org',
+          '@type': 'FAQPage',
+          mainEntity: [
+            {
+              '@type': 'Question',
+              name: 'Collapsed question?',
+              acceptedAnswer: { '@type': 'Answer', text: 'Still visible.' },
+            },
+          ],
+        }),
+        '<details><summary>Collapsed question?</summary><p>Still visible.</p></details>',
+      ),
+      pageUrl: ORIGIN,
+    })
+    expect(
+      r4c.findings.some((f) => f.verdict === 'd17-faq-markup-not-visible'),
+    ).toBe(false)
+
     // 5. undated table entry → no finding
     const r5 = detectDeprecatedTypes({
       html: page(
