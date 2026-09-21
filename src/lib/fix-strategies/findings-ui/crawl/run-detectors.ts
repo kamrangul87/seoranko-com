@@ -137,7 +137,11 @@ function ingestArray(
   kindDefault: string,
   items: unknown[],
   out: DetectorEmit[],
-  opts?: { defaultVerdict?: string },
+  opts?: {
+    defaultVerdict?: string
+    /** Forced bucket for internal audit-trail arrays (suppressed/ok/…). */
+    forceBucket?: DetectorEmit['bucket']
+  },
 ): void {
   for (const raw of items) {
     if (!raw || typeof raw !== 'object') continue
@@ -189,7 +193,7 @@ function ingestArray(
                 renderRequired: item.renderRequired ?? false,
               }
             : null,
-      bucket: classifyVerdictBucket(verdict),
+      bucket: opts?.forceBucket ?? classifyVerdictBucket(verdict),
     })
   }
 }
@@ -217,7 +221,8 @@ function takeBuckets(
     const arr = r[key]
     if (Array.isArray(arr)) ingestArray(topicId, kind, inject(arr), out)
   }
-  // Internal audit trail — normalize ok[] which often omit verdict
+  // Internal audit trail — never surface as actionable (topic 1/42 use
+  // bare `reason` strings like scheme-filter / status-200).
   for (const key of [
     'observations',
     'suppressed',
@@ -229,6 +234,7 @@ function takeBuckets(
     if (!Array.isArray(arr)) continue
     ingestArray(topicId, kind, inject(arr), out, {
       defaultVerdict: key === 'ok' ? 'ok' : undefined,
+      forceBucket: 'internal',
     })
   }
 }
