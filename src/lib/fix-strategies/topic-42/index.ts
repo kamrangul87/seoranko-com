@@ -29,3 +29,6 @@ export type {
   DeclarationKind,
   HrefDeclaration,
 } from './resolve-declaration'
+
+/** Crawl wiring: 'per-page' = safe in chunk loop; 'whole-site' = post-crawl only. */
+export const DETECTOR_SCOPE = 'per-page' as const

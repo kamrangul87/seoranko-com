@@ -17,3 +17,6 @@ export type {
 export { addHeadCanonical, removeBodyCanonicals } from './fix-add-canonical'
 export { verifyLiveCanonicalPresent } from './verify-live-canonical'
 export type { LiveCanonicalAbsentVerification } from './verify-live-canonical'
+
+/** Crawl wiring: 'per-page' = safe in chunk loop; 'whole-site' = post-crawl only. */
+export const DETECTOR_SCOPE = 'per-page' as const

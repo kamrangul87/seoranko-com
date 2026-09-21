@@ -16,3 +16,6 @@ export type {
 export { setHeadCanonicalHref } from './fix-repoint-canonical'
 export { verifyLiveCanonicalTarget200 } from './verify-live-target'
 export type { LiveCanonicalTargetVerification } from './verify-live-target'
+
+/** Crawl wiring: 'per-page' = safe in chunk loop; 'whole-site' = post-crawl only. */
+export const DETECTOR_SCOPE = 'per-page' as const

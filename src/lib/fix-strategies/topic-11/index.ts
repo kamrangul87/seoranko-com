@@ -23,3 +23,6 @@ export async function detectPathCaseDuplicates(
 }
 
 export { verifyLiveDuplicateNormalized } from '@/lib/fix-strategies/duplicate-url'
+
+/** Crawl wiring: 'per-page' = safe in chunk loop; 'whole-site' = post-crawl only. */
+export const DETECTOR_SCOPE = 'per-page' as const

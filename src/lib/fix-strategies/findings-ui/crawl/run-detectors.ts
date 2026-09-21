@@ -1,6 +1,10 @@
 /**
  * Run shipped HTML-level detectors on crawled pages.
  * Detectors themselves are unchanged — this only calls them.
+ *
+ * PER-PAGE detectors run per chunk. WHOLE-SITE detectors run once when the
+ * frontier is exhausted via runWholeSiteDetectorsOnCrawl (same fix class as
+ * topic 43 — chunk graphs invent false findings).
  */
 
 import {
@@ -10,6 +14,9 @@ import {
   buildInternalLinkGraph,
   rollupFindingsByDeclarationSite,
   inspectSiteSitemaps,
+  hasNoindexDirective,
+  extractHtmlCanonical,
+  normalizeFixStrategyUrl,
   type RollupFindingInput,
 } from '@/lib/fix-strategies/shared'
 import { detectStructuredDataContradictsVisible } from '@/lib/fix-strategies/topic-38'
@@ -28,6 +35,15 @@ import { detectSitemapXmlInvalid } from '@/lib/fix-strategies/topic-25'
 import { detectSitemapMissingOrUnreachable } from '@/lib/fix-strategies/topic-24'
 import { detectSitemapNotReferencedInRobots } from '@/lib/fix-strategies/topic-28'
 import { detectIndexableUrlsAbsent } from '@/lib/fix-strategies/topic-27'
+import { detectDuplicateTitlesDescriptions } from '@/lib/fix-strategies/topic-33'
+import { detectCrawlDepth } from '@/lib/fix-strategies/topic-45'
+import { detectMissingReturnLinks } from '@/lib/fix-strategies/topic-46'
+import {
+  assertChunkLoopTopics,
+  assertPostCrawlTopics,
+  CHUNK_LOOP_TOPIC_IDS,
+  POST_CRAWL_TOPIC_IDS,
+} from '@/lib/fix-strategies/detector-scope'
 import { classifyVerdictBucket, classifySurfaceClass } from '../buckets'
 import { sourcesForDossier } from '../sources'
 import { dossierSlugForTopic } from '../topic-registry'
@@ -49,6 +65,10 @@ export type DetectorEmit = {
   bucket: 'actionable' | 'informational' | 'internal'
 }
 
+// Guard at module load: chunk-wired ids must stay PER-PAGE.
+assertChunkLoopTopics(CHUNK_LOOP_TOPIC_IDS)
+assertPostCrawlTopics(POST_CRAWL_TOPIC_IDS)
+
 function ingestArray(
   topicId: string,
   kindDefault: string,
@@ -65,8 +85,15 @@ function ingestArray(
     // Skip malformed rows (e.g. ok[] entries that only have pageUrl/detail
     // were previously defaulting to "unknown" and polluting actionable).
     if (!verdict) continue
+    const memberUrls = Array.isArray(item.memberUrls)
+      ? (item.memberUrls as unknown[]).filter((u) => typeof u === 'string')
+      : []
     const pageUrl = String(
-      item.pageUrl ?? item.sourceUrl ?? item.url ?? '',
+      item.pageUrl ??
+        item.sourceUrl ??
+        item.url ??
+        (memberUrls[0] as string | undefined) ??
+        '',
     )
     const declarationSite =
       typeof item.declarationSite === 'string' ? item.declarationSite : null
@@ -91,7 +118,13 @@ function ingestArray(
       evidenceValues:
         item.values && typeof item.values === 'object'
           ? (item.values as Record<string, unknown>)
-          : null,
+          : item.depth != null || item.shortestPath != null
+            ? {
+                depth: item.depth ?? null,
+                shortestPath: item.shortestPath ?? null,
+                renderRequired: item.renderRequired ?? false,
+              }
+            : null,
       bucket: classifyVerdictBucket(verdict),
     })
   }
@@ -115,8 +148,8 @@ function takeBuckets(
       return { ...item, pageUrl: pageUrlFallback }
     })
   }
-  // Surface buckets
-  for (const key of ['findings', 'informational'] as const) {
+  // Surface buckets (metrics = topic 45 architecture reporting)
+  for (const key of ['findings', 'informational', 'metrics'] as const) {
     const arr = r[key]
     if (Array.isArray(arr)) ingestArray(topicId, kind, inject(arr), out)
   }
@@ -137,15 +170,14 @@ function takeBuckets(
 }
 
 /**
- * Run detectors across a set of crawled pages (same origin).
- * Site-level sitemap detectors run once when `runSiteLevel` is true
- * (first tick / full batch) so topics 24–28 are included.
+ * PER-PAGE detectors across a chunk of crawled pages (same origin).
+ * WHOLE-SITE detectors are deliberately excluded — see runWholeSiteDetectorsOnCrawl.
  */
 export async function runDetectorsOnPages(
   origin: string,
   pages: CrawledPage[],
-  opts?: { runSiteLevel?: boolean },
 ): Promise<DetectorEmit[]> {
+  void origin
   const out: DetectorEmit[] = []
   const usable = pages.filter(
     (p) =>
@@ -161,64 +193,8 @@ export async function runDetectorsOnPages(
   const jsonLdSite = 'generator:site-jsonld'
   const imgSite = 'generator:site-images'
 
-  if (opts?.runSiteLevel !== false) {
-    try {
-      let lastAt = 0
-      const deps: FetchDeps = {
-        fetch: globalThis.fetch.bind(globalThis),
-        now: () => Date.now(),
-        sleep: async (ms: number) => {
-          const since = Date.now() - lastAt
-          const wait = Math.max(ms, CRAWL_INTER_REQUEST_GAP_MS - since, 0)
-          if (wait > 0) await new Promise((r) => setTimeout(r, wait))
-          lastAt = Date.now()
-        },
-      }
-      const inspection = await inspectSiteSitemaps({ originUrl: origin, deps })
-      takeBuckets(
-        '24',
-        'sitemap/missing-or-unreachable',
-        detectSitemapMissingOrUnreachable({ inspection }),
-        out,
-        `${origin}/sitemap.xml`,
-      )
-      takeBuckets(
-        '25',
-        'sitemap/xml-invalid',
-        detectSitemapXmlInvalid({ inspection }),
-        out,
-        `${origin}/sitemap.xml`,
-      )
-      takeBuckets(
-        '28',
-        'sitemap/not-referenced-in-robots',
-        detectSitemapNotReferencedInRobots({ inspection }),
-        out,
-        `${origin}/robots.txt`,
-      )
-      takeBuckets(
-        '27',
-        'sitemap/indexable-urls-absent',
-        detectIndexableUrlsAbsent({
-          inspection,
-          pages: usable.map((p) => ({
-            url: p.finalUrl,
-            status200: (p.status ?? 0) === 200,
-            body: p.html,
-            headers: p.headers,
-            internallyLinked: true,
-          })),
-        }),
-        out,
-        `${origin}/sitemap.xml`,
-      )
-    } catch {
-      // Site-level sitemap inspect failure is recorded as coverage elsewhere;
-      // do not abort page detectors.
-    }
-  }
-
-  // Batch-style detectors (topic 13 / 17)
+  // Batch-style PER-PAGE detectors (topic 13 / 17) — each page is independent;
+  // running on a chunk does not invent cross-URL false positives.
   if (usable.length > 0) {
     takeBuckets(
       '13',
@@ -350,52 +326,202 @@ export async function runDetectorsOnPages(
     takeBuckets('49', 'performance/img-missing-dimensions', img, out, pageUrl)
   }
 
-  // Topic 43 runs once on the full crawl set (see runTopic43OnCrawl) so
-  // chunk boundaries cannot invent orphans.
-
   return out
 }
 
+export type WholeSitePageInput = {
+  url: string
+  html: string
+  status: number | null
+  clientOnly: boolean
+  inSitemap?: boolean
+  headers?: Headers
+}
+
 /**
- * Build the full-run link graph and run topic 43.
- * Includes client_only pages as empty shells so the incomplete-evidence
- * guard can fire; HTML pages contribute crawlable <a href> edges.
+ * WHOLE-SITE detectors — run once when the frontier is drained.
+ * Covers sitemap set (24/25/27/28), cross-URL head (33), link graph (43/45),
+ * and hreflang reciprocity (46).
  */
-export async function runTopic43OnCrawl(
+export async function runWholeSiteDetectorsOnCrawl(
   origin: string,
-  pages: Array<{
-    url: string
-    html: string
-    status: number | null
-    clientOnly: boolean
-    inSitemap?: boolean
-  }>,
+  pages: WholeSitePageInput[],
 ): Promise<DetectorEmit[]> {
   const out: DetectorEmit[] = []
   if (pages.length === 0) return out
 
+  const usableHtml = pages.filter(
+    (p) =>
+      !p.clientOnly &&
+      p.html &&
+      p.status != null &&
+      p.status >= 200 &&
+      p.status < 400,
+  )
+
+  // --- Sitemap / robots site artefacts (24, 25, 27, 28) ---
+  let inspection: Awaited<ReturnType<typeof inspectSiteSitemaps>> | null = null
+  try {
+    let lastAt = 0
+    const deps: FetchDeps = {
+      fetch: globalThis.fetch.bind(globalThis),
+      now: () => Date.now(),
+      sleep: async (ms: number) => {
+        const since = Date.now() - lastAt
+        const wait = Math.max(ms, CRAWL_INTER_REQUEST_GAP_MS - since, 0)
+        if (wait > 0) await new Promise((r) => setTimeout(r, wait))
+        lastAt = Date.now()
+      },
+    }
+    inspection = await inspectSiteSitemaps({ originUrl: origin, deps })
+    takeBuckets(
+      '24',
+      'sitemap/missing-or-unreachable',
+      detectSitemapMissingOrUnreachable({ inspection }),
+      out,
+      `${origin}/sitemap.xml`,
+    )
+    takeBuckets(
+      '25',
+      'sitemap/xml-invalid',
+      detectSitemapXmlInvalid({ inspection }),
+      out,
+      `${origin}/sitemap.xml`,
+    )
+    takeBuckets(
+      '28',
+      'sitemap/not-referenced-in-robots',
+      detectSitemapNotReferencedInRobots({ inspection }),
+      out,
+      `${origin}/robots.txt`,
+    )
+  } catch {
+    // Site-level sitemap inspect failure is recorded as coverage elsewhere;
+    // do not abort other whole-site detectors.
+  }
+
+  // Link graph once for 27 (internallyLinked), 43, 45
   const hasClientOnlyPages = pages.some((p) => p.clientOnly)
   const graphPages = pages
     .filter((p) => p.html || p.clientOnly)
     .map((p) => ({
       url: p.url,
-      // client_only shells contribute no crawlable edges (empty / minimal HTML)
       html: p.clientOnly ? '' : p.html,
       status: p.status,
       inSitemap: p.inSitemap === true,
     }))
-
   const graph = buildInternalLinkGraph({
     originUrl: origin,
     pages: graphPages,
   })
+  const inboundLinked = new Set(
+    graph.edges.filter((e) => e.crawlable).map((e) => e.toNormalized),
+  )
+  // Homepage is reachable by definition
+  if (graph.homepageNormalized) inboundLinked.add(graph.homepageNormalized)
+
+  if (inspection) {
+    takeBuckets(
+      '27',
+      'sitemap/indexable-urls-absent',
+      detectIndexableUrlsAbsent({
+        inspection,
+        pages: usableHtml.map((p) => {
+          const norm =
+            normalizeFixStrategyUrl(p.url) ?? p.url.replace(/\/$/, '')
+          return {
+            url: p.url,
+            status200: (p.status ?? 0) === 200,
+            body: p.html,
+            headers: p.headers,
+            internallyLinked:
+              inboundLinked.has(norm) ||
+              inboundLinked.has(p.url.replace(/\/$/, '')),
+          }
+        }),
+      }),
+      out,
+      `${origin}/sitemap.xml`,
+    )
+  }
+
+  // --- Topic 33: duplicate titles/descriptions across full crawl set ---
+  if (usableHtml.length >= 2) {
+    const topic33Pages = usableHtml.map((p) => {
+      const head = inspectDocumentHead(p.html)
+      const noindex = hasNoindexDirective(
+        p.headers ?? new Headers(),
+        p.html,
+        'text/html',
+      )
+      const canonical = extractHtmlCanonical(p.html, p.url, 'text/html')
+      return {
+        url: p.url,
+        inspection: head,
+        indexable: (p.status ?? 0) === 200 && !noindex,
+        canonicalTarget: canonical
+          ? normalizeFixStrategyUrl(canonical, p.url)
+          : null,
+      }
+    })
+    takeBuckets(
+      '33',
+      'head/duplicate-titles-descriptions',
+      detectDuplicateTitlesDescriptions({ pages: topic33Pages }),
+      out,
+    )
+  }
+
+  // --- Topic 43: orphans (full-run graph) ---
   takeBuckets(
     '43',
     'internal-links/orphan-pages',
     detectOrphanPages({ graph, hasClientOnlyPages }),
     out,
   )
+
+  // --- Topic 45: crawl depth (same graph) ---
+  takeBuckets(
+    '45',
+    'internal-links/crawl-depth',
+    detectCrawlDepth({ graph }),
+    out,
+  )
+
+  // --- Topic 46: hreflang reciprocity across full page set ---
+  if (usableHtml.length > 0) {
+    takeBuckets(
+      '46',
+      'hreflang/missing-return-links',
+      detectMissingReturnLinks({
+        collect: {
+          originUrl: origin,
+          pages: usableHtml.map((p) => ({
+            url: p.url,
+            html: p.html,
+            headers: p.headers,
+            status: p.status,
+          })),
+          sitemap: inspection,
+        },
+      }),
+      out,
+    )
+  }
+
   return out
+}
+
+/**
+ * @deprecated Prefer runWholeSiteDetectorsOnCrawl — kept for call-site clarity
+ * in tests that only assert topic 43.
+ */
+export async function runTopic43OnCrawl(
+  origin: string,
+  pages: WholeSitePageInput[],
+): Promise<DetectorEmit[]> {
+  const all = await runWholeSiteDetectorsOnCrawl(origin, pages)
+  return all.filter((e) => e.topicId === '43')
 }
 
 export type RolledPersistCandidate = {
