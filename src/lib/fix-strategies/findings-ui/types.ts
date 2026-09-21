@@ -74,8 +74,13 @@ export type FindingsListResponse = {
     status: string | null
     isPartial: boolean
     coverageNotes: Array<{ code: string; detail: string; url?: string }>
+    /** Same-host locs found before any cap. */
+    urlsFound: number
+    /** Locs enqueued (≤ urlsFound). */
     urlsDiscovered: number
     urlsCrawled: number
+    /** Cap applied at enqueue, if any. */
+    urlCap: number | null
     chunkSize: number
   } | null
   counts: {
