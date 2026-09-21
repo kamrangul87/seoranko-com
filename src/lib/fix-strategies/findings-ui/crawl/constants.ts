@@ -15,8 +15,14 @@ export const CRAWL_TICK_DEADLINE_MS = 45_000
 /** Min delay between SEORANKO requests to a customer origin (ms). */
 export const CRAWL_INTER_REQUEST_GAP_MS = 250
 
-/** Max URLs discovered from sitemap for one run (product cap). */
-export const CRAWL_MAX_DISCOVERED = 100
+/**
+ * Max same-host sitemap locs enqueued for one run (product safety cap).
+ * Why: startCrawlRun discovers + enqueues in one serverless invocation; an
+ * unbounded sitemap can blow memory/time before the first tick. Chunks then
+ * process the queue across ticks. Hitting this cap → status partial (frontier
+ * not exhausted). Raise only with measured start-handler budgets.
+ */
+export const CRAWL_MAX_DISCOVERED = 500
 
 export type CrawlRunStatus =
   | 'queued'
@@ -89,11 +95,16 @@ export type CrawlRunRecord = {
   origin: string
   status: CrawlRunStatus
   chunkSize: number
+  /** Same-host locs found before any product/test cap. */
+  urlsFound: number
+  /** Locs actually enqueued (≤ urlsFound; may be capped). */
   urlsDiscovered: number
   urlsCrawled: number
   urlsFailed: number
   urlsClientOnly: number
   urlsSkippedOffHost: number
+  /** Cap applied at enqueue time (CRAWL_MAX_DISCOVERED and/or maxUrls). */
+  urlCap: number | null
   coverageNotes: CoverageNote[]
   isPartial: boolean
   errorDetail: string | null

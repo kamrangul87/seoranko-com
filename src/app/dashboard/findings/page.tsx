@@ -146,11 +146,12 @@ export default function FindingsListPage() {
 
   const crawl = data?.crawl ?? null
   const showPartialBanner =
-    crawl &&
-    (crawl.isPartial || crawl.status === 'partial') &&
-    (crawl.status === 'partial' ||
-      crawl.status === 'complete' ||
-      crawl.status === 'failed')
+    Boolean(crawl) &&
+    (crawl!.isPartial || crawl!.status === 'partial')
+  const uncrawledFound =
+    crawl && crawl.urlsFound > crawl.urlsCrawled
+      ? crawl.urlsFound - crawl.urlsCrawled
+      : 0
 
   return (
     <div
@@ -204,21 +205,37 @@ export default function FindingsListPage() {
                 Status: {crawlStatusLabel(crawl.status)}
               </span>
               <span className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]">
-                {crawl.urlsCrawled}/{crawl.urlsDiscovered} URLs
+                {crawl.urlsCrawled} crawled · {crawl.urlsFound} found
+                {crawl.urlsDiscovered < crawl.urlsFound
+                  ? ` · ${crawl.urlsDiscovered} enqueued`
+                  : ''}
               </span>
+              {crawl.urlCap != null && (
+                <span className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]">
+                  Cap {crawl.urlCap}
+                </span>
+              )}
               <span className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]">
                 Chunk {crawl.chunkSize}
               </span>
             </div>
           )}
 
-          {showPartialBanner && (
+          {showPartialBanner && crawl && (
             <div className="mb-6 rounded-[10px] border border-amber-200 bg-amber-50 text-amber-950 px-4 py-3 text-sm">
               <p className="font-medium">Partial crawl coverage</p>
               <p className="mt-1 text-amber-900/80">
-                This run did not cover the full site. Findings below reflect
-                only the URLs successfully crawled — do not treat this as a
-                complete audit.
+                This run did not exhaust the crawl frontier. Findings below
+                reflect only the URLs successfully crawled — do not treat this
+                as a complete audit.
+                {uncrawledFound > 0 && (
+                  <>
+                    {' '}
+                    {uncrawledFound} of {crawl.urlsFound} discovered URL
+                    {crawl.urlsFound === 1 ? '' : 's'} were not crawled
+                    {crawl.urlCap != null ? ` (cap ${crawl.urlCap})` : ''}.
+                  </>
+                )}
               </p>
               {crawl.coverageNotes.length > 0 && (
                 <ul className="mt-2 list-disc pl-5 space-y-0.5 text-amber-900/70">

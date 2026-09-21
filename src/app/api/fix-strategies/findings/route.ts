@@ -86,8 +86,10 @@ export async function GET(request: Request) {
           status: latest.status,
           isPartial: latest.isPartial,
           coverageNotes: latest.coverageNotes,
+          urlsFound: latest.urlsFound || latest.urlsDiscovered,
           urlsDiscovered: latest.urlsDiscovered,
           urlsCrawled: latest.urlsCrawled,
+          urlCap: latest.urlCap ?? null,
           chunkSize: latest.chunkSize || CRAWL_URL_CHUNK_SIZE,
         }
       : null,

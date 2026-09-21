@@ -37,11 +37,16 @@ function extractLocs(xml: string): string[] {
 }
 
 /**
- * Returns absolute http(s) URLs on the same host as `origin`, capped.
+ * Returns absolute http(s) URLs on the same host as `origin`.
+ * Applies CRAWL_MAX_DISCOVERED at enqueue time — capped runs are partial.
  */
 export async function discoverSameHostUrls(origin: string): Promise<{
+  /** Enqueued subset (≤ CRAWL_MAX_DISCOVERED). */
   urls: string[]
+  /** Total same-host locs found before the product cap. */
+  foundTotal: number
   skippedOffHost: number
+  capped: boolean
   notes: string[]
 }> {
   const originUrl = origin.replace(/\/$/, '')
@@ -95,12 +100,14 @@ export async function discoverSameHostUrls(origin: string): Promise<{
   // Always include homepage
   candidates.add(`${originUrl}/`)
 
+  const foundTotal = candidates.size
+  const capped = foundTotal > CRAWL_MAX_DISCOVERED
   const urls = Array.from(candidates).slice(0, CRAWL_MAX_DISCOVERED)
-  if (candidates.size > CRAWL_MAX_DISCOVERED) {
+  if (capped) {
     notes.push(
-      `discovery capped at ${CRAWL_MAX_DISCOVERED} (found ${candidates.size})`,
+      `discovery capped at ${CRAWL_MAX_DISCOVERED}: found ${foundTotal} same-host URLs, enqueued ${urls.length}, ${foundTotal - urls.length} not crawled`,
     )
   }
 
-  return { urls, skippedOffHost, notes }
+  return { urls, foundTotal, skippedOffHost, capped, notes }
 }

@@ -5,9 +5,16 @@
  * fetch + topic-68 re-fetch + multi-detector work (incl. image probes). Five
  * URLs fit a ~45s tick under Vercel Hobby maxDuration=60 with backoff headroom;
  * remaining URLs resume on the next /tick.
+ *
+ * Status:
+ * - complete = frontier exhausted (no cap), queue empty, no coverage gaps
+ * - partial = discovery/maxUrls cap, or client_only / fetch failures / backoff
+ *   / stream_incomplete after the queue drains (or permanently stopped with
+ *   work left). Mid-tick time_limit with URLs still queued → stays running.
  */
 
 import {
+  CRAWL_MAX_DISCOVERED,
   CRAWL_TICK_DEADLINE_MS,
   CRAWL_URL_CHUNK_SIZE,
   type CoverageNote,
@@ -22,7 +29,10 @@ export type StartCrawlInput = {
   userId: string
   origin: string
   store?: FindingsStore
-  /** Cap discovered URLs (tests / sample runs). */
+  /**
+   * Optional extra enqueue cap (tests). Hitting this (or CRAWL_MAX_DISCOVERED)
+   * marks the run partial — never complete.
+   */
   maxUrls?: number
 }
 
@@ -38,7 +48,7 @@ export type TickResult = {
 
 export async function startCrawlRun(
   input: StartCrawlInput,
-): Promise<{ runId: string; urlsDiscovered: number }> {
+): Promise<{ runId: string; urlsDiscovered: number; urlsFound: number }> {
   const store = input.store ?? getFindingsStore()
   const run = await store.createRun({
     siteId: input.siteId,
@@ -48,12 +58,34 @@ export async function startCrawlRun(
 
   const discovered = await discoverSameHostUrls(run.origin)
   let urls = discovered.urls
-  if (input.maxUrls != null) urls = urls.slice(0, input.maxUrls)
+  const foundTotal = discovered.foundTotal
+  const notes: CoverageNote[] = []
 
-  const notes: CoverageNote[] = discovered.notes.map((detail) => ({
-    code: 'discovery_cap' as const,
-    detail,
-  }))
+  for (const detail of discovered.notes) {
+    if (/capped at/i.test(detail)) {
+      notes.push({ code: 'discovery_cap', detail })
+    } else if (/fetch failed|fallback/i.test(detail)) {
+      notes.push({ code: 'fetch_failure', detail })
+    } else {
+      notes.push({ code: 'discovery_cap', detail })
+    }
+  }
+
+  let urlCap: number | null = null
+  let capped = discovered.capped
+
+  if (input.maxUrls != null && urls.length > input.maxUrls) {
+    urls = urls.slice(0, input.maxUrls)
+    capped = true
+    urlCap = input.maxUrls
+    notes.push({
+      code: 'discovery_cap',
+      detail: `enqueue capped at maxUrls=${input.maxUrls}: found ${foundTotal} same-host URLs, enqueued ${urls.length}, ${foundTotal - urls.length} not crawled`,
+    })
+  } else if (discovered.capped) {
+    urlCap = CRAWL_MAX_DISCOVERED
+  }
+
   if (discovered.skippedOffHost > 0) {
     notes.push({
       code: 'off_host',
@@ -62,16 +94,18 @@ export async function startCrawlRun(
   }
 
   await store.enqueueUrls(run.id, urls)
-  const discoveryPartial = notes.some((n) => n.code === 'discovery_cap')
   await store.updateRun(run.id, {
     status: 'queued',
+    urlsFound: foundTotal,
     urlsDiscovered: urls.length,
     urlsSkippedOffHost: discovered.skippedOffHost,
-    coverageNotes: notes,
-    isPartial: discoveryPartial,
+    urlCap,
+    coverageNotes: dedupeNotes(notes),
+    // Cap means frontier not exhausted → never complete.
+    isPartial: capped,
   })
 
-  return { runId: run.id, urlsDiscovered: urls.length }
+  return { runId: run.id, urlsDiscovered: urls.length, urlsFound: foundTotal }
 }
 
 export async function processCrawlTick(
@@ -90,14 +124,14 @@ export async function processCrawlTick(
   let run = await store.getRun(runId)
   if (!run) throw new Error(`run not found: ${runId}`)
 
-  if (run.status === 'complete' || run.status === 'failed') {
+  if (run.status === 'complete' || run.status === 'failed' || run.status === 'partial') {
     const counts = await store.countJobsByStatus(runId)
     return {
       runId,
       status: run.status,
       processedThisTick: 0,
       remainingQueued: counts.queued,
-      isPartial: run.isPartial,
+      isPartial: run.isPartial || run.status === 'partial',
       coverageNotes: run.coverageNotes,
       done: true,
     }
@@ -247,8 +281,9 @@ export async function processCrawlTick(
   const stillQueued = counts.queued
   const done = stillQueued === 0 && counts.running === 0
 
-  // Tick-resume `time_limit` notes must not mark a finished run partial.
-  // Off-host skips are intentional (same-host only) — recorded but not partial.
+  // Mid-tick time_limit with work left → stay running (resume on next tick).
+  // Terminal partial when queue drains but coverage is incomplete:
+  // discovery/maxUrls cap, client_only, fetch failures, backoff, stream gaps.
   const enduringCodes = new Set([
     'client_only',
     'fetch_failure',
@@ -256,14 +291,22 @@ export async function processCrawlTick(
     'stream_incomplete',
     'discovery_cap',
   ])
-  const isPartial =
+  const coverageIncomplete =
     clientOnlyN > 0 ||
     failedN > 0 ||
-    notes.some((n) => enduringCodes.has(n.code))
+    notes.some((n) => enduringCodes.has(n.code)) ||
+    (run.urlsFound > 0 && run.urlsDiscovered < run.urlsFound) ||
+    run.isPartial
 
   let status: CrawlRunRecordStatus = 'running'
+  let isPartial = coverageIncomplete
   if (done) {
-    status = isPartial ? 'partial' : 'complete'
+    status = coverageIncomplete ? 'partial' : 'complete'
+    isPartial = coverageIncomplete
+  } else if (stillQueued > 0 && notes.some((n) => n.code === 'time_limit')) {
+    // Resume — do not freeze as partial while the frontier is still queued.
+    status = 'running'
+    isPartial = coverageIncomplete
   }
 
   await store.updateRun(runId, {
@@ -310,8 +353,10 @@ export async function runCrawlToCompletion(
 ): Promise<{
   runId: string
   durationMs: number
+  urlsFound: number
   urlsDiscovered: number
   urlsCrawled: number
+  urlCap: number | null
   status: string
   isPartial: boolean
   coverageNotes: CoverageNote[]
@@ -319,7 +364,7 @@ export async function runCrawlToCompletion(
 }> {
   const store = input.store ?? getFindingsStore()
   const started = Date.now()
-  const { runId, urlsDiscovered } = await startCrawlRun(input)
+  const { runId, urlsDiscovered, urlsFound } = await startCrawlRun(input)
 
   let guard = 0
   while (guard++ < 500) {
@@ -334,8 +379,10 @@ export async function runCrawlToCompletion(
   return {
     runId,
     durationMs: Date.now() - started,
+    urlsFound,
     urlsDiscovered,
     urlsCrawled: run.urlsCrawled,
+    urlCap: run.urlCap,
     status: run.status,
     isPartial: run.isPartial,
     coverageNotes: run.coverageNotes,

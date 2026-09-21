@@ -25,11 +25,13 @@ function mapRun(row: Record<string, unknown>): CrawlRunRecord {
     origin: String(row.origin),
     status: row.status as CrawlRunRecord['status'],
     chunkSize: Number(row.chunk_size ?? CRAWL_URL_CHUNK_SIZE),
+    urlsFound: Number(row.urls_found ?? row.urls_discovered ?? 0),
     urlsDiscovered: Number(row.urls_discovered ?? 0),
     urlsCrawled: Number(row.urls_crawled ?? 0),
     urlsFailed: Number(row.urls_failed ?? 0),
     urlsClientOnly: Number(row.urls_client_only ?? 0),
     urlsSkippedOffHost: Number(row.urls_skipped_off_host ?? 0),
+    urlCap: row.url_cap == null ? null : Number(row.url_cap),
     coverageNotes: (row.coverage_notes as CoverageNote[]) ?? [],
     isPartial: Boolean(row.is_partial),
     errorDetail: (row.error_detail as string | null) ?? null,
@@ -142,12 +144,14 @@ export function createSupabaseFindingsStore(
       const row: Record<string, unknown> = { updated_at: new Date().toISOString() }
       if (patch.status != null) row.status = patch.status
       if (patch.chunkSize != null) row.chunk_size = patch.chunkSize
+      if (patch.urlsFound != null) row.urls_found = patch.urlsFound
       if (patch.urlsDiscovered != null) row.urls_discovered = patch.urlsDiscovered
       if (patch.urlsCrawled != null) row.urls_crawled = patch.urlsCrawled
       if (patch.urlsFailed != null) row.urls_failed = patch.urlsFailed
       if (patch.urlsClientOnly != null) row.urls_client_only = patch.urlsClientOnly
       if (patch.urlsSkippedOffHost != null)
         row.urls_skipped_off_host = patch.urlsSkippedOffHost
+      if (patch.urlCap !== undefined) row.url_cap = patch.urlCap
       if (patch.coverageNotes != null) row.coverage_notes = patch.coverageNotes
       if (patch.isPartial != null) row.is_partial = patch.isPartial
       if (patch.errorDetail !== undefined) row.error_detail = patch.errorDetail
