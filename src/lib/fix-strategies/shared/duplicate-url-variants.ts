@@ -13,6 +13,7 @@ import { normalizeFixStrategyUrl } from './url-normalize'
 
 export type DuplicateUrlStrategy =
   | 'trailing-slash' // topic 8
+  | 'index-html' // topic 8 — /x vs /x/index.html (not covered by trailing-slash)
   | 'http-https' // topic 9
   | 'www-non-www' // topic 10
   | 'path-case' // topic 11
@@ -63,6 +64,8 @@ export function generateVariant(
   switch (strategy) {
     case 'trailing-slash':
       return trailingSlashVariant(parsed)
+    case 'index-html':
+      return indexHtmlVariant(parsed)
     case 'http-https':
       return httpHttpsVariant(parsed)
     case 'www-non-www':
@@ -102,6 +105,10 @@ function trailingSlashVariant(parsed: URL): VariantPair | null {
   if (path === '/' || path === '') {
     return null
   }
+  // /x/index.html slash flip is not the directory-index case — leave to index-html.
+  if (/\/index\.html?$/i.test(path)) {
+    return null
+  }
 
   const opposite = new URL(parsed.href)
   if (path.endsWith('/')) {
@@ -114,6 +121,32 @@ function trailingSlashVariant(parsed: URL): VariantPair | null {
     parsed,
     opposite,
     'Trailing-slash opposite form',
+  )
+}
+
+/**
+ * /blog ↔ /blog/index.html (and / ↔ /index.html).
+ * Trailing-slash alone never produces this pair.
+ */
+function indexHtmlVariant(parsed: URL): VariantPair | null {
+  const path = parsed.pathname || '/'
+  const opposite = new URL(parsed.href)
+  const indexMatch = path.match(/^(.*)\/index\.html?$/i)
+  if (indexMatch) {
+    const dir = indexMatch[1] ?? ''
+    opposite.pathname = dir === '' ? '/' : dir
+  } else if (path === '/' || path === '') {
+    opposite.pathname = '/index.html'
+  } else if (path.endsWith('/')) {
+    opposite.pathname = `${path}index.html`
+  } else {
+    opposite.pathname = `${path}/index.html`
+  }
+  return asPair(
+    'index-html',
+    parsed,
+    opposite,
+    'Directory index.html opposite form',
   )
 }
 

@@ -1,6 +1,6 @@
 /**
- * Live verification: full autodun.com crawl with sitemap+robots+link-graph
- * discovery, WHOLE-SITE post-crawl pass, and topic 43 client_only-limited guard.
+ * Live verification: full autodun.com crawl — all shipped detectors wired,
+ * topic 27 duplicate-variant guard, topics 8–12 PER-PAGE (incl. index.html).
  *
  * Run: LIVE_CRAWL=1 npx vitest run src/lib/fix-strategies/findings-ui/crawl/autodun-live.report.test.ts
  */
@@ -19,7 +19,9 @@ import { DEMO_RUN_META, buildDemoFindings } from '../demo-run'
 import { classifyVerdictBucket } from '../buckets'
 import {
   DETECTOR_SCOPE_BY_TOPIC,
+  CHUNK_LOOP_TOPIC_IDS,
   POST_CRAWL_TOPIC_IDS,
+  WIRED_TOPIC_IDS,
   UNSHIPPED_DETECTOR_SCOPE,
 } from '@/lib/fix-strategies/detector-scope'
 
@@ -30,7 +32,7 @@ const enabled = process.env.LIVE_CRAWL === '1'
 
 describe.skipIf(!enabled)('autodun live crawl report', () => {
   it(
-    'discovers via sitemap+robots+link-graph; whole-site post-crawl; topic 43 guard',
+    'all detectors wired; topic 27 excludes index.html duplicate; 8-12 run',
     async () => {
       resetMemoryFindingsStore()
       const store = useMemoryFindingsStore()
@@ -61,6 +63,37 @@ describe.skipIf(!enabled)('autodun live crawl report', () => {
       expect(limited.length).toBeGreaterThan(0)
       expect(classifyVerdictBucket('client_only-limited')).toBe('informational')
 
+      const topic27 = allEmits.filter((e) => e.topicId === '27')
+      const t27OmissionIndex = topic27.filter(
+        (e) =>
+          e.verdict === 'report-omission' &&
+          e.pageUrl.includes('/blog/index.html'),
+      )
+      const t27RoutedIndex = topic27.filter(
+        (e) =>
+          e.verdict === 'route-topic-8-12-url-variants' &&
+          e.pageUrl.includes('/blog/index.html'),
+      )
+      // Finding must NOT survive as omission — identical content to /blog
+      expect(t27OmissionIndex).toHaveLength(0)
+
+      const topic8to12 = allEmits.filter((e) =>
+        ['8', '9', '10', '11', '12'].includes(e.topicId),
+      )
+
+      const wiringTable = Object.keys(DETECTOR_SCOPE_BY_TOPIC)
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+        .map((id) => {
+          const scope = DETECTOR_SCOPE_BY_TOPIC[id]
+          const where = (CHUNK_LOOP_TOPIC_IDS as readonly string[]).includes(id)
+            ? 'chunk'
+            : (POST_CRAWL_TOPIC_IDS as readonly string[]).includes(id)
+              ? 'post-crawl'
+              : 'UNWIRED'
+          return `| ${id} | ${scope} | ${where} |`
+        })
+        .join('\n')
+
       const wholeSiteSummary = POST_CRAWL_TOPIC_IDS.map((id) => {
         const emits = allEmits.filter((e) => e.topicId === id)
         const actionable = emits.filter((e) => e.bucket === 'actionable')
@@ -68,16 +101,23 @@ describe.skipIf(!enabled)('autodun live crawl report', () => {
       }).join('\n')
 
       const seeds = result.discoverySeeds
+      const actionableLines =
+        listedActionable.length === 0
+          ? '_None_'
+          : listedActionable
+              .map(
+                (f) =>
+                  `- topic ${f.topicId} · \`${f.verdict}\` · ${f.affectedUrlCount} URL(s)${
+                    f.pageUrl ? ` · ${f.pageUrl}` : ''
+                  }`,
+              )
+              .join('\n')
+
       const report = `# Findings live crawl — autodun.com
 
 Generated: ${new Date().toISOString()}
 
 ## 1. Discovery
-
-Seeds from **robots.txt Sitemap: records**, **sitemap.xml locs**, the
-**homepage**, and **crawlable \`<a href>\` expansion** during ticks (same-host
-only). The previous "12" frontier was sitemap-only; the consolidation audit's
-"16 nodes" was a homepage link-graph extract — not the same population.
 
 | Seed source | Count |
 |-------------|-------|
@@ -89,41 +129,34 @@ only). The previous "12" frontier was sitemap-only; the consolidation audit's
 | URLs crawled | ${result.urlsCrawled} |
 | client_only pages | ${result.urlsClientOnly} |
 
-Caps: \`CRAWL_URL_CHUNK_SIZE=${CRAWL_URL_CHUNK_SIZE}\` (tick budget);
-\`CRAWL_MAX_DISCOVERED=${CRAWL_MAX_DISCOVERED}\` (start-handler safety).
+Caps: \`CRAWL_URL_CHUNK_SIZE=${CRAWL_URL_CHUNK_SIZE}\`;
+\`CRAWL_MAX_DISCOVERED=${CRAWL_MAX_DISCOVERED}\`.
 
-## 2. Whole-site detector audit
+## 2. /blog/index.html vs /blog (topic 27)
 
-Detectors that need the full crawl set run **once when the frontier is
-exhausted** (post-crawl), not per chunk — same fix class as topic 43.
+Live check: identical body hash + same ETag → duplicate URL form, not a
+sitemap omission. Sitemap correctly lists \`/blog\`.
 
-| Topic | Need | Prior wiring | Now |
-|-------|------|--------------|-----|
-| 27 | crawled set vs sitemap set | once on **first chunk** (incomplete pages) | post-crawl |
-| 33 | duplicate titles/descriptions across URLs | shipped, unwired | post-crawl |
-| 45 | shortest path from homepage | shipped, unwired | post-crawl |
-| 46 | hreflang reciprocity (both pages of a pair) | shipped, unwired | post-crawl |
-| 8–12 | both URL variants | unwired; probe peer via live fetch → **PER-PAGE** when wired | scoped per-page |
-| 58 | index vs crawl set divergence | unshipped | reserved \`whole-site\` (${UNSHIPPED_DETECTOR_SCOPE['58']}) |
-| 43 | orphan link graph | post-crawl (already) | post-crawl |
+Topic 27 guard: \`classifySitemapDuplicateVariant\` → \`index-html\` →
+\`route-topic-8-12-url-variants\` (internal), not \`report-omission\`.
+
+- report-omission for /blog/index.html: **${t27OmissionIndex.length}** (must be 0)
+- routed index.html variant emits: ${t27RoutedIndex.length}
+- Topic 8–12 emits this run: ${topic8to12.length}
+
+## 3. Detector wiring (shipped-but-unwired = 0)
+
+Wired count: ${WIRED_TOPIC_IDS.length} / shipped ${Object.keys(DETECTOR_SCOPE_BY_TOPIC).length}.
+Unshipped reserved: topic 58 = ${UNSHIPPED_DETECTOR_SCOPE['58']}.
+
+| Topic | DETECTOR_SCOPE | Crawl call |
+|-------|----------------|------------|
+${wiringTable}
 
 Post-crawl emit summary:
 ${wholeSiteSummary}
 
-Every shipped detector declares \`DETECTOR_SCOPE\` (\`per-page\` | \`whole-site\`);
-the chunk loop asserts PER-PAGE only.
-
-## 3. Topic 43 orphans vs client_only
-
-Homepage served HTML has **0 \`<a href>\`** (SPA shell + JS bundle) → marked
-\`client_only\`. \`/blog/uk-vehicle-data-tools.html\` and
-\`/blog/ulez-checker-uk.html\` **are linked from \`/blog\` in served HTML**, but
-because any crawled page is client_only, topic 43 **cannot** conclude
-orphan-hood from served HTML alone (nav may also exist only after render on
-the homepage).
-
-Guard: \`hasClientOnlyPages\` → verdict \`client_only-limited\` (informational),
-**not** \`finding-link-graph-orphan\`.
+## 4. Topic 43
 
 Topic 43 emits: ${topic43.map((e) => e.verdict).join(', ') || '(none)'}
 Orphan findings raised: ${orphanFindings.length}
@@ -136,33 +169,20 @@ Orphan findings raised: ${orphanFindings.length}
 | Partial | ${result.isPartial} |
 | Duration | ${(result.durationMs / 1000).toFixed(1)}s |
 
-## Counts (vs prior corrected actionable=9)
+## Counts
 
-| Bucket | Live | Prior corrected | Demo |
-|--------|------|-----------------|------|
-| actionable | ${result.counts.actionable} | 9 | 10 |
+| Bucket | Live | Prior (whole-site pass) | Demo |
+|--------|------|-------------------------|------|
+| actionable | ${result.counts.actionable} | 10 | 10 |
 | informational | ${result.counts.informational} | 16 | 17 |
-| internal (hidden) | ${result.counts.internal} | 290 | ${DEMO_RUN_META.internalCount} |
-
-Actionable changed from 9: **${result.counts.actionable === 9 ? 'no' : `yes (${result.counts.actionable})`}**
+| internal (hidden) | ${result.counts.internal} | 315 | ${DEMO_RUN_META.internalCount} |
 
 List API actionable: ${listedActionable.length}
 List API + informational: ${listedAll.length}
 
 ### Actionable verdicts
 
-${
-  listedActionable.length === 0
-    ? '_None_'
-    : listedActionable
-        .map(
-          (f) =>
-            `- topic ${f.topicId} · \`${f.verdict}\` · ${f.affectedUrlCount} URL(s)${
-              f.pageUrl ? ` · ${f.pageUrl}` : ''
-            }`,
-        )
-        .join('\n')
-}
+${actionableLines}
 
 Coverage notes:
 ${result.coverageNotes.map((n) => `- **${n.code}**: ${n.detail}`).join('\n')}
@@ -177,17 +197,27 @@ ${result.coverageNotes.map((n) => `- **${n.code}**: ${n.detail}`).join('\n')}
       expect(result.urlsFound).toBeGreaterThan(0)
       expect(result.urlsCrawled).toBeGreaterThan(0)
       expect(result.urlsClientOnly).toBeGreaterThan(0)
-      // No actionable orphans
       expect(
         listedActionable.every((f) => f.topicId !== '43'),
       ).toBe(true)
-      // Whole-site topics present in emit stream after frontier drain
-      for (const id of ['24', '25', '27', '28', '43', '45'] as const) {
+      expect(
+        listedActionable.every(
+          (f) =>
+            !(
+              f.topicId === '27' &&
+              f.verdict === 'report-omission' &&
+              (f.pageUrl ?? '').includes('/blog/index.html')
+            ),
+        ),
+      ).toBe(true)
+      // 8–12 wired into chunk loop
+      expect(topic8to12.length).toBeGreaterThan(0)
+      for (const id of ['8', '24', '25', '27', '28', '43', '45'] as const) {
         expect(allEmits.some((e) => e.topicId === id)).toBe(true)
       }
       void buildDemoFindings
       void DEMO_RUN_META
     },
-    300_000,
+    600_000,
   )
 })

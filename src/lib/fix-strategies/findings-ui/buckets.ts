@@ -8,6 +8,7 @@ import type { FindingBucket, FindingSurfaceClass } from './types'
 export function classifyVerdictBucket(verdict: string): FindingBucket {
   if (
     verdict.startsWith('suppress-') ||
+    verdict.startsWith('skip-') ||
     verdict === 'ok' ||
     verdict.startsWith('ok-') ||
     verdict.startsWith('ok/') ||

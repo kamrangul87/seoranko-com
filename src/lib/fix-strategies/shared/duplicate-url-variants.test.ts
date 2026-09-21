@@ -6,7 +6,7 @@ import {
 import { proveContentSameness } from '@/lib/fix-strategies/shared/content-sameness'
 import { normalizeFixStrategyUrl } from '@/lib/fix-strategies/shared/url-normalize'
 
-describe('duplicate-url variant generator (one generator, five strategies)', () => {
+describe('duplicate-url variant generator (one generator, six strategies)', () => {
   it('trailing-slash flips slash and excludes site root', () => {
     expect(isSiteRootUrl('https://example.com/')).toBe(true)
     expect(isSiteRootUrl('https://example.com')).toBe(true)
@@ -17,6 +17,27 @@ describe('duplicate-url variant generator (one generator, five strategies)', () 
     expect(pair?.b).toBe('https://example.com/page/')
     const back = generateVariant('https://example.com/page/', 'trailing-slash')
     expect(back?.b).toBe('https://example.com/page')
+  })
+
+  it('index-html covers /x vs /x/index.html (not trailing-slash)', () => {
+    expect(generateVariant('https://example.com/blog', 'trailing-slash')?.b).toBe(
+      'https://example.com/blog/',
+    )
+    expect(
+      generateVariant('https://example.com/blog/index.html', 'trailing-slash'),
+    ).toBeNull()
+    expect(generateVariant('https://example.com/blog', 'index-html')?.b).toBe(
+      'https://example.com/blog/index.html',
+    )
+    expect(
+      generateVariant('https://example.com/blog/index.html', 'index-html')?.b,
+    ).toBe('https://example.com/blog')
+    expect(generateVariant('https://example.com/', 'index-html')?.b).toBe(
+      'https://example.com/index.html',
+    )
+    expect(
+      generateVariant('https://example.com/index.html', 'index-html')?.b,
+    ).toBe('https://example.com/')
   })
 
   it('http-https flips protocol', () => {

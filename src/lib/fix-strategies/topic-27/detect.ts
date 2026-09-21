@@ -33,6 +33,7 @@ export type Topic27Verdict =
   | 'suppress-canonical-elsewhere'
   | 'suppress-listed-in-index-child'
   | 'route-topic-8-slash-mismatch'
+  | 'route-topic-8-12-url-variants'
   | 'suppress-parameterised'
   | 'suppress-staging'
   | 'suppress-not-internally-linked'
@@ -85,19 +86,59 @@ export type DetectTopic27Options = {
 }
 
 /**
- * True when `pageNorm` differs from some sitemap loc only by trailing slash
- * or path case — topic 8 / 11, not an omission.
+ * Path forms that are duplicate-URL variants of each other for sitemap
+ * membership (topics 8–12) — slash, case, and directory index.html.
+ * Does NOT collapse query (topic 12) or host/scheme (9–10).
  */
-export function isSlashOrCaseMismatch(
+export function pathDuplicateForms(pathname: string): string[] {
+  const forms = new Set<string>()
+  const add = (p: string) => {
+    const cleaned = p || '/'
+    forms.add(cleaned)
+    forms.add(cleaned.toLowerCase())
+  }
+
+  add(pathname)
+  const trimmed = pathname.replace(/\/+$/, '') || '/'
+  add(trimmed)
+  if (trimmed !== '/') add(`${trimmed}/`)
+
+  const indexMatch = pathname.match(/^(.*)\/index\.html?$/i)
+  if (indexMatch) {
+    const dir = indexMatch[1] ?? ''
+    add(dir === '' ? '/' : dir)
+    if (dir !== '') add(`${dir}/`)
+  } else if (pathname === '/' || pathname === '') {
+    add('/index.html')
+  } else if (pathname.endsWith('/')) {
+    add(`${pathname}index.html`)
+  } else {
+    add(`${pathname}/index.html`)
+    add(`${trimmed}/index.html`)
+  }
+
+  return [...forms]
+}
+
+export type SitemapDuplicateVariantKind = 'slash-or-case' | 'index-html'
+
+/**
+ * When a crawled URL is only a duplicate-URL form of a loc already in the
+ * sitemap, topic 27 must not raise an omission — route to topics 8–12.
+ */
+export function classifySitemapDuplicateVariant(
   pageNorm: string,
   sitemapLocs: Set<string>,
-): boolean {
+): SitemapDuplicateVariantKind | null {
   let pageUrl: URL
   try {
     pageUrl = new URL(pageNorm)
   } catch {
-    return false
+    return null
   }
+
+  const pageForms = pathDuplicateForms(pageUrl.pathname)
+  const pageIsIndex = /\/index\.html?$/i.test(pageUrl.pathname)
 
   for (const loc of sitemapLocs) {
     let locUrl: URL
@@ -109,20 +150,45 @@ export function isSlashOrCaseMismatch(
     if (locUrl.origin !== pageUrl.origin) continue
     if (locUrl.search !== pageUrl.search) continue
 
+    const locForms = pathDuplicateForms(locUrl.pathname)
+    const overlap = pageForms.some((f) => locForms.includes(f))
+    if (!overlap) continue
+    // Exact same path (after normalize) already handled by locs.has
+    if (pageUrl.pathname === locUrl.pathname) continue
+
+    const locIsIndex = /\/index\.html?$/i.test(locUrl.pathname)
+    if (pageIsIndex !== locIsIndex) return 'index-html'
+
     // Trailing-slash only
     const a = pageUrl.pathname.replace(/\/$/, '') || '/'
     const b = locUrl.pathname.replace(/\/$/, '') || '/'
-    if (a === b && pageUrl.pathname !== locUrl.pathname) return true
+    if (a === b && pageUrl.pathname !== locUrl.pathname) return 'slash-or-case'
 
     // Path case only
     if (
       pageUrl.pathname.toLowerCase() === locUrl.pathname.toLowerCase() &&
       pageUrl.pathname !== locUrl.pathname
     ) {
-      return true
+      return 'slash-or-case'
     }
+
+    // Directory vs index.html already returned; other pathDuplicateForms
+    // overlaps (e.g. /blog vs /blog/index.html via form expansion) → index-html
+    return 'index-html'
   }
-  return false
+  return null
+}
+
+/**
+ * True when `pageNorm` differs from some sitemap loc only by trailing slash
+ * or path case — topic 8 / 11, not an omission.
+ * @deprecated Prefer classifySitemapDuplicateVariant (also covers index.html).
+ */
+export function isSlashOrCaseMismatch(
+  pageNorm: string,
+  sitemapLocs: Set<string>,
+): boolean {
+  return classifySitemapDuplicateVariant(pageNorm, sitemapLocs) === 'slash-or-case'
 }
 
 export function detectIndexableUrlsAbsent(
@@ -154,8 +220,9 @@ export function detectIndexableUrlsAbsent(
       continue
     }
 
-    // Slash / case mismatch vs a listed loc → topic 8/11
-    if (isSlashOrCaseMismatch(pageNorm, locs)) {
+    // Slash / case / index.html mismatch vs a listed loc → topics 8–12
+    const variantKind = classifySitemapDuplicateVariant(pageNorm, locs)
+    if (variantKind === 'slash-or-case') {
       findings.push({
         kind: 'sitemap/indexable-urls-absent',
         verdict: 'route-topic-8-slash-mismatch',
@@ -163,6 +230,19 @@ export function detectIndexableUrlsAbsent(
         pageUrl: page.url,
         detail:
           'Sitemap has a slash/case variant of this URL — topic 8/11, not an omission',
+        autoFixable: false,
+        fixTarget,
+      })
+      continue
+    }
+    if (variantKind === 'index-html') {
+      findings.push({
+        kind: 'sitemap/indexable-urls-absent',
+        verdict: 'route-topic-8-12-url-variants',
+        severity: null,
+        pageUrl: page.url,
+        detail:
+          'Sitemap lists a directory-index variant of this URL (e.g. /blog vs /blog/index.html) — topic 8 duplicate URL form, not an omission',
         autoFixable: false,
         fixTarget,
       })

@@ -2,7 +2,7 @@
  * ONE detector for duplicate-URL topics 8–12.
  *
  * Variant generation is the only strategy-specific step
- * (`generateVariant` with five strategies). Content sameness must be proven.
+ * (`generateVariant` with six strategies). Content sameness must be proven.
  */
 
 import { FIX_STRATEGY_PRODUCT_DECISIONS } from '@/lib/fix-strategies/product-decisions'
@@ -91,6 +91,7 @@ export type DetectDuplicateUrlOptions = {
 
 const STRATEGY_TOPIC: Record<DuplicateUrlStrategy, 8 | 9 | 10 | 11 | 12> = {
   'trailing-slash': 8,
+  'index-html': 8,
   'http-https': 9,
   'www-non-www': 10,
   'path-case': 11,
