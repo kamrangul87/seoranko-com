@@ -10,6 +10,8 @@
 
 import { isSafePublicUrl } from './fetch-page-content'
 
+export { normaliseSiteUrl } from './normalise-site-url'
+
 export interface WPConnection {
   siteUrl: string       // e.g. 'https://autodun.com'
   username: string
@@ -32,13 +34,6 @@ function authHeader(conn: WPConnection): string {
     `${conn.username}:${conn.appPassword.replace(/\s/g, '')}`
   ).toString('base64')
   return `Basic ${token}`
-}
-
-/** Normalise to scheme + host, and refuse local-network targets. */
-export function normaliseSiteUrl(input: string): string | null {
-  const bare = input.replace(/^https?:\/\//, '').split('/')[0]
-  const url = `https://${bare}`
-  return isSafePublicUrl(url) ? url : null
 }
 
 export async function verifyConnection(conn: WPConnection): Promise<{

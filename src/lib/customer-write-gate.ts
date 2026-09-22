@@ -9,9 +9,13 @@
  *
  * Legacy RANKO / Fix Agent / site-audit / browser publish / CMS adapters:
  * disabled unless LEGACY_CUSTOMER_WRITES_ENABLED=1 (default OFF).
+ *
+ * Server-only: uses AsyncLocalStorage; must never enter a Client Component
+ * import graph.
  */
 
-import { AsyncLocalStorage } from 'node:async_hooks'
+import 'server-only'
+import { AsyncLocalStorage } from 'async_hooks'
 
 export type CustomerWritePurpose =
   | 'findings-pr-branch'
