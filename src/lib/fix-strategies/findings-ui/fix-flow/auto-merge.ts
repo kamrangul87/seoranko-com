@@ -226,11 +226,12 @@ export async function maybeAutoMergeAfterPreviewVerify(
       autoMergeBlockedReason: 'No PR number on fix-flow session',
     })
   }
+  const prNumber = cur.prNumber
 
   const files = await listPullRequestFiles({
     owner: input.creds.owner,
     repo: input.creds.repo,
-    prNumber: cur.prNumber,
+    prNumber,
     accessToken: input.creds.accessToken,
     fetchImpl: input.fetchImpl,
   })
@@ -246,7 +247,7 @@ export async function maybeAutoMergeAfterPreviewVerify(
   const ci = await waitForPrCiGreen({
     owner: input.creds.owner,
     repo: input.creds.repo,
-    prNumber: cur.prNumber,
+    prNumber,
     accessToken: input.creds.accessToken,
     timeoutMs: input.ciTimeoutMs,
     fetchImpl: input.fetchImpl,
@@ -269,8 +270,8 @@ export async function maybeAutoMergeAfterPreviewVerify(
     () =>
       mergePullRequest({
         creds: input.creds,
-        prNumber: cur.prNumber,
-        commitTitle: `merge: SEORANKO auto-merge PR #${cur.prNumber}`,
+        prNumber,
+        commitTitle: `merge: SEORANKO auto-merge PR #${prNumber}`,
         fetchImpl: input.fetchImpl,
       }),
   )
@@ -304,7 +305,7 @@ export async function maybeAutoMergeAfterPreviewVerify(
       () =>
         openRevertPullRequest({
           creds: input.creds,
-          originalPrNumber: cur.prNumber,
+          originalPrNumber: prNumber,
           path: blast.path,
           reason: prod.detail,
           fetchImpl: input.fetchImpl,
