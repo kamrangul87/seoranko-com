@@ -346,8 +346,10 @@ export async function runDetectorsOnPages(
       p.status < 400,
   )
 
-  const jsonLdSite = 'generator:site-jsonld'
-  const imgSite = 'generator:site-images'
+  // Do NOT invent shared generator:site-* declaration sites. Hand-authored
+  // HTML (e.g. autodun blog pages) is page-local — each URL is its own
+  // declaration site. Faking a site-wide generator collapses all pages that
+  // share a verdict into one finding and hides actionable per-page work.
   const fetchDeps = makeGapFetchDeps()
   const hopDeps = hopDepsFromFetch(fetchDeps)
   const dupPages = usable.map((p) => ({ url: p.finalUrl, body: p.html }))
@@ -616,7 +618,8 @@ export async function runDetectorsOnPages(
         html: p.html,
         pageUrl,
         extraction,
-        declarationSite: jsonLdSite,
+        // Page-local markup unless a real shared generator path is known.
+        declarationSite: pageUrl,
       }),
       out,
       pageUrl,
@@ -635,9 +638,8 @@ export async function runDetectorsOnPages(
 
     const img = await detectImgMissingDimensions(p.html, pageUrl, {
       fetch,
-      isGenerated: true,
-      generatorPath: imgSite,
-      declarationSite: imgSite,
+      // Page-local HTML file / route — not a shared image generator.
+      declarationSite: pageUrl,
     })
     takeBuckets('49', 'performance/img-missing-dimensions', img, out, pageUrl)
   }
@@ -1124,12 +1126,18 @@ export function rollupAndClassify(emits: DetectorEmit[]): {
       declarationSite ?? r.pageUrl ?? '',
     ].join('|')
     const dossier = dossierSlugForTopic(r.topicId)
-    const baseEvidence =
-      (payload.evidenceValues as Record<string, unknown> | null) ?? null
-    const evidenceValues: Record<string, unknown> | null =
-      r.memberUrls.length > 1
-        ? { ...(baseEvidence ?? {}), memberUrls: r.memberUrls }
-        : baseEvidence
+    const evidenceValues: Record<string, unknown> | null = (() => {
+      const base =
+        (payload.evidenceValues as Record<string, unknown> | null) ?? null
+      const extra: Record<string, unknown> = {}
+      if (r.memberUrls.length > 1) extra.memberUrls = r.memberUrls
+      // Topic 49: image count when several imgs on one page share a verdict.
+      if (r.topicId === '49' && r.memberFindingCount > 1) {
+        extra.imageCount = r.memberFindingCount
+      }
+      if (Object.keys(extra).length === 0) return base
+      return { ...(base ?? {}), ...extra }
+    })()
     return {
       topicId: r.topicId,
       kind: String(payload.kind ?? `topic/${r.topicId}`),

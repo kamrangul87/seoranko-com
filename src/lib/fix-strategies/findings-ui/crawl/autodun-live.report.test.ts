@@ -241,6 +241,42 @@ ${
 List-API actionable topic 26 (must be 0 when linked): ${topic26.length}
 ${topic26.map((f) => `- \`${f.verdict}\` · ${f.pageUrl}`).join('\n') || '_None_'}
 
+## 4b. Topic 49 — per-page (declaration site = page URL)
+
+Hand-authored blog HTML: each page is its own declaration site. Must NOT
+collapse across pages via a fake \`generator:site-images\`.
+
+${
+  (() => {
+    const t49 = listedActionable.filter((f) => f.topicId === '49')
+    if (t49.length === 0) return '_None_'
+    return [
+      '| Page | Verdict | Image count |',
+      '|------|---------|-------------|',
+      ...t49
+        .slice()
+        .sort((a, b) =>
+          (a.pageUrl ?? '').localeCompare(b.pageUrl ?? ''),
+        )
+        .map((f) => {
+          const imgCount =
+            typeof f.evidenceValues?.imageCount === 'number'
+              ? f.evidenceValues.imageCount
+              : allEmits.filter(
+                  (e) =>
+                    e.topicId === '49' &&
+                    e.bucket === 'actionable' &&
+                    e.pageUrl === f.pageUrl &&
+                    e.verdict === f.verdict,
+                ).length || 1
+          return `| ${f.pageUrl ?? ''} | \`${f.verdict}\` | ${imgCount} |`
+        }),
+      '',
+      `Actionable topic 49 count: **${t49.length}**`,
+    ].join('\n')
+  })()
+}
+
 ## 5. Detector wiring (shipped-but-unwired = 0)
 
 Wired count: ${WIRED_TOPIC_IDS.length} / shipped ${Object.keys(DETECTOR_SCOPE_BY_TOPIC).length}.
@@ -312,6 +348,22 @@ ${result.coverageNotes.map((n) => `- **${n.code}**: ${n.detail}`).join('\n')}
       for (const id of ['8', '24', '25', '27', '28', '43', '45'] as const) {
         expect(allEmits.some((e) => e.topicId === id)).toBe(true)
       }
+
+      // Topic 49: no fake shared generator; each page stays its own finding.
+      const t49Actionable = listedActionable.filter((f) => f.topicId === '49')
+      for (const f of t49Actionable) {
+        expect(f.declarationSite).not.toMatch(/^generator:site-/i)
+        expect(f.affectedUrlCount).toBe(1)
+        expect(f.declarationSite).toBe(f.pageUrl)
+      }
+      const t49Sites = new Set(
+        t49Actionable.map((f) => f.declarationSite ?? f.pageUrl),
+      )
+      // Distinct pages must not collapse into fewer declaration sites.
+      expect(t49Sites.size).toBe(
+        new Set(t49Actionable.map((f) => f.pageUrl)).size,
+      )
+
       void buildDemoFindings
       void DEMO_RUN_META
     },
