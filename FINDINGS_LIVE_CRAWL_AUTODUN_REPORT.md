@@ -1,6 +1,6 @@
 # Findings live crawl — autodun.com
 
-Generated: 2026-09-22T08:29:28.971Z
+Generated: 2026-09-22T08:40:36.393Z
 
 ## 1. Discovery
 
@@ -58,16 +58,7 @@ _None_
 Hand-authored blog HTML: each page is its own declaration site. Must NOT
 collapse across pages via a fake `generator:site-images`.
 
-| Page | Verdict | Image count |
-|------|---------|-------------|
-| https://autodun.com/blog/ev-charging-on-uk-motorways.html | `human-review-no-height-auto` | 3 |
-| https://autodun.com/blog/ev-charging-reliability-uk.html | `human-review-no-height-auto` | 2 |
-| https://autodun.com/blog/mot-cost-uk-2026.html | `finding-wrong-ratio` | 4 |
-| https://autodun.com/blog/mot-history-check-uk.html | `human-review-no-height-auto` | 6 |
-| https://autodun.com/blog/ulez-checker-uk.html | `human-review-no-height-auto` | 4 |
-| https://autodun.com/blog/why-uk-councils-are-flying-blind-on-ev-charging-infrastructure.html | `human-review-no-height-auto` | 2 |
-
-Actionable topic 49 count: **6**
+_None_
 
 ## 5. Detector wiring (shipped-but-unwired = 0)
 
@@ -149,27 +140,22 @@ Orphan findings raised: 0
 |--------|-------|
 | Status | partial |
 | Partial | true |
-| Duration | 5.5s |
+| Duration | 6.2s |
 
 ## Counts
 
 | Bucket | Live | Prior (wired 8–12) | Demo |
 |--------|------|--------------------|------|
-| actionable | 6 | 25 | 10 |
+| actionable | 0 | 25 | 10 |
 | informational | 17 | 16 | 17 |
-| internal (hidden) | 861 | — | 349 |
+| internal (hidden) | 882 | — | 349 |
 
-List API actionable: 6
-List API + informational: 23
+List API actionable: 0
+List API + informational: 17
 
 ### Actionable verdicts
 
-- topic 49 · `human-review-no-height-auto` · 1 URL(s) · https://autodun.com/blog/ev-charging-on-uk-motorways.html
-- topic 49 · `human-review-no-height-auto` · 1 URL(s) · https://autodun.com/blog/ev-charging-reliability-uk.html
-- topic 49 · `finding-wrong-ratio` · 1 URL(s) · https://autodun.com/blog/mot-cost-uk-2026.html
-- topic 49 · `human-review-no-height-auto` · 1 URL(s) · https://autodun.com/blog/mot-history-check-uk.html
-- topic 49 · `human-review-no-height-auto` · 1 URL(s) · https://autodun.com/blog/ulez-checker-uk.html
-- topic 49 · `human-review-no-height-auto` · 1 URL(s) · https://autodun.com/blog/why-uk-councils-are-flying-blind-on-ev-charging-infrastructure.html
+_None_
 
 Coverage notes:
 - **link_graph_expand**: Seed discovery: robots Sitemap locs=12, sitemap fallback=0, homepage=1; link-graph expansion during ticks

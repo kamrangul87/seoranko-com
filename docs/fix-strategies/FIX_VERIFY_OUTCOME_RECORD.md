@@ -135,3 +135,98 @@ Script used for production verify: `scripts/verify-prod-topic49.ts`.
 | Production tip | — | `eafa461` (`dpl_7gAoGPg9Ni6xV3uvCBQEijD7on2a`) Ready |
 
 Remaining actionable (not in this batch): topic 49 `human-review-no-height-auto` on other blog URLs; topic 49 `finding-wrong-ratio` on `/blog/mot-cost-uk-2026.html`.
+
+---
+
+## 6–11. Topic 49 residual pages (owner-approved same fix types)
+
+Rollup bug (fake `generator:site-images`) was hiding these as one verdict-level
+row. After seoranko [#124](https://github.com/kamrangul87/seoranko-com/pull/124)
+(`ea537ac`), live crawl listed **6** per-page findings. Same two fix types as
+§2–§3; Kamran authorized applying them to every remaining page (2026-09-22).
+
+Autodun Production tip after this batch: **`0b5c0eb`**
+(`dpl_DHYj3MaFQ4TvbV557xa2mCXPdqpB`) **Ready**.
+
+### 6. `human-review-no-height-auto` · ev-charging-on-uk-motorways
+
+| Field | Value |
+|-------|-------|
+| Page | `https://autodun.com/blog/ev-charging-on-uk-motorways.html` |
+| PR | [autodun-ai#39](https://github.com/kamrangul87/autodun-ai/pull/39) — merge `0648616` |
+| auto_merged | **false** |
+| owner_approved | **true** — same fix type as #35; batch authorized 2026-09-22 |
+| Pre-check | Bare `img { max-width:100% }`; no fixed-height img CSS; no logo imgs. Wrapped `.wrap` in `<article>` (page had none). |
+| Fix | `article img { max-width:100%; height:auto; … }` + dims from headers (3 imgs: 1200×675 / 600×800 / 639×800) |
+| Preview verify | **OK** (Vercel READY + `web_fetch_vercel_url` + dims vs headers) |
+| Production verify | **OK** — `verifyLiveImgDimensions` |
+| Outcome | **closed** |
+
+### 7. `human-review-no-height-auto` · ev-charging-reliability-uk
+
+| Field | Value |
+|-------|-------|
+| Page | `https://autodun.com/blog/ev-charging-reliability-uk.html` |
+| PR | [autodun-ai#40](https://github.com/kamrangul87/autodun-ai/pull/40) — merge `2427bc4` |
+| auto_merged | **false** |
+| owner_approved | **true** — same as §6 |
+| Fix | article scope + dims (2 imgs: 1200×675 / 518×800) |
+| Production verify | **OK** |
+| Outcome | **closed** |
+
+### 8. `human-review-no-height-auto` · mot-history-check-uk
+
+| Field | Value |
+|-------|-------|
+| Page | `https://autodun.com/blog/mot-history-check-uk.html` |
+| PR | [autodun-ai#41](https://github.com/kamrangul87/autodun-ai/pull/41) — merge `64650e8` |
+| auto_merged | **false** |
+| owner_approved | **true** — same as §6 |
+| Fix | article scope + dims (6 imgs from PNG/JPEG headers) |
+| Production verify | **OK** |
+| Outcome | **closed** |
+
+### 9. `human-review-no-height-auto` · ulez-checker-uk
+
+| Field | Value |
+|-------|-------|
+| Page | `https://autodun.com/blog/ulez-checker-uk.html` |
+| PR | [autodun-ai#42](https://github.com/kamrangul87/autodun-ai/pull/42) — merge `d78cf51` |
+| auto_merged | **false** |
+| owner_approved | **true** — same as §6 |
+| Fix | article scope + dims (4 imgs) |
+| Production verify | **OK** |
+| Outcome | **closed** |
+
+### 10. `human-review-no-height-auto` · why-uk-councils-flying-blind
+
+| Field | Value |
+|-------|-------|
+| Page | `https://autodun.com/blog/why-uk-councils-are-flying-blind-on-ev-charging-infrastructure.html` |
+| PR | [autodun-ai#43](https://github.com/kamrangul87/autodun-ai/pull/43) — merge `a6b393e` |
+| auto_merged | **false** |
+| owner_approved | **true** — same as §6 |
+| Fix | article scope + dims (2 imgs: 1200×630 / 1200×675) |
+| Production verify | **OK** |
+| Outcome | **closed** |
+
+### 11. `finding-wrong-ratio` · mot-cost-uk-2026
+
+| Field | Value |
+|-------|-------|
+| Page | `https://autodun.com/blog/mot-cost-uk-2026.html` |
+| PR | [autodun-ai#44](https://github.com/kamrangul87/autodun-ai/pull/44) — merge `0b5c0eb` |
+| auto_merged | **false** |
+| owner_approved | **true** — same fix type as #36; batch authorized 2026-09-22 |
+| Pre-check | **No `object-fit`** — proceeded |
+| Fix | Corrected declared dims from JPEG headers (were 780×520 → 2048×2048 / 1024×1024) on 4 imgs |
+| Production verify | **OK** |
+| Outcome | **closed** |
+
+### Recrawl summary (after six residual topic-49 fixes)
+
+| Metric | Before (post-rollup fix) | After |
+|--------|--------------------------|-------|
+| Actionable | **6** (all topic 49) | **0** |
+| Topic 49 actionable | 6 | **0** |
+| Production tip | — | `0b5c0eb` Ready |
