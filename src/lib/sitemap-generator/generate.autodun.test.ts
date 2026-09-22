@@ -6,9 +6,15 @@ describe('autodun.com sitemap canonical dedupe (live crawl)', () => {
   it('includes /blog but not /blog/index.html after canonical fix', async () => {
     const diagnosis = await runIndexDiagnosis('https://autodun.com/')
     const blog = diagnosis.pages.find((p) => p.url === 'https://autodun.com/blog')
-    const indexHtml = diagnosis.pages.find((p) => p.url === 'https://autodun.com/blog/index.html')
+    const indexHtml = diagnosis.pages.find(
+      (p) => p.url === 'https://autodun.com/blog/index.html',
+    )
     expect(blog?.verdict).toBe('INDEXABLE')
-    expect(indexHtml?.verdict).toBe('INDEXABLE')
+    // After preferred-form fix (#37), nothing seeds /blog/index.html — it may
+    // be absent from the crawl. If present, it must still be indexable HTML.
+    if (indexHtml) {
+      expect(indexHtml.verdict).toBe('INDEXABLE')
+    }
 
     const sitemap = generateSitemap({
       domain: diagnosis.coverage.domain,

@@ -1,6 +1,6 @@
 # Findings live crawl — autodun.com
 
-Generated: 2026-09-22T06:44:18.162Z
+Generated: 2026-09-22T08:00:43.195Z
 
 ## 1. Discovery
 
@@ -9,9 +9,9 @@ Generated: 2026-09-22T06:44:18.162Z
 | robots Sitemap locs | 12 |
 | sitemap.xml fallback | 0 |
 | homepage | 1 |
-| link-graph expand | 2 |
-| **URLs found (frontier)** | **14** |
-| URLs crawled | 13 |
+| link-graph expand | 0 |
+| **URLs found (frontier)** | **12** |
+| URLs crawled | 11 |
 | client_only pages | 1 |
 
 Caps: `CRAWL_URL_CHUNK_SIZE=5`;
@@ -26,19 +26,19 @@ Topic 27 guard: `classifySitemapDuplicateVariant` → `index-html` →
 `route-topic-8-12-url-variants` (internal), not `report-omission`.
 
 - report-omission for /blog/index.html: **0** (must be 0)
-- routed index.html variant emits: 1
+- routed index.html variant emits: 0
 
 ## 3. Topic 8 rollup + discoverability + auto-redirect
 
 | Cause | Emit count | Notes |
 |-------|------------|-------|
-| informational-generated-only | 10 | peer not in crawl/sitemap/links |
+| informational-generated-only | 12 | peer not in crawl/sitemap/links |
 | human-review-blast-radius | 0 | site-wide trailingSlash/cleanUrls |
-| human-review-preferred-absent | 1 | no site preferred-form signals |
+| human-review-preferred-absent | 0 | no site preferred-form signals |
 | auto-redirect | 0 | must be 0 (site-wide → human-review) |
 
 List actionable topic 8 (after rollup to resolved routing config):
-- `human-review-preferred-conflict` · 3 URL(s) · site=config:vercel.json · https://autodun.com/blog
+_None_
 
 ## 4. Topic 26 + cross-topic root cause
 
@@ -47,10 +47,8 @@ variant of the sitemap loc). Topic 26 `human-review-canonical-elsewhere` and
 topic 8 `human-review-preferred-conflict` share one preferred-form decision —
 topic 8 is primary; topic 26 is related evidence, not a separate actionable row.
 
-Linked preferred-form primaries (topic 8 with related topic 26): 1
-- primary topic 8 `human-review-preferred-conflict` · https://autodun.com/blog
-  - related topic 8 `human-review-preferred-absent` · https://autodun.com/blog/
-  - related topic 26 `human-review-canonical-elsewhere` · https://autodun.com/blog
+Linked preferred-form primaries (topic 8 with related topic 26): 0
+_None_
 
 List-API actionable topic 26 (must be 0 when linked): 0
 _None_
@@ -107,19 +105,19 @@ Unshipped reserved: topic 58 = whole-site.
 | 49 | per-page | chunk |
 
 Post-crawl emit summary:
-- topic 8 (whole-site): 26 emit(s), 5 actionable
-- topic 15 (whole-site): 13 emit(s), 0 actionable
-- topic 19 (whole-site): 13 emit(s), 0 actionable
+- topic 8 (whole-site): 22 emit(s), 0 actionable
+- topic 15 (whole-site): 11 emit(s), 0 actionable
+- topic 19 (whole-site): 11 emit(s), 0 actionable
 - topic 21 (whole-site): 1 emit(s), 0 actionable
 - topic 22 (whole-site): 0 emit(s), 0 actionable
 - topic 24 (whole-site): 1 emit(s), 0 actionable
-- topic 25 (whole-site): 1 emit(s), 1 actionable
-- topic 26 (whole-site): 13 emit(s), 1 actionable
-- topic 27 (whole-site): 13 emit(s), 0 actionable
+- topic 25 (whole-site): 1 emit(s), 0 actionable
+- topic 26 (whole-site): 12 emit(s), 0 actionable
+- topic 27 (whole-site): 11 emit(s), 0 actionable
 - topic 28 (whole-site): 1 emit(s), 0 actionable
-- topic 33 (whole-site): 2 emit(s), 0 actionable
+- topic 33 (whole-site): 0 emit(s), 0 actionable
 - topic 43 (whole-site): 1 emit(s), 0 actionable
-- topic 45 (whole-site): 15 emit(s), 0 actionable
+- topic 45 (whole-site): 13 emit(s), 0 actionable
 - topic 46 (whole-site): 0 emit(s), 0 actionable
 - topic 47 (whole-site): 1 emit(s), 0 actionable
 - topic 48 (whole-site): 0 emit(s), 0 actionable
@@ -135,29 +133,24 @@ Orphan findings raised: 0
 |--------|-------|
 | Status | partial |
 | Partial | true |
-| Duration | 9.0s |
+| Duration | 6.5s |
 
 ## Counts
 
 | Bucket | Live | Prior (wired 8–12) | Demo |
 |--------|------|--------------------|------|
-| actionable | 4 | 25 | 10 |
+| actionable | 2 | 25 | 10 |
 | informational | 17 | 16 | 17 |
-| internal (hidden) | 1023 | — | 349 |
+| internal (hidden) | 861 | — | 349 |
 
-List API actionable: 4
-List API + informational: 21
+List API actionable: 2
+List API + informational: 19
 
 ### Actionable verdicts
 
-- topic 49 · `human-review-no-height-auto` · 6 URL(s) · https://autodun.com/blog/electric-car-charger-map-uk.html
-- topic 49 · `finding-wrong-ratio` · 2 URL(s) · https://autodun.com/blog/mot-changes-2026-dvsa-updates.html
-- topic 8 · `human-review-preferred-conflict` · 3 URL(s) · https://autodun.com/blog
-- topic 25 · `moderate-out-of-scope` · 1 URL(s) · https://mot.autodun.com/
+- topic 49 · `human-review-no-height-auto` · 5 URL(s) · https://autodun.com/blog/ev-charging-on-uk-motorways.html
+- topic 49 · `finding-wrong-ratio` · 1 URL(s) · https://autodun.com/blog/mot-cost-uk-2026.html
 
 Coverage notes:
-- **off_host**: Skipped 1 off-host sitemap loc(s)
 - **link_graph_expand**: Seed discovery: robots Sitemap locs=12, sitemap fallback=0, homepage=1; link-graph expansion during ticks
 - **client_only**: Served HTML looks client_only — content detectors skipped; outbound links may appear only after rendering (topic 67)
-- **link_graph_expand**: Enqueued 1 same-host URL(s) from crawlable links on https://autodun.com/blog
-- **link_graph_expand**: Enqueued 1 same-host URL(s) from crawlable links on https://autodun.com/blog/electric-car-charger-map-uk.html

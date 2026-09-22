@@ -43,6 +43,6 @@ Nav: **Findings** under primary dashboard items.
 4. **Opt-in auto-merge** — only when `connected_sites.auto_merge_enabled` (default OFF; Autodun ON) **and** every gate holds: auto-fixable, CI green, preview verify OK, single-file blast radius. Otherwise a human merges.
 5. **Production verify → outcome** — after merge, verify the live URL; on failure open a revert PR and flag. Record in `FIX_VERIFY_OUTCOME_RECORD.md` with `auto_merged: true|false`.
 
-First closed loop: topic 49 `auto-set-dimensions` on autodun MOT advisories ([autodun-ai#34](https://github.com/kamrangul87/autodun-ai/pull/34), `auto_merged: false`); actionable 5 → 4.
+First closed loop: topic 49 `auto-set-dimensions` on autodun MOT advisories ([autodun-ai#34](https://github.com/kamrangul87/autodun-ai/pull/34), `auto_merged: false`); actionable 5 → 4. Owner-approved batch [#35](https://github.com/kamrangul87/autodun-ai/pull/35)–[#38](https://github.com/kamrangul87/autodun-ai/pull/38) closed the remaining four from that crawl → actionable **2** (see `FIX_VERIFY_OUTCOME_RECORD.md`).
 
 Human-review / report-only findings show observation, evidence, and proposed change on the detail page but never offer Fix.
