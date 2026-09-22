@@ -1,6 +1,6 @@
 # Findings live crawl — autodun.com
 
-Generated: 2026-09-21T09:31:39.011Z
+Generated: 2026-09-22T06:44:18.162Z
 
 ## 1. Discovery
 
@@ -135,23 +135,22 @@ Orphan findings raised: 0
 |--------|-------|
 | Status | partial |
 | Partial | true |
-| Duration | 5.7s |
+| Duration | 9.0s |
 
 ## Counts
 
 | Bucket | Live | Prior (wired 8–12) | Demo |
 |--------|------|--------------------|------|
-| actionable | 5 | 25 | 10 |
+| actionable | 4 | 25 | 10 |
 | informational | 17 | 16 | 17 |
-| internal (hidden) | 1020 | — | 349 |
+| internal (hidden) | 1023 | — | 349 |
 
-List API actionable: 5
-List API + informational: 22
+List API actionable: 4
+List API + informational: 21
 
 ### Actionable verdicts
 
 - topic 49 · `human-review-no-height-auto` · 6 URL(s) · https://autodun.com/blog/electric-car-charger-map-uk.html
-- topic 49 · `auto-set-dimensions` · 1 URL(s) · https://autodun.com/blog/mot-advisories-explained-uk.html
 - topic 49 · `finding-wrong-ratio` · 2 URL(s) · https://autodun.com/blog/mot-changes-2026-dvsa-updates.html
 - topic 8 · `human-review-preferred-conflict` · 3 URL(s) · https://autodun.com/blog
 - topic 25 · `moderate-out-of-scope` · 1 URL(s) · https://mot.autodun.com/

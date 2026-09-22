@@ -40,5 +40,8 @@ Nav: **Findings** under primary dashboard items.
 1. **Approve** — records intent in DB
 2. **Commit via PR** — topic 49 applies `setImgDimensions` on the repo HTML file, commits to `seoranko/fix-49-…`, opens PR
 3. **Verify live** — polls GitHub deployments for the PR preview URL, fetches that page, runs `verifyLiveImgDimensions`
+4. **Production verify → recrawl → outcome** — after merge, verify the live URL (not preview), recrawl, and record the closed finding in `FIX_VERIFY_OUTCOME_RECORD.md`
+
+First closed loop: topic 49 `auto-set-dimensions` on autodun MOT advisories ([autodun-ai#34](https://github.com/kamrangul87/autodun-ai/pull/34)); actionable 5 → 4.
 
 Human-review / report-only findings show observation, evidence, and proposed change on the detail page but never offer Fix.
