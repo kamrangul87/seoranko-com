@@ -11,6 +11,8 @@ import {
 } from '@/lib/fix-strategies/findings-ui/fix-flow-store'
 
 export const dynamic = 'force-dynamic'
+/** Commit + deploy wait + live verify can exceed default. */
+export const maxDuration = 300
 
 function authClient() {
   const cookieStore = cookies()
@@ -48,8 +50,21 @@ export async function POST(
 
   const body = (await request.json().catch(() => ({}))) as {
     action?: 'approve' | 'commit' | 'verify'
+    /** Operator/E2E: explicit GitHub target (never a silent brand default). */
+    github?: {
+      owner: string
+      repo: string
+      baseBranch?: string
+      accessToken?: string
+    }
+    pathOverride?: string
+    liveUrlOverride?: string
   }
   const action = body.action
+  const ctx = {
+    github: body.github,
+    pathOverride: body.pathOverride,
+  }
 
   if (action === 'approve') {
     if (!canOfferFix(finding.surfaceClass)) {
@@ -61,7 +76,10 @@ export async function POST(
         { status: 400 },
       )
     }
-    return NextResponse.json({ finding, fixFlow: approveFix(params.id) })
+    return NextResponse.json({
+      finding,
+      fixFlow: await approveFix(params.id, user.id),
+    })
   }
 
   if (action === 'commit') {
@@ -71,16 +89,24 @@ export async function POST(
         { status: 400 },
       )
     }
-    return NextResponse.json({
-      finding,
-      fixFlow: commitFix(params.id, {
-        diffSummary: finding.proposedDiff?.summary,
-      }),
+    const fixFlow = await commitFix({
+      findingId: params.id,
+      userId: user.id,
+      finding: row,
+      ctx,
     })
+    return NextResponse.json({ finding, fixFlow })
   }
 
   if (action === 'verify') {
-    return NextResponse.json({ finding, fixFlow: verifyFix(params.id) })
+    const fixFlow = await verifyFix({
+      findingId: params.id,
+      userId: user.id,
+      finding: row,
+      ctx,
+      liveUrlOverride: body.liveUrlOverride,
+    })
+    return NextResponse.json({ finding, fixFlow })
   }
 
   return NextResponse.json(

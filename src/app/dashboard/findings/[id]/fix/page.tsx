@@ -114,9 +114,26 @@ export default function FindingFixFlowPage() {
               <div className="rounded-[10px] border border-[#E8E8E4] bg-white p-5">
                 <p className="font-mono text-sm">{finding.verdict}</p>
                 {finding.proposedDiff && (
-                  <p className="text-sm text-[#6B6B6B] mt-2">
-                    {finding.proposedDiff.summary}
-                  </p>
+                  <div className="mt-3 space-y-2">
+                    <p className="text-sm text-[#6B6B6B]">
+                      {finding.proposedDiff.summary}
+                    </p>
+                    {(finding.proposedDiff.before ||
+                      finding.proposedDiff.after) && (
+                      <div className="grid grid-cols-1 gap-2 text-xs font-mono">
+                        {finding.proposedDiff.before && (
+                          <pre className="rounded-md bg-red-50 border border-red-100 p-2 overflow-x-auto whitespace-pre-wrap">
+                            − {finding.proposedDiff.before}
+                          </pre>
+                        )}
+                        {finding.proposedDiff.after && (
+                          <pre className="rounded-md bg-emerald-50 border border-emerald-100 p-2 overflow-x-auto whitespace-pre-wrap">
+                            + {finding.proposedDiff.after}
+                          </pre>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -161,7 +178,8 @@ export default function FindingFixFlowPage() {
                 <div className="border-t border-[#E8E8E4] pt-4">
                   <h2 className="text-sm font-medium">2. Commit</h2>
                   <p className="text-sm text-[#6B6B6B] mt-1">
-                    Write the change via the site connector.
+                    Open a pull request on the connected GitHub repo (never
+                    pushes to main).
                   </p>
                   <button
                     type="button"
@@ -169,11 +187,23 @@ export default function FindingFixFlowPage() {
                     onClick={() => void run('commit')}
                     className="mt-3 px-4 py-2 rounded-md bg-[#FF6B2C] text-white text-sm disabled:opacity-40"
                   >
-                    Commit
+                    Commit via PR
                   </button>
                   {fixFlow?.commitDetail && (
                     <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-3 py-2 mt-3">
                       {fixFlow.commitDetail}
+                    </p>
+                  )}
+                  {fixFlow?.prUrl && (
+                    <p className="text-sm mt-2">
+                      <a
+                        href={fixFlow.prUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[#FF6B2C] hover:underline break-all"
+                      >
+                        {fixFlow.prUrl}
+                      </a>
                     </p>
                   )}
                 </div>
@@ -181,7 +211,8 @@ export default function FindingFixFlowPage() {
                 <div className="border-t border-[#E8E8E4] pt-4">
                   <h2 className="text-sm font-medium">3. Verify</h2>
                   <p className="text-sm text-[#6B6B6B] mt-1">
-                    Independent live re-crawl via the topic verify-live module.
+                    Wait for the Vercel preview deploy, then run the topic
+                    verify-live module against the preview URL.
                   </p>
                   <button
                     type="button"
@@ -191,6 +222,11 @@ export default function FindingFixFlowPage() {
                   >
                     Verify live
                   </button>
+                  {fixFlow?.previewUrl && (
+                    <p className="text-xs text-[#9B9B9B] mt-2 break-all">
+                      Preview: {fixFlow.previewUrl}
+                    </p>
+                  )}
                   {fixFlow?.verifyDetail && (
                     <p
                       className={`text-sm rounded-md px-3 py-2 mt-3 border ${

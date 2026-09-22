@@ -115,8 +115,14 @@ export type FixFlowState = {
   step: FixFlowStep
   approvedAt: string | null
   committedAt: string | null
+  /** Always false for real commits; retained for older rows. */
   commitStub: boolean
   commitDetail: string | null
+  commitSha?: string | null
+  branchName?: string | null
+  prUrl?: string | null
+  prNumber?: number | null
+  previewUrl?: string | null
   verifiedAt: string | null
   verifyOk: boolean | null
   verifyDetail: string | null

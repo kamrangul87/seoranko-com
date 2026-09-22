@@ -30,13 +30,15 @@ Nav: **Findings** under primary dashboard items.
 
 | Piece | Status |
 |---|---|
-| Live crawl orchestration into detectors | Demo dataset only (`demo: true`) |
-| CMS / GitHub commit for fix-strategies | Stub — records intent; connector not wired |
-| Live verify-live.* after deploy | Stub — returns deterministic pass after stub commit |
-| Persisting findings / fix attempts to DB | In-memory session map only |
-| Wiring real verify modules (topic-49 etc.) | Not connected to UI yet |
+| ~~CMS / GitHub commit for fix-strategies~~ | **Closed** — opens a PR on a review branch (never pushes to main) |
+| ~~Live verify-live.* after deploy~~ | **Closed** — waits for Vercel preview deploy, then topic verify-live |
+| ~~Persisting fix-flow sessions~~ | **Closed** — `fix_strategies_fix_flows` table |
+| Human-review auto-apply | Still refused — UI shows evidence + proposal only |
 
-## Rules enforced
-- Report-only / human-review: no Fix button; API rejects approve/commit
-- Human-review: proposal + evidence shown; never auto-applied
-- Internal evidence: detail accordion only, never list rows
+## Fix flow (auto-fixable only)
+
+1. **Approve** — records intent in DB
+2. **Commit via PR** — topic 49 applies `setImgDimensions` on the repo HTML file, commits to `seoranko/fix-49-…`, opens PR
+3. **Verify live** — polls GitHub deployments for the PR preview URL, fetches that page, runs `verifyLiveImgDimensions`
+
+Human-review / report-only findings show observation, evidence, and proposed change on the detail page but never offer Fix.

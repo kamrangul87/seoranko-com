@@ -168,6 +168,103 @@ function ingestArray(
     )
     const declarationSite =
       typeof item.declarationSite === 'string' ? item.declarationSite : null
+    const autoFixable =
+      item.autoFixable === true || /^auto[-_]/.test(verdict)
+
+    // Topic 49: richer proposedDiff + evidence for UI (human-review shows
+    // proposal but is never auto-applied).
+    let proposedDiff: Record<string, unknown> | null = null
+    let evidenceValues: Record<string, unknown> | null = null
+
+    if (topicId === '49') {
+      const proposed =
+        item.proposed && typeof item.proposed === 'object'
+          ? (item.proposed as { width?: number; height?: number })
+          : null
+      const srcAttr =
+        typeof item.srcAttr === 'string'
+          ? item.srcAttr
+          : typeof item.src === 'string'
+            ? item.src
+            : ''
+      const declared =
+        item.declared && typeof item.declared === 'object'
+          ? (item.declared as { width?: number | null; height?: number | null })
+          : { width: null, height: null }
+      const intrinsic =
+        item.intrinsic && typeof item.intrinsic === 'object'
+          ? (item.intrinsic as { width?: number; height?: number })
+          : null
+
+      const before = `<img${
+        declared.width != null ? ` width="${declared.width}"` : ''
+      }${declared.height != null ? ` height="${declared.height}"` : ''} src="${srcAttr}">`
+      const after =
+        proposed?.width != null && proposed?.height != null
+          ? `<img width="${proposed.width}" height="${proposed.height}" src="${srcAttr}">`
+          : null
+
+      proposedDiff = {
+        summary:
+          proposed?.width != null && proposed?.height != null
+            ? `Set width=${proposed.width} height=${proposed.height} from image header`
+            : verdict.startsWith('human-review')
+              ? 'Human review — dimensions proposal shown; not auto-applied'
+              : 'Proposed dimension change',
+        before,
+        after,
+        targetPath: declarationSite,
+        srcAttr,
+        proposed,
+      }
+      evidenceValues = {
+        left:
+          declared.width != null || declared.height != null
+            ? `${declared.width ?? '—'}×${declared.height ?? '—'}`
+            : 'missing',
+        right: intrinsic
+          ? `${intrinsic.width}×${intrinsic.height}`
+          : 'unreadable',
+        leftLabel: 'Declared',
+        rightLabel: 'Intrinsic (file header)',
+        srcAttr,
+        ...(item.values && typeof item.values === 'object'
+          ? (item.values as Record<string, unknown>)
+          : {}),
+      }
+    } else {
+      proposedDiff =
+        item.proposed && typeof item.proposed === 'object'
+          ? { proposed: item.proposed }
+          : item.proposedFromHeading
+            ? { proposedFromHeading: item.proposedFromHeading }
+            : null
+      evidenceValues =
+        item.values && typeof item.values === 'object'
+          ? (item.values as Record<string, unknown>)
+          : item.depth != null || item.shortestPath != null
+            ? {
+                depth: item.depth ?? null,
+                shortestPath: item.shortestPath ?? null,
+                renderRequired: item.renderRequired ?? false,
+              }
+            : null
+
+      // Human-review / finding rows: always surface a decision summary even
+      // when there is no mechanical patch.
+      if (
+        !proposedDiff &&
+        (verdict.startsWith('human-review') ||
+          verdict.startsWith('finding-') ||
+          verdict.startsWith('moderate-'))
+      ) {
+        proposedDiff = {
+          summary: `Review required: ${verdict}`,
+          after: typeof item.detail === 'string' ? item.detail : verdict,
+        }
+      }
+    }
+
     out.push({
       topicId,
       kind: String(item.kind ?? kindDefault),
@@ -179,23 +276,9 @@ function ingestArray(
       detail: typeof item.detail === 'string' ? item.detail : '',
       pageUrl,
       declarationSite,
-      autoFixable: item.autoFixable === true,
-      proposedDiff:
-        item.proposed && typeof item.proposed === 'object'
-          ? { proposed: item.proposed }
-          : item.proposedFromHeading
-            ? { proposedFromHeading: item.proposedFromHeading }
-            : null,
-      evidenceValues:
-        item.values && typeof item.values === 'object'
-          ? (item.values as Record<string, unknown>)
-          : item.depth != null || item.shortestPath != null
-            ? {
-                depth: item.depth ?? null,
-                shortestPath: item.shortestPath ?? null,
-                renderRequired: item.renderRequired ?? false,
-              }
-            : null,
+      autoFixable,
+      proposedDiff,
+      evidenceValues,
       bucket: opts?.forceBucket ?? classifyVerdictBucket(verdict),
     })
   }
@@ -1025,8 +1108,11 @@ export function rollupAndClassify(emits: DetectorEmit[]): {
     const bucket =
       (payload.bucket as RolledPersistCandidate['bucket']) ??
       classifyVerdictBucket(r.verdict)
-    const autoFixable = payload.autoFixable === true
-    const reportOnly = bucket === 'informational' || !autoFixable
+    const autoFixable =
+      payload.autoFixable === true || /^auto[-_]/.test(r.verdict)
+    const reportOnly =
+      bucket === 'informational' ||
+      (!autoFixable && !r.verdict.startsWith('auto-'))
     const surfaceClass = classifySurfaceClass(r.verdict, {
       autoFixable,
       reportOnly,
@@ -1040,7 +1126,6 @@ export function rollupAndClassify(emits: DetectorEmit[]): {
     const dossier = dossierSlugForTopic(r.topicId)
     const baseEvidence =
       (payload.evidenceValues as Record<string, unknown> | null) ?? null
-    // Preserve rollup members for cross-topic preferred-form linking
     const evidenceValues: Record<string, unknown> | null =
       r.memberUrls.length > 1
         ? { ...(baseEvidence ?? {}), memberUrls: r.memberUrls }
