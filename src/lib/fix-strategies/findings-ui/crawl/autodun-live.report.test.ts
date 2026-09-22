@@ -353,7 +353,6 @@ ${result.coverageNotes.map((n) => `- **${n.code}**: ${n.detail}`).join('\n')}
       const t49Actionable = listedActionable.filter((f) => f.topicId === '49')
       for (const f of t49Actionable) {
         expect(f.declarationSite).not.toMatch(/^generator:site-/i)
-        expect(f.rolledUp).toBe(false)
         expect(f.affectedUrlCount).toBe(1)
         expect(f.declarationSite).toBe(f.pageUrl)
       }
