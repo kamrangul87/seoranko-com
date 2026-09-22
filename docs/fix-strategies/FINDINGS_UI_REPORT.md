@@ -39,9 +39,10 @@ Nav: **Findings** under primary dashboard items.
 
 1. **Approve** — records intent in DB
 2. **Commit via PR** — topic 49 applies `setImgDimensions` on the repo HTML file, commits to `seoranko/fix-49-…`, opens PR
-3. **Verify live** — polls GitHub deployments for the PR preview URL, fetches that page, runs `verifyLiveImgDimensions`
-4. **Production verify → recrawl → outcome** — after merge, verify the live URL (not preview), recrawl, and record the closed finding in `FIX_VERIFY_OUTCOME_RECORD.md`
+3. **Verify live** — polls GitHub deployments for the PR preview URL, fetches that page, runs `verifyLiveImgDimensions` (auth-wall guard rejects login interstitials)
+4. **Opt-in auto-merge** — only when `connected_sites.auto_merge_enabled` (default OFF; Autodun ON) **and** every gate holds: auto-fixable, CI green, preview verify OK, single-file blast radius. Otherwise a human merges.
+5. **Production verify → outcome** — after merge, verify the live URL; on failure open a revert PR and flag. Record in `FIX_VERIFY_OUTCOME_RECORD.md` with `auto_merged: true|false`.
 
-First closed loop: topic 49 `auto-set-dimensions` on autodun MOT advisories ([autodun-ai#34](https://github.com/kamrangul87/autodun-ai/pull/34)); actionable 5 → 4.
+First closed loop: topic 49 `auto-set-dimensions` on autodun MOT advisories ([autodun-ai#34](https://github.com/kamrangul87/autodun-ai/pull/34), `auto_merged: false`); actionable 5 → 4.
 
 Human-review / report-only findings show observation, evidence, and proposed change on the detail page but never offer Fix.

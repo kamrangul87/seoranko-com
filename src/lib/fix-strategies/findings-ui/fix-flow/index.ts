@@ -20,3 +20,15 @@ export {
   verifyFix,
 } from './orchestrate'
 export type { CommitContext } from './orchestrate'
+export {
+  assessSingleFileBlastRadius,
+  isBlockedAutoMergePath,
+} from './blast-radius'
+export {
+  evaluateAutoMergeVerdictGate,
+  resolveSiteAutoMergeEnabled,
+  maybeAutoMergeAfterPreviewVerify,
+} from './auto-merge'
+export { appendOutcomeRecordLocal, formatOutcomeEntry } from './outcome-record'
+export { mergePullRequest, openRevertPullRequest } from './github-pr-merge'
+export { waitForPrCiGreen, listPullRequestFiles } from './pr-ci-status'
