@@ -8,6 +8,10 @@ import {
   getFindingsStore,
 } from '@/lib/fix-strategies/findings-ui/crawl'
 import { normalizePublicOrigin } from '@/lib/fix-strategies/findings-ui/crawl/normalize-public-origin'
+import {
+  assertCrawlStartAllowed,
+  recordCrawlStart,
+} from '@/lib/fix-strategies/findings-ui/crawl/rate-limit'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -64,6 +68,10 @@ export async function POST(request: Request) {
           { status: 400 },
         )
       }
+      const quota = assertCrawlStartAllowed(user.id)
+      if (quota) {
+        return NextResponse.json({ error: quota, code: 'CRAWL_QUOTA' }, { status: 429 })
+      }
       const { runId, urlsDiscovered } = await startCrawlRun({
         siteId: null,
         userId: user.id,
@@ -72,6 +80,7 @@ export async function POST(request: Request) {
         store,
         maxUrls: body.maxUrls,
       })
+      recordCrawlStart(user.id)
       return NextResponse.json({
         runId,
         urlsDiscovered,
@@ -126,6 +135,10 @@ export async function POST(request: Request) {
   const origin = `https://${String(site.domain).replace(/^www\./, '')}`
 
   if (body.action === 'start') {
+    const quota = assertCrawlStartAllowed(user.id)
+    if (quota) {
+      return NextResponse.json({ error: quota, code: 'CRAWL_QUOTA' }, { status: 429 })
+    }
     const { runId, urlsDiscovered } = await startCrawlRun({
       siteId,
       userId: user.id,
@@ -133,6 +146,7 @@ export async function POST(request: Request) {
       store,
       maxUrls: body.maxUrls,
     })
+    recordCrawlStart(user.id)
     return NextResponse.json({
       runId,
       urlsDiscovered,

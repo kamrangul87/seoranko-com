@@ -4,6 +4,13 @@
  */
 
 import { CRAWL_MAX_DISCOVERED } from './constants'
+import { isSafePublicUrl } from '@/lib/fetch-page-content'
+import {
+  isDisallowedByRobots,
+  parseRobotsForCrawler,
+  type RobotsRules,
+} from './crawler-identity'
+import { safeCrawlFetch } from './safe-crawl-fetch'
 
 function hostOf(url: string): string {
   try {
@@ -17,17 +24,18 @@ function sameHost(a: string, b: string): boolean {
   return hostOf(a) === hostOf(b) && hostOf(a) !== ''
 }
 
-async function fetchText(url: string): Promise<{ ok: boolean; status: number; text: string }> {
-  try {
-    const res = await fetch(url, {
-      redirect: 'follow',
-      headers: { 'User-Agent': 'SEORANKO-FixStrategiesCrawl/1.0' },
-      cache: 'no-store',
-    })
-    const text = await res.text()
-    return { ok: res.ok, status: res.status, text }
-  } catch {
+async function fetchText(
+  url: string,
+): Promise<{ ok: boolean; status: number; text: string }> {
+  if (!isSafePublicUrl(url)) {
     return { ok: false, status: 0, text: '' }
+  }
+  const res = await safeCrawlFetch(url)
+  if (!res.ok) return { ok: false, status: 0, text: '' }
+  return {
+    ok: res.status >= 200 && res.status < 400,
+    status: res.status,
+    text: res.text,
   }
 }
 
@@ -51,23 +59,32 @@ export type DiscoverySeedCounts = {
 /**
  * Seed frontier from robots.txt Sitemap: records and/or /sitemap.xml, plus
  * the homepage. Link-graph expansion happens during the crawl (not here).
+ * Every fetch uses isSafePublicUrl (incl. redirect hops) and SEORANKO UA;
+ * robots.txt Disallow for our agent is respected.
  */
 export async function discoverSameHostUrls(origin: string): Promise<{
   urls: string[]
   foundTotal: number
   skippedOffHost: number
+  skippedRobots: number
   capped: boolean
   notes: string[]
   seeds: DiscoverySeedCounts
+  robotsRules: RobotsRules
 }> {
   const originUrl = origin.replace(/\/$/, '')
   const notes: string[] = []
   const candidates = new Set<string>()
   let skippedOffHost = 0
+  let skippedRobots = 0
   let fromRobotsSitemaps = 0
   let fromSitemapFallback = 0
 
   const robots = await fetchText(`${originUrl}/robots.txt`)
+  const robotsRules: RobotsRules = robots.ok
+    ? parseRobotsForCrawler(robots.text)
+    : { disallows: [], allows: [] }
+
   if (robots.ok) {
     const sitemapLines = robots.text
       .split(/\r?\n/)
@@ -76,18 +93,22 @@ export async function discoverSameHostUrls(origin: string): Promise<{
       .map((l) => l.split(/:\s*/).slice(1).join(':').trim())
       .filter(Boolean)
     for (const sm of sitemapLines) {
-      if (!sameHost(sm, originUrl)) {
+      if (!sameHost(sm, originUrl) || !isSafePublicUrl(sm)) {
         skippedOffHost++
         continue
       }
       const doc = await fetchText(sm)
       if (!doc.ok) {
-        notes.push(`sitemap fetch failed: ${sm} (${doc.status})`)
+        notes.push(`sitemap fetch failed: ${sm}`)
         continue
       }
       for (const loc of extractLocs(doc.text)) {
-        if (!sameHost(loc, originUrl)) {
+        if (!sameHost(loc, originUrl) || !isSafePublicUrl(loc)) {
           skippedOffHost++
+          continue
+        }
+        if (isDisallowedByRobots(loc, robotsRules)) {
+          skippedRobots++
           continue
         }
         const clean = loc.split('#')[0]!
@@ -103,8 +124,12 @@ export async function discoverSameHostUrls(origin: string): Promise<{
     const sm = await fetchText(`${originUrl}/sitemap.xml`)
     if (sm.ok) {
       for (const loc of extractLocs(sm.text)) {
-        if (!sameHost(loc, originUrl)) {
+        if (!sameHost(loc, originUrl) || !isSafePublicUrl(loc)) {
           skippedOffHost++
+          continue
+        }
+        if (isDisallowedByRobots(loc, robotsRules)) {
+          skippedRobots++
           continue
         }
         const clean = loc.split('#')[0]!
@@ -118,14 +143,15 @@ export async function discoverSameHostUrls(origin: string): Promise<{
     }
   }
 
-  // Always include homepage
+  // Always include homepage when robots allows
   const home = `${originUrl}/`
   let fromHomepage = 0
-  if (!candidates.has(home)) {
-    candidates.add(home)
+  if (isDisallowedByRobots(home, robotsRules)) {
+    skippedRobots++
+    notes.push('homepage disallowed by robots.txt for SEORANKO crawler')
+  } else if (isSafePublicUrl(home)) {
+    if (!candidates.has(home)) candidates.add(home)
     fromHomepage = 1
-  } else {
-    fromHomepage = 1 // still credited as a seed source
   }
 
   const foundTotal = candidates.size
@@ -141,6 +167,7 @@ export async function discoverSameHostUrls(origin: string): Promise<{
     urls,
     foundTotal,
     skippedOffHost,
+    skippedRobots,
     capped,
     notes,
     seeds: {
@@ -149,13 +176,18 @@ export async function discoverSameHostUrls(origin: string): Promise<{
       fromHomepage,
       fromLinkGraph: 0,
     },
+    robotsRules,
   }
 }
 
 /**
  * Extract same-host absolute http(s) URLs from crawlable <a href> in HTML.
  */
-export function extractSameHostLinks(html: string, pageUrl: string, origin: string): string[] {
+export function extractSameHostLinks(
+  html: string,
+  pageUrl: string,
+  origin: string,
+): string[] {
   const originHost = hostOf(origin)
   if (!originHost) return []
   const out = new Set<string>()
@@ -173,7 +205,7 @@ export function extractSameHostLinks(html: string, pageUrl: string, origin: stri
       continue
     }
     if (hostOf(abs) !== originHost) continue
-    if (!/^https?:/i.test(abs)) continue
+    if (!isSafePublicUrl(abs)) continue
     out.add(abs.split('#')[0]!)
   }
   return Array.from(out)

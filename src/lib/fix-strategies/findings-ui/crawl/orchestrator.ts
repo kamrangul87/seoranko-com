@@ -28,6 +28,13 @@ import {
 } from './run-detectors'
 import { POST_CRAWL_TOPIC_IDS } from '@/lib/fix-strategies/detector-scope'
 import { getFindingsStore, type FindingsStore } from './store'
+import { isSafePublicUrl } from '@/lib/fetch-page-content'
+import {
+  isDisallowedByRobots,
+  parseRobotsForCrawler,
+  type RobotsRules,
+} from './crawler-identity'
+import { safeCrawlFetch } from './safe-crawl-fetch'
 
 export type StartCrawlInput = {
   /** Connected site id, or null for detection-only. */
@@ -102,6 +109,12 @@ export async function startCrawlRun(
       detail: `Skipped ${discovered.skippedOffHost} off-host sitemap loc(s)`,
     })
   }
+  if (discovered.skippedRobots > 0) {
+    notes.push({
+      code: 'discovery_cap',
+      detail: `Skipped ${discovered.skippedRobots} URL(s) disallowed by robots.txt for SEORANKO crawler`,
+    })
+  }
 
   notes.push({
     code: 'link_graph_expand',
@@ -121,7 +134,29 @@ export async function startCrawlRun(
     isPartial: capped,
   })
 
+  // Keep robots rules for this run in-process for tick politeness.
+  rememberRobotsRules(run.id, discovered.robotsRules)
+
   return { runId: run.id, urlsDiscovered: urls.length, urlsFound: foundTotal }
+}
+
+const robotsByRun = new Map<string, RobotsRules>()
+
+function rememberRobotsRules(runId: string, rules: RobotsRules) {
+  robotsByRun.set(runId, rules)
+}
+
+async function robotsForRun(runId: string, origin: string): Promise<RobotsRules> {
+  const cached = robotsByRun.get(runId)
+  if (cached) return cached
+  const robotsUrl = `${origin.replace(/\/$/, '')}/robots.txt`
+  if (!isSafePublicUrl(robotsUrl)) return { disallows: [], allows: [] }
+  const res = await safeCrawlFetch(robotsUrl)
+  const rules = res.ok
+    ? parseRobotsForCrawler(res.text)
+    : { disallows: [], allows: [] }
+  robotsByRun.set(runId, rules)
+  return rules
 }
 
 export async function processCrawlTick(
@@ -174,6 +209,8 @@ export async function processCrawlTick(
     fromLinkGraph: 0,
   }
 
+  const robotsRules = await robotsForRun(runId, run.origin)
+
   for (const job of jobs) {
     if (Date.now() > deadline) {
       // Re-queue unprocessed claimed jobs
@@ -187,7 +224,29 @@ export async function processCrawlTick(
     }
 
     try {
-      const page = await crawlOneUrl(job.url)
+      const page = await crawlOneUrl(job.url, { robotsRules })
+      if (
+        page.errorDetail === 'robots_disallow' ||
+        page.errorDetail === 'blocked_unsafe_url'
+      ) {
+        failedN++
+        await store.updateUrlJob(job.id, {
+          status: 'failed',
+          httpStatus: page.status,
+          finalUrl: page.finalUrl,
+          streamComplete: false,
+          errorDetail: page.errorDetail,
+        })
+        notes.push({
+          code: page.errorDetail === 'robots_disallow' ? 'discovery_cap' : 'fetch_failure',
+          detail:
+            page.errorDetail === 'robots_disallow'
+              ? 'Skipped — Disallow in robots.txt for SEORANKO crawler'
+              : 'Skipped — URL refused by isSafePublicUrl',
+          url: job.url,
+        })
+        continue
+      }
       if (page.crawlerCausedBackoff) {
         failedN++
         await store.updateUrlJob(job.id, {
@@ -272,7 +331,9 @@ export async function processCrawlTick(
       crawled.push(page)
 
       // Link-graph frontier expansion (same-host <a href> only).
-      const links = extractSameHostLinks(page.html, page.finalUrl, run.origin)
+      const links = extractSameHostLinks(page.html, page.finalUrl, run.origin).filter(
+        (u) => isSafePublicUrl(u) && !isDisallowedByRobots(u, robotsRules),
+      )
       if (links.length > 0) {
         let toAdd = links
         if (run.urlCap != null) {
