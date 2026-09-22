@@ -84,10 +84,15 @@ are listed in `_open-questions.md` until set.
 3. **Tests and typecheck green** locally.
 4. **CI green** on the PR.
 5. **Merged to `main` (this product repo only).** Never leave a green
-   `seoranko-com` PR open. Nothing is done until it is on `main`. Customer
-   repos merge only under the opt-in auto-merge rules in Constraints — never
-   as a default.
-6. **Report:** what was built, what the tests assert, and anything in the
+   `seoranko-com` PR open. Nothing is done until it is on `main`. The
+   **agent** never merges customer-repo PRs; the **product** may only under
+   the opt-in auto-merge gates in Constraints.
+6. **Production deployment on `main` reaches Ready.** A green PR / green
+   preview is **not** done. After merge, confirm the Vercel **Production**
+   deploy for that commit is Ready. If Production fails (e.g. migrate step
+   in `vercel-production-migrate.sh`), **stop and fix before anything else**
+   — do not start new work on a brick main deploy.
+7. **Report:** what was built, what the tests assert, and anything in the
    dossier that turned out wrong or underspecified.
 
-Step 5 is not optional for `seoranko-com`.
+Steps 5 and 6 are not optional for `seoranko-com`.
