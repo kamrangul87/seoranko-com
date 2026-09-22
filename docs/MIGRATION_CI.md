@@ -98,5 +98,6 @@ Each file under `supabase/migrations/` must have a **unique** timestamp
 prefix. Two files sharing e.g. `20260921140000_*.sql` make `db push` treat
 one as already applied and refuse the other unless `--include-all` is used
 — that bricked every Production deploy from #113 until the duplicate was
-renamed. Prefer a new unique timestamp over `--include-all` when adding
-migrations; the CI script still passes `--include-all` as a safety net.
+renamed. Prefer a new unique timestamp when adding migrations. Do **not** rely on
+`--include-all` in CI — unique timestamps are the fix; the duplicate-timestamp
+CI check enforces this.
