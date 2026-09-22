@@ -1,5 +1,7 @@
 -- Detection-only crawls: public URL, no connected_sites row, no site credentials.
 -- site_id becomes nullable; detect_origin scopes findings when site_id IS NULL.
+-- Idempotent: ADD/DROP use IF NOT EXISTS / IF EXISTS; ALTER … DROP NOT NULL is a
+-- no-op when the column is already nullable (safe to re-run if history drifts).
 
 ALTER TABLE fix_strategies_crawl_runs
   ALTER COLUMN site_id DROP NOT NULL;

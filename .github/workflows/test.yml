@@ -18,6 +18,8 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Unique migration timestamps
+        run: bash scripts/check-unique-migration-timestamps.sh
       - name: Lint
         run: npm run lint
       - name: Typecheck (production sources, mirrors next build)
