@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import {
@@ -9,6 +9,7 @@ import {
   isStaleClientFixBranch,
   deleteStaleSeorankoFixBranches,
 } from './github-adapter'
+import { withCustomerWriteGate } from '@/lib/customer-write-gate'
 
 const autodunLikeTree = [
   'index.html',
@@ -134,9 +135,15 @@ describe('stale client Fix Agent branches', () => {
 })
 
 describe('GitHub writeStaticFile direct-push only', () => {
+  const prevLegacy = process.env.LEGACY_CUSTOMER_WRITES_ENABLED
+  beforeEach(() => {
+    process.env.LEGACY_CUSTOMER_WRITES_ENABLED = '1'
+  })
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+    if (prevLegacy === undefined) delete process.env.LEGACY_CUSTOMER_WRITES_ENABLED
+    else process.env.LEGACY_CUSTOMER_WRITES_ENABLED = prevLegacy
   })
 
   it('fails with an explicit error when direct push returns 403 (no PR fallback)', async () => {
@@ -181,11 +188,13 @@ describe('GitHub writeStaticFile direct-push only', () => {
       }),
     )
 
-    const result = await githubAdapter.writeStaticFile!(
-      testCreds,
-      'llms.txt',
-      '# hello\n',
-      { commitMessage: 'SEORANKO Fix Agent: add llms.txt' },
+    const result = await withCustomerWriteGate('legacy-direct-push', {}, () =>
+      githubAdapter.writeStaticFile!(
+        testCreds,
+        'llms.txt',
+        '# hello\n',
+        { commitMessage: 'SEORANKO Fix Agent: add llms.txt' },
+      ),
     )
 
     expect(result.success).toBe(false)
@@ -224,17 +233,19 @@ describe('GitHub writeStaticFile direct-push only', () => {
       }),
     )
 
-    const result = await githubAdapter.rewritePageHtml!(
-      testCreds,
-      {
-        id: 'public/about/index.html',
-        url: 'https://example.com/about',
-        title: 'About',
-        bodyHtml: '<html></html>',
-        hasSchema: false,
-      },
-      '<html><body>x</body></html>',
-      { commitMessage: 'test' },
+    const result = await withCustomerWriteGate('legacy-direct-push', {}, () =>
+      githubAdapter.rewritePageHtml!(
+        testCreds,
+        {
+          id: 'public/about/index.html',
+          url: 'https://example.com/about',
+          title: 'About',
+          bodyHtml: '<html></html>',
+          hasSchema: false,
+        },
+        '<html><body>x</body></html>',
+        { commitMessage: 'test' },
+      ),
     )
     expect(result.success).toBe(false)
     expect(result.error).toMatch(/PR fallback is disabled/i)
@@ -267,7 +278,9 @@ describe('GitHub writeStaticFile direct-push only', () => {
       }),
     )
 
-    const result = await githubAdapter.writeStaticFile!(testCreds, 'llms.txt', '# hello\n')
+    const result = await withCustomerWriteGate('legacy-direct-push', {}, () =>
+      githubAdapter.writeStaticFile!(testCreds, 'llms.txt', '# hello\n'),
+    )
 
     expect(result.success).toBe(true)
     expect(result.pending).toBe(true)
@@ -315,20 +328,22 @@ describe('GitHub writeStaticFile direct-push only', () => {
       }),
     )
 
-    const result = await githubAdapter.rewritePageHtml!(
-      testCreds,
-      {
-        id: 'public/blog/index.html',
-        url: 'https://example.com/blog/',
-        title: 'Blog',
-        bodyHtml: '<a href="/old">x</a>',
-        hasSchema: false,
-      },
-      '<a href="/new">x</a>',
-      {
-        riskLevel: 'safe',
-        commitMessage: 'SEORANKO Fix Agent: rewrite 1 link href(s) on public/blog/index.html',
-      },
+    const result = await withCustomerWriteGate('legacy-direct-push', {}, () =>
+      githubAdapter.rewritePageHtml!(
+        testCreds,
+        {
+          id: 'public/blog/index.html',
+          url: 'https://example.com/blog/',
+          title: 'Blog',
+          bodyHtml: '<a href="/old">x</a>',
+          hasSchema: false,
+        },
+        '<a href="/new">x</a>',
+        {
+          riskLevel: 'safe',
+          commitMessage: 'SEORANKO Fix Agent: rewrite 1 link href(s) on public/blog/index.html',
+        },
+      ),
     )
 
     expect(result.success).toBe(true)
@@ -377,17 +392,19 @@ describe('GitHub writeStaticFile direct-push only', () => {
       }),
     )
 
-    const result = await githubAdapter.rewritePageHtml!(
-      testCreds,
-      {
-        id: 'public/about/index.html',
-        url: 'https://example.com/about/',
-        title: 'About',
-        bodyHtml: '<p>old</p>',
-        hasSchema: false,
-      },
-      '<p>new</p>',
-      { riskLevel: 'review-required', commitMessage: 'SEORANKO Fix Agent: update about' },
+    const result = await withCustomerWriteGate('legacy-direct-push', {}, () =>
+      githubAdapter.rewritePageHtml!(
+        testCreds,
+        {
+          id: 'public/about/index.html',
+          url: 'https://example.com/about/',
+          title: 'About',
+          bodyHtml: '<p>old</p>',
+          hasSchema: false,
+        },
+        '<p>new</p>',
+        { riskLevel: 'review-required', commitMessage: 'SEORANKO Fix Agent: update about' },
+      ),
     )
 
     expect(result.success).toBe(true)

@@ -5,6 +5,12 @@ export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
+    const {
+      isLegacyCustomerWritesEnabled,
+      legacyCustomerWritesDisabledBody,
+      withCustomerWriteGate,
+    } = await import('@/lib/customer-write-gate')
+
     const body = await req.json();
     const { urls, domain, githubRepo, githubToken, githubBranch } = body;
 
@@ -42,68 +48,82 @@ ${urlEntries}
 
     // Push to GitHub if credentials provided
     if (githubRepo && githubToken) {
-      try {
-        const repoVal = (githubRepo as string).replace(/^https?:\/\/(www\.)?github\.com\//, '');
-        const slashIdx = repoVal.indexOf('/');
-        const owner = repoVal.slice(0, slashIdx);
-        const repo = repoVal.slice(slashIdx + 1);
-        const branch = (githubBranch as string) || 'main';
-        const filePath = 'public/sitemap.xml';
+      if (!isLegacyCustomerWritesEnabled()) {
+        return NextResponse.json({
+          success: true,
+          xml,
+          pushed: false,
+          ...legacyCustomerWritesDisabledBody('site-audit-sitemap-github'),
+        });
+      }
 
-        const headers: Record<string, string> = {
-          Authorization: `token ${githubToken}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/vnd.github.v3+json',
-        };
+      return await withCustomerWriteGate('legacy-direct-push', {}, async () => {
+        const { requireActiveCustomerWriteGate } = await import('@/lib/customer-write-gate')
+        requireActiveCustomerWriteGate('site-audit/generate-sitemap.push')
 
-        let sha = '';
-        const getRes = await fetch(
-          `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}?ref=${branch}`,
-          { headers, signal: AbortSignal.timeout(8000) }
-        );
-        if (getRes.ok) {
-          const existing = await getRes.json();
-          sha = existing.sha;
-        }
+        try {
+          const repoVal = (githubRepo as string).replace(/^https?:\/\/(www\.)?github\.com\//, '');
+          const slashIdx = repoVal.indexOf('/');
+          const owner = repoVal.slice(0, slashIdx);
+          const repo = repoVal.slice(slashIdx + 1);
+          const branch = (githubBranch as string) || 'main';
+          const filePath = 'public/sitemap.xml';
 
-        const pushBody: any = {
-          message: `SEO: update sitemap.xml (${urls.length} URLs) via SEORANKO`,
-          content: Buffer.from(xml).toString('base64'),
-          branch,
-        };
-        if (sha) pushBody.sha = sha;
+          const headers: Record<string, string> = {
+            Authorization: `token ${githubToken}`,
+            'Content-Type': 'application/json',
+            Accept: 'application/vnd.github.v3+json',
+          };
 
-        const pushRes = await fetch(
-          `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`,
-          { method: 'PUT', headers, body: JSON.stringify(pushBody), signal: AbortSignal.timeout(10000) }
-        );
+          let sha = '';
+          const getRes = await fetch(
+            `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}?ref=${branch}`,
+            { headers, signal: AbortSignal.timeout(8000) }
+          );
+          if (getRes.ok) {
+            const existing = await getRes.json();
+            sha = existing.sha;
+          }
 
-        if (pushRes.ok) {
+          const pushBody: any = {
+            message: `SEO: update sitemap.xml (${urls.length} URLs) via SEORANKO`,
+            content: Buffer.from(xml).toString('base64'),
+            branch,
+          };
+          if (sha) pushBody.sha = sha;
+
+          const pushRes = await fetch(
+            `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`,
+            { method: 'PUT', headers, body: JSON.stringify(pushBody), signal: AbortSignal.timeout(10000) }
+          );
+
+          if (pushRes.ok) {
+            return NextResponse.json({
+              success: true,
+              xml,
+              pushed: true,
+              path: `${owner}/${repo}/${filePath}`,
+            });
+          }
+          const pushErr = await pushRes.json().catch(() => ({}));
           return NextResponse.json({
             success: true,
             xml,
-            pushed: true,
-            path: `${owner}/${repo}/${filePath}`,
+            pushed: false,
+            pushError: pushErr.message || `GitHub ${pushRes.status}`,
+          });
+        } catch (err: any) {
+          return NextResponse.json({
+            success: true,
+            xml,
+            pushed: false,
+            pushError: err?.message || 'push failed',
           });
         }
-        const pushErr = await pushRes.json().catch(() => ({}));
-        return NextResponse.json({
-          success: true,
-          xml,
-          pushed: false,
-          pushError: pushErr.message || `GitHub ${pushRes.status}`,
-        });
-      } catch (err: any) {
-        return NextResponse.json({
-          success: true,
-          xml,
-          pushed: false,
-          pushError: err.message,
-        });
-      }
+      })
     }
 
-    return NextResponse.json({ success: true, xml });
+    return NextResponse.json({ success: true, xml, pushed: false });
   } catch (error: any) {
     console.error('[generate-sitemap]', error);
     return NextResponse.json({ error: error.message || 'Generate failed' }, { status: 500 });

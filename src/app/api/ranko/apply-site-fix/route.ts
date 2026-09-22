@@ -14,6 +14,18 @@ const VALID_FIX_TYPES: SiteFixType[] = [
 
 export async function POST(req: NextRequest) {
   try {
+    const {
+      isLegacyCustomerWritesEnabled,
+      legacyCustomerWritesDisabledBody,
+      withCustomerWriteGate,
+    } = await import('@/lib/customer-write-gate')
+    if (!isLegacyCustomerWritesEnabled()) {
+      return NextResponse.json(
+        legacyCustomerWritesDisabledBody('ranko-apply-site-fix'),
+        { status: 403 },
+      )
+    }
+
     const cookieStore = cookies()
     const authClient = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -61,9 +73,11 @@ export async function POST(req: NextRequest) {
       ? site.brand.charAt(0).toUpperCase() + site.brand.slice(1)
       : site.domain
 
-    const result = await applySiteAutoFix(
-      supabase, user.id, siteId, issueId, fixType as SiteFixType,
-      targetUrl, brandName, ''
+    const result = await withCustomerWriteGate('legacy-cms-publish', {}, () =>
+      applySiteAutoFix(
+        supabase, user.id, siteId, issueId, fixType as SiteFixType,
+        targetUrl, brandName, ''
+      ),
     )
 
     return NextResponse.json(result)

@@ -45,6 +45,11 @@ export async function mergePullRequest(input: {
   commitTitle?: string
   fetchImpl?: typeof fetch
 }): Promise<MergePrResult> {
+  const { requireActiveCustomerWriteGate } = await import(
+    '@/lib/customer-write-gate'
+  )
+  requireActiveCustomerWriteGate('findings.mergePullRequest')
+
   const { owner, repo, accessToken } = input.creds
   const fetchImpl = input.fetchImpl ?? fetch
   const res = await ghJson<{ sha?: string; merged?: boolean; message?: string }>(
@@ -89,6 +94,11 @@ export async function openRevertPullRequest(input: {
   reason: string
   fetchImpl?: typeof fetch
 }): Promise<RevertPrResult> {
+  const { requireActiveCustomerWriteGate } = await import(
+    '@/lib/customer-write-gate'
+  )
+  requireActiveCustomerWriteGate('findings.openRevertPullRequest')
+
   const { owner, repo, accessToken } = input.creds
   const base = input.creds.baseBranch || 'main'
   const fetchImpl = input.fetchImpl ?? fetch

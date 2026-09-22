@@ -39,6 +39,14 @@ function db() {
 
 // ── GET /api/fixes?site_id=&url= — called by seoranko.js from user sites ─────
 export async function GET(req: NextRequest) {
+  const {
+    isLegacyCustomerWritesEnabled,
+  } = await import('@/lib/customer-write-gate')
+  // Legacy DOM-mutation queue is off — return empty so the tag applies nothing.
+  if (!isLegacyCustomerWritesEnabled()) {
+    return NextResponse.json({ fixes: [] }, { headers: CORS });
+  }
+
   const sp = new URL(req.url).searchParams;
   const siteId = sp.get('site_id');
   const rawUrl = sp.get('url') || '';
@@ -69,6 +77,17 @@ export async function GET(req: NextRequest) {
 // ── POST /api/fixes — called from the SEORANKO dashboard to write a fix ───────
 export async function POST(req: NextRequest) {
   try {
+    const {
+      isLegacyCustomerWritesEnabled,
+      legacyCustomerWritesDisabledBody,
+    } = await import('@/lib/customer-write-gate')
+    if (!isLegacyCustomerWritesEnabled()) {
+      return NextResponse.json(
+        legacyCustomerWritesDisabledBody('api-fixes-queue'),
+        { status: 403, headers: CORS },
+      )
+    }
+
     const body = await req.json();
     const { site_id, page_url, fix_type, selector, old_value, new_value } = body;
 

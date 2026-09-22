@@ -768,6 +768,20 @@ export default function SiteAuditPage() {
         return;
       }
 
+      // Legacy browser direct-publish (GitHub main / CMS) — disabled unless flag set at build.
+      // Customer writes go through Findings → approve → PR (+ gates).
+      const legacyBrowserPublish =
+        process.env.NEXT_PUBLIC_LEGACY_CUSTOMER_WRITES_ENABLED === '1' ||
+        process.env.NEXT_PUBLIC_LEGACY_CUSTOMER_WRITES_ENABLED === 'true'
+      if (!legacyBrowserPublish) {
+        setPublishSuccess(
+          '❌ Direct publish is disabled. Use Findings → approve → commit (opens a PR). ' +
+            'Auto-merge only when auto_merge_enabled and every gate passes.',
+        );
+        setTimeout(() => setPublishSuccess(''), 8000);
+        return;
+      }
+
       if (platformId === 'github') {
         const repoVal = f('repo').trim().replace(/^https?:\/\/(www\.)?github\.com\//, '');
         const slashIdx = repoVal.indexOf('/');

@@ -9,7 +9,7 @@
 
 import { normaliseDomain } from './connected-sites'
 import { loadConnectionCredentials } from './site-connection-crypto'
-import { normaliseSiteUrl } from './wordpress-connector'
+import { normaliseSiteUrl } from './normalise-site-url'
 import { describeFixableScope, isServerCmsConnection } from './fix-agent-classification'
 import { normalizeUrl } from '@/lib/supabase/audit-db'
 

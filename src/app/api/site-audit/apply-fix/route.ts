@@ -22,6 +22,17 @@ export async function OPTIONS() {
 
 export async function POST(req: NextRequest) {
   try {
+    const {
+      isLegacyCustomerWritesEnabled,
+      legacyCustomerWritesDisabledBody,
+    } = await import('@/lib/customer-write-gate')
+    if (!isLegacyCustomerWritesEnabled()) {
+      return NextResponse.json(
+        legacyCustomerWritesDisabledBody('site-audit-apply-fix-queue'),
+        { status: 403, headers: corsHeaders() },
+      )
+    }
+
     const body = await req.json();
     const { site_id, page_url, fix_type, fix_value, old_value } = body;
 

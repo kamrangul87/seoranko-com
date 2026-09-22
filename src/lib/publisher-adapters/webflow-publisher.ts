@@ -66,6 +66,9 @@ export const webflowPublisher: PublisherAdapter = {
   platform: 'webflow',
 
   async publish(article: PublishArticleInput, creds: PublisherCredentials): Promise<PublishResult> {
+    const { requireActiveCustomerWriteGate } = await import('@/lib/customer-write-gate')
+    requireActiveCustomerWriteGate('webflow-publisher.publish')
+
     if (!creds.apiToken) {
       return {
         platform: 'webflow', platformPostId: null, liveUrl: null, status: 'FAILED',

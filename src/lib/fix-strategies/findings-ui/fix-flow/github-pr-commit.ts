@@ -71,6 +71,11 @@ async function ghJson<T>(
 export async function commitFileViaPullRequest(
   input: CommitViaPrInput,
 ): Promise<CommitViaPrResult> {
+  const { requireActiveCustomerWriteGate } = await import(
+    '@/lib/customer-write-gate'
+  )
+  requireActiveCustomerWriteGate('findings.commitFileViaPullRequest')
+
   const { creds, path, newContent, branchName, commitMessage, prTitle, prBody } =
     input
   const token = creds.accessToken

@@ -123,6 +123,18 @@ function insertScript(content: string, siteId: string, layoutType: string): stri
 
 export async function POST(req: NextRequest) {
   try {
+    const {
+      isLegacyCustomerWritesEnabled,
+      legacyCustomerWritesDisabledBody,
+      withCustomerWriteGate,
+    } = await import('@/lib/customer-write-gate')
+    if (!isLegacyCustomerWritesEnabled()) {
+      return NextResponse.json(
+        legacyCustomerWritesDisabledBody('install-github-pr'),
+        { status: 403 },
+      )
+    }
+
     const { repo, token, site_id } = await req.json();
 
     if (!repo || !token || !site_id) {
@@ -131,6 +143,10 @@ export async function POST(req: NextRequest) {
     if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
       return NextResponse.json({ error: 'repo must be in owner/repo format' }, { status: 400 });
     }
+
+    return await withCustomerWriteGate('legacy-install-pr', {}, async () => {
+      const { requireActiveCustomerWriteGate } = await import('@/lib/customer-write-gate')
+      requireActiveCustomerWriteGate('install/github-pr')
 
     // 1. Get default branch and HEAD SHA
     const repoData = await ghGet(`/repos/${repo}`, token);
@@ -219,6 +235,7 @@ Merge this PR then deploy to activate real-time SEO fixes on your site.`,
     });
 
     return NextResponse.json({ pr_url: pr.html_url });
+    })
 
   } catch (e: any) {
     console.error('[install/github-pr]', e.message);

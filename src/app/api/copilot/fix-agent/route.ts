@@ -18,6 +18,18 @@ export const maxDuration = 120
  */
 export async function POST(req: NextRequest) {
   try {
+    const {
+      isLegacyCustomerWritesEnabled,
+      legacyCustomerWritesDisabledBody,
+      withCustomerWriteGate,
+    } = await import('@/lib/customer-write-gate')
+    if (!isLegacyCustomerWritesEnabled()) {
+      return NextResponse.json(
+        legacyCustomerWritesDisabledBody('fix-agent'),
+        { status: 403 },
+      )
+    }
+
     const cookieStore = cookies()
     const authClient = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -58,15 +70,17 @@ export async function POST(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )
 
-    const result = await runFixAgent({
-      supabase,
-      userId: user.id,
-      auditUrl: url,
-      issues,
-      confirmSiteId: siteId,
-      scoreBefore,
-      langHint: typeof body.langHint === 'string' ? body.langHint : 'en',
-    })
+    const result = await withCustomerWriteGate('legacy-direct-push', {}, () =>
+      runFixAgent({
+        supabase,
+        userId: user.id,
+        auditUrl: url,
+        issues,
+        confirmSiteId: siteId,
+        scoreBefore,
+        langHint: typeof body.langHint === 'string' ? body.langHint : 'en',
+      }),
+    )
 
     return NextResponse.json(result, { status: result.ok ? 200 : 400 })
   } catch (err) {

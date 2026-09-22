@@ -316,6 +316,9 @@ async function pushToGithub(
   content: string,
   message: string
 ): Promise<{ commitUrl: string; filePath: string } | null> {
+  const { requireActiveCustomerWriteGate } = await import('@/lib/customer-write-gate')
+  requireActiveCustomerWriteGate('site-audit/fix.pushToGithub')
+
   const repoVal = repo.trim().replace(/^https?:\/\/(www\.)?github\.com\//, '');
   const slashIdx = repoVal.indexOf('/');
   const owner = repoVal.slice(0, slashIdx);
@@ -581,6 +584,25 @@ export async function POST(req: NextRequest) {
     const keyword: string = body.keyword || body.detectedKeyword || '';
     if (!rawUrl) return NextResponse.json({ error: 'url is required' }, { status: 400 });
 
+    const {
+      isLegacyCustomerWritesEnabled,
+      legacyCustomerWritesDisabledBody,
+      withCustomerWriteGate,
+    } = await import('@/lib/customer-write-gate')
+
+    const writeIntent = Boolean(
+      (body.githubRepo && body.githubToken) ||
+        body.createNextjs ||
+        body.fixExistingNextjs,
+    )
+    if (writeIntent && !isLegacyCustomerWritesEnabled()) {
+      return NextResponse.json(
+        legacyCustomerWritesDisabledBody('site-audit-fix-github'),
+        { status: 403 },
+      )
+    }
+
+    const execute = async (): Promise<NextResponse> => {
     const url = normalizeUrl(rawUrl);
     const cleanDomain = normalizeDomain(rawUrl);
 
@@ -1208,6 +1230,12 @@ Write the fully improved, humanised article now. Make it rank #1 for "${kwData.p
           : 'Fix pushed to GitHub but live site still shows old content — your hosting needs to redeploy before changes appear here'
         : undefined,
     });
+    } // end execute
+
+    if (writeIntent) {
+      return await withCustomerWriteGate('legacy-direct-push', {}, execute)
+    }
+    return await execute()
 
   } catch (error: any) {
     console.error('[site-audit/fix]', error);
