@@ -48,6 +48,20 @@ export async function verifyFindingLive(input: {
 
   const html = await res.text()
 
+  // Vercel Authentication / SSO interstitial — never treat as a successful
+  // postcondition (empty img set / logo-only page would vacuous-pass).
+  const looksLikeAuthWall =
+    /vercel\.com\/sso-api|Authentication Required|\/_vercel\//i.test(html) &&
+    !/mot-advisories-uk|<h1\b/i.test(html)
+  if (looksLikeAuthWall) {
+    return {
+      ok: false,
+      verifiedUrl: liveUrl,
+      detail:
+        'Live fetch returned a Vercel authentication interstitial, not page content — cannot verify postcondition',
+    }
+  }
+
   if (input.topicId === '49') {
     const v = await verifyLiveImgDimensions(html, liveUrl, fetchImpl)
     return {
