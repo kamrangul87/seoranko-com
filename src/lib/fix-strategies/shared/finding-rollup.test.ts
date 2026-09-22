@@ -17,6 +17,13 @@ describe('declaration-site classification', () => {
     )
     expect(classifyDeclarationSite('next.config.mjs')).toBe('shared-config')
     expect(classifyDeclarationSite('app/blog/[slug]/page.tsx')).toBe('page')
+    expect(classifyDeclarationSite('page:https://autodun.com/blog/a.html')).toBe(
+      'page',
+    )
+    expect(
+      classifyDeclarationSite('https://autodun.com/blog/mot-cost-uk-2026.html'),
+    ).toBe('page')
+    expect(classifyDeclarationSite('public/blog/foo.html')).toBe('page')
     expect(classifyDeclarationSite(null)).toBe('unknown')
   })
 
@@ -107,5 +114,64 @@ describe('rollupFindingsByDeclarationSite', () => {
     const out = rollupFindingsByDeclarationSite(input)
     expect(out).toHaveLength(3)
     expect(out.every((f) => !f.rolledUp)).toBe(true)
+  })
+
+  it('does not collapse hand-authored HTML pages that share a verdict', () => {
+    // Autodun: each blog .html file is its own declaration site. Crawl must
+    // NOT invent generator:site-images — that would hide per-page findings.
+    const input = [
+      {
+        topicId: '49',
+        verdict: 'human-review-no-height-auto',
+        pageUrl: 'https://autodun.com/blog/ev-charging-on-uk-motorways.html',
+        declarationSite:
+          'https://autodun.com/blog/ev-charging-on-uk-motorways.html',
+      },
+      {
+        topicId: '49',
+        verdict: 'human-review-no-height-auto',
+        pageUrl: 'https://autodun.com/blog/ulez-checker-uk.html',
+        declarationSite: 'https://autodun.com/blog/ulez-checker-uk.html',
+      },
+      {
+        topicId: '49',
+        verdict: 'finding-wrong-ratio',
+        pageUrl: 'https://autodun.com/blog/mot-cost-uk-2026.html',
+        declarationSite: 'https://autodun.com/blog/mot-cost-uk-2026.html',
+      },
+    ]
+    const out = rollupFindingsByDeclarationSite(input)
+    expect(out).toHaveLength(3)
+    expect(out.every((f) => !f.rolledUp)).toBe(true)
+    expect(out.every((f) => f.affectedUrlCount === 1)).toBe(true)
+  })
+
+  it('keeps image count when several imgs on one page share a verdict', () => {
+    const page = 'https://autodun.com/blog/mot-cost-uk-2026.html'
+    const input = [
+      {
+        topicId: '49',
+        verdict: 'finding-wrong-ratio',
+        pageUrl: page,
+        declarationSite: page,
+      },
+      {
+        topicId: '49',
+        verdict: 'finding-wrong-ratio',
+        pageUrl: page,
+        declarationSite: page,
+      },
+      {
+        topicId: '49',
+        verdict: 'finding-wrong-ratio',
+        pageUrl: page,
+        declarationSite: page,
+      },
+    ]
+    const out = rollupFindingsByDeclarationSite(input)
+    expect(out).toHaveLength(1)
+    expect(out[0]!.rolledUp).toBe(false)
+    expect(out[0]!.affectedUrlCount).toBe(1)
+    expect(out[0]!.memberFindingCount).toBe(3)
   })
 })

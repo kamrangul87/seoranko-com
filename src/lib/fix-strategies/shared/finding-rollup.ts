@@ -32,6 +32,8 @@ export type RolledUpFinding = RollupFindingInput & {
   declarationKind: DeclarationSiteKind
   affectedUrlCount: number
   memberUrls: string[]
+  /** Pre-collapse finding rows in this group (e.g. images on one page). */
+  memberFindingCount: number
   /** True when this row replaces two or more page-level findings. */
   rolledUp: boolean
 }
@@ -87,6 +89,7 @@ export function rollupFindingsByDeclarationSite(
       detail,
       affectedUrlCount: urls.length,
       memberUrls: urls,
+      memberFindingCount: members.length,
       rolledUp,
     })
   }

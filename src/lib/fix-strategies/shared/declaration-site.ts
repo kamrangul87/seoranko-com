@@ -30,7 +30,7 @@ const PAGE_RE = /(^|\/)page\.(tsx|ts|jsx|js)$/i
 
 /**
  * Classify a repo-relative path or logical declaration id.
- * Logical ids may use prefixes: `generator:…`, `layout:…`, `component:…`, `config:…`.
+ * Logical ids may use prefixes: `generator:…`, `layout:…`, `component:…`, `config:…`, `page:…`.
  */
 export function classifyDeclarationSite(
   site: string | null | undefined,
@@ -38,12 +38,21 @@ export function classifyDeclarationSite(
   if (site == null || site.trim() === '') return 'unknown'
   const s = site.trim().replace(/\\/g, '/')
 
-  if (/^generator:/i.test(s) || GENERATOR_RE.test(s)) return 'generator'
-  if (/^config:/i.test(s) || CONFIG_RE.test(s)) return 'shared-config'
-  if (/^layout:/i.test(s) || LAYOUT_RE.test(s)) return 'shared-layout'
-  if (/^component:/i.test(s) || SHARED_COMPONENT_RE.test(s)) {
-    return 'shared-component'
-  }
+  // Explicit prefixes win.
+  if (/^generator:/i.test(s)) return 'generator'
+  if (/^config:/i.test(s)) return 'shared-config'
+  if (/^layout:/i.test(s)) return 'shared-layout'
+  if (/^component:/i.test(s)) return 'shared-component'
+  if (/^page:/i.test(s)) return 'page'
+
+  // Absolute page URLs and hand-authored .html files are page-local — check
+  // before path heuristics that match substrings like "sitemap" / "generated".
+  if (/^https?:\/\//i.test(s) || /\.html?(?:[?#]|$)/i.test(s)) return 'page'
+
+  if (CONFIG_RE.test(s)) return 'shared-config'
+  if (LAYOUT_RE.test(s)) return 'shared-layout'
+  if (GENERATOR_RE.test(s)) return 'generator'
+  if (SHARED_COMPONENT_RE.test(s)) return 'shared-component'
   if (PAGE_RE.test(s)) return 'page'
   // components/ without page.tsx — treat as shared component when under
   // components/ or src/components/

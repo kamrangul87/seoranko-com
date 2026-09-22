@@ -21,7 +21,7 @@ const PRIOR_FULL_REGISTER_ROWS = 435
 
 describe.skipIf(!RUN)('autodun rollup live verification', () => {
   it(
-    'collapses topic 38 + 49 when declaration sites are shared generators',
+    'collapses topic 38 + 49 ONLY when declaration sites are real shared generators',
     async () => {
       const smRes = await fetch(`${ORIGIN}/sitemap.xml`)
       const smBody = await smRes.text()
@@ -35,9 +35,13 @@ describe.skipIf(!RUN)('autodun rollup live verification', () => {
       expect(locs.length).toBeGreaterThan(5)
 
       const rollupInputs: RollupFindingInput[] = []
+      const pageLocalInputs: RollupFindingInput[] = []
       let t38 = 0
       let t49 = 0
 
+      // Synthetic shared-generator sites — proves rollup collapse when the
+      // declaration site is truly shared. Production crawl must NOT invent
+      // these; autodun hand-authored HTML uses the page URL instead.
       const jsonLdSite = 'generator:autodun-blog-jsonld'
       const imgSite = 'generator:autodun-blog-images'
 
@@ -64,6 +68,14 @@ describe.skipIf(!RUN)('autodun rollup live verification', () => {
             severity: f.severity,
             detail: f.detail,
           })
+          pageLocalInputs.push({
+            topicId: '38',
+            verdict: f.verdict,
+            pageUrl: f.pageUrl,
+            declarationSite: pageUrl,
+            severity: f.severity,
+            detail: f.detail,
+          })
         }
 
         const r49 = await detectImgMissingDimensions(html, pageUrl, {
@@ -82,6 +94,14 @@ describe.skipIf(!RUN)('autodun rollup live verification', () => {
             severity: f.severity,
             detail: f.detail,
           })
+          pageLocalInputs.push({
+            topicId: '49',
+            verdict: f.verdict,
+            pageUrl: f.sourceUrl,
+            declarationSite: pageUrl,
+            severity: f.severity,
+            detail: f.detail,
+          })
         }
       }
 
@@ -90,6 +110,14 @@ describe.skipIf(!RUN)('autodun rollup live verification', () => {
       const t49After = rolled.filter((f) => f.topicId === '49').length
       const saved = t38 + t49 - (t38After + t49After)
       const afterFullApprox = PRIOR_FULL_REGISTER_ROWS - saved
+
+      // Page-local declaration sites must NOT collapse across pages.
+      const pageLocalRolled = rollupFindingsByDeclarationSite(pageLocalInputs)
+      const pageLocalT49 = pageLocalRolled.filter((f) => f.topicId === '49')
+      expect(pageLocalT49.every((f) => !f.rolledUp)).toBe(true)
+      expect(
+        new Set(pageLocalT49.map((f) => f.declarationSite)).size,
+      ).toBeGreaterThan(1)
 
       const report = {
         origin: ORIGIN,
@@ -102,6 +130,10 @@ describe.skipIf(!RUN)('autodun rollup live verification', () => {
           before: PRIOR_FULL_REGISTER_ROWS,
           after: afterFullApprox,
           rowsRemovedByRollup: saved,
+        },
+        pageLocalTopic49: {
+          after: pageLocalT49.length,
+          rolledUp: pageLocalT49.filter((f) => f.rolledUp).length,
         },
         rolledUpGroups: rolled
           .filter((f) => f.rolledUp)
