@@ -1,5 +1,6 @@
 /**
- * Findings fix-flow orchestration: approve → PR commit → live verify.
+ * Findings fix-flow orchestration: approve → PR commit → live verify →
+ * optional opt-in auto-merge (site.auto_merge_enabled).
  */
 
 import type { UiFinding, FixFlowState } from '../types'
@@ -21,6 +22,8 @@ import {
   waitForPrPreviewDeploy,
 } from './wait-vercel-deploy'
 import { verifyFindingLive } from './verify-live'
+import { maybeAutoMergeAfterPreviewVerify } from './auto-merge'
+import { assessSingleFileBlastRadius } from './blast-radius'
 import { findOwnedSiteConnection } from '@/lib/site-connection-lookup'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 
@@ -29,6 +32,15 @@ export type CommitContext = {
   github?: { owner: string; repo: string; baseBranch?: string; accessToken?: string }
   /** Map live page URL → repo path when site adapter match fails. */
   pathOverride?: string
+  /**
+   * Test / operator override for auto_merge_enabled.
+   * Still requires every other auto-merge gate. Default reads connected_sites.
+   */
+  autoMergeEnabledOverride?: boolean | null
+  /** Skip auto-merge attempt even when setting is ON (tests). */
+  skipAutoMerge?: boolean
+  ciTimeoutMs?: number
+  productionTimeoutMs?: number
 }
 
 async function loadRecord(
@@ -251,6 +263,19 @@ export async function commitFix(input: {
     })
   }
 
+  // Site-wide / shared paths must never enter an auto-mergeable commit.
+  const blast = assessSingleFileBlastRadius([path])
+  if (!blast.ok) {
+    return getFixFlowStore().save({
+      ...cur,
+      step: 'failed',
+      commitStub: false,
+      commitDetail: blast.reason,
+      errorDetail: blast.reason,
+      autoMergeBlockedReason: blast.reason,
+    })
+  }
+
   const file = await readRepoFile(creds, path)
   if (!file) {
     return getFixFlowStore().save({
@@ -294,7 +319,10 @@ export async function commitFix(input: {
         .map((a) => `\`${a.srcAttr}\` → ${a.width}×${a.height}`)
         .join(', ')}`,
       '',
-      'Opened as a PR — **not** merged to main. Live verify runs against the Vercel preview deploy.',
+      'Opened as a PR. Auto-merge runs only when the connected site has',
+      '`auto_merge_enabled` **and** every gate holds (auto-fixable, CI green,',
+      'preview verify against real page content, single-file blast radius).',
+      'Otherwise a **human** merges.',
     ].join('\n'),
   })
 
@@ -407,7 +435,7 @@ export async function verifyFix(input: {
     liveUrl: verifyUrl,
   })
 
-  return getFixFlowStore().save({
+  const afterPreview: FixFlowRecord = {
     ...cur,
     step: result.ok ? 'verified' : 'failed',
     verifiedAt: new Date().toISOString(),
@@ -415,5 +443,39 @@ export async function verifyFix(input: {
     verifyDetail: `${result.detail} (url=${result.verifiedUrl})`,
     previewUrl: cur.previewUrl,
     errorDetail: result.ok ? null : result.detail,
+  }
+
+  if (!result.ok || ctx?.skipAutoMerge) {
+    return getFixFlowStore().save(afterPreview)
+  }
+
+  // Preview passed — attempt opt-in auto-merge when site setting + gates allow.
+  const credsForMerge = await resolveGithubCreds(
+    userId,
+    {
+      siteId: 'siteId' in finding ? (finding.siteId as string | null) : null,
+      pageUrl,
+    },
+    ctx,
+  )
+  if (!credsForMerge || afterPreview.prNumber == null) {
+    return getFixFlowStore().save({
+      ...afterPreview,
+      autoMerged: false,
+      autoMergeBlockedReason:
+        'Preview verified; auto-merge skipped (missing GitHub creds or PR number) — human merges',
+    })
+  }
+
+  return maybeAutoMergeAfterPreviewVerify({
+    findingId,
+    userId,
+    finding,
+    creds: credsForMerge,
+    previewState: afterPreview,
+    productionUrl: pageUrl,
+    autoMergeEnabledOverride: ctx?.autoMergeEnabledOverride,
+    ciTimeoutMs: ctx?.ciTimeoutMs,
+    productionTimeoutMs: ctx?.productionTimeoutMs,
   })
 }

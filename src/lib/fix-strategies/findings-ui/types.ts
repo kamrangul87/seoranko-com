@@ -126,4 +126,16 @@ export type FixFlowState = {
   verifiedAt: string | null
   verifyOk: boolean | null
   verifyDetail: string | null
+  /** True when product merged under auto_merge_enabled gates. */
+  autoMerged?: boolean | null
+  mergedAt?: string | null
+  mergeSha?: string | null
+  productionVerifyOk?: boolean | null
+  productionVerifyDetail?: string | null
+  revertPrUrl?: string | null
+  revertPrNumber?: number | null
+  needsHumanAttention?: boolean
+  flagDetail?: string | null
+  /** Why auto-merge did not run (setting off or a gate failed). */
+  autoMergeBlockedReason?: string | null
 }

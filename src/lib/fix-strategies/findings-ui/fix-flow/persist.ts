@@ -39,6 +39,16 @@ function idle(findingId: string, userId: string): FixFlowRecord {
     verifiedAt: null,
     verifyOk: null,
     verifyDetail: null,
+    autoMerged: null,
+    mergedAt: null,
+    mergeSha: null,
+    productionVerifyOk: null,
+    productionVerifyDetail: null,
+    revertPrUrl: null,
+    revertPrNumber: null,
+    needsHumanAttention: false,
+    flagDetail: null,
+    autoMergeBlockedReason: null,
     errorDetail: null,
     updatedAt: new Date().toISOString(),
   }
@@ -63,6 +73,25 @@ function mapRow(row: Record<string, unknown>): FixFlowRecord {
     verifyOk:
       row.verify_ok == null ? null : Boolean(row.verify_ok),
     verifyDetail: (row.verify_detail as string | null) ?? null,
+    autoMerged:
+      row.auto_merged == null ? null : Boolean(row.auto_merged),
+    mergedAt: (row.merged_at as string | null) ?? null,
+    mergeSha: (row.merge_sha as string | null) ?? null,
+    productionVerifyOk:
+      row.production_verify_ok == null
+        ? null
+        : Boolean(row.production_verify_ok),
+    productionVerifyDetail:
+      (row.production_verify_detail as string | null) ?? null,
+    revertPrUrl: (row.revert_pr_url as string | null) ?? null,
+    revertPrNumber:
+      row.revert_pr_number == null
+        ? null
+        : Number(row.revert_pr_number),
+    needsHumanAttention: Boolean(row.needs_human_attention),
+    flagDetail: (row.flag_detail as string | null) ?? null,
+    autoMergeBlockedReason:
+      (row.auto_merge_blocked_reason as string | null) ?? null,
     errorDetail: (row.error_detail as string | null) ?? null,
     updatedAt: String(row.updated_at ?? new Date().toISOString()),
   }
@@ -84,6 +113,16 @@ function toUi(r: FixFlowRecord): FixFlowState {
     verifiedAt: r.verifiedAt,
     verifyOk: r.verifyOk,
     verifyDetail: r.verifyDetail,
+    autoMerged: r.autoMerged,
+    mergedAt: r.mergedAt,
+    mergeSha: r.mergeSha,
+    productionVerifyOk: r.productionVerifyOk,
+    productionVerifyDetail: r.productionVerifyDetail,
+    revertPrUrl: r.revertPrUrl,
+    revertPrNumber: r.revertPrNumber,
+    needsHumanAttention: r.needsHumanAttention ?? false,
+    flagDetail: r.flagDetail,
+    autoMergeBlockedReason: r.autoMergeBlockedReason,
   }
 }
 
@@ -158,6 +197,16 @@ export function createSupabaseFixFlowStore(): FixFlowStore {
         preview_url: record.previewUrl,
         verify_ok: record.verifyOk,
         verify_detail: record.verifyDetail,
+        auto_merged: record.autoMerged,
+        merged_at: record.mergedAt,
+        merge_sha: record.mergeSha,
+        production_verify_ok: record.productionVerifyOk,
+        production_verify_detail: record.productionVerifyDetail,
+        revert_pr_url: record.revertPrUrl,
+        revert_pr_number: record.revertPrNumber,
+        needs_human_attention: record.needsHumanAttention ?? false,
+        flag_detail: record.flagDetail,
+        auto_merge_blocked_reason: record.autoMergeBlockedReason,
         error_detail: record.errorDetail,
         updated_at: new Date().toISOString(),
       }

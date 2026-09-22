@@ -9,6 +9,9 @@ the site’s production branch. Production verification = topic verify-live
 against the live URL (not a preview). Recrawl = live findings crawl after
 deploy.
 
+`auto_merged: true` = product merged under site `auto_merge_enabled` gates.
+`auto_merged: false` = human merged the customer PR.
+
 ---
 
 ## 1. Topic 49 · `auto-set-dimensions` · autodun MOT advisories
@@ -23,6 +26,7 @@ deploy.
 | Detected | 2026-09-21T09:31:39.011Z (`FINDINGS_LIVE_CRAWL_AUTODUN_REPORT.md` prior run; actionable 5 including this row) |
 | Fixed | 2026-09-22T06:41:58Z |
 | PR | [kamrangul87/autodun-ai#34](https://github.com/kamrangul87/autodun-ai/pull/34) — merge `9ad64e0` |
+| auto_merged | **false** |
 | Fix detail | Set `width="1200" height="675"` on 3 content images from JPEG headers (`mot-advisory-suspension.jpg`, `mot-advisory-brakes.jpg`, `mot-advisory-shock-absorber.jpg`) |
 | Production verify | **OK** — 2026-09-22T06:44Z |
 | Verifier | `verifyFindingLive` + `verifyLiveImgDimensions` against production URL (not preview) |

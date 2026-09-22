@@ -22,18 +22,33 @@ Last updated: 2026-09-22
 - **Generated artefacts:** where an artefact is produced at build time, the
   fix targets the **generator**, never the emitted output. Use
   `generated-output-guard` before proposing an edit.
-- **Customer-repo PRs are never merged by the agent or by the product.**
-  SEORANKO (and any Cursor agent working in this repo) may open a PR on a
-  customer repository (e.g. `autodun-ai`). A **human** merges it. The
-  fix-flow stops after opening the PR; production verify / recrawl wait for
-  a human-confirmed merge. This overrides any standing “always merge PRs”
-  preference — that preference applies only to **this** product repo
-  (`seoranko-com`), never to customer repos.
+- **Customer-repo PRs merge only under opt-in auto-merge.** Default is OFF
+  (`connected_sites.auto_merge_enabled = false`). The product may merge a
+  customer PR **only when** all of the following hold:
+  1. The connected site has `auto_merge_enabled = true` (Autodun is opted in).
+  2. The finding verdict is **auto-fixable** (never human-review, never
+     report-only).
+  3. CI is green on the PR (real check-run / status evidence — zero checks
+     is not green).
+  4. Preview verifier passed against **real page content** (the auth-wall
+     guard must confirm it is not a login / Vercel SSO interstitial).
+  5. **Single-file blast radius** — the PR touches exactly one file, and that
+     file is not site-wide config or a shared layout (`vercel.json`,
+     `next.config.*`, `robots.txt`, sitemaps, `app/layout.*`, `middleware`,
+     etc.). Those always stay human-review regardless of the setting.
+  After an auto-merge: verify production. If production verify **fails**,
+  automatically open a **revert PR** and flag for human attention — never
+  leave a failed fix live. Every auto-merge writes
+  `FIX_VERIFY_OUTCOME_RECORD.md` with `auto_merged: true`.
+  Otherwise a **human** merges. Standing “always merge PRs” preferences
+  apply only to **this** product repo (`seoranko-com`), never as a blanket
+  default for customer repos.
 - **False precondition → stop.** If a prompt’s stated precondition is false
   (e.g. “PR X is merged” when GitHub still shows it open, or “deployed to
   production” when the live URL still lacks the change), **STOP and report
   the discrepancy**. Do not merge, deploy, or otherwise act to make the
-  precondition true. Wait for the human.
+  precondition true. Wait for the human (or for opt-in auto-merge gates to
+  hold on their own — never force them).
 
 ## Shared helpers — use, never reimplement
 
@@ -67,8 +82,9 @@ are listed in `_open-questions.md` until set.
 3. **Tests and typecheck green** locally.
 4. **CI green** on the PR.
 5. **Merged to `main` (this product repo only).** Never leave a green
-   `seoranko-com` PR open. Nothing is done until it is on `main`. This does
-   **not** authorize merging a PR on a customer repository — see Constraints.
+   `seoranko-com` PR open. Nothing is done until it is on `main`. Customer
+   repos merge only under the opt-in auto-merge rules in Constraints — never
+   as a default.
 6. **Report:** what was built, what the tests assert, and anything in the
    dossier that turned out wrong or underspecified.
 

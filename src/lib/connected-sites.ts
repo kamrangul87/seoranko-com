@@ -10,6 +10,11 @@ export interface ConnectedSite {
   isPrimary: boolean
   /** Secret token for this site's Universal Tag snippet. */
   universalTagToken?: string | null
+  /**
+   * Opt-in: findings fix-flow may auto-merge customer PRs when every gate
+   * holds. Default false — a human merges otherwise.
+   */
+  autoMergeEnabled?: boolean
 }
 
 /** Normalise user input to a bare host: strips scheme, path, www and trailing slash. */
@@ -28,7 +33,7 @@ export async function getConnectedSites(
 ): Promise<ConnectedSite[]> {
   const { data } = await supabase
     .from('connected_sites')
-    .select('id, domain, brand, is_primary, universal_tag_token')
+    .select('id, domain, brand, is_primary, universal_tag_token, auto_merge_enabled')
     .eq('user_id', userId)
     .order('is_primary', { ascending: false })
     .order('created_at', { ascending: true })
@@ -38,8 +43,25 @@ export async function getConnectedSites(
     domain: d.domain,
     brand: d.brand,
     isPrimary: d.is_primary,
-    universalTagToken: d.universal_tag_token
+    universalTagToken: d.universal_tag_token,
+    autoMergeEnabled: Boolean(d.auto_merge_enabled),
   }))
+}
+
+/** Opt a connected site into / out of findings auto-merge (default OFF). */
+export async function setSiteAutoMergeEnabled(
+  supabase: any,
+  userId: string,
+  siteId: string,
+  enabled: boolean,
+): Promise<{ success: boolean; error?: string }> {
+  const { error } = await supabase
+    .from('connected_sites')
+    .update({ auto_merge_enabled: enabled })
+    .eq('id', siteId)
+    .eq('user_id', userId)
+  if (error) return { success: false, error: error.message }
+  return { success: true }
 }
 
 export async function addConnectedSite(
