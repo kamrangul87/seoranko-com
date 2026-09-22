@@ -40,7 +40,10 @@ fi
 npx --yes supabase@2.116.0 --version
 
 push_with_db_url() {
-  npx --yes supabase@2.116.0 db push --yes --db-url "$DB_URL"
+  # --include-all: allow applying a local migration whose version sorts
+  # before the remote tip (e.g. after a duplicate-timestamp rename left a
+  # gap). Without it, db push refuses and bricks every production deploy.
+  npx --yes supabase@2.116.0 db push --yes --include-all --db-url "$DB_URL"
 }
 
 if [[ -n "$DB_URL" ]]; then
@@ -74,7 +77,7 @@ else
   npx --yes supabase@2.116.0 link --project-ref "$PROJECT_REF" -p "$SUPABASE_DB_PASSWORD"
   echo "Migration list before push:"
   npx --yes supabase@2.116.0 migration list || true
-  npx --yes supabase@2.116.0 db push --yes -p "$SUPABASE_DB_PASSWORD"
+  npx --yes supabase@2.116.0 db push --yes --include-all -p "$SUPABASE_DB_PASSWORD"
   echo "Migration list after push:"
   npx --yes supabase@2.116.0 migration list || true
 fi
