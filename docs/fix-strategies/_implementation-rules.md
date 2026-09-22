@@ -22,9 +22,13 @@ Last updated: 2026-09-22
 - **Generated artefacts:** where an artefact is produced at build time, the
   fix targets the **generator**, never the emitted output. Use
   `generated-output-guard` before proposing an edit.
-- **Customer-repo PRs merge only under opt-in auto-merge.** Default is OFF
-  (`connected_sites.auto_merge_enabled = false`). The product may merge a
-  customer PR **only when** all of the following hold:
+- **Agent never merges customer-repo PRs.** A Cursor agent working during
+  development must **never** merge a pull request on a customer repository
+  (e.g. `autodun-ai`). Open the PR and stop. Standing “always merge PRs”
+  preferences apply only to **this** product repo (`seoranko-com`).
+- **Product auto-merge is opt-in and gated.** Default is OFF
+  (`connected_sites.auto_merge_enabled = false`). The **product** (runtime
+  fix-flow) may merge a customer PR **only when** all of the following hold:
   1. The connected site has `auto_merge_enabled = true` (Autodun is opted in).
   2. The finding verdict is **auto-fixable** (never human-review, never
      report-only).
@@ -40,15 +44,13 @@ Last updated: 2026-09-22
   automatically open a **revert PR** and flag for human attention — never
   leave a failed fix live. Every auto-merge writes
   `FIX_VERIFY_OUTCOME_RECORD.md` with `auto_merged: true`.
-  Otherwise a **human** merges. Standing “always merge PRs” preferences
-  apply only to **this** product repo (`seoranko-com`), never as a blanket
-  default for customer repos.
+  Otherwise a **human** merges.
 - **False precondition → stop.** If a prompt’s stated precondition is false
   (e.g. “PR X is merged” when GitHub still shows it open, or “deployed to
   production” when the live URL still lacks the change), **STOP and report
   the discrepancy**. Do not merge, deploy, or otherwise act to make the
-  precondition true. Wait for the human (or for opt-in auto-merge gates to
-  hold on their own — never force them).
+  precondition true. Wait for the human (or for product auto-merge gates to
+  hold on their own — the agent must never force them).
 
 ## Shared helpers — use, never reimplement
 
