@@ -506,20 +506,24 @@ export default function FindingsListPage() {
                     <p className="font-medium text-[#0F0F0F] leading-snug">
                       {f.verdict}
                     </p>
-                    {f.rolledUp && f.declarationSite ? (
-                      <div className="mt-1">
-                        <p className="text-sm text-[#6B6B6B]">
-                          Component{' '}
-                          <span className="font-mono text-[#0F0F0F]">
-                            {f.declarationSite}
-                          </span>
-                          {' · '}
-                          {f.affectedUrlCount} URLs affected
-                        </p>
-                        {(() => {
-                          const urls = affectedUrlsForFinding(f)
-                          if (urls.length === 0) return null
-                          return (
+                    {(() => {
+                      const urls = affectedUrlsForFinding(f)
+                      const multi = f.rolledUp || urls.length > 1
+                      if (multi) {
+                        return (
+                          <div className="mt-1">
+                            <p className="text-sm text-[#6B6B6B]">
+                              {f.declarationSite ? (
+                                <>
+                                  Component{' '}
+                                  <span className="font-mono text-[#0F0F0F]">
+                                    {f.declarationSite}
+                                  </span>
+                                  {' · '}
+                                </>
+                              ) : null}
+                              {f.affectedUrlCount} URLs affected
+                            </p>
                             <ul className="mt-1.5 space-y-0.5 text-xs font-mono text-[#6B6B6B]">
                               {urls.map((url) => (
                                 <li key={url} className="break-all">
@@ -527,16 +531,17 @@ export default function FindingsListPage() {
                                 </li>
                               ))}
                             </ul>
-                          )
-                        })()}
-                      </div>
-                    ) : (
-                      f.pageUrl && (
-                        <p className="text-sm text-[#6B6B6B] mt-1 truncate">
-                          {f.pageUrl}
-                        </p>
+                          </div>
+                        )
+                      }
+                      return (
+                        f.pageUrl && (
+                          <p className="text-sm text-[#6B6B6B] mt-1 truncate">
+                            {f.pageUrl}
+                          </p>
+                        )
                       )
-                    )}
+                    })()}
                     <p className="text-sm text-[#6B6B6B] mt-2 line-clamp-2">
                       {f.detail}
                     </p>

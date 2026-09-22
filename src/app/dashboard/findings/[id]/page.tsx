@@ -83,20 +83,24 @@ export default function FindingDetailPage() {
                 <h1 className="text-2xl font-semibold tracking-tight">
                   {finding.verdict}
                 </h1>
-                {finding.rolledUp && finding.declarationSite ? (
-                  <div className="mt-2">
-                    <p className="text-[#6B6B6B]">
-                      Component{' '}
-                      <span className="font-mono text-[#0F0F0F]">
-                        {finding.declarationSite}
-                      </span>
-                      {' · '}
-                      {finding.affectedUrlCount} URLs affected
-                    </p>
-                    {(() => {
-                      const urls = affectedUrlsForFinding(finding)
-                      if (urls.length === 0) return null
-                      return (
+                {(() => {
+                  const urls = affectedUrlsForFinding(finding)
+                  const multi = finding.rolledUp || urls.length > 1
+                  if (multi) {
+                    return (
+                      <div className="mt-2">
+                        <p className="text-[#6B6B6B]">
+                          {finding.declarationSite ? (
+                            <>
+                              Component{' '}
+                              <span className="font-mono text-[#0F0F0F]">
+                                {finding.declarationSite}
+                              </span>
+                              {' · '}
+                            </>
+                          ) : null}
+                          {finding.affectedUrlCount} URLs affected
+                        </p>
                         <ul className="mt-2 space-y-1 text-sm font-mono text-[#6B6B6B]">
                           {urls.map((url) => (
                             <li key={url} className="break-all">
@@ -104,16 +108,17 @@ export default function FindingDetailPage() {
                             </li>
                           ))}
                         </ul>
-                      )
-                    })()}
-                  </div>
-                ) : (
-                  finding.pageUrl && (
-                    <p className="text-[#6B6B6B] mt-2 break-all">
-                      {finding.pageUrl}
-                    </p>
+                      </div>
+                    )
+                  }
+                  return (
+                    finding.pageUrl && (
+                      <p className="text-[#6B6B6B] mt-2 break-all">
+                        {finding.pageUrl}
+                      </p>
+                    )
                   )
-                )}
+                })()}
               </header>
 
               <section className="rounded-[10px] border border-[#E8E8E4] bg-white p-5">
