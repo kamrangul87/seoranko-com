@@ -1,5 +1,10 @@
 // Shared live-page fetcher. Extracted from competitor-gap.ts so the RANKO
 // fix flow and the gap analyser use one implementation.
+//
+// Keep this module free of node: builtins — it is imported from paths that
+// can reach the client bundle (e.g. article-resolver → dashboard pages).
+// DNS-resolved SSRF checks live in assert-safe-public-url-resolved.ts
+// (server-only).
 
 /**
  * Fetch a live URL and strip it down to readable text.
@@ -7,9 +12,10 @@
  */
 export async function fetchPageContent(url: string, maxChars = 8000): Promise<string> {
   try {
+    if (!isSafePublicUrl(url)) return ''
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'SEORANKO-Content-Fetcher/1.0' },
-      signal: AbortSignal.timeout(15000)
+      headers: { 'User-Agent': 'SEORANKOBot/1.0 (+https://seoranko.com/bot)' },
+      signal: AbortSignal.timeout(15000),
     })
     if (!res.ok) return ''
     const html = await res.text()
@@ -33,9 +39,10 @@ export async function fetchPageWithTitle(
   maxChars = 8000
 ): Promise<{ content: string; title: string }> {
   try {
+    if (!isSafePublicUrl(url)) return { content: '', title: '' }
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'SEORANKO-Content-Fetcher/1.0' },
-      signal: AbortSignal.timeout(15000)
+      headers: { 'User-Agent': 'SEORANKOBot/1.0 (+https://seoranko.com/bot)' },
+      signal: AbortSignal.timeout(15000),
     })
     if (!res.ok) return { content: '', title: '' }
     const html = await res.text()
@@ -56,12 +63,25 @@ export async function fetchPageWithTitle(
 }
 
 /**
+ * True when an IPv4/IPv6 address string is safe to fetch (not private / metadata).
+ * Used after DNS resolution — never trust the hostname string alone.
+ */
+export function isSafePublicIp(ip: string): boolean {
+  const normalized = ip.toLowerCase().replace(/^\[|\]$/g, '')
+  if (normalized.includes(':')) {
+    return isSafePublicUrl(`http://[${normalized}]/`)
+  }
+  return isSafePublicUrl(`http://${normalized}/`)
+}
+
+/**
  * Guard for fetching user-supplied URLs server-side. Blocks non-HTTP schemes
- * and hosts that resolve to the local network / cloud metadata, so this
- * endpoint can't be used to probe internal services.
+ * and literal hosts in private / cloud-metadata ranges.
  *
- * Callers that follow redirects MUST re-check every hop with this function —
- * a public URL that redirects to a private one must be refused.
+ * This is the string/literal gate only. Server fetch paths that open sockets
+ * MUST also use {@link assertSafePublicUrlResolved} (server-only module) so a
+ * public hostname that resolves to a private IP is refused. Callers that
+ * follow redirects MUST re-check every hop the same way.
  */
 export function isSafePublicUrl(raw: string): boolean {
   let parsed: URL
@@ -101,6 +121,7 @@ export function isSafePublicUrl(raw: string): boolean {
 
   // IPv4 private / loopback / link-local / metadata ranges
   // 169.254.0.0/16 includes AWS/GCP/Azure metadata 169.254.169.254
+  // 0.0.0.0/8 — "this" network (blocked)
   const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
   if (v4) {
     const [a, b] = [Number(v4[1]), Number(v4[2])]
