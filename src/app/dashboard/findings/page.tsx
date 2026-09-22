@@ -8,6 +8,7 @@ import type { FindingsListResponse, UiFinding } from '@/lib/fix-strategies/findi
 import type { User } from '@supabase/supabase-js'
 
 type Site = { id: string; domain: string; brand: string | null }
+type CrawlMode = 'connected' | 'detect'
 
 function severityTone(severity: string | null): string {
   if (severity === 'high' || severity === 'critical') return 'text-red-700 bg-red-50 border-red-100'
@@ -47,6 +48,10 @@ function crawlStatusLabel(status: string | null | undefined): string {
 export default function FindingsListPage() {
   const [sites, setSites] = useState<Site[]>([])
   const [siteId, setSiteId] = useState('')
+  const [mode, setMode] = useState<CrawlMode>('connected')
+  const [detectUrl, setDetectUrl] = useState('')
+  /** Normalized origin returned by the API after a detect crawl/list. */
+  const [detectOrigin, setDetectOrigin] = useState<string | null>(null)
   const [includeInformational, setIncludeInformational] = useState(false)
   const [data, setData] = useState<FindingsListResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -66,12 +71,17 @@ export default function FindingsListPage() {
           .order('is_primary', { ascending: false })
         const rows = (list || []) as Site[]
         setSites(rows)
-        if (rows[0]) setSiteId(rows[0].id)
+        if (rows[0]) {
+          setSiteId(rows[0].id)
+          setMode('connected')
+        } else {
+          setMode('detect')
+        }
       },
     )
   }, [])
 
-  const load = useCallback(async (id: string, informational: boolean) => {
+  const loadConnected = useCallback(async (id: string, informational: boolean) => {
     if (!id) return
     setLoading(true)
     setError(null)
@@ -92,11 +102,43 @@ export default function FindingsListPage() {
     }
   }, [])
 
-  useEffect(() => {
-    if (siteId) void load(siteId, includeInformational)
-  }, [siteId, includeInformational, load])
+  const loadDetect = useCallback(
+    async (origin: string, informational: boolean) => {
+      if (!origin) return
+      setLoading(true)
+      setError(null)
+      try {
+        const q = new URLSearchParams({ detectOrigin: origin })
+        if (informational) q.set('informational', '1')
+        const res = await fetch(`/api/fix-strategies/findings?${q}`)
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string }
+          throw new Error(body.error || `HTTP ${res.status}`)
+        }
+        const body = (await res.json()) as FindingsListResponse
+        setData(body)
+        if (body.origin) setDetectOrigin(body.origin)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to load findings')
+        setData(null)
+      } finally {
+        setLoading(false)
+      }
+    },
+    [],
+  )
 
-  async function runCrawl() {
+  useEffect(() => {
+    if (mode === 'connected' && siteId) {
+      void loadConnected(siteId, includeInformational)
+    } else if (mode === 'detect' && detectOrigin) {
+      void loadDetect(detectOrigin, includeInformational)
+    } else if (mode === 'detect' && !detectOrigin) {
+      setData(null)
+    }
+  }, [mode, siteId, detectOrigin, includeInformational, loadConnected, loadDetect])
+
+  async function runConnectedCrawl() {
     if (!siteId || crawling) return
     setCrawling(true)
     setError(null)
@@ -133,14 +175,72 @@ export default function FindingsListPage() {
         if (!tickRes.ok) {
           throw new Error(tickBody.error || 'Crawl tick failed')
         }
-        await load(siteId, includeInformational)
+        await loadConnected(siteId, includeInformational)
         if (tickBody.done) break
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Crawl failed')
     } finally {
       setCrawling(false)
-      await load(siteId, includeInformational)
+      await loadConnected(siteId, includeInformational)
+    }
+  }
+
+  async function runDetectCrawl() {
+    const url = detectUrl.trim()
+    if (!url || crawling) return
+    setCrawling(true)
+    setError(null)
+    tickAbort.current = false
+    let scopeOrigin: string | null = null
+    try {
+      const startRes = await fetch('/api/fix-strategies/findings/crawl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'detect', url, action: 'start' }),
+      })
+      const startBody = (await startRes.json()) as {
+        error?: string
+        runId?: string
+        origin?: string
+      }
+      if (!startRes.ok || !startBody.runId) {
+        throw new Error(startBody.error || 'Failed to start detect crawl')
+      }
+      scopeOrigin = startBody.origin ?? null
+      if (scopeOrigin) setDetectOrigin(scopeOrigin)
+
+      let guard = 0
+      while (guard++ < 500 && !tickAbort.current) {
+        const tickRes = await fetch('/api/fix-strategies/findings/crawl', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: 'detect',
+            action: 'tick',
+            runId: startBody.runId,
+          }),
+        })
+        const tickBody = (await tickRes.json()) as {
+          error?: string
+          done?: boolean
+          origin?: string
+        }
+        if (!tickRes.ok) {
+          throw new Error(tickBody.error || 'Crawl tick failed')
+        }
+        if (tickBody.origin) {
+          scopeOrigin = tickBody.origin
+          setDetectOrigin(tickBody.origin)
+        }
+        if (scopeOrigin) await loadDetect(scopeOrigin, includeInformational)
+        if (tickBody.done) break
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Detect crawl failed')
+    } finally {
+      setCrawling(false)
+      if (scopeOrigin) await loadDetect(scopeOrigin, includeInformational)
     }
   }
 
@@ -152,6 +252,11 @@ export default function FindingsListPage() {
     crawl && crawl.urlsFound > crawl.urlsCrawled
       ? crawl.urlsFound - crawl.urlsCrawled
       : 0
+
+  const canRun =
+    mode === 'connected'
+      ? Boolean(siteId) && !crawling
+      : Boolean(detectUrl.trim()) && !crawling
 
   return (
     <div
@@ -167,35 +272,91 @@ export default function FindingsListPage() {
             </p>
             <h1 className="text-2xl font-semibold tracking-tight">Findings</h1>
             <p className="text-[#6B6B6B] mt-1">
-              Live crawl → detectors → persisted findings. Internal evidence is
-              stored but never listed here.
+              Live crawl → detectors → persisted findings. Detect-only accepts a
+              public URL with no site connection. Internal evidence is stored but
+              never listed here.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 mb-6">
-            <label className="text-sm text-[#6B6B6B]">
-              Site{' '}
-              <select
-                className="ml-1 rounded-md border border-[#E8E8E4] bg-white px-2 py-1.5 text-[#0F0F0F]"
-                value={siteId}
-                onChange={(e) => setSiteId(e.target.value)}
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <div className="flex rounded-md border border-[#E8E8E4] bg-white overflow-hidden text-sm">
+              <button
+                type="button"
                 disabled={crawling}
+                onClick={() => setMode('connected')}
+                className={`px-3 py-1.5 ${
+                  mode === 'connected'
+                    ? 'bg-[#0F0F0F] text-white'
+                    : 'text-[#6B6B6B] hover:bg-[#F4F4F2]'
+                } disabled:opacity-50`}
               >
-                {sites.length === 0 && <option value="">No connected sites</option>}
-                {sites.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.brand || s.domain}
-                  </option>
-                ))}
-              </select>
-            </label>
+                Connected site
+              </button>
+              <button
+                type="button"
+                disabled={crawling}
+                onClick={() => setMode('detect')}
+                className={`px-3 py-1.5 border-l border-[#E8E8E4] ${
+                  mode === 'detect'
+                    ? 'bg-[#0F0F0F] text-white'
+                    : 'text-[#6B6B6B] hover:bg-[#F4F4F2]'
+                } disabled:opacity-50`}
+              >
+                Public URL
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-end gap-3 mb-6">
+            {mode === 'connected' ? (
+              <label className="text-sm text-[#6B6B6B]">
+                Site{' '}
+                <select
+                  className="ml-1 rounded-md border border-[#E8E8E4] bg-white px-2 py-1.5 text-[#0F0F0F]"
+                  value={siteId}
+                  onChange={(e) => setSiteId(e.target.value)}
+                  disabled={crawling}
+                >
+                  {sites.length === 0 && (
+                    <option value="">No connected sites</option>
+                  )}
+                  {sites.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.brand || s.domain}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label className="text-sm text-[#6B6B6B] flex-1 min-w-[16rem]">
+                Public URL
+                <input
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://example.com"
+                  className="mt-1 block w-full rounded-md border border-[#E8E8E4] bg-white px-2 py-1.5 text-[#0F0F0F]"
+                  value={detectUrl}
+                  onChange={(e) => setDetectUrl(e.target.value)}
+                  disabled={crawling}
+                />
+                <span className="block mt-1 text-xs text-[#9B9B9B]">
+                  Detection only — no connection, repo, or credentials stored.
+                </span>
+              </label>
+            )}
             <button
               type="button"
-              onClick={() => void runCrawl()}
-              disabled={!siteId || crawling}
+              onClick={() =>
+                void (mode === 'detect' ? runDetectCrawl() : runConnectedCrawl())
+              }
+              disabled={!canRun}
               className="rounded-md bg-[#FF6B2C] text-white text-sm px-3 py-1.5 disabled:opacity-50"
             >
-              {crawling ? 'Crawling…' : 'Run crawl'}
+              {crawling
+                ? 'Crawling…'
+                : mode === 'detect'
+                  ? 'Detect'
+                  : 'Run crawl'}
             </button>
           </div>
 
@@ -218,6 +379,11 @@ export default function FindingsListPage() {
               <span className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]">
                 Chunk {crawl.chunkSize}
               </span>
+              {mode === 'detect' && (
+                <span className="px-2.5 py-1 rounded-md border border-dashed border-[#E8E8E4] text-[#9B9B9B]">
+                  Detect-only
+                </span>
+              )}
             </div>
           )}
 
@@ -302,7 +468,16 @@ export default function FindingsListPage() {
             <div className="rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-8 text-center text-[#6B6B6B]">
               {crawl
                 ? 'No findings in this view.'
-                : 'No crawl yet. Connect a site and run a crawl.'}
+                : mode === 'detect'
+                  ? 'No crawl yet. Enter a public URL and run Detect.'
+                  : 'No crawl yet. Connect a site and run a crawl, or switch to Public URL.'}
+            </div>
+          )}
+
+          {!loading && !error && !data && mode === 'detect' && !detectOrigin && (
+            <div className="rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-8 text-center text-[#6B6B6B]">
+              Enter a public URL to run a detection-only crawl. No site
+              connection is created.
             </div>
           )}
 

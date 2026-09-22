@@ -20,7 +20,9 @@ import type { DetectorEmit } from './run-detectors'
 function mapRun(row: Record<string, unknown>): CrawlRunRecord {
   return {
     id: String(row.id),
-    siteId: String(row.site_id),
+    siteId: row.site_id == null ? null : String(row.site_id),
+    detectOnly: Boolean(row.detect_only),
+    detectOrigin: (row.detect_origin as string | null) ?? null,
     userId: String(row.user_id),
     origin: String(row.origin),
     status: row.status as CrawlRunRecord['status'],
@@ -63,7 +65,8 @@ function mapJob(row: Record<string, unknown>): CrawlUrlJob {
 function mapFinding(row: Record<string, unknown>): PersistedFindingRow {
   return {
     id: String(row.id),
-    siteId: String(row.site_id),
+    siteId: row.site_id == null ? null : String(row.site_id),
+    detectOrigin: (row.detect_origin as string | null) ?? null,
     userId: String(row.user_id),
     topicId: String(row.topic_id),
     kind: String(row.kind),
@@ -107,15 +110,18 @@ export function createSupabaseFindingsStore(
   const db = () => client ?? createServiceRoleClient()
 
   return {
-    async createRun({ siteId, userId, origin }) {
+    async createRun({ siteId, userId, origin, detectOnly }) {
+      const originNorm = origin.replace(/\/$/, '')
       const { data, error } = await db()
         .from('fix_strategies_crawl_runs')
         .insert({
           site_id: siteId,
           user_id: userId,
-          origin,
+          origin: originNorm,
           status: 'queued',
           chunk_size: CRAWL_URL_CHUNK_SIZE,
+          detect_only: detectOnly === true,
+          detect_origin: detectOnly ? originNorm : null,
         })
         .select('*')
         .single()
@@ -138,6 +144,19 @@ export function createSupabaseFindingsStore(
         .from('fix_strategies_crawl_runs')
         .select('*')
         .eq('site_id', siteId)
+        .order('created_at', { ascending: false })
+      if (error) throw new Error(error.message)
+      return (data ?? []).map((r) => mapRun(r as Record<string, unknown>))
+    },
+
+    async listRunsForDetectOrigin(userId, detectOrigin) {
+      const originNorm = detectOrigin.replace(/\/$/, '')
+      const { data, error } = await db()
+        .from('fix_strategies_crawl_runs')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('detect_only', true)
+        .eq('detect_origin', originNorm)
         .order('created_at', { ascending: false })
       if (error) throw new Error(error.message)
       return (data ?? []).map((r) => mapRun(r as Record<string, unknown>))
@@ -272,16 +291,31 @@ export function createSupabaseFindingsStore(
       return counts
     },
 
-    async upsertFindings({ siteId, userId, runId, findings, internalEvidence }) {
+    async upsertFindings({
+      siteId,
+      detectOrigin,
+      userId,
+      runId,
+      findings,
+      internalEvidence,
+    }) {
       const now = new Date().toISOString()
+      const originNorm = detectOrigin?.replace(/\/$/, '') ?? null
       for (const f of findings) {
-        const { data: existing } = await db()
+        let existingQuery = db()
           .from('fix_strategies_findings')
           .select('id, first_seen_run_id, first_seen_at')
-          .eq('site_id', siteId)
           .eq('topic_id', f.topicId)
           .eq('rollup_key', f.rollupKey)
-          .maybeSingle()
+        if (siteId) {
+          existingQuery = existingQuery.eq('site_id', siteId)
+        } else {
+          existingQuery = existingQuery
+            .is('site_id', null)
+            .eq('user_id', userId)
+            .eq('detect_origin', originNorm)
+        }
+        const { data: existing } = await existingQuery.maybeSingle()
 
         let findingId: string
         if (existing) {
@@ -303,6 +337,7 @@ export function createSupabaseFindingsStore(
               proposed_diff: f.proposedDiff,
               evidence_values: f.evidenceValues,
               source_rows: f.sourceRows,
+              detect_origin: originNorm,
               last_seen_run_id: runId,
               last_seen_at: now,
               updated_at: now,
@@ -314,6 +349,7 @@ export function createSupabaseFindingsStore(
             .from('fix_strategies_findings')
             .insert({
               site_id: siteId,
+              detect_origin: originNorm,
               user_id: userId,
               topic_id: f.topicId,
               kind: f.kind,
@@ -352,13 +388,20 @@ export function createSupabaseFindingsStore(
 
       for (const e of internalEvidence as DetectorEmit[]) {
         let findingId: string | null = null
-        const { data: match } = await db()
+        let matchQuery = db()
           .from('fix_strategies_findings')
           .select('id')
-          .eq('site_id', siteId)
           .eq('topic_id', e.topicId)
           .limit(1)
-          .maybeSingle()
+        if (siteId) {
+          matchQuery = matchQuery.eq('site_id', siteId)
+        } else {
+          matchQuery = matchQuery
+            .is('site_id', null)
+            .eq('user_id', userId)
+            .eq('detect_origin', originNorm)
+        }
+        const { data: match } = await matchQuery.maybeSingle()
         if (match) findingId = String(match.id)
 
         await db().from('fix_strategies_finding_evidence').insert({
@@ -410,13 +453,27 @@ export function createSupabaseFindingsStore(
       if (error) throw new Error(error.message)
     },
 
-    async listFindings({ siteId, includeInformational }) {
+    async listFindings({
+      siteId,
+      detectOrigin,
+      userId,
+      includeInformational,
+    }) {
       let q = db()
         .from('fix_strategies_findings')
         .select('*')
-        .eq('site_id', siteId)
         .neq('bucket', 'internal')
         .order('last_seen_at', { ascending: false })
+      if (siteId) {
+        q = q.eq('site_id', siteId)
+      } else if (detectOrigin) {
+        q = q
+          .is('site_id', null)
+          .eq('detect_origin', detectOrigin.replace(/\/$/, ''))
+        if (userId) q = q.eq('user_id', userId)
+      } else {
+        return []
+      }
       if (!includeInformational) {
         q = q.eq('bucket', 'actionable')
       } else {
@@ -447,11 +504,19 @@ export function createSupabaseFindingsStore(
       return (data ?? []).map((r) => mapEvidence(r as Record<string, unknown>))
     },
 
-    async counts(siteId) {
-      const { data, error } = await db()
-        .from('fix_strategies_findings')
-        .select('bucket')
-        .eq('site_id', siteId)
+    async counts({ siteId, detectOrigin, userId }) {
+      let q = db().from('fix_strategies_findings').select('bucket')
+      if (siteId) {
+        q = q.eq('site_id', siteId)
+      } else if (detectOrigin) {
+        q = q
+          .is('site_id', null)
+          .eq('detect_origin', detectOrigin.replace(/\/$/, ''))
+        if (userId) q = q.eq('user_id', userId)
+      } else {
+        return { actionable: 0, informational: 0, internal: 0 }
+      }
+      const { data, error } = await q
       if (error) throw new Error(error.message)
       let actionable = 0
       let informational = 0
@@ -461,14 +526,16 @@ export function createSupabaseFindingsStore(
         else if (row.bucket === 'informational') informational++
         else internal++
       }
-      const { count: evidenceCount, error: eErr } = await db()
-        .from('fix_strategies_finding_evidence')
-        .select('id, fix_strategies_crawl_runs!inner(site_id)', {
-          count: 'exact',
-          head: true,
-        })
-        .eq('fix_strategies_crawl_runs.site_id', siteId)
-      if (!eErr && evidenceCount != null) internal += evidenceCount
+      if (siteId) {
+        const { count: evidenceCount, error: eErr } = await db()
+          .from('fix_strategies_finding_evidence')
+          .select('id, fix_strategies_crawl_runs!inner(site_id)', {
+            count: 'exact',
+            head: true,
+          })
+          .eq('fix_strategies_crawl_runs.site_id', siteId)
+        if (!eErr && evidenceCount != null) internal += evidenceCount
+      }
       return { actionable, informational, internal }
     },
   }

@@ -141,7 +141,7 @@ describe('findings crawl persistence', () => {
     expect(listed[0]!.firstSeenRunId).toBe(run1.id)
     expect(listed[0]!.lastSeenRunId).toBe(run2.id)
 
-    const counts = await store.counts('site-a')
+    const counts = await store.counts({ siteId: 'site-a' })
     expect(counts.actionable).toBe(1)
     expect(counts.informational).toBe(0)
     expect(counts.internal).toBeGreaterThanOrEqual(1)
@@ -179,6 +179,77 @@ describe('findings crawl persistence', () => {
     const counts = await store.countJobsByStatus(run.id)
     expect(counts.crawled).toBe(5)
     expect(counts.running).toBe(1)
+  })
+
+  it('detect-only run has null siteId and scopes findings by detectOrigin', async () => {
+    const store = createMemoryFindingsStore()
+    const run = await store.createRun({
+      siteId: null,
+      userId: 'user-detect',
+      origin: 'https://pub.example',
+      detectOnly: true,
+    })
+    expect(run.siteId).toBeNull()
+    expect(run.detectOnly).toBe(true)
+    expect(run.detectOrigin).toBe('https://pub.example')
+
+    const finding = {
+      topicId: '1',
+      kind: 'indexability/soft-404',
+      verdict: 'human-review-soft-404',
+      severity: 'high',
+      detail: 'soft 404',
+      pageUrl: 'https://pub.example/missing',
+      declarationSite: null,
+      rollupKey: '1|human-review-soft-404|https://pub.example/missing',
+      affectedUrlCount: 1,
+      rolledUp: false,
+      bucket: 'actionable' as const,
+      autoFixable: false,
+      reportOnly: true,
+      surfaceClass: 'human-review',
+      proposedDiff: null,
+      evidenceValues: null,
+      sourceRows: [],
+    }
+
+    await store.upsertFindings({
+      siteId: null,
+      detectOrigin: run.detectOrigin,
+      userId: 'user-detect',
+      runId: run.id,
+      findings: [finding],
+      internalEvidence: [],
+    })
+
+    const listed = await store.listFindings({
+      detectOrigin: 'https://pub.example',
+      userId: 'user-detect',
+      includeInformational: false,
+    })
+    expect(listed).toHaveLength(1)
+    expect(listed[0]!.siteId).toBeNull()
+    expect(listed[0]!.detectOrigin).toBe('https://pub.example')
+
+    // Not visible under a connected site scope
+    const bySite = await store.listFindings({
+      siteId: 'some-site',
+      includeInformational: false,
+    })
+    expect(bySite).toHaveLength(0)
+
+    const counts = await store.counts({
+      detectOrigin: 'https://pub.example',
+      userId: 'user-detect',
+    })
+    expect(counts.actionable).toBe(1)
+
+    const runs = await store.listRunsForDetectOrigin(
+      'user-detect',
+      'https://pub.example',
+    )
+    expect(runs).toHaveLength(1)
+    expect(runs[0]!.id).toBe(run.id)
   })
 })
 

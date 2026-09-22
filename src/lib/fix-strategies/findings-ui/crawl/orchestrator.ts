@@ -30,9 +30,12 @@ import { POST_CRAWL_TOPIC_IDS } from '@/lib/fix-strategies/detector-scope'
 import { getFindingsStore, type FindingsStore } from './store'
 
 export type StartCrawlInput = {
-  siteId: string
+  /** Connected site id, or null for detection-only. */
+  siteId: string | null
   userId: string
   origin: string
+  /** Public URL, no connected_sites row, no repo credentials. */
+  detectOnly?: boolean
   store?: FindingsStore
   /**
    * Optional extra enqueue cap (tests). Hitting this (or CRAWL_MAX_DISCOVERED)
@@ -55,10 +58,12 @@ export async function startCrawlRun(
   input: StartCrawlInput,
 ): Promise<{ runId: string; urlsDiscovered: number; urlsFound: number }> {
   const store = input.store ?? getFindingsStore()
+  const originNorm = input.origin.replace(/\/$/, '')
   const run = await store.createRun({
-    siteId: input.siteId,
+    siteId: input.detectOnly ? null : input.siteId,
     userId: input.userId,
-    origin: input.origin.replace(/\/$/, ''),
+    origin: originNorm,
+    detectOnly: input.detectOnly === true,
   })
 
   const discovered = await discoverSameHostUrls(run.origin)
@@ -349,6 +354,7 @@ export async function processCrawlTick(
   await store.clearRunEvidence(runId)
   await store.upsertFindings({
     siteId: run.siteId,
+    detectOrigin: run.detectOrigin,
     userId: run.userId,
     runId,
     findings,
@@ -459,7 +465,11 @@ export async function runCrawlToCompletion(
 
   const run = await store.getRun(runId)
   if (!run) throw new Error('run vanished')
-  const counts = await store.counts(input.siteId)
+  const counts = await store.counts(
+    run.detectOnly
+      ? { detectOrigin: run.detectOrigin, userId: run.userId }
+      : { siteId: run.siteId },
+  )
 
   return {
     runId,

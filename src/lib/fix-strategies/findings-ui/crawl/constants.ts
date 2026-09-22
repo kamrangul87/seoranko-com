@@ -55,7 +55,9 @@ export type CoverageNote = {
 
 export type PersistedFindingRow = {
   id: string
-  siteId: string
+  siteId: string | null
+  /** Set when siteId is null — detection-only public-URL scope. */
+  detectOrigin: string | null
   userId: string
   topicId: string
   kind: string
@@ -91,7 +93,10 @@ export type PersistedEvidenceRow = {
 
 export type CrawlRunRecord = {
   id: string
-  siteId: string
+  siteId: string | null
+  /** True when started from a public URL with no connected site. */
+  detectOnly: boolean
+  detectOrigin: string | null
   userId: string
   origin: string
   status: CrawlRunStatus
