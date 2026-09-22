@@ -22,10 +22,14 @@ Last updated: 2026-09-22
 - **Generated artefacts:** where an artefact is produced at build time, the
   fix targets the **generator**, never the emitted output. Use
   `generated-output-guard` before proposing an edit.
-- **Agent never merges customer-repo PRs.** A Cursor agent working during
-  development must **never** merge a pull request on a customer repository
-  (e.g. `autodun-ai`). Open the PR and stop. Standing “always merge PRs”
-  preferences apply only to **this** product repo (`seoranko-com`).
+- **Agent never merges a customer PR unless the owner has explicitly
+  approved that specific PR.** A Cursor agent working during development
+  must **never** merge a pull request on a customer repository
+  (e.g. `autodun-ai`) by default — open the PR and stop. The **only**
+  exception is when the site owner has **explicitly approved that specific
+  PR** (named PR / finding, not a blanket “merge everything”). Standing
+  “always merge PRs” preferences apply only to **this** product repo
+  (`seoranko-com`) and do **not** override this customer-repo rule.
 - **Product auto-merge is opt-in and gated.** Default is OFF
   (`connected_sites.auto_merge_enabled = false`). The **product** (runtime
   fix-flow) may merge a customer PR **only when** all of the following hold:
@@ -85,8 +89,9 @@ are listed in `_open-questions.md` until set.
 4. **CI green** on the PR.
 5. **Merged to `main` (this product repo only).** Never leave a green
    `seoranko-com` PR open. Nothing is done until it is on `main`. The
-   **agent** never merges customer-repo PRs; the **product** may only under
-   the opt-in auto-merge gates in Constraints.
+   **agent** never merges customer-repo PRs unless the owner explicitly
+   approved that specific PR; the **product** may only under the opt-in
+   auto-merge gates in Constraints.
 6. **Production deployment on `main` reaches Ready.** A green PR / green
    preview is **not** done. After merge, confirm the Vercel **Production**
    deploy for that commit is Ready. If Production fails (e.g. migrate step
