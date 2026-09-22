@@ -31,6 +31,9 @@ export function createUniversalTagAdapter(supabase: any): CMSAdapter {
     },
 
     async injectSchema(creds, page, schemaJsonLd): Promise<FixApplyResult> {
+      const { requireActiveCustomerWriteGate } = await import('@/lib/customer-write-gate')
+      requireActiveCustomerWriteGate('universal-tag-adapter.injectSchema')
+
       if (!creds.siteId) {
         return { success: false, error: 'Missing site reference for the Universal Tag.' }
       }

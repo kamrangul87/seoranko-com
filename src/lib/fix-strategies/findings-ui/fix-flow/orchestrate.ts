@@ -17,6 +17,7 @@ import {
   resolveGithubCredsFromEnv,
   type GithubPrCreds,
 } from './github-pr-commit'
+import { withCustomerWriteGate } from '@/lib/customer-write-gate'
 import {
   previewPageUrl,
   waitForPrPreviewDeploy,
@@ -301,30 +302,35 @@ export async function commitFix(input: {
   const short = pageUrl.replace(/^https?:\/\//, '').replace(/[^a-zA-Z0-9]+/g, '-').slice(0, 40)
   const branchName = `seoranko/fix-49-dims-${short}-${Date.now().toString(36)}`
 
-  const pr = await commitFileViaPullRequest({
-    creds,
-    path,
-    newContent: applied.html,
-    branchName,
-    commitMessage: `fix(seo): set img width/height on ${path} (topic 49)`,
-    prTitle: `fix(seo): topic 49 auto-set-dimensions — ${path}`,
-    prBody: [
-      '## Summary',
-      '',
-      'SEORANKO findings fix-flow: set missing `width`/`height` from image file headers.',
-      '',
-      `- Page: ${pageUrl}`,
-      `- File: \`${path}\``,
-      `- Images updated: ${applied.applied
-        .map((a) => `\`${a.srcAttr}\` → ${a.width}×${a.height}`)
-        .join(', ')}`,
-      '',
-      'Opened as a PR. Auto-merge runs only when the connected site has',
-      '`auto_merge_enabled` **and** every gate holds (auto-fixable, CI green,',
-      'preview verify against real page content, single-file blast radius).',
-      'Otherwise a **human** merges.',
-    ].join('\n'),
-  })
+  const pr = await withCustomerWriteGate(
+    'findings-pr-branch',
+    { approved: true },
+    () =>
+      commitFileViaPullRequest({
+        creds,
+        path,
+        newContent: applied.html,
+        branchName,
+        commitMessage: `fix(seo): set img width/height on ${path} (topic 49)`,
+        prTitle: `fix(seo): topic 49 auto-set-dimensions — ${path}`,
+        prBody: [
+          '## Summary',
+          '',
+          'SEORANKO findings fix-flow: set missing `width`/`height` from image file headers.',
+          '',
+          `- Page: ${pageUrl}`,
+          `- File: \`${path}\``,
+          `- Images updated: ${applied.applied
+            .map((a) => `\`${a.srcAttr}\` → ${a.width}×${a.height}`)
+            .join(', ')}`,
+          '',
+          'Opened as a PR. Auto-merge runs only when the connected site has',
+          '`auto_merge_enabled` **and** every gate holds (auto-fixable, CI green,',
+          'preview verify against real page content, single-file blast radius).',
+          'Otherwise a **human** merges.',
+        ].join('\n'),
+      }),
+  )
 
   if (!pr.ok) {
     return getFixFlowStore().save({

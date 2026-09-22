@@ -164,6 +164,9 @@ async function updateContent(
   newContent: string,
   extraFields?: { title?: string }
 ): Promise<{ success: boolean; error?: string }> {
+  const { requireActiveCustomerWriteGate } = await import('@/lib/customer-write-gate')
+  requireActiveCustomerWriteGate('wordpress-connector.updateContent')
+
   const body: Record<string, unknown> = { content: newContent }
   if (extraFields?.title) body.title = extraFields.title
 

@@ -213,6 +213,10 @@ async function putContentsFile(
   commitMessage: string,
   branch: string,
 ): Promise<Response> {
+  const { requireActiveCustomerWriteGate } = await import(
+    '@/lib/customer-write-gate'
+  )
+  requireActiveCustomerWriteGate('github-adapter.putContentsFile')
   return fetch(`${GH}/repos/${creds.owner}/${creds.repo}/contents/${path}`, {
     method: 'PUT',
     headers: ghHeaders(creds.accessToken!),
@@ -303,6 +307,10 @@ async function commitFileChange(
   currentSha: string,
   commitMessage: string,
 ): Promise<CommitFileResult> {
+  const { requireActiveCustomerWriteGate } = await import(
+    '@/lib/customer-write-gate'
+  )
+  requireActiveCustomerWriteGate('github-adapter.commitFileChange')
   const branch = creds.branch || 'main'
 
   try {

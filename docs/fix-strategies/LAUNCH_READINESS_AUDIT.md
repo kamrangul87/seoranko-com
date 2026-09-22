@@ -22,8 +22,8 @@
 ## b) Gaps that block a first paying customer
 
 1. **Fix surface too narrow** — In-product auto-commit is topic 49 `auto-set-dimensions` only.
-2. **Two fix systems** — Findings fix-flow vs legacy Fix Agent; unclear hierarchy.
-3. **GitHub-only proven write path** — Other CMS adapters unverified.
+2. **~~Two fix systems~~** — **Resolved (gate PR):** fix-strategies is the only live customer-write stack. Legacy Fix Agent / RANKO / site-audit push / publisher adapters / Universal Tag queue / browser publish are **disabled** behind `LEGACY_CUSTOMER_WRITES_ENABLED` (default OFF). Low-level writers throw without `withCustomerWriteGate`. See `src/lib/customer-write-gate.ts` inventory.
+3. **GitHub-only proven write path** — Other CMS adapters unverified (and legacy CMS publish remains flag-gated OFF).
 4. **GSC Index Insights thin** — Needs live inspection rows for “Google recrawled?” claims.
 5. **Billing ≠ product** — No subscription gate on crawl / Fix Agent writes.
 6. **Onboarding unproven off autodun** — Connect → crawl → fix not dry-run on an external site.

@@ -87,6 +87,9 @@ export const githubPublisher: PublisherAdapter = {
   platform: 'github',
 
   async publish(article: PublishArticleInput, creds: PublisherCredentials): Promise<PublishResult> {
+    const { requireActiveCustomerWriteGate } = await import('@/lib/customer-write-gate')
+    requireActiveCustomerWriteGate('github-publisher.publish')
+
     const invalid = validate(creds, article.slug)
     if (invalid) {
       return {

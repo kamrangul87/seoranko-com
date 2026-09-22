@@ -79,6 +79,18 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
+    const {
+      isLegacyCustomerWritesEnabled,
+      legacyCustomerWritesDisabledBody,
+      withCustomerWriteGate,
+    } = await import('@/lib/customer-write-gate')
+    if (!isLegacyCustomerWritesEnabled()) {
+      return NextResponse.json(
+        legacyCustomerWritesDisabledBody('csp-ship-headers'),
+        { status: 403 },
+      )
+    }
+
     const user = await requireUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -92,6 +104,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    return await withCustomerWriteGate('legacy-direct-push', {}, async () => {
     const supabase = serviceClient()
     const { data: site } = await supabase
       .from('connected_sites')
@@ -161,6 +174,7 @@ export async function POST(req: NextRequest) {
       apply,
       message:
         'Report-only CSP shipped. Enforce only after an observation window with no unexpected violations.',
+    })
     })
   } catch (err) {
     console.error('[csp POST]', err instanceof Error ? err.message : err)

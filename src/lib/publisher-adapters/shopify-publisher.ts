@@ -86,6 +86,9 @@ export const shopifyPublisher: PublisherAdapter = {
   platform: 'shopify',
 
   async publish(article: PublishArticleInput, creds: PublisherCredentials): Promise<PublishResult> {
+    const { requireActiveCustomerWriteGate } = await import('@/lib/customer-write-gate')
+    requireActiveCustomerWriteGate('shopify-publisher.publish')
+
     if (!creds.accessToken) {
       return {
         platform: 'shopify', platformPostId: null, liveUrl: null, status: 'FAILED',

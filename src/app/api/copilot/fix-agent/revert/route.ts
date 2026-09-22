@@ -9,6 +9,18 @@ export const maxDuration = 60
 /** POST { attemptId } — one-click revert of an auto-applied Fix Agent change. */
 export async function POST(req: NextRequest) {
   try {
+    const {
+      isLegacyCustomerWritesEnabled,
+      legacyCustomerWritesDisabledBody,
+      withCustomerWriteGate,
+    } = await import('@/lib/customer-write-gate')
+    if (!isLegacyCustomerWritesEnabled()) {
+      return NextResponse.json(
+        legacyCustomerWritesDisabledBody('fix-agent-revert'),
+        { status: 403 },
+      )
+    }
+
     const cookieStore = cookies()
     const authClient = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,7 +39,9 @@ export async function POST(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )
 
-    const result = await revertFixAttempt({ supabase, userId: user.id, attemptId })
+    const result = await withCustomerWriteGate('legacy-direct-push', {}, () =>
+      revertFixAttempt({ supabase, userId: user.id, attemptId }),
+    )
     return NextResponse.json(result, { status: result.ok ? 200 : 400 })
   } catch (err) {
     console.error('[fix-agent/revert]', err)

@@ -8,6 +8,7 @@ import {
   CMSAdapter, SiteCredentials, PageContent, FixApplyResult,
   alreadyHasSchemaType, schemaScriptTag
 } from './types'
+import { requireActiveCustomerWriteGate } from '@/lib/customer-write-gate'
 
 const API = 'https://api.webflow.com/v2'
 
@@ -39,6 +40,7 @@ function findBodyField(fieldData: Record<string, any>): string | null {
 
 /** Publish to the staging subdomain AND every custom domain, or the fix never goes live. */
 async function publishSite(creds: SiteCredentials): Promise<{ ok: boolean; detail: string }> {
+  requireActiveCustomerWriteGate('webflow-adapter.publishSite')
   try {
     const siteRes = await fetch(`${API}/sites/${creds.siteId}`, {
       headers: webflowHeaders(creds.apiToken || ''),
@@ -77,6 +79,8 @@ async function writeBody(
   page: PageContent,
   newBody: string
 ): Promise<FixApplyResult> {
+  requireActiveCustomerWriteGate('webflow-adapter.writeBody')
+
   const [collectionId, itemId] = page.id.split(':')
   const field = page.bodyField
   if (!field) {

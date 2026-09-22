@@ -20,6 +20,7 @@ import type { GithubPrCreds } from './github-pr-commit'
 import { assessSingleFileBlastRadius } from './blast-radius'
 import { listPullRequestFiles, waitForPrCiGreen } from './pr-ci-status'
 import { mergePullRequest, openRevertPullRequest } from './github-pr-merge'
+import { withCustomerWriteGate } from '@/lib/customer-write-gate'
 import { verifyFindingLive } from './verify-live'
 import { appendOutcomeRecordLocal } from './outcome-record'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
@@ -262,12 +263,17 @@ export async function maybeAutoMergeAfterPreviewVerify(
     })
   }
 
-  const merged = await mergePullRequest({
-    creds: input.creds,
-    prNumber: cur.prNumber,
-    commitTitle: `merge: SEORANKO auto-merge PR #${cur.prNumber}`,
-    fetchImpl: input.fetchImpl,
-  })
+  const merged = await withCustomerWriteGate(
+    'findings-auto-merge',
+    { autoMergeGatesOk: true },
+    () =>
+      mergePullRequest({
+        creds: input.creds,
+        prNumber: cur.prNumber,
+        commitTitle: `merge: SEORANKO auto-merge PR #${cur.prNumber}`,
+        fetchImpl: input.fetchImpl,
+      }),
+  )
   if (!merged.ok) {
     return store.save({
       ...cur,
@@ -292,13 +298,18 @@ export async function maybeAutoMergeAfterPreviewVerify(
       : cur.approvedAt || cur.committedAt || merged.mergedAt
 
   if (!prod.ok) {
-    const revert = await openRevertPullRequest({
-      creds: input.creds,
-      originalPrNumber: cur.prNumber,
-      path: blast.path,
-      reason: prod.detail,
-      fetchImpl: input.fetchImpl,
-    })
+    const revert = await withCustomerWriteGate(
+      'findings-auto-merge',
+      { autoMergeGatesOk: true },
+      () =>
+        openRevertPullRequest({
+          creds: input.creds,
+          originalPrNumber: cur.prNumber,
+          path: blast.path,
+          reason: prod.detail,
+          fetchImpl: input.fetchImpl,
+        }),
+    )
 
     const flagDetail = revert.ok
       ? `Production verify FAILED after auto-merge. Revert PR opened: ${revert.prUrl}. Merge the revert promptly.`

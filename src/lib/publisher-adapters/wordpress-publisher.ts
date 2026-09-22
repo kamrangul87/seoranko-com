@@ -93,6 +93,9 @@ export const wordpressPublisher: PublisherAdapter = {
   platform: 'wordpress',
 
   async publish(article: PublishArticleInput, creds: PublisherCredentials): Promise<PublishResult> {
+    const { requireActiveCustomerWriteGate } = await import('@/lib/customer-write-gate')
+    requireActiveCustomerWriteGate('wordpress-publisher.publish')
+
     if (!creds.username || !creds.appPassword) {
       return {
         platform: 'wordpress', platformPostId: null, liveUrl: null, status: 'FAILED',

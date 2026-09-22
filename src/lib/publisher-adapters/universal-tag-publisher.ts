@@ -14,6 +14,9 @@ export const universalTagPublisher: PublisherAdapter = {
   platform: 'universal-tag',
 
   async publish(): Promise<PublishResult> {
+    const { requireActiveCustomerWriteGate } = await import('@/lib/customer-write-gate')
+    requireActiveCustomerWriteGate('universal-tag-publisher.publish')
+
     return {
       platform: 'universal-tag',
       platformPostId: null,

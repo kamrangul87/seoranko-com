@@ -9,6 +9,7 @@ import {
   CMSAdapter, SiteCredentials, PageContent, FixApplyResult,
   alreadyHasSchemaType, schemaScriptTag
 } from './types'
+import { requireActiveCustomerWriteGate } from '@/lib/customer-write-gate'
 
 const API_VERSION = '2025-01'
 
@@ -36,6 +37,7 @@ async function updateBody(
   newBody: string,
   title?: string
 ): Promise<FixApplyResult> {
+  requireActiveCustomerWriteGate('shopify-adapter.updateBody')
   const host = shopHost(creds)
   if (!isValidShopHost(host)) {
     return { success: false, error: 'Invalid Shopify store domain — expected your-store.myshopify.com' }
