@@ -1,9 +1,7 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
 import dns from 'node:dns/promises'
-import {
-  assertSafePublicUrlResolved,
-  isSafePublicUrl,
-} from '@/lib/fetch-page-content'
+import { assertSafePublicUrlResolved } from '@/lib/assert-safe-public-url-resolved'
+import { isSafePublicUrl } from '@/lib/fetch-page-content'
 import {
   isDisallowedByRobots,
   parseRobotsForCrawler,

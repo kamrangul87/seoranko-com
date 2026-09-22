@@ -1,33 +1,22 @@
 // Shared live-page fetcher. Extracted from competitor-gap.ts so the RANKO
 // fix flow and the gap analyser use one implementation.
-
-import dns from 'node:dns/promises'
-import net from 'node:net'
+//
+// Keep this module free of node: builtins — it is imported from paths that
+// can reach the client bundle (e.g. article-resolver → dashboard pages).
+// DNS-resolved SSRF checks live in assert-safe-public-url-resolved.ts
+// (server-only).
 
 /**
  * Fetch a live URL and strip it down to readable text.
  * Returns '' on any failure — callers decide how to surface that.
  */
-export async function fetchPageContent(
-  url: string,
-  maxChars = 8000,
-  _redirectDepth = 0,
-): Promise<string> {
+export async function fetchPageContent(url: string, maxChars = 8000): Promise<string> {
   try {
-    if (_redirectDepth > 8) return ''
-    if (!(await assertSafePublicUrlResolved(url))) return ''
+    if (!isSafePublicUrl(url)) return ''
     const res = await fetch(url, {
       headers: { 'User-Agent': 'SEORANKOBot/1.0 (+https://seoranko.com/bot)' },
       signal: AbortSignal.timeout(15000),
-      redirect: 'manual',
     })
-    // Manual redirect: re-check every hop (SSRF)
-    if (res.status >= 300 && res.status < 400) {
-      const loc = res.headers.get('location')
-      if (!loc) return ''
-      const next = new URL(loc, url).toString()
-      return fetchPageContent(next, maxChars, _redirectDepth + 1)
-    }
     if (!res.ok) return ''
     const html = await res.text()
     return html
@@ -47,23 +36,14 @@ export async function fetchPageContent(
  */
 export async function fetchPageWithTitle(
   url: string,
-  maxChars = 8000,
-  _redirectDepth = 0,
+  maxChars = 8000
 ): Promise<{ content: string; title: string }> {
   try {
-    if (_redirectDepth > 8) return { content: '', title: '' }
-    if (!(await assertSafePublicUrlResolved(url))) return { content: '', title: '' }
+    if (!isSafePublicUrl(url)) return { content: '', title: '' }
     const res = await fetch(url, {
       headers: { 'User-Agent': 'SEORANKOBot/1.0 (+https://seoranko.com/bot)' },
       signal: AbortSignal.timeout(15000),
-      redirect: 'manual',
     })
-    if (res.status >= 300 && res.status < 400) {
-      const loc = res.headers.get('location')
-      if (!loc) return { content: '', title: '' }
-      const next = new URL(loc, url).toString()
-      return fetchPageWithTitle(next, maxChars, _redirectDepth + 1)
-    }
     if (!res.ok) return { content: '', title: '' }
     const html = await res.text()
     const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
@@ -83,28 +63,25 @@ export async function fetchPageWithTitle(
 }
 
 /**
- * True when an IPv4/IPv6 address is safe to fetch (not private / metadata).
+ * True when an IPv4/IPv6 address string is safe to fetch (not private / metadata).
  * Used after DNS resolution — never trust the hostname string alone.
  */
 export function isSafePublicIp(ip: string): boolean {
   const normalized = ip.toLowerCase().replace(/^\[|\]$/g, '')
-  if (net.isIPv4(normalized)) {
-    return isSafePublicUrl(`http://${normalized}/`)
-  }
-  if (net.isIPv6(normalized)) {
+  if (normalized.includes(':')) {
     return isSafePublicUrl(`http://[${normalized}]/`)
   }
-  return false
+  return isSafePublicUrl(`http://${normalized}/`)
 }
 
 /**
  * Guard for fetching user-supplied URLs server-side. Blocks non-HTTP schemes
  * and literal hosts in private / cloud-metadata ranges.
  *
- * This is the string/literal gate only. Callers that open sockets MUST also
- * use {@link assertSafePublicUrlResolved} so a public hostname that resolves
- * to a private IP is refused. Callers that follow redirects MUST re-check
- * every hop the same way.
+ * This is the string/literal gate only. Server fetch paths that open sockets
+ * MUST also use {@link assertSafePublicUrlResolved} (server-only module) so a
+ * public hostname that resolves to a private IP is refused. Callers that
+ * follow redirects MUST re-check every hop the same way.
  */
 export function isSafePublicUrl(raw: string): boolean {
   let parsed: URL
@@ -156,33 +133,4 @@ export function isSafePublicUrl(raw: string): boolean {
   }
 
   return true
-}
-
-/**
- * String gate + DNS resolution. A public hostname that resolves to any
- * private / link-local / metadata address is refused. Fail closed on DNS error.
- */
-export async function assertSafePublicUrlResolved(raw: string): Promise<boolean> {
-  if (!isSafePublicUrl(raw)) return false
-
-  let host: string
-  try {
-    host = new URL(raw).hostname
-  } catch {
-    return false
-  }
-
-  // Literal IP already validated by isSafePublicUrl
-  if (net.isIP(host)) return true
-
-  try {
-    const addrs = await dns.lookup(host, { all: true, verbatim: true })
-    if (addrs.length === 0) return false
-    for (const a of addrs) {
-      if (!isSafePublicIp(a.address)) return false
-    }
-    return true
-  } catch {
-    return false
-  }
 }

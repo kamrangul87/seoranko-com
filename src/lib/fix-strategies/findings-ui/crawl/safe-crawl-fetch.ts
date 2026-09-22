@@ -3,10 +3,8 @@
  * manual redirect following (refuse public→private).
  */
 
-import {
-  assertSafePublicUrlResolved,
-  isSafePublicUrl,
-} from '@/lib/fetch-page-content'
+import { assertSafePublicUrlResolved } from '@/lib/assert-safe-public-url-resolved'
+import { isSafePublicUrl } from '@/lib/fetch-page-content'
 import { SEORANKO_CRAWLER_HEADERS } from './crawler-identity'
 
 export type SafeFetchResult =
