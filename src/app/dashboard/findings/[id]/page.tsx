@@ -9,6 +9,7 @@ import {
   type FixFlowState,
   type UiFinding,
 } from '@/lib/fix-strategies/findings-ui/client'
+import { affectedUrlsForFinding } from '@/lib/fix-strategies/findings-ui/affected-urls'
 
 export default function FindingDetailPage() {
   const params = useParams()
@@ -83,14 +84,29 @@ export default function FindingDetailPage() {
                   {finding.verdict}
                 </h1>
                 {finding.rolledUp && finding.declarationSite ? (
-                  <p className="text-[#6B6B6B] mt-2">
-                    Component{' '}
-                    <span className="font-mono text-[#0F0F0F]">
-                      {finding.declarationSite}
-                    </span>
-                    {' · '}
-                    {finding.affectedUrlCount} URLs affected
-                  </p>
+                  <div className="mt-2">
+                    <p className="text-[#6B6B6B]">
+                      Component{' '}
+                      <span className="font-mono text-[#0F0F0F]">
+                        {finding.declarationSite}
+                      </span>
+                      {' · '}
+                      {finding.affectedUrlCount} URLs affected
+                    </p>
+                    {(() => {
+                      const urls = affectedUrlsForFinding(finding)
+                      if (urls.length === 0) return null
+                      return (
+                        <ul className="mt-2 space-y-1 text-sm font-mono text-[#6B6B6B]">
+                          {urls.map((url) => (
+                            <li key={url} className="break-all">
+                              {url}
+                            </li>
+                          ))}
+                        </ul>
+                      )
+                    })()}
+                  </div>
                 ) : (
                   finding.pageUrl && (
                     <p className="text-[#6B6B6B] mt-2 break-all">

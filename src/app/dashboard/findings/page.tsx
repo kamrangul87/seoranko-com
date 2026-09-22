@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { getSupabaseClient } from '@/lib/supabase-client'
 import { DashboardNav } from '@/components/DashboardNav'
 import type { FindingsListResponse, UiFinding } from '@/lib/fix-strategies/findings-ui/client'
+import { affectedUrlsForFinding } from '@/lib/fix-strategies/findings-ui/affected-urls'
 import type { User } from '@supabase/supabase-js'
 
 type Site = { id: string; domain: string; brand: string | null }
@@ -506,14 +507,29 @@ export default function FindingsListPage() {
                       {f.verdict}
                     </p>
                     {f.rolledUp && f.declarationSite ? (
-                      <p className="text-sm text-[#6B6B6B] mt-1">
-                        Component{' '}
-                        <span className="font-mono text-[#0F0F0F]">
-                          {f.declarationSite}
-                        </span>
-                        {' · '}
-                        {f.affectedUrlCount} URLs affected
-                      </p>
+                      <div className="mt-1">
+                        <p className="text-sm text-[#6B6B6B]">
+                          Component{' '}
+                          <span className="font-mono text-[#0F0F0F]">
+                            {f.declarationSite}
+                          </span>
+                          {' · '}
+                          {f.affectedUrlCount} URLs affected
+                        </p>
+                        {(() => {
+                          const urls = affectedUrlsForFinding(f)
+                          if (urls.length === 0) return null
+                          return (
+                            <ul className="mt-1.5 space-y-0.5 text-xs font-mono text-[#6B6B6B]">
+                              {urls.map((url) => (
+                                <li key={url} className="break-all">
+                                  {url}
+                                </li>
+                              ))}
+                            </ul>
+                          )
+                        })()}
+                      </div>
                     ) : (
                       f.pageUrl && (
                         <p className="text-sm text-[#6B6B6B] mt-1 truncate">
