@@ -1,10 +1,13 @@
 /**
  * Findings crawl identity + robots politeness.
+ *
+ * Product decision (launch 1.3): UA must be SEORANKOBot/1.0 with a public
+ * contact URL at /bot explaining the crawler and how to block it.
  */
 
 /** Identifies SEORANKO crawls; contact URL for operators. */
 export const SEORANKO_CRAWLER_USER_AGENT =
-  'SEORANKO-FindingsCrawl/1.0 (+https://seoranko.com/privacy)'
+  'SEORANKOBot/1.0 (+https://seoranko.com/bot)'
 
 export const SEORANKO_CRAWLER_HEADERS: HeadersInit = {
   'User-Agent': SEORANKO_CRAWLER_USER_AGENT,
@@ -18,7 +21,7 @@ export type RobotsRules = {
 }
 
 /**
- * Parse robots.txt for SEORANKO-FindingsCrawl / * groups.
+ * Parse robots.txt for SEORANKOBot / * groups.
  * Only Disallow/Allow directives are considered (Sitemap handled elsewhere).
  */
 export function parseRobotsForCrawler(robotsText: string): RobotsRules {
@@ -48,7 +51,11 @@ export function parseRobotsForCrawler(robotsText: string): RobotsRules {
 
   const ua = SEORANKO_CRAWLER_USER_AGENT.toLowerCase()
   const specific = groups.find((g) =>
-    g.agents.some((a) => a !== '*' && (ua.includes(a) || a.includes('seoranko'))),
+    g.agents.some(
+      (a) =>
+        a !== '*' &&
+        (ua.includes(a) || a.includes('seorankobot') || a.includes('seoranko')),
+    ),
   )
   const star = groups.find((g) => g.agents.includes('*'))
   const chosen = specific ?? star

@@ -59,8 +59,8 @@ export type DiscoverySeedCounts = {
 /**
  * Seed frontier from robots.txt Sitemap: records and/or /sitemap.xml, plus
  * the homepage. Link-graph expansion happens during the crawl (not here).
- * Every fetch uses isSafePublicUrl (incl. redirect hops) and SEORANKO UA;
- * robots.txt Disallow for our agent is respected.
+ * Every fetch uses assertSafePublicUrlResolved (DNS→IP, incl. redirect hops)
+ * and SEORANKOBot UA; robots.txt Disallow for our agent is respected.
  */
 export async function discoverSameHostUrls(origin: string): Promise<{
   urls: string[]
