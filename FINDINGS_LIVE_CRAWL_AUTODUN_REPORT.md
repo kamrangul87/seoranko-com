@@ -1,6 +1,6 @@
 # Findings live crawl — autodun.com
 
-Generated: 2026-09-22T08:40:36.393Z
+Generated: 2026-09-22T09:03:44.631Z
 
 ## 1. Discovery
 
@@ -140,7 +140,7 @@ Orphan findings raised: 0
 |--------|-------|
 | Status | partial |
 | Partial | true |
-| Duration | 6.2s |
+| Duration | 4.6s |
 
 ## Counts
 

@@ -17,7 +17,8 @@ Shipped on branch `cursor/findings-ui-922c`.
 - Demo run mirroring post-rollup autodun (10 actionable + 17 informational;
   349 internal counted but not listed)
 - Source lookup from `docs/fix-strategies/_sources.md`
-- Rolled-up rows show `declarationSite` + `affectedUrlCount` (no page list)
+- Rolled-up rows show `declarationSite` + `affectedUrlCount` **and list every**
+  `evidenceValues.memberUrls` entry (not a single representative)
 
 ### API
 - `GET /api/fix-strategies/findings`

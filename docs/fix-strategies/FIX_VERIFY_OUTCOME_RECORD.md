@@ -230,3 +230,19 @@ Autodun Production tip after this batch: **`0b5c0eb`**
 | Actionable | **6** (all topic 49) | **0** |
 | Topic 49 actionable | 6 | **0** |
 | Production tip | — | `0b5c0eb` Ready |
+
+## 12. Fresh verify (2026-09-22, owner re-confirm)
+
+Owner re-authorized the same two fix types for any remaining pages. Live check:
+
+| Check | Result |
+|-------|--------|
+| Live crawl (`LIVE_CRAWL=1`) | actionable **0**; topic 49 per-page section empty |
+| Production tip | `0b5c0eb` (`fix(seo): topic 49 correct img ratio dimensions — mot-cost-uk-2026 (#44)`) |
+| 5× `human-review-no-height-auto` pages | Live HTML has `article img { … height:auto }` + width/height attrs |
+| `mot-cost-uk-2026` wrong-ratio | **No `object-fit`** (would have been FP stop); dims already corrected 2048×2048 / 1024×1024 |
+| New autodun PRs this turn | **None** — §6–§11 already closed every remaining page |
+
+Grouped findings UI: list + detail now render **every** `memberUrls` entry (not count-only).
+
+Final actionable count: **0**.
