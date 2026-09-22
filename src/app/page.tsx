@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { CompanyFooter } from '@/components/CompanyFooter';
 
 export default function LandingPage() {
   return (
@@ -166,16 +167,8 @@ export default function LandingPage() {
         <Link href="/signup" style={{ fontSize: '15px', fontWeight: 600, color: '#fff', textDecoration: 'none', padding: '15px 36px', background: '#FF6B2C', borderRadius: '8px' }}>Get started free →</Link>
       </section>
 
-      {/* FOOTER */}
-      <footer style={{ background: '#fff', borderTop: '1px solid #E8E8E4', padding: '28px 48px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: '15px', fontWeight: 700 }}>Seoranko</span>
-        <span style={{ fontSize: '12px', color: '#9B9B9B' }}>© 2026 Seoranko. All rights reserved.</span>
-        <div style={{ display: 'flex', gap: '20px' }}>
-          {['Privacy', 'Terms', 'Contact', 'Blog'].map(l => (
-            <a key={l} href="#" style={{ fontSize: '12px', color: '#9B9B9B', textDecoration: 'none' }}>{l}</a>
-          ))}
-        </div>
-      </footer>
+      {/* FOOTER — UK company disclosure (Companies Act) via CompanyFooter */}
+      <CompanyFooter />
 
     </div>
   );

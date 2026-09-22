@@ -122,6 +122,29 @@ export const FIX_STRATEGY_PRODUCT_DECISIONS = {
     '_ga',
     '_gl',
   ] as readonly string[],
+
+  /**
+   * Findings crawl — per-user run quota (starts per UTC day).
+   * Product decision (not Google-sourced). Chosen 2026-09-22 for launch
+   * batch A: 20 crawl starts / user / day — enough for dogfood + iteration,
+   * hard enough to stop accidental / abusive bulk starts on Hobby.
+   */
+  crawlRunsPerUserPerDay: 20 as number,
+
+  /**
+   * Findings crawl — minimum gap between HTTP requests to one target host.
+   * Product decision. Chosen 2026-09-22: 500 ms (was 250 ms operational
+   * constant). Aligns crawl politeness with a clearer product knob; the
+   * crawl module reads this instead of a silent hard-code.
+   */
+  crawlPerHostMinGapMs: 500 as number,
+
+  /**
+   * Findings crawl — max concurrent in-flight requests per target host.
+   * Product decision. Chosen 2026-09-22: 1 (strict serial per host) so
+   * burst load never exceeds one outstanding fetch per customer origin.
+   */
+  crawlPerHostMaxConcurrent: 1 as number,
 } as const
 
 export type FixStrategyProductDecisions = typeof FIX_STRATEGY_PRODUCT_DECISIONS
