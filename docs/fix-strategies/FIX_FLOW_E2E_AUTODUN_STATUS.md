@@ -1,24 +1,23 @@
-# Fix-flow E2E status — autodun actionable five
+# Fix-flow E2E status — autodun actionable five → four
 
-Source: `FINDINGS_LIVE_CRAWL_AUTODUN_REPORT.md` (2026-09-21).
+Source: `FINDINGS_LIVE_CRAWL_AUTODUN_REPORT.md` (recrawl 2026-09-22).
+Outcome ledger: `FIX_VERIFY_OUTCOME_RECORD.md`.
 
-## Auto-fixable (apply via real flow)
+## Closed (fix → production verify → recrawl)
 
 | Topic | Verdict | Page | Status |
 |-------|---------|------|--------|
-| 49 | `auto-set-dimensions` | `/blog/mot-advisories-explained-uk.html` | **Blocked on GitHub write token** |
+| 49 | `auto-set-dimensions` | `/blog/mot-advisories-explained-uk.html` | **Closed** — [autodun-ai#34](https://github.com/kamrangul87/autodun-ai/pull/34) merged 2026-09-22; production verify OK; recrawl actionable **5 → 4** |
 
-Local apply against the live repo HTML succeeds:
+Production verify (not preview):
 
-- 3 images → `width=1200 height=675` from JPEG headers
-- Paths: `mot-advisory-suspension.jpg`, `mot-advisory-brakes.jpg`, `mot-advisory-shock-absorber.jpg`
+- URL: `https://autodun.com/blog/mot-advisories-explained-uk.html`
+- 3 images → `width="1200" height="675"`
+- `verifyLiveImgDimensions` + `verifyFindingLive` → OK
 
-E2E script: `scripts/e2e-topic49-fix-flow.ts`  
-(opens PR on `kamrangul87/autodun-ai`, waits for Vercel preview, runs `verifyLiveImgDimensions`)
+Script: `scripts/verify-prod-topic49.ts`
 
-Current blocker: stored `GITHUB_TOKEN` returns **401 Bad credentials**; Cursor GitHub App has **no push** on `autodun-ai`.
-
-## Human-review (show evidence + proposal; do not apply)
+## Human-review remaining (show evidence + proposal; do not apply)
 
 | Topic | Verdict | Scope | UI |
 |-------|---------|-------|-----|

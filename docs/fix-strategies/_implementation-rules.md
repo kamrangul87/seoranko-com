@@ -3,7 +3,7 @@
 Standing constraints for every topic implementation in this register.
 These are not optional and are not overridden by dossier convenience.
 
-Last updated: 2026-09-16
+Last updated: 2026-09-22
 
 ---
 
@@ -22,6 +22,18 @@ Last updated: 2026-09-16
 - **Generated artefacts:** where an artefact is produced at build time, the
   fix targets the **generator**, never the emitted output. Use
   `generated-output-guard` before proposing an edit.
+- **Customer-repo PRs are never merged by the agent or by the product.**
+  SEORANKO (and any Cursor agent working in this repo) may open a PR on a
+  customer repository (e.g. `autodun-ai`). A **human** merges it. The
+  fix-flow stops after opening the PR; production verify / recrawl wait for
+  a human-confirmed merge. This overrides any standing “always merge PRs”
+  preference — that preference applies only to **this** product repo
+  (`seoranko-com`), never to customer repos.
+- **False precondition → stop.** If a prompt’s stated precondition is false
+  (e.g. “PR X is merged” when GitHub still shows it open, or “deployed to
+  production” when the live URL still lacks the change), **STOP and report
+  the discrepancy**. Do not merge, deploy, or otherwise act to make the
+  precondition true. Wait for the human.
 
 ## Shared helpers — use, never reimplement
 
@@ -54,9 +66,10 @@ are listed in `_open-questions.md` until set.
 2. **Fixture** covering the dossier's cases, including suppression cases.
 3. **Tests and typecheck green** locally.
 4. **CI green** on the PR.
-5. **Merged to `main`.** Never leave a green PR open. Nothing is done until
-   it is on `main`.
+5. **Merged to `main` (this product repo only).** Never leave a green
+   `seoranko-com` PR open. Nothing is done until it is on `main`. This does
+   **not** authorize merging a PR on a customer repository — see Constraints.
 6. **Report:** what was built, what the tests assert, and anything in the
    dossier that turned out wrong or underspecified.
 
-Step 5 is not optional.
+Step 5 is not optional for `seoranko-com`.
