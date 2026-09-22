@@ -91,6 +91,7 @@ export default function PrivacyPage() {
               <li>Stripe — payments (when billing is enabled)</li>
               <li>Google — Search Console / APIs you connect; analytics if enabled</li>
               <li>GitHub — repository connections you authorize</li>
+              <li>Sentry — error monitoring and performance diagnostics</li>
               <li>Anthropic / other model providers — content analysis features</li>
             </ul>
           </section>
