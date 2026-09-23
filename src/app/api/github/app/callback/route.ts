@@ -73,7 +73,6 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    // Fetch installation metadata with the user token
     const metaRes = await fetch(`https://api.github.com/user/installations/${installationId}`, {
       headers: {
         Authorization: `Bearer ${userToken}`,
@@ -90,17 +89,37 @@ export async function GET(req: NextRequest) {
         })
       : null
 
-    await upsertInstallation({
-      installationId,
-      accountLogin: meta?.account?.login || 'unknown',
-      accountType: meta?.account?.type || 'User',
-      accountId: meta?.account?.id ?? null,
-      userId: user.id,
-      repositorySelection: meta?.repository_selection ?? null,
-      uninstalledAt: null,
-      suspendedAt: null,
-      raw: meta,
-    })
+    // Prefer GitHub metadata; never clobber a known account_login with "unknown".
+    const accountLogin = meta?.account?.login
+    if (accountLogin) {
+      await upsertInstallation({
+        installationId,
+        accountLogin,
+        accountType: meta?.account?.type || 'User',
+        accountId: meta?.account?.id ?? null,
+        userId: user.id,
+        repositorySelection: meta?.repository_selection ?? null,
+        uninstalledAt: null,
+        suspendedAt: null,
+        raw: meta,
+      })
+    } else {
+      // OAuth meta lacked account — sync from App API, then attach user_id only.
+      try {
+        const { syncGithubAppInstallationsFromApi } = await import(
+          '@/lib/github-app/resolve-repo-creds'
+        )
+        await syncGithubAppInstallationsFromApi()
+      } catch {
+        // non-fatal
+      }
+      const { createServiceRoleClient } = await import('@/lib/supabase/service-role')
+      const supabase = createServiceRoleClient()
+      await supabase
+        .from('github_installations')
+        .update({ user_id: user.id, updated_at: new Date().toISOString() })
+        .eq('installation_id', installationId)
+    }
 
     cookies().set(INSTALL_COOKIE, '', { path: '/', maxAge: 0 })
     return NextResponse.redirect(
