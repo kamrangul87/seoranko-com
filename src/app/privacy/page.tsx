@@ -128,9 +128,12 @@ export default function PrivacyPage() {
           </section>
         </div>
 
-        <p className="mt-12 text-sm text-[#6B6B6B]">
+        <p className="mt-12 text-sm text-[#6B6B6B] flex flex-wrap gap-4">
           <Link href="/" className="text-[#FF6B2C] hover:underline">
             ← Back to home
+          </Link>
+          <Link href="/terms" className="text-[#FF6B2C] hover:underline">
+            Terms of service
           </Link>
         </p>
       </div>

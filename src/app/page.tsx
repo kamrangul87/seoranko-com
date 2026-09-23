@@ -167,7 +167,6 @@ export default function LandingPage() {
         <Link href="/signup" style={{ fontSize: '15px', fontWeight: 600, color: '#fff', textDecoration: 'none', padding: '15px 36px', background: '#FF6B2C', borderRadius: '8px' }}>Get started free →</Link>
       </section>
 
-      {/* FOOTER — UK company disclosure (Companies Act) via CompanyFooter */}
       <CompanyFooter />
 
     </div>

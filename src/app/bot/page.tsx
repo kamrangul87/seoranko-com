@@ -51,11 +51,15 @@ Disallow: /`}
           <section>
             <h2 className="text-lg font-semibold text-[#0F0F0F]">Contact</h2>
             <p>
-              Operator: MINSO LTD (Companies House 17098778). See the{' '}
+              Questions about this crawler:{' '}
+              <a href="mailto:hello@seoranko.com" className="text-[#FF6B2C] hover:underline">
+                hello@seoranko.com
+              </a>
+              . Data-controller details are in the{' '}
               <Link href="/privacy" className="text-[#FF6B2C] hover:underline">
                 privacy policy
-              </Link>{' '}
-              for data-controller details.
+              </Link>
+              .
             </p>
           </section>
         </div>
