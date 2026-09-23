@@ -1,18 +1,15 @@
 /**
  * Presentational create-App form for /admin/github-app-setup.
- * Kept free of cookies()/redirect so it can be unit-tested safely.
+ * Create button hits /api/github/app/manifest/start which mints CSRF state
+ * and immediately redirects to GitHub (10-minute window).
  */
 
 import Link from 'next/link'
 import { CompanyFooter } from '@/components/CompanyFooter'
 import { GITHUB_APP_URLS } from '@/lib/github-app/urls'
 
-export function GithubAppSetupCreateView(props: {
-  state: string
-  manifestJson: string
-  error: string | null
-}) {
-  const { state, manifestJson, error } = props
+export function GithubAppSetupCreateView(props: { error: string | null }) {
+  const { error } = props
   return (
     <main className="min-h-screen bg-[#FAFAF8] text-[#0F0F0F]">
       <div className="mx-auto max-w-xl px-6 py-16">
@@ -31,6 +28,7 @@ export function GithubAppSetupCreateView(props: {
           <li>Webhook: {GITHUB_APP_URLS.webhook}</li>
           <li>Setup URL: {GITHUB_APP_URLS.setup}</li>
           <li>OAuth callback: {GITHUB_APP_URLS.oauthCallback}</li>
+          <li>Manifest session: 10 minutes from click — start again if it expires</li>
         </ul>
 
         {error && (
@@ -39,22 +37,17 @@ export function GithubAppSetupCreateView(props: {
           </p>
         )}
 
-        <form
-          action={`https://github.com/settings/apps/new?state=${encodeURIComponent(state)}`}
-          method="post"
+        <a
+          href={GITHUB_APP_URLS.manifestStart}
+          className="inline-flex items-center justify-center rounded bg-[#0F0F0F] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#333]"
         >
-          <input type="hidden" name="manifest" value={manifestJson} />
-          <button
-            type="submit"
-            className="inline-flex items-center justify-center rounded bg-[#0F0F0F] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#333]"
-          >
-            Create GitHub App on GitHub
-          </button>
-        </form>
+          Create GitHub App on GitHub
+        </a>
         <p className="mt-4 text-xs text-[#6B6B6B]">
-          After you confirm on GitHub, credentials are exchanged server-side,
-          encrypted, and stored with service-role access only. This page then
-          disables itself.
+          Clicking mints a fresh CSRF state and sends you to GitHub immediately.
+          After you confirm, we verify <span className="font-mono">GET /app</span> with
+          the new JWT before storing anything. Credentials are encrypted at rest
+          (service-role only). This page then disables itself.
         </p>
         <p className="mt-10 text-sm">
           <Link href="/dashboard" className="text-[#FF6B2C] hover:underline">

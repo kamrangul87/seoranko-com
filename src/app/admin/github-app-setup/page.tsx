@@ -1,14 +1,13 @@
 /**
  * Owner-only one-click GitHub App registration via the Manifest flow.
  * Disabled once a product App already exists.
+ * State is minted only when the owner clicks Create → /api/github/app/manifest/start.
  */
 
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { requireMasterUser } from '@/lib/github-app/require-master'
-import { buildSeorankoGithubAppManifest } from '@/lib/github-app/manifest'
 import { getGithubAppPublicMeta } from '@/lib/github-app/store'
-import { mintManifestState } from '@/lib/github-app/state'
 import { CompanyFooter } from '@/components/CompanyFooter'
 import { GithubAppSetupCreateView } from './create-view'
 
@@ -69,6 +68,15 @@ export default async function GithubAppSetupPage({
               <dt className="text-[#6B6B6B]">Client ID</dt>
               <dd className="font-mono">{existing.clientId}</dd>
             </div>
+            {existing.ownerLogin ? (
+              <div>
+                <dt className="text-[#6B6B6B]">Owner</dt>
+                <dd className="font-mono">
+                  {existing.ownerLogin}
+                  {existing.ownerType ? ` (${existing.ownerType})` : ''}
+                </dd>
+              </div>
+            ) : null}
             {existing.htmlUrl ? (
               <div>
                 <dt className="text-[#6B6B6B]">GitHub</dt>
@@ -105,10 +113,5 @@ export default async function GithubAppSetupPage({
     )
   }
 
-  // Signed state only — cookies().set is illegal in Server Components in prod.
-  const state = mintManifestState()
-  const manifestJson = JSON.stringify(buildSeorankoGithubAppManifest())
-  return (
-    <GithubAppSetupCreateView state={state} manifestJson={manifestJson} error={error} />
-  )
+  return <GithubAppSetupCreateView error={error} />
 }

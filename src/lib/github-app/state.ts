@@ -2,17 +2,17 @@
  * CSRF state for GitHub App Manifest flow.
  *
  * Production Next.js forbids cookies().set() inside Server Components —
- * only Server Actions / Route Handlers may mutate cookies. We therefore mint
- * an HMAC-signed opaque state (nonce + expiry) with no cookie write on the
- * admin page. Callback verifies signature + expiry (Route Handler may still
- * clear a legacy cookie if present).
+ * only Server Actions / Route Handlers may mutate cookies. State is minted
+ * in the /api/github/app/manifest/start Route Handler immediately before
+ * redirecting to GitHub (10-minute TTL).
  */
 
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto'
 import { cookies } from 'next/headers'
 
 export const GITHUB_APP_MANIFEST_STATE_COOKIE = 'seoranko_gh_app_manifest_state'
-const TTL_MS = 60 * 60 * 1000 // 1 hour (manifest flow limit)
+/** Manifest conversion codes are short-lived — keep CSRF window tight. */
+export const MANIFEST_STATE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
 function signingKey(): Buffer {
   const raw =
@@ -27,12 +27,12 @@ function sign(payload: string): string {
 }
 
 /**
- * Create a new signed state value. Does NOT set cookies — safe to call from
- * a Server Component (production).
+ * Create a new signed state value. Does NOT set cookies — call from a
+ * Route Handler right before redirecting to GitHub.
  */
 export function mintManifestState(): string {
   const nonce = randomBytes(24).toString('base64url')
-  const exp = String(Date.now() + TTL_MS)
+  const exp = String(Date.now() + MANIFEST_STATE_TTL_MS)
   const body = `${nonce}.${exp}`
   return `${body}.${sign(body)}`
 }
@@ -53,24 +53,51 @@ export function clearManifestStateCookie(): void {
   })
 }
 
-/** Verify query `state` signature and expiry. */
-export function verifyManifestState(queryState: string | null): boolean {
-  if (!queryState) return false
+export type ManifestStateVerify =
+  | { ok: true }
+  | { ok: false; reason: 'missing' | 'malformed' | 'bad_signature' | 'expired' }
+
+/** Verify query `state` signature and expiry (≤10 minutes). */
+export function verifyManifestStateDetailed(queryState: string | null): ManifestStateVerify {
+  if (!queryState) return { ok: false, reason: 'missing' }
 
   const parts = queryState.split('.')
-  if (parts.length !== 3) return false
+  if (parts.length !== 3) return { ok: false, reason: 'malformed' }
   const [nonce, exp, sig] = parts
-  if (!nonce || !exp || !sig) return false
+  if (!nonce || !exp || !sig) return { ok: false, reason: 'malformed' }
   const body = `${nonce}.${exp}`
   const expected = sign(body)
   try {
     const a = Buffer.from(sig)
     const b = Buffer.from(expected)
-    if (a.length !== b.length || !timingSafeEqual(a, b)) return false
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      return { ok: false, reason: 'bad_signature' }
+    }
   } catch {
-    return false
+    return { ok: false, reason: 'bad_signature' }
   }
   const expMs = Number(exp)
-  if (!Number.isFinite(expMs) || Date.now() > expMs) return false
-  return true
+  if (!Number.isFinite(expMs) || Date.now() > expMs) {
+    return { ok: false, reason: 'expired' }
+  }
+  return { ok: true }
+}
+
+/** Verify query `state` signature and expiry. */
+export function verifyManifestState(queryState: string | null): boolean {
+  return verifyManifestStateDetailed(queryState).ok
+}
+
+export function manifestStateErrorMessage(reason: ManifestStateVerify extends { ok: false; reason: infer R } ? R : never): string {
+  switch (reason) {
+    case 'expired':
+      return 'Manifest session expired (over 10 minutes). Start again from the setup page.'
+    case 'missing':
+      return 'Missing state. Start again from the setup page.'
+    case 'malformed':
+    case 'bad_signature':
+      return 'Invalid state. Start again from the setup page.'
+    default:
+      return 'Invalid state. Start again from the setup page.'
+  }
 }
