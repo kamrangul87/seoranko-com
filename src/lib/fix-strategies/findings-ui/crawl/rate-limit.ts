@@ -22,8 +22,14 @@ function hostKey(urlOrOrigin: string): string {
 }
 
 /** Returns null when allowed; otherwise a human-readable block reason. */
-export function assertCrawlStartAllowed(userId: string): string | null {
-  const limit = FIX_STRATEGY_PRODUCT_DECISIONS.crawlRunsPerUserPerDay
+export function assertCrawlStartAllowed(
+  userId: string,
+  dailyLimit?: number,
+): string | null {
+  const limit =
+    typeof dailyLimit === 'number' && dailyLimit > 0
+      ? dailyLimit
+      : FIX_STRATEGY_PRODUCT_DECISIONS.crawlRunsPerUserPerDayFree
   const day = utcDay()
   const cur = userDayStarts.get(userId)
   if (!cur || cur.day !== day) {
@@ -31,9 +37,16 @@ export function assertCrawlStartAllowed(userId: string): string | null {
   }
   const bucket = userDayStarts.get(userId)!
   if (bucket.count >= limit) {
-    return `Daily crawl quota reached (${limit} starts / UTC day). Try again tomorrow.`
+    return `Daily crawl quota reached (${limit} starts / UTC day). Subscribe for a higher limit, or try again tomorrow.`
   }
   return null
+}
+
+/** Test helper — clear in-process counters. */
+export function __resetCrawlRateLimitForTests(): void {
+  userDayStarts.clear()
+  hostLastAt.clear()
+  hostInFlight.clear()
 }
 
 export function recordCrawlStart(userId: string): void {

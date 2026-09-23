@@ -128,8 +128,23 @@ export const FIX_STRATEGY_PRODUCT_DECISIONS = {
    * Product decision (not Google-sourced). Chosen 2026-09-22 for launch
    * batch A: 20 crawl starts / user / day — enough for dogfood + iteration,
    * hard enough to stop accidental / abusive bulk starts on Hobby.
+   *
+   * @deprecated Prefer crawlRunsPerUserPerDayFree / Subscribed (1.6 billing).
+   * Kept as the free-tier default so older callers stay safe.
    */
-  crawlRunsPerUserPerDay: 20 as number,
+  crawlRunsPerUserPerDay: 5 as number,
+
+  /**
+   * Free / unsigned-subscription crawl starts per UTC day (detect-only stays free).
+   * Chosen 2026-09-23 (1.6 billing): 5 — enough for a trial audit, stops bulk abuse.
+   */
+  crawlRunsPerUserPerDayFree: 5 as number,
+
+  /**
+   * Subscribed (or MASTER_EMAIL) crawl starts per UTC day.
+   * Chosen 2026-09-23 (1.6 billing): 50 — dogfood + multi-site iteration on Hobby.
+   */
+  crawlRunsPerUserPerDaySubscribed: 50 as number,
 
   /**
    * Findings crawl — minimum gap between HTTP requests to one target host.

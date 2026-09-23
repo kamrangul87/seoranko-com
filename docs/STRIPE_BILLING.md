@@ -20,6 +20,11 @@ Pricing is intentionally a single placeholder tier (`seoranko_starter`). When
 real plans ship, update `STRIPE_PLACEHOLDER_PRICE_ID` (and later extend
 `src/lib/stripe/plans.ts`) — Checkout/webhook code stays the same.
 
+**Entitlements (1.6):** Detect-only audits stay free. `commit` on findings
+fix-flow requires an active/trialing/past_due `subscriptions` row (or
+`MASTER_EMAIL`). Crawl starts: free 5/UTC day, subscribed 50/UTC day —
+see `src/lib/stripe/entitlements.ts`.
+
 ## Stripe Dashboard checklist
 
 1. **Product + Price**  

@@ -12,6 +12,7 @@ import {
   assertCrawlStartAllowed,
   recordCrawlStart,
 } from '@/lib/fix-strategies/findings-ui/crawl/rate-limit'
+import { crawlDailyLimitForUser } from '@/lib/stripe/entitlements'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -68,7 +69,11 @@ export async function POST(request: Request) {
           { status: 400 },
         )
       }
-      const quota = assertCrawlStartAllowed(user.id)
+      const dailyLimit = await crawlDailyLimitForUser({
+        userId: user.id,
+        email: user.email,
+      })
+      const quota = assertCrawlStartAllowed(user.id, dailyLimit)
       if (quota) {
         return NextResponse.json({ error: quota, code: 'CRAWL_QUOTA' }, { status: 429 })
       }
@@ -135,7 +140,11 @@ export async function POST(request: Request) {
   const origin = `https://${String(site.domain).replace(/^www\./, '')}`
 
   if (body.action === 'start') {
-    const quota = assertCrawlStartAllowed(user.id)
+    const dailyLimit = await crawlDailyLimitForUser({
+      userId: user.id,
+      email: user.email,
+    })
+    const quota = assertCrawlStartAllowed(user.id, dailyLimit)
     if (quota) {
       return NextResponse.json({ error: quota, code: 'CRAWL_QUOTA' }, { status: 429 })
     }
