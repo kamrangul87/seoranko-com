@@ -1,5 +1,11 @@
 /**
- * CSRF state for GitHub App manifest flow (httpOnly cookie).
+ * CSRF state for GitHub App Manifest flow.
+ *
+ * Production Next.js forbids cookies().set() inside Server Components —
+ * only Server Actions / Route Handlers may mutate cookies. We therefore mint
+ * an HMAC-signed opaque state (nonce + expiry) with no cookie write on the
+ * admin page. Callback verifies signature + expiry (Route Handler may still
+ * clear a legacy cookie if present).
  */
 
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto'
@@ -20,22 +26,23 @@ function sign(payload: string): string {
   return createHmac('sha256', signingKey()).update(payload).digest('base64url')
 }
 
-/** Create a new state value and set the httpOnly cookie. */
-export function mintManifestStateCookie(): string {
+/**
+ * Create a new signed state value. Does NOT set cookies — safe to call from
+ * a Server Component (production).
+ */
+export function mintManifestState(): string {
   const nonce = randomBytes(24).toString('base64url')
   const exp = String(Date.now() + TTL_MS)
   const body = `${nonce}.${exp}`
-  const state = `${body}.${sign(body)}`
-  cookies().set(GITHUB_APP_MANIFEST_STATE_COOKIE, state, {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: Math.floor(TTL_MS / 1000),
-  })
-  return state
+  return `${body}.${sign(body)}`
 }
 
+/** @deprecated Use mintManifestState — cookie writes are illegal in RSC. */
+export function mintManifestStateCookie(): string {
+  return mintManifestState()
+}
+
+/** Clear legacy cookie from a Route Handler only. */
 export function clearManifestStateCookie(): void {
   cookies().set(GITHUB_APP_MANIFEST_STATE_COOKIE, '', {
     httpOnly: true,
@@ -46,11 +53,9 @@ export function clearManifestStateCookie(): void {
   })
 }
 
-/** Verify query `state` matches cookie and is unexpired. */
+/** Verify query `state` signature and expiry. */
 export function verifyManifestState(queryState: string | null): boolean {
   if (!queryState) return false
-  const cookieVal = cookies().get(GITHUB_APP_MANIFEST_STATE_COOKIE)?.value
-  if (!cookieVal || cookieVal !== queryState) return false
 
   const parts = queryState.split('.')
   if (parts.length !== 3) return false
