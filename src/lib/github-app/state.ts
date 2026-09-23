@@ -53,9 +53,15 @@ export function clearManifestStateCookie(): void {
   })
 }
 
+export type ManifestStateFailReason =
+  | 'missing'
+  | 'malformed'
+  | 'bad_signature'
+  | 'expired'
+
 export type ManifestStateVerify =
   | { ok: true }
-  | { ok: false; reason: 'missing' | 'malformed' | 'bad_signature' | 'expired' }
+  | { ok: false; reason: ManifestStateFailReason }
 
 /** Verify query `state` signature and expiry (≤10 minutes). */
 export function verifyManifestStateDetailed(queryState: string | null): ManifestStateVerify {
@@ -88,7 +94,7 @@ export function verifyManifestState(queryState: string | null): boolean {
   return verifyManifestStateDetailed(queryState).ok
 }
 
-export function manifestStateErrorMessage(reason: ManifestStateVerify extends { ok: false; reason: infer R } ? R : never): string {
+export function manifestStateErrorMessage(reason: ManifestStateFailReason): string {
   switch (reason) {
     case 'expired':
       return 'Manifest session expired (over 10 minutes). Start again from the setup page.'
