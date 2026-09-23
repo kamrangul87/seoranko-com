@@ -12,7 +12,17 @@ export const SEORANKO_GITHUB_APP_PERMISSIONS = {
   metadata: 'read',
 } as const
 
-export const SEORANKO_GITHUB_APP_EVENTS = [
+/**
+ * Events that GitHub delivers to every App automatically and rejects in
+ * `default_events` ("Default events unsupported: installation and
+ * installation_repositories"). Keep this empty unless a subscribe-able
+ * event is genuinely required. Webhook handlers still process installation
+ * deliveries — they arrive regardless of this list.
+ */
+export const SEORANKO_GITHUB_APP_EVENTS: readonly string[] = []
+
+/** Events GitHub refuses in App Manifest default_events. */
+export const GITHUB_APP_MANIFEST_UNSUPPORTED_EVENTS = [
   'installation',
   'installation_repositories',
 ] as const

@@ -22,8 +22,9 @@ export function GithubAppSetupCreateView(props: {
         <h1 className="text-3xl font-bold tracking-tight mb-3">Create SEORANKO GitHub App</h1>
         <p className="text-[15px] text-[#333] mb-6">
           One-click registration via GitHub&apos;s App Manifest flow. Permissions:
-          contents R/W, pull requests R/W, commit statuses W, metadata R. Events:
-          installation, installation_repositories. Homepage{' '}
+          contents R/W, pull requests R/W, commit statuses W, metadata R.
+          Installation webhooks arrive automatically (not listed in{' '}
+          <span className="font-mono text-sm">default_events</span>). Homepage{' '}
           <span className="font-mono text-sm">{GITHUB_APP_URLS.homepage}</span>.
         </p>
         <ul className="list-disc pl-5 text-sm text-[#333] space-y-1 mb-8">

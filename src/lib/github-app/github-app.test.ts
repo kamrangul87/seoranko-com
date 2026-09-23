@@ -3,7 +3,10 @@ import { createHmac } from 'crypto'
 import { createElement, type ReactElement, type ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { verifyGithubWebhookSignature } from '@/lib/github-app/webhook'
-import { buildSeorankoGithubAppManifest } from '@/lib/github-app/manifest'
+import {
+  buildSeorankoGithubAppManifest,
+  GITHUB_APP_MANIFEST_UNSUPPORTED_EVENTS,
+} from '@/lib/github-app/manifest'
 import { scrubSentryEvent } from '@/lib/sentry-scrub'
 import { mintManifestState, verifyManifestState } from '@/lib/github-app/state'
 import { GithubAppSetupCreateView } from '@/app/admin/github-app-setup/create-view'
@@ -64,10 +67,12 @@ describe('buildSeorankoGithubAppManifest', () => {
       statuses: 'write',
       metadata: 'read',
     })
-    expect(m.default_events).toEqual([
-      'installation',
-      'installation_repositories',
-    ])
+    // installation / installation_repositories are auto-delivered and rejected
+    // if listed ("Default events unsupported").
+    expect(m.default_events).toEqual([])
+    for (const ev of GITHUB_APP_MANIFEST_UNSUPPORTED_EVENTS) {
+      expect(m.default_events as string[]).not.toContain(ev)
+    }
     expect(m.redirect_url).toContain('/api/github/app/manifest/callback')
     expect((m.hook_attributes as { url: string }).url).toContain(
       '/api/webhooks/github',
