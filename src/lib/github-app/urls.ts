@@ -12,6 +12,8 @@ export const GITHUB_APP_URLS = {
   manifestStart: `${SEORANKO_PUBLIC_ORIGIN}/api/github/app/manifest/start`,
   /** Owner-only: paste credentials after creating the App manually on GitHub. */
   manualRegister: `${SEORANKO_PUBLIC_ORIGIN}/api/github/app/manual-register`,
+  /** Temporary owner-only JWT + GET /app diagnostic (no key returned). */
+  jwtDiagnose: `${SEORANKO_PUBLIC_ORIGIN}/api/admin/github-app-jwt-diagnose`,
   /** After user authorizes the app (request_oauth_on_install). */
   oauthCallback: `${SEORANKO_PUBLIC_ORIGIN}/api/github/app/callback`,
   /** After install — verify installation_id. */

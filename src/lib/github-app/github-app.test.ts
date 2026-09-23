@@ -175,31 +175,26 @@ describe('conversionMetaWithoutSecrets', () => {
 })
 
 describe('GithubAppSetupCreateView (manual entry primary)', () => {
-  it('renders manual form, GitHub form values, and demoted manifest', () => {
+  it('renders manual form, GitHub form values, diagnose, and demoted manifest', () => {
     const html = renderToStaticMarkup(
       createElement(GithubAppSetupCreateView, {
         error: null,
+        preservedAppId: '5045070',
+        preservedClientId: 'Iv23li0BECGplh77oqbd',
       }),
     )
     expect(html).toContain('Register SEORANKO GitHub App')
     expect(html).toContain('Verify and store')
     expect(html).toContain(GITHUB_APP_URLS.manualRegister)
+    expect(html).toContain(GITHUB_APP_URLS.jwtDiagnose)
+    expect(html).toContain('Run JWT diagnose')
     expect(html).toContain('name="app_id"')
-    expect(html).toContain('name="client_id"')
-    expect(html).toContain('name="client_secret"')
-    expect(html).toContain('name="webhook_secret"')
-    expect(html).toContain('name="private_key_pem"')
+    expect(html).toContain('value="5045070"')
+    expect(html).toContain('value="Iv23li0BECGplh77oqbd"')
+    expect(html).toContain('encType="multipart/form-data"')
     expect(html).toContain(GITHUB_APP_URLS.homepage)
     expect(html).toContain(GITHUB_APP_URLS.oauthCallback)
-    expect(html).toContain(GITHUB_APP_URLS.setup)
-    expect(html).toContain(GITHUB_APP_URLS.webhook)
-    expect(html).toContain('Contents:')
-    expect(html).toContain('Pull requests:')
-    expect(html).toContain('Commit statuses:')
-    expect(html).toContain('Metadata:')
     expect(html).toContain('Alternative: App Manifest')
-    expect(html).toContain(GITHUB_APP_URLS.manifestStart)
-    expect(html).not.toContain('name="manifest"')
     expect(cookieSet).not.toHaveBeenCalled()
   })
 })
