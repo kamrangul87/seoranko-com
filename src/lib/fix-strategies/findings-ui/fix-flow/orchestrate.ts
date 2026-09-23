@@ -26,6 +26,8 @@ import { verifyFindingLive } from './verify-live'
 import { maybeAutoMergeAfterPreviewVerify } from './auto-merge'
 import { assessSingleFileBlastRadius } from './blast-radius'
 import { findOwnedSiteConnection } from '@/lib/site-connection-lookup'
+import { resolveGithubAppRepoCreds } from '@/lib/github-app/resolve-repo-creds'
+import { postGithubCommitStatus } from '@/lib/github-app/commit-status'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 
 export type CommitContext = {
@@ -122,7 +124,34 @@ async function resolveGithubCreds(
       accessToken: ctx.github.accessToken,
     }
   }
+
+  // Prefer GitHub App installation token (short-lived, repo-scoped) over PAT.
+  const tryApp = async (
+    owner: string,
+    repo: string,
+    baseBranch?: string,
+  ): Promise<GithubPrCreds | null> => {
+    try {
+      const appCreds = await resolveGithubAppRepoCreds({ owner, repo, baseBranch })
+      if (!appCreds) return null
+      return {
+        owner: appCreds.owner,
+        repo: appCreds.repo,
+        baseBranch: appCreds.baseBranch,
+        accessToken: appCreds.accessToken,
+      }
+    } catch {
+      return null
+    }
+  }
+
   if (ctx?.github?.owner && ctx.github.repo) {
+    const fromApp = await tryApp(
+      ctx.github.owner,
+      ctx.github.repo,
+      ctx.github.baseBranch,
+    )
+    if (fromApp) return fromApp
     const fromEnv = resolveGithubCredsFromEnv(ctx.github)
     if (fromEnv) return fromEnv
   }
@@ -145,14 +174,21 @@ async function resolveGithubCreds(
         owned &&
         owned.cmsType === 'github' &&
         owned.credentials.owner &&
-        owned.credentials.repo &&
-        owned.credentials.accessToken
+        owned.credentials.repo
       ) {
-        return {
-          owner: String(owned.credentials.owner),
-          repo: String(owned.credentials.repo),
-          baseBranch: String(owned.credentials.branch || 'main'),
-          accessToken: String(owned.credentials.accessToken),
+        const fromApp = await tryApp(
+          String(owned.credentials.owner),
+          String(owned.credentials.repo),
+          String(owned.credentials.branch || 'main'),
+        )
+        if (fromApp) return fromApp
+        if (owned.credentials.accessToken) {
+          return {
+            owner: String(owned.credentials.owner),
+            repo: String(owned.credentials.repo),
+            baseBranch: String(owned.credentials.branch || 'main'),
+            accessToken: String(owned.credentials.accessToken),
+          }
         }
       }
     } catch {
@@ -449,6 +485,30 @@ export async function verifyFix(input: {
     verifyDetail: `${result.detail} (url=${result.verifiedUrl})`,
     previewUrl: cur.previewUrl,
     errorDetail: result.ok ? null : result.detail,
+  }
+
+  // Report preview verifier result as a GitHub commit status (launch 1.5).
+  if (cur.commitSha) {
+    const statusCreds = await resolveGithubCreds(
+      userId,
+      {
+        siteId: 'siteId' in finding ? (finding.siteId as string | null) : null,
+        pageUrl,
+      },
+      ctx,
+    )
+    if (statusCreds) {
+      await postGithubCommitStatus({
+        token: statusCreds.accessToken,
+        owner: statusCreds.owner,
+        repo: statusCreds.repo,
+        sha: cur.commitSha,
+        state: result.ok ? 'success' : 'failure',
+        context: 'seoranko/preview-verify',
+        description: result.detail.slice(0, 140),
+        targetUrl: result.verifiedUrl || cur.previewUrl || undefined,
+      }).catch(() => null)
+    }
   }
 
   if (!result.ok || ctx?.skipAutoMerge) {
