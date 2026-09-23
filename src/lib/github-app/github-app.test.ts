@@ -139,16 +139,16 @@ describe('mintManifestState (no cookie mutation)', () => {
     const expired = `${nonce}.${Date.now() - 1000}.${sig}`
     expect(verifyManifestStateDetailed(null)).toEqual({ ok: false, reason: 'missing' })
     expect(verifyManifestStateDetailed('a.b')).toEqual({ ok: false, reason: 'malformed' })
-    const { createHmac } = require('crypto') as typeof import('crypto')
     const keyRaw = process.env.SITE_CONNECTION_ENCRYPTION_KEY!
     const key = createHmac('sha256', 'seoranko-gh-app-state').update(keyRaw).digest()
     const body = `nonce.${Date.now() - 60_000}`
-    const badSig = createHmac('sha256', key).update(body).digest('base64url')
-    expect(verifyManifestStateDetailed(`${body}.${badSig}`)).toEqual({
+    const expiredSig = createHmac('sha256', key).update(body).digest('base64url')
+    expect(verifyManifestStateDetailed(`${body}.${expiredSig}`)).toEqual({
       ok: false,
       reason: 'expired',
     })
     expect(expired.split('.').length).toBe(3)
+    expect(sig.length).toBeGreaterThan(0)
   })
 })
 
