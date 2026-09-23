@@ -45,6 +45,8 @@ export default async function GithubAppSetupPage({
   const error = typeof q.error === 'string' ? q.error : null
   const ownerFromQuery = typeof q.owner === 'string' ? q.owner : null
   const slugFromQuery = typeof q.slug === 'string' ? q.slug : null
+  const preservedAppId = typeof q.app_id === 'string' ? q.app_id : null
+  const preservedClientId = typeof q.client_id === 'string' ? q.client_id : null
 
   if (existing) {
     const ownerDisplay = existing.ownerLogin || ownerFromQuery
@@ -120,5 +122,11 @@ export default async function GithubAppSetupPage({
     )
   }
 
-  return <GithubAppSetupCreateView error={error} />
+  return (
+    <GithubAppSetupCreateView
+      error={error}
+      preservedAppId={preservedAppId}
+      preservedClientId={preservedClientId}
+    />
+  )
 }

@@ -10,8 +10,15 @@ import {
   GITHUB_APP_URLS,
 } from '@/lib/github-app/urls'
 
-export function GithubAppSetupCreateView(props: { error: string | null }) {
-  const { error } = props
+export type GithubAppSetupCreateViewProps = {
+  error: string | null
+  /** Non-secret fields preserved after a failed submit. */
+  preservedAppId?: string | null
+  preservedClientId?: string | null
+}
+
+export function GithubAppSetupCreateView(props: GithubAppSetupCreateViewProps) {
+  const { error, preservedAppId, preservedClientId } = props
   const form = GITHUB_APP_MANUAL_FORM_VALUES
 
   return (
@@ -70,7 +77,7 @@ export function GithubAppSetupCreateView(props: { error: string | null }) {
         </section>
 
         {error && (
-          <p className="mb-6 text-sm text-red-800 bg-red-50 border border-red-200 rounded px-3 py-2">
+          <p className="mb-6 text-sm text-red-800 bg-red-50 border border-red-200 rounded px-3 py-2 break-words">
             Setup failed: {error}
           </p>
         )}
@@ -82,6 +89,7 @@ export function GithubAppSetupCreateView(props: { error: string | null }) {
           <form
             method="post"
             action={GITHUB_APP_URLS.manualRegister}
+            encType="multipart/form-data"
             className="space-y-4"
             autoComplete="off"
           >
@@ -92,6 +100,7 @@ export function GithubAppSetupCreateView(props: { error: string | null }) {
                 type="text"
                 inputMode="numeric"
                 required
+                defaultValue={preservedAppId ?? ''}
                 className="mt-1 w-full rounded border border-[#CCC] bg-white px-3 py-2 font-mono text-sm"
               />
             </label>
@@ -101,6 +110,7 @@ export function GithubAppSetupCreateView(props: { error: string | null }) {
                 name="client_id"
                 type="text"
                 required
+                defaultValue={preservedClientId ?? ''}
                 className="mt-1 w-full rounded border border-[#CCC] bg-white px-3 py-2 font-mono text-sm"
               />
             </label>
@@ -144,9 +154,56 @@ export function GithubAppSetupCreateView(props: { error: string | null }) {
           </form>
           <p className="mt-3 text-xs text-[#6B6B6B]">
             Submit calls <span className="font-mono">GET /app</span> with a fresh App JWT.
-            If GitHub returns anything other than 200, nothing is stored and this page
-            stays enabled.
+            If GitHub returns anything other than 200, nothing is stored; App ID and
+            Client ID are kept so you only re-paste secrets.
           </p>
+        </section>
+
+        <section className="mb-12 border border-[#E5E5E0] rounded px-4 py-4 bg-white">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-[#6B6B6B] mb-2">
+            Diagnose JWT (temporary)
+          </h2>
+          <p className="text-sm text-[#333] mb-3">
+            Server-side only: builds the JWT, calls GET /app, returns claims, PEM
+            format, GitHub status, raw body, and{' '}
+            <span className="font-mono text-xs">x-github-request-id</span>. Never
+            returns the key.
+          </p>
+          <form
+            method="post"
+            action={GITHUB_APP_URLS.jwtDiagnose}
+            encType="multipart/form-data"
+            className="space-y-3"
+            autoComplete="off"
+          >
+            <label className="block text-sm">
+              <span className="text-[#6B6B6B]">App ID</span>
+              <input
+                name="app_id"
+                type="text"
+                inputMode="numeric"
+                required
+                defaultValue={preservedAppId ?? ''}
+                className="mt-1 w-full rounded border border-[#CCC] bg-white px-3 py-2 font-mono text-sm"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-[#6B6B6B]">Private key (PEM)</span>
+              <textarea
+                name="private_key_pem"
+                required
+                rows={6}
+                spellCheck={false}
+                className="mt-1 w-full rounded border border-[#CCC] bg-white px-3 py-2 font-mono text-xs leading-relaxed"
+              />
+            </label>
+            <button
+              type="submit"
+              className="inline-flex items-center justify-center rounded border border-[#CCC] bg-[#FAFAF8] px-4 py-2 text-sm font-medium text-[#333] hover:bg-[#F0F0EC]"
+            >
+              Run JWT diagnose
+            </button>
+          </form>
         </section>
 
         <details className="mb-10 border-t border-[#E5E5E0] pt-6">
@@ -155,8 +212,7 @@ export function GithubAppSetupCreateView(props: { error: string | null }) {
           </summary>
           <p className="mt-3 text-sm text-[#333] mb-3">
             Prefer manual entry — GitHub has returned unreachable Apps from the
-            manifest flow. Use this only if you accept that risk. Name SEORANKO may
-            already be taken.
+            manifest flow. Use this only if you accept that risk.
           </p>
           <a
             href={GITHUB_APP_URLS.manifestStart}

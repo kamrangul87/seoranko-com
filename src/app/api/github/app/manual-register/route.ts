@@ -14,7 +14,7 @@ function safeErrorMessage(raw: string): string {
 function redirectSetup(req: NextRequest, params: Record<string, string>): NextResponse {
   const url = new URL(GITHUB_APP_URLS.adminSetupPage, req.url)
   for (const [k, v] of Object.entries(params)) {
-    url.searchParams.set(k, v)
+    if (v !== '') url.searchParams.set(k, v)
   }
   return NextResponse.redirect(url)
 }
@@ -23,6 +23,7 @@ function redirectSetup(req: NextRequest, params: Record<string, string>): NextRe
  * POST /api/github/app/manual-register
  * Owner pastes App credentials after creating the App on GitHub manually.
  * Verifies GET /app with a fresh JWT BEFORE any DB write.
+ * On failure, redirects with app_id + client_id preserved (non-secrets only).
  */
 export async function POST(req: NextRequest) {
   const master = await requireMasterUser()
@@ -67,20 +68,26 @@ export async function POST(req: NextRequest) {
     return redirectSetup(req, { error: 'Invalid form body' })
   }
 
-  // Normalize PEM newlines from paste (browsers may use \r\n).
+  // Preserve non-secrets on every failure path.
+  const remember = { app_id: appIdRaw.trim(), client_id: clientId }
+
   privateKeyPem = privateKeyPem.replace(/\r\n/g, '\n').trim()
   clientSecret = clientSecret.trim()
   webhookSecret = webhookSecret.trim()
 
   const appId = Number(appIdRaw)
   if (!Number.isFinite(appId) || appId <= 0) {
-    return redirectSetup(req, { error: 'App ID must be a positive number' })
+    return redirectSetup(req, {
+      ...remember,
+      error: 'App ID must be a positive number',
+    })
   }
   if (!clientId || !clientSecret || !webhookSecret || !privateKeyPem) {
-    return redirectSetup(req, { error: 'All fields are required' })
+    return redirectSetup(req, { ...remember, error: 'All fields are required' })
   }
   if (!/BEGIN .+PRIVATE KEY/.test(privateKeyPem)) {
     return redirectSetup(req, {
+      ...remember,
       error: 'Private key must be a PEM block (BEGIN … PRIVATE KEY)',
     })
   }
@@ -91,13 +98,34 @@ export async function POST(req: NextRequest) {
       privateKeyPem,
     })
     if (!probe.ok) {
+      const claimSummary = probe.claims
+        ? `iat=${probe.claims.iat} exp=${probe.claims.exp} iss=${probe.claims.iss} alg=${probe.claims.alg}`
+        : 'claims=n/a'
+      const pemSummary = probe.pem
+        ? `pem=${probe.pem.format}/${probe.pem.newline_style}` +
+          (probe.pem.repaired_collapsed_newlines ? '+repaired' : '') +
+          (probe.pem.converted_to_pkcs8 ? '+pkcs8' : '')
+        : 'pem=n/a'
       console.error('[github-app-manual] verify-before-store failed', {
         appId,
         status: probe.status,
         error: probe.error,
+        githubRequestId: probe.githubRequestId,
+        claimSummary,
+        pemSummary,
       })
+      const detail = [
+        `GET /app returned ${probe.status}: ${safeErrorMessage(probe.error)}`,
+        claimSummary,
+        pemSummary,
+        probe.githubRequestId ? `request_id=${probe.githubRequestId}` : null,
+        'Credentials were NOT stored. Use Diagnose JWT for full detail.',
+      ]
+        .filter(Boolean)
+        .join(' · ')
       return redirectSetup(req, {
-        error: `GET /app returned ${probe.status}: ${safeErrorMessage(probe.error)}. Credentials were NOT stored.`,
+        ...remember,
+        error: detail.slice(0, 400),
       })
     }
 
@@ -132,6 +160,9 @@ export async function POST(req: NextRequest) {
           owner_login: probe.ownerLogin,
           owner_type: probe.ownerType,
           owner_id: probe.ownerId,
+          github_request_id: probe.githubRequestId,
+          claims: probe.claims,
+          pem: probe.pem,
         },
       },
     })
@@ -146,6 +177,9 @@ export async function POST(req: NextRequest) {
     console.error('[github-app-manual] register failed (nothing stored)', {
       message: safeErrorMessage(msg),
     })
-    return redirectSetup(req, { error: safeErrorMessage(msg) })
+    return redirectSetup(req, {
+      ...remember,
+      error: safeErrorMessage(msg),
+    })
   }
 }
