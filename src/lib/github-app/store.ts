@@ -93,7 +93,7 @@ export async function loadGithubAppRecord(): Promise<GithubAppRecord | null> {
   }
 }
 
-export async function saveGithubAppFromManifest(input: {
+export type SaveGithubAppCredentialsInput = {
   appId: number
   slug: string
   clientId: string
@@ -105,10 +105,18 @@ export async function saveGithubAppFromManifest(input: {
   ownerLogin?: string | null
   ownerType?: string | null
   ownerId?: number | null
-  conversionAt: string
-  conversionFieldNames: string[]
-  conversionResponseMeta: Record<string, unknown>
-}): Promise<GithubAppPublicMeta> {
+  conversionAt?: string | null
+  conversionFieldNames?: string[] | null
+  conversionResponseMeta?: Record<string, unknown> | null
+}
+
+/**
+ * Persist verified App credentials. Caller MUST have proven GET /app = 200
+ * before invoking — never write a row for an App GitHub does not recognize.
+ */
+export async function saveGithubAppCredentials(
+  input: SaveGithubAppCredentialsInput,
+): Promise<GithubAppPublicMeta> {
   const existing = await getGithubAppPublicMeta()
   if (existing) {
     throw new Error('GitHub App already registered — setup page is disabled')
@@ -134,9 +142,9 @@ export async function saveGithubAppFromManifest(input: {
       owner_login: input.ownerLogin ?? null,
       owner_type: input.ownerType ?? null,
       owner_id: input.ownerId ?? null,
-      conversion_at: input.conversionAt,
-      conversion_field_names: input.conversionFieldNames,
-      conversion_response_meta: input.conversionResponseMeta,
+      conversion_at: input.conversionAt ?? null,
+      conversion_field_names: input.conversionFieldNames ?? null,
+      conversion_response_meta: input.conversionResponseMeta ?? null,
     })
     .select('app_id, slug, client_id, html_url, created_at, owner_login, owner_type')
     .single()
@@ -151,6 +159,17 @@ export async function saveGithubAppFromManifest(input: {
     ownerLogin: data.owner_login ? String(data.owner_login) : null,
     ownerType: data.owner_type ? String(data.owner_type) : null,
   }
+}
+
+/** @deprecated Prefer saveGithubAppCredentials — same insert path. */
+export async function saveGithubAppFromManifest(
+  input: SaveGithubAppCredentialsInput & {
+    conversionAt: string
+    conversionFieldNames: string[]
+    conversionResponseMeta: Record<string, unknown>
+  },
+): Promise<GithubAppPublicMeta> {
+  return saveGithubAppCredentials(input)
 }
 
 export async function upsertInstallation(row: {
