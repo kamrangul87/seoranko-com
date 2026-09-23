@@ -8,6 +8,8 @@ export const GITHUB_APP_URLS = {
   homepage: SEORANKO_PUBLIC_ORIGIN,
   /** After Create GitHub App from manifest — exchange code here. */
   manifestRedirect: `${SEORANKO_PUBLIC_ORIGIN}/api/github/app/manifest/callback`,
+  /** Owner-only: mint state + auto-POST manifest to GitHub. */
+  manifestStart: `${SEORANKO_PUBLIC_ORIGIN}/api/github/app/manifest/start`,
   /** After user authorizes the app (request_oauth_on_install). */
   oauthCallback: `${SEORANKO_PUBLIC_ORIGIN}/api/github/app/callback`,
   /** After install — verify installation_id. */

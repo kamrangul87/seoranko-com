@@ -114,6 +114,66 @@ export async function userHasInstallation(
   return (data.installations ?? []).some((i) => Number(i.id) === installationId)
 }
 
+/**
+ * Prove the App exists for these credentials before we persist anything.
+ * Calls GET https://api.github.com/app with a freshly minted App JWT.
+ */
+export async function verifyGithubAppJwtAlive(input: {
+  appId: number
+  privateKeyPem: string
+}): Promise<
+  | {
+      ok: true
+      status: 200
+      name: string | null
+      slug: string | null
+      ownerLogin: string | null
+      ownerType: string | null
+      ownerId: number | null
+      raw: Record<string, unknown>
+    }
+  | { ok: false; status: number; error: string; rawBodyPreview: string }
+> {
+  const jwt = createGithubAppJwt(input.appId, input.privateKeyPem)
+  const res = await fetch('https://api.github.com/app', {
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    signal: AbortSignal.timeout(20_000),
+  })
+  const text = await res.text()
+  let json: Record<string, unknown> | null = null
+  try {
+    json = JSON.parse(text) as Record<string, unknown>
+  } catch {
+    json = null
+  }
+  if (res.status !== 200 || !json) {
+    const msg =
+      (json && typeof json.message === 'string' && json.message) ||
+      `GET /app failed (${res.status})`
+    return {
+      ok: false,
+      status: res.status,
+      error: msg,
+      rawBodyPreview: text.slice(0, 400),
+    }
+  }
+  const owner = (json.owner as { login?: string; type?: string; id?: number } | undefined) || null
+  return {
+    ok: true,
+    status: 200,
+    name: json.name != null ? String(json.name) : null,
+    slug: json.slug != null ? String(json.slug) : null,
+    ownerLogin: owner?.login ? String(owner.login) : null,
+    ownerType: owner?.type ? String(owner.type) : null,
+    ownerId: owner?.id != null ? Number(owner.id) : null,
+    raw: json,
+  }
+}
+
 /** Exchange OAuth code (request_oauth_on_install) for a user access token. */
 export async function exchangeOauthCodeForUserToken(code: string): Promise<string> {
   const app = await loadGithubAppRecord()

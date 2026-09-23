@@ -8,8 +8,16 @@ import {
   GITHUB_APP_MANIFEST_UNSUPPORTED_EVENTS,
 } from '@/lib/github-app/manifest'
 import { scrubSentryEvent } from '@/lib/sentry-scrub'
-import { mintManifestState, verifyManifestState } from '@/lib/github-app/state'
+import {
+  MANIFEST_STATE_TTL_MS,
+  manifestStateErrorMessage,
+  mintManifestState,
+  verifyManifestState,
+  verifyManifestStateDetailed,
+} from '@/lib/github-app/state'
 import { GithubAppSetupCreateView } from '@/app/admin/github-app-setup/create-view'
+import { GITHUB_APP_URLS } from '@/lib/github-app/urls'
+import { conversionMetaWithoutSecrets } from '@/lib/github-app/exchange-manifest'
 
 const cookieSet = vi.fn()
 
@@ -120,24 +128,64 @@ describe('mintManifestState (no cookie mutation)', () => {
     expect(verifyManifestState('tampered.' + state)).toBe(false)
     expect(verifyManifestState(null)).toBe(false)
   })
+
+  it('uses a 10-minute TTL and rejects expired state with a clear reason', () => {
+    expect(MANIFEST_STATE_TTL_MS).toBe(10 * 60 * 1000)
+    expect(manifestStateErrorMessage('expired')).toMatch(/over 10 minutes/i)
+    expect(manifestStateErrorMessage('expired')).toMatch(/Start again/i)
+
+    const state = mintManifestState()
+    const [nonce, , sig] = state.split('.')
+    const expired = `${nonce}.${Date.now() - 1000}.${sig}`
+    expect(verifyManifestStateDetailed(null)).toEqual({ ok: false, reason: 'missing' })
+    expect(verifyManifestStateDetailed('a.b')).toEqual({ ok: false, reason: 'malformed' })
+    const keyRaw = process.env.SITE_CONNECTION_ENCRYPTION_KEY!
+    const key = createHmac('sha256', 'seoranko-gh-app-state').update(keyRaw).digest()
+    const body = `nonce.${Date.now() - 60_000}`
+    const expiredSig = createHmac('sha256', key).update(body).digest('base64url')
+    expect(verifyManifestStateDetailed(`${body}.${expiredSig}`)).toEqual({
+      ok: false,
+      reason: 'expired',
+    })
+    expect(expired.split('.').length).toBe(3)
+    expect(sig.length).toBeGreaterThan(0)
+  })
+})
+
+describe('conversionMetaWithoutSecrets', () => {
+  it('keeps owner + field names and never embeds pem/secret values', () => {
+    const meta = conversionMetaWithoutSecrets({
+      id: 1,
+      slug: 'seoranko',
+      client_id: 'Iv1',
+      client_secret: 'SECRET',
+      webhook_secret: 'WH',
+      pem: '-----BEGIN PRIVATE KEY-----\nX\n-----END PRIVATE KEY-----',
+      owner: { login: 'kamrangul87', type: 'User', id: 1 },
+      fieldNames: ['id', 'slug', 'client_id', 'client_secret', 'webhook_secret', 'pem', 'owner'],
+      raw: {},
+      convertedAt: '2026-09-23T00:00:00.000Z',
+    })
+    expect(meta.owner_login).toBe('kamrangul87')
+    expect(meta.owner_type).toBe('User')
+    expect(meta.field_names).toContain('pem')
+    expect(JSON.stringify(meta)).not.toContain('BEGIN PRIVATE')
+    expect(JSON.stringify(meta)).not.toContain('SECRET')
+  })
 })
 
 describe('GithubAppSetupCreateView (owner create path)', () => {
-  it('renders Create button and manifest form for the owner', () => {
-    const state = 'nonce.exp.sig'
-    const manifestJson = JSON.stringify(buildSeorankoGithubAppManifest())
+  it('renders Create link to manifest/start (state minted on click)', () => {
     const html = renderToStaticMarkup(
       createElement(GithubAppSetupCreateView, {
-        state,
-        manifestJson,
         error: null,
       }),
     )
     expect(html).toContain('Create SEORANKO GitHub App')
     expect(html).toContain('Create GitHub App on GitHub')
-    expect(html).toContain('https://github.com/settings/apps/new?state=')
-    expect(html).toContain('name="manifest"')
+    expect(html).toContain(GITHUB_APP_URLS.manifestStart)
     expect(html).toContain('/api/webhooks/github')
+    expect(html).not.toContain('name="manifest"')
     expect(cookieSet).not.toHaveBeenCalled()
   })
 })
@@ -175,6 +223,7 @@ describe('GithubAppSetupPage owner create path (no cookie.set)', () => {
     const html = renderToStaticMarkup(el as ReactElement)
     expect(html).toContain('Create SEORANKO GitHub App')
     expect(html).toContain('Create GitHub App on GitHub')
+    expect(html).toContain('/api/github/app/manifest/start')
     expect(cookieSet).not.toHaveBeenCalled()
   })
 })

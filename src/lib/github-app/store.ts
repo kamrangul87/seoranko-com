@@ -16,6 +16,8 @@ export type GithubAppPublicMeta = {
   clientId: string
   htmlUrl: string | null
   createdAt: string
+  ownerLogin: string | null
+  ownerType: string | null
 }
 
 export type GithubAppSecrets = {
@@ -33,6 +35,8 @@ type ConfigRow = {
   credentials_ciphertext: string
   html_url: string | null
   created_at: string
+  owner_login?: string | null
+  owner_type?: string | null
 }
 
 function parseSecrets(ciphertext: string): GithubAppSecrets {
@@ -50,7 +54,7 @@ export async function getGithubAppPublicMeta(): Promise<GithubAppPublicMeta | nu
   const supabase = createServiceRoleClient()
   const { data, error } = await supabase
     .from('github_app_config')
-    .select('app_id, slug, client_id, html_url, created_at')
+    .select('app_id, slug, client_id, html_url, created_at, owner_login, owner_type')
     .maybeSingle()
   if (error) throw new Error(`github_app_config read failed: ${error.message}`)
   if (!data) return null
@@ -60,6 +64,8 @@ export async function getGithubAppPublicMeta(): Promise<GithubAppPublicMeta | nu
     clientId: String(data.client_id),
     htmlUrl: data.html_url ? String(data.html_url) : null,
     createdAt: String(data.created_at),
+    ownerLogin: data.owner_login ? String(data.owner_login) : null,
+    ownerType: data.owner_type ? String(data.owner_type) : null,
   }
 }
 
@@ -67,7 +73,9 @@ export async function loadGithubAppRecord(): Promise<GithubAppRecord | null> {
   const supabase = createServiceRoleClient()
   const { data, error } = await supabase
     .from('github_app_config')
-    .select('app_id, slug, client_id, credentials_ciphertext, html_url, created_at')
+    .select(
+      'app_id, slug, client_id, credentials_ciphertext, html_url, created_at, owner_login, owner_type',
+    )
     .maybeSingle()
   if (error) throw new Error(`github_app_config read failed: ${error.message}`)
   if (!data) return null
@@ -79,6 +87,8 @@ export async function loadGithubAppRecord(): Promise<GithubAppRecord | null> {
     clientId: String(row.client_id),
     htmlUrl: row.html_url ? String(row.html_url) : null,
     createdAt: String(row.created_at),
+    ownerLogin: row.owner_login ? String(row.owner_login) : null,
+    ownerType: row.owner_type ? String(row.owner_type) : null,
     ...secrets,
   }
 }
@@ -92,6 +102,12 @@ export async function saveGithubAppFromManifest(input: {
   clientSecret: string
   webhookSecret: string
   createdByUserId: string
+  ownerLogin?: string | null
+  ownerType?: string | null
+  ownerId?: number | null
+  conversionAt: string
+  conversionFieldNames: string[]
+  conversionResponseMeta: Record<string, unknown>
 }): Promise<GithubAppPublicMeta> {
   const existing = await getGithubAppPublicMeta()
   if (existing) {
@@ -115,8 +131,14 @@ export async function saveGithubAppFromManifest(input: {
       credentials_ciphertext: ciphertext,
       html_url: input.htmlUrl ?? null,
       created_by_user_id: input.createdByUserId,
+      owner_login: input.ownerLogin ?? null,
+      owner_type: input.ownerType ?? null,
+      owner_id: input.ownerId ?? null,
+      conversion_at: input.conversionAt,
+      conversion_field_names: input.conversionFieldNames,
+      conversion_response_meta: input.conversionResponseMeta,
     })
-    .select('app_id, slug, client_id, html_url, created_at')
+    .select('app_id, slug, client_id, html_url, created_at, owner_login, owner_type')
     .single()
 
   if (error) throw new Error(`github_app_config insert failed: ${error.message}`)
@@ -126,6 +148,8 @@ export async function saveGithubAppFromManifest(input: {
     clientId: String(data.client_id),
     htmlUrl: data.html_url ? String(data.html_url) : null,
     createdAt: String(data.created_at),
+    ownerLogin: data.owner_login ? String(data.owner_login) : null,
+    ownerType: data.owner_type ? String(data.owner_type) : null,
   }
 }
 
