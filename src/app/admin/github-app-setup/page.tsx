@@ -1,7 +1,8 @@
 /**
- * Owner-only one-click GitHub App registration via the Manifest flow.
- * Disabled once a product App already exists.
- * State is minted only when the owner clicks Create → /api/github/app/manifest/start.
+ * Owner-only GitHub App registration.
+ * Primary: paste credentials after creating the App manually on GitHub.
+ * Secondary: App Manifest one-click (kept but not default).
+ * Disabled once credentials verify and are stored.
  */
 
 import { redirect } from 'next/navigation'
@@ -42,8 +43,12 @@ export default async function GithubAppSetupPage({
   const created = q.created === '1'
   const already = q.already === '1'
   const error = typeof q.error === 'string' ? q.error : null
+  const ownerFromQuery = typeof q.owner === 'string' ? q.owner : null
+  const slugFromQuery = typeof q.slug === 'string' ? q.slug : null
 
   if (existing) {
+    const ownerDisplay = existing.ownerLogin || ownerFromQuery
+    const slugDisplay = existing.slug || slugFromQuery
     return (
       <main className="min-h-screen bg-[#FAFAF8] text-[#0F0F0F]">
         <div className="mx-auto max-w-xl px-6 py-16">
@@ -55,6 +60,13 @@ export default async function GithubAppSetupPage({
             A SEORANKO GitHub App is already registered. This page is disabled to
             prevent creating a second App or re-exposing credentials.
           </p>
+          {(created || already) && (
+            <p className="mb-6 text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-3 py-2">
+              {created
+                ? 'Credentials verified via GET /app and stored.'
+                : 'App already existed.'}
+            </p>
+          )}
           <dl className="space-y-2 text-sm text-[#333] mb-8">
             <div>
               <dt className="text-[#6B6B6B]">App ID</dt>
@@ -62,17 +74,17 @@ export default async function GithubAppSetupPage({
             </div>
             <div>
               <dt className="text-[#6B6B6B]">Slug</dt>
-              <dd className="font-mono">{existing.slug}</dd>
+              <dd className="font-mono">{slugDisplay}</dd>
             </div>
             <div>
               <dt className="text-[#6B6B6B]">Client ID</dt>
               <dd className="font-mono">{existing.clientId}</dd>
             </div>
-            {existing.ownerLogin ? (
+            {ownerDisplay ? (
               <div>
                 <dt className="text-[#6B6B6B]">Owner</dt>
                 <dd className="font-mono">
-                  {existing.ownerLogin}
+                  {ownerDisplay}
                   {existing.ownerType ? ` (${existing.ownerType})` : ''}
                 </dd>
               </div>
@@ -97,11 +109,6 @@ export default async function GithubAppSetupPage({
             Private key, client secret, and webhook secret are encrypted at rest
             (service-role only) and are never shown here.
           </p>
-          {(created || already) && (
-            <p className="mt-4 text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-3 py-2">
-              {created ? 'App created and credentials stored.' : 'App already existed.'}
-            </p>
-          )}
           <p className="mt-10 text-sm">
             <Link href="/dashboard" className="text-[#FF6B2C] hover:underline">
               ← Dashboard

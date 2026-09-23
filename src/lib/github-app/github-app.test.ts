@@ -174,17 +174,31 @@ describe('conversionMetaWithoutSecrets', () => {
   })
 })
 
-describe('GithubAppSetupCreateView (owner create path)', () => {
-  it('renders Create link to manifest/start (state minted on click)', () => {
+describe('GithubAppSetupCreateView (manual entry primary)', () => {
+  it('renders manual form, GitHub form values, and demoted manifest', () => {
     const html = renderToStaticMarkup(
       createElement(GithubAppSetupCreateView, {
         error: null,
       }),
     )
-    expect(html).toContain('Create SEORANKO GitHub App')
-    expect(html).toContain('Create GitHub App on GitHub')
+    expect(html).toContain('Register SEORANKO GitHub App')
+    expect(html).toContain('Verify and store')
+    expect(html).toContain(GITHUB_APP_URLS.manualRegister)
+    expect(html).toContain('name="app_id"')
+    expect(html).toContain('name="client_id"')
+    expect(html).toContain('name="client_secret"')
+    expect(html).toContain('name="webhook_secret"')
+    expect(html).toContain('name="private_key_pem"')
+    expect(html).toContain(GITHUB_APP_URLS.homepage)
+    expect(html).toContain(GITHUB_APP_URLS.oauthCallback)
+    expect(html).toContain(GITHUB_APP_URLS.setup)
+    expect(html).toContain(GITHUB_APP_URLS.webhook)
+    expect(html).toContain('Contents:')
+    expect(html).toContain('Pull requests:')
+    expect(html).toContain('Commit statuses:')
+    expect(html).toContain('Metadata:')
+    expect(html).toContain('Alternative: App Manifest')
     expect(html).toContain(GITHUB_APP_URLS.manifestStart)
-    expect(html).toContain('/api/webhooks/github')
     expect(html).not.toContain('name="manifest"')
     expect(cookieSet).not.toHaveBeenCalled()
   })
@@ -207,7 +221,7 @@ describe('GithubAppSetupPage owner create path (no cookie.set)', () => {
     vi.resetModules()
   })
 
-  it('renders create UI for owner when no App exists without throwing', async () => {
+  it('renders manual register UI for owner when no App exists without throwing', async () => {
     vi.doMock('@/lib/github-app/require-master', () => ({
       requireMasterUser: async () => ({
         ok: true as const,
@@ -221,9 +235,10 @@ describe('GithubAppSetupPage owner create path (no cookie.set)', () => {
     const { default: Page } = await import('@/app/admin/github-app-setup/page')
     const el = await Page({})
     const html = renderToStaticMarkup(el as ReactElement)
-    expect(html).toContain('Create SEORANKO GitHub App')
-    expect(html).toContain('Create GitHub App on GitHub')
-    expect(html).toContain('/api/github/app/manifest/start')
+    expect(html).toContain('Register SEORANKO GitHub App')
+    expect(html).toContain('Verify and store')
+    expect(html).toContain('/api/github/app/manual-register')
+    expect(html).toContain('Create via GitHub Manifest')
     expect(cookieSet).not.toHaveBeenCalled()
   })
 })
