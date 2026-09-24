@@ -11,6 +11,7 @@ import type {
   CrawlRunStatus,
   CrawlUrlJob,
   CrawlUrlJobStatus,
+  FindingStatus,
   PersistedEvidenceRow,
   PersistedFindingRow,
 } from './constants'
@@ -65,6 +66,19 @@ export type FindingsStore = {
     findings: RolledPersistCandidate[]
     internalEvidence: DetectorEmit[]
   }): Promise<void>
+  /**
+   * Marks every non-internal finding in this scope not touched by `runId`
+   * as resolved. Callers must only invoke this after a run reaches
+   * status 'complete' (full coverage) — absence from a partial run proves
+   * nothing, since the page that would have re-raised the finding may not
+   * have been re-crawled at all.
+   */
+  resolveAbsentFindings(input: {
+    siteId: string | null
+    detectOrigin?: string | null
+    userId: string
+    runId: string
+  }): Promise<{ resolvedCount: number }>
   /** Stage page-level detector emits for a run (re-rolled on each tick). */
   appendRunEmits(runId: string, emits: DetectorEmit[]): Promise<void>
   /** Drop emits for a topic then append replacements (full-run recompute). */
@@ -329,6 +343,12 @@ export function createMemoryFindingsStore(): FindingsStore {
         const key = findingKey(scope, f.topicId, f.rollupKey)
         const existing = state().findings.get(key)
         if (existing) {
+          // A finding re-observed after being marked resolved is a
+          // regression, not a plain re-detection — flag it, and keep
+          // resolvedAt as the historical "last considered fixed" date
+          // rather than clearing it.
+          const status: FindingStatus =
+            existing.status === 'resolved' ? 'regressed' : existing.status
           const updated: PersistedFindingRow = {
             ...existing,
             kind: f.kind,
@@ -348,6 +368,7 @@ export function createMemoryFindingsStore(): FindingsStore {
             detectOrigin: originNorm,
             lastSeenRunId: runId,
             lastSeenAt: now,
+            status,
           }
           state().findings.set(key, updated)
           state().observations.add(`${updated.id}::${runId}`)
@@ -377,6 +398,8 @@ export function createMemoryFindingsStore(): FindingsStore {
             lastSeenRunId: runId,
             firstSeenAt: now,
             lastSeenAt: now,
+            status: 'open',
+            resolvedAt: null,
           }
           state().findings.set(key, row)
           state().observations.add(`${row.id}::${runId}`)
@@ -409,6 +432,25 @@ export function createMemoryFindingsStore(): FindingsStore {
           pageUrl: e.pageUrl || null,
         })
       }
+    },
+
+    async resolveAbsentFindings({ siteId, detectOrigin, userId, runId }) {
+      const originNorm = detectOrigin?.replace(/\/$/, '') ?? null
+      const now = new Date().toISOString()
+      let resolvedCount = 0
+      for (const f of state().findings.values()) {
+        const sameScope = siteId
+          ? f.siteId === siteId
+          : f.siteId == null && f.detectOrigin === originNorm && f.userId === userId
+        if (!sameScope) continue
+        if (f.bucket === 'internal') continue
+        if (f.status === 'resolved') continue
+        if (f.lastSeenRunId === runId) continue
+        f.status = 'resolved'
+        f.resolvedAt = now
+        resolvedCount += 1
+      }
+      return { resolvedCount }
     },
 
     async appendRunEmits(runId, emits) {

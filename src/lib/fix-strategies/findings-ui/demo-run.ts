@@ -36,6 +36,8 @@ function buildFinding(
     | 'sourceTier'
     | 'primarySourceId'
     | 'whyNotAutoFixed'
+    | 'status'
+    | 'resolvedAt'
   > & { reportOnly?: boolean },
 ): UiFinding {
   const dossierSlug = dossierSlugForTopic(partial.topicId)
@@ -63,6 +65,9 @@ function buildFinding(
     bucket,
     surfaceClass,
     dossierSlug,
+    // Demo data is a static snapshot — every demo finding is 'open'.
+    status: 'open',
+    resolvedAt: null,
     sources: sourcesForTopic(
       partial.topicId,
       dossierSlug,
