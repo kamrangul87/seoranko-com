@@ -128,8 +128,43 @@ export const FIX_STRATEGY_PRODUCT_DECISIONS = {
    * Product decision (not Google-sourced). Chosen 2026-09-22 for launch
    * batch A: 20 crawl starts / user / day — enough for dogfood + iteration,
    * hard enough to stop accidental / abusive bulk starts on Hobby.
+   *
+   * @deprecated Prefer crawlRunsPerUserPerDayFree / Subscribed (1.6 billing).
+   * Kept as the free-tier default so older callers stay safe.
    */
-  crawlRunsPerUserPerDay: 20 as number,
+  crawlRunsPerUserPerDay: 5 as number,
+
+  /**
+   * Free / unsigned-subscription crawl starts per UTC day (detect-only stays free).
+   * Chosen 2026-09-23 (1.6 billing): 5 — enough for a trial audit, stops bulk abuse.
+   */
+  crawlRunsPerUserPerDayFree: 5 as number,
+
+  /**
+   * Subscribed (or MASTER_EMAIL) crawl starts per UTC day.
+   * Chosen 2026-09-23 (1.6 billing): 50 — dogfood + multi-site iteration on Hobby.
+   */
+  crawlRunsPerUserPerDaySubscribed: 50 as number,
+
+  /**
+   * Per-crawl page enqueue limit — free / no subscription.
+   * Chosen 2026-09-24 (1.6 billing): 25. Hitting the cap → status partial with
+   * an explicit plan-named note (never silent truncation).
+   */
+  crawlPagesPerRunFree: 25 as number,
+
+  /**
+   * Per-crawl page enqueue limit — paid default when Stripe Price/Product
+   * metadata does not set `seoranko_crawl_pages` (or `crawl_pages_per_run`).
+   * Chosen 2026-09-24 (1.6 billing): 500 (matches CRAWL_MAX_DISCOVERED safety).
+   */
+  crawlPagesPerRunPaidDefault: 500 as number,
+
+  /**
+   * Stripe metadata key (Price, then Product, then Subscription) for the
+   * per-crawl page limit. Value must be a positive integer.
+   */
+  crawlPagesStripeMetadataKey: 'seoranko_crawl_pages' as string,
 
   /**
    * Findings crawl — minimum gap between HTTP requests to one target host.

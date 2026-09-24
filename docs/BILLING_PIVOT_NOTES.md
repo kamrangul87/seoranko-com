@@ -19,10 +19,14 @@ Billing must be revisited in a follow-up; **this PR does not change Stripe/plans
 
 ## Fix Agent (this pass) — billing implication only
 - **Audit-only** (any pasted URL): free / included — report only, no write access
-- **Fix Agent** (auto-apply on a connected/owned site): should be a **premium** gate in a later pass
-  - Requires an active site connection (WP / Shopify / GitHub)
-  - Rate-limited per site; every attempt logged + revertible
-- Do **not** implement plan checks, Stripe meters, or paywalls in this PR — only the connection permission gate
+- **Fix Agent** (auto-apply on a connected/owned site): **gated** — `commit` requires
+  `subscriptions.status` in `active|trialing|past_due` (or `MASTER_EMAIL` dogfood bypass).
+  Approve + detect + findings list stay free. API returns 402; the fix UI shows an
+  upgrade prompt (not a raw error).
+- Crawl volume: free **5**/UTC day; subscribed/master **50**/UTC day
+- Per-crawl pages: free **25**; paid from Stripe metadata `seoranko_crawl_pages`
+  (default **500**). Cap → `partial` with “N of M pages crawled — {plan} plan limit”
+  + upgrade link.
 
 ## AI Visibility (citation check) — billing implication only
 - Weekly OpenAI + Perplexity checks with configurable `AI_VISIBILITY_PROMPT_CAP`

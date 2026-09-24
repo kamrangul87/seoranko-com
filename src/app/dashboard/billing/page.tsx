@@ -131,8 +131,9 @@ function BillingContent() {
       <div>
         <h1 className="text-2xl font-semibold">Billing</h1>
         <p className="text-[#6B6B6B] mt-1">
-          Manage your SEORANKO subscription. Pricing is a placeholder until plans are finalized —
-          changing the Stripe Price ID is a config update, not a code change.
+          Detect-only site audits stay free. An active subscription unlocks applying fixes to your
+          connected site and a higher daily crawl limit. Pricing is a placeholder until plans are
+          finalized — changing the Stripe Price ID is a config update, not a code change.
         </p>
       </div>
 
@@ -165,7 +166,9 @@ function BillingContent() {
             </div>
             <h2 className="text-xl font-semibold mt-1">{manageable ? planMeta.label : 'Free'}</h2>
             <p className="text-sm text-[#6B6B6B] mt-1">
-              {manageable ? planMeta.description : 'No paid SEORANKO subscription yet.'}
+              {manageable
+                ? planMeta.description
+                : 'Free includes detect-only audits (limited crawls). Subscribe to commit Fix Agent changes.'}
             </p>
           </div>
           {subscription && (

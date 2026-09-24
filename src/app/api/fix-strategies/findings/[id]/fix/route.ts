@@ -9,6 +9,7 @@ import {
   commitFix,
   verifyFix,
 } from '@/lib/fix-strategies/findings-ui/fix-flow-store'
+import { assertFixWriteEntitled } from '@/lib/stripe/entitlements'
 
 export const dynamic = 'force-dynamic'
 /** Commit + deploy wait + live verify can exceed default. */
@@ -87,6 +88,21 @@ export async function POST(
       return NextResponse.json(
         { error: 'Commit refused — finding is not auto-fixable.' },
         { status: 400 },
+      )
+    }
+    const entitled = await assertFixWriteEntitled({
+      userId: user.id,
+      email: user.email,
+    })
+    if (!entitled.ok) {
+      return NextResponse.json(
+        {
+          error: entitled.error,
+          code: entitled.code,
+          billingPath: entitled.billingPath,
+          upgrade: entitled.upgrade,
+        },
+        { status: entitled.status },
       )
     }
     const fixFlow = await commitFix({

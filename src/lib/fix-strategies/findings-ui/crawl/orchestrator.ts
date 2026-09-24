@@ -45,10 +45,17 @@ export type StartCrawlInput = {
   detectOnly?: boolean
   store?: FindingsStore
   /**
-   * Optional extra enqueue cap (tests). Hitting this (or CRAWL_MAX_DISCOVERED)
-   * marks the run partial — never complete.
+   * Optional extra enqueue cap (tests / plan page limit). Hitting this
+   * (or CRAWL_MAX_DISCOVERED) marks the run partial — never complete.
    */
   maxUrls?: number
+  /**
+   * When set with maxUrls, emit an explicit plan_page_limit coverage note
+   * naming the plan (never silent truncation).
+   */
+  planPageLimit?: {
+    planLabel: string
+  }
 }
 
 export type TickResult = {
@@ -95,10 +102,25 @@ export async function startCrawlRun(
     urls = urls.slice(0, input.maxUrls)
     capped = true
     urlCap = input.maxUrls
-    notes.push({
-      code: 'discovery_cap',
-      detail: `enqueue capped at maxUrls=${input.maxUrls}: found ${foundTotal} same-host URLs, enqueued ${urls.length}, ${foundTotal - urls.length} not crawled`,
-    })
+    if (input.planPageLimit?.planLabel) {
+      notes.push({
+        code: 'plan_page_limit',
+        detail: `${input.maxUrls} of ${foundTotal} pages crawled — ${input.planPageLimit.planLabel} plan limit`,
+      })
+    } else {
+      notes.push({
+        code: 'discovery_cap',
+        detail: `enqueue capped at maxUrls=${input.maxUrls}: found ${foundTotal} same-host URLs, enqueued ${urls.length}, ${foundTotal - urls.length} not crawled`,
+      })
+    }
+  } else if (input.maxUrls != null) {
+    // Plan limit recorded even when the site is smaller than the cap —
+    // urlCap documents the entitlement applied for this run.
+    urlCap = input.maxUrls
+    if (discovered.capped) {
+      // Safety discovery cap still applied underneath the plan limit.
+      urlCap = Math.min(input.maxUrls, CRAWL_MAX_DISCOVERED)
+    }
   } else if (discovered.capped) {
     urlCap = CRAWL_MAX_DISCOVERED
   }
