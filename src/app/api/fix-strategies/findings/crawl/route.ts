@@ -9,8 +9,8 @@ import {
 } from '@/lib/fix-strategies/findings-ui/crawl'
 import { normalizePublicOrigin } from '@/lib/fix-strategies/findings-ui/crawl/normalize-public-origin'
 import {
-  assertCrawlStartAllowed,
-  recordCrawlStart,
+  reserveCrawlStart,
+  releaseCrawlStart,
 } from '@/lib/fix-strategies/findings-ui/crawl/rate-limit'
 import { crawlDailyLimitForUser, crawlPageQuotaForUser } from '@/lib/stripe/entitlements'
 
@@ -73,9 +73,12 @@ export async function POST(request: Request) {
         userId: user.id,
         email: user.email,
       })
-      const quota = assertCrawlStartAllowed(user.id, dailyLimit)
-      if (quota) {
-        return NextResponse.json({ error: quota, code: 'CRAWL_QUOTA' }, { status: 429 })
+      const reservation = await reserveCrawlStart(user.id, dailyLimit)
+      if (!reservation.allowed) {
+        return NextResponse.json(
+          { error: reservation.blockedReason, code: 'CRAWL_QUOTA' },
+          { status: 429 },
+        )
       }
       const pageQuota = await crawlPageQuotaForUser({
         userId: user.id,
@@ -86,16 +89,21 @@ export async function POST(request: Request) {
         typeof body.maxUrls === 'number' && body.maxUrls > 0
           ? Math.min(body.maxUrls, pageQuota.maxPages)
           : pageQuota.maxPages
-      const { runId, urlsDiscovered, urlsFound } = await startCrawlRun({
-        siteId: null,
-        userId: user.id,
-        origin,
-        detectOnly: true,
-        store,
-        maxUrls,
-        planPageLimit: { planLabel: pageQuota.planLabel },
-      })
-      recordCrawlStart(user.id)
+      let runId: string, urlsDiscovered: number, urlsFound: number
+      try {
+        ;({ runId, urlsDiscovered, urlsFound } = await startCrawlRun({
+          siteId: null,
+          userId: user.id,
+          origin,
+          detectOnly: true,
+          store,
+          maxUrls,
+          planPageLimit: { planLabel: pageQuota.planLabel },
+        }))
+      } catch (err) {
+        await releaseCrawlStart(user.id)
+        throw err
+      }
       return NextResponse.json({
         runId,
         urlsDiscovered,
@@ -157,9 +165,12 @@ export async function POST(request: Request) {
       userId: user.id,
       email: user.email,
     })
-    const quota = assertCrawlStartAllowed(user.id, dailyLimit)
-    if (quota) {
-      return NextResponse.json({ error: quota, code: 'CRAWL_QUOTA' }, { status: 429 })
+    const reservation = await reserveCrawlStart(user.id, dailyLimit)
+    if (!reservation.allowed) {
+      return NextResponse.json(
+        { error: reservation.blockedReason, code: 'CRAWL_QUOTA' },
+        { status: 429 },
+      )
     }
     const pageQuota = await crawlPageQuotaForUser({
       userId: user.id,
@@ -169,15 +180,20 @@ export async function POST(request: Request) {
       typeof body.maxUrls === 'number' && body.maxUrls > 0
         ? Math.min(body.maxUrls, pageQuota.maxPages)
         : pageQuota.maxPages
-    const { runId, urlsDiscovered, urlsFound } = await startCrawlRun({
-      siteId,
-      userId: user.id,
-      origin,
-      store,
-      maxUrls,
-      planPageLimit: { planLabel: pageQuota.planLabel },
-    })
-    recordCrawlStart(user.id)
+    let runId: string, urlsDiscovered: number, urlsFound: number
+    try {
+      ;({ runId, urlsDiscovered, urlsFound } = await startCrawlRun({
+        siteId,
+        userId: user.id,
+        origin,
+        store,
+        maxUrls,
+        planPageLimit: { planLabel: pageQuota.planLabel },
+      }))
+    } catch (err) {
+      await releaseCrawlStart(user.id)
+      throw err
+    }
     return NextResponse.json({
       runId,
       urlsDiscovered,
