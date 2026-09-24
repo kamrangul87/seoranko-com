@@ -167,6 +167,18 @@ export const FIX_STRATEGY_PRODUCT_DECISIONS = {
   crawlPagesStripeMetadataKey: 'seoranko_crawl_pages' as string,
 
   /**
+   * Render guard — body text char floor (after stripping tags/scripts).
+   * Below this → render_needed. Chosen 2026-09-24: 200.
+   */
+  crawlRenderMinBodyTextChars: 200 as number,
+
+  /**
+   * Headless render navigation timeout (ms) inside a crawl tick.
+   * Chosen 2026-09-24: 12_000 — fits Hobby tick budget with headroom.
+   */
+  crawlRenderTimeoutMs: 12_000 as number,
+
+  /**
    * Findings crawl — minimum gap between HTTP requests to one target host.
    * Product decision. Chosen 2026-09-22: 500 ms (was 250 ms operational
    * constant). Aligns crawl politeness with a clearer product knob; the

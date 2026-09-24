@@ -83,6 +83,11 @@ export interface PageSignals {
   hasAiImageLabel: boolean;
   deprecatedSchemas: string[];
   fetchError?: string;
+  renderMode?: 'http' | 'rendered' | 'render_failed';
+  renderNeeded?: boolean;
+  rawHtmlHash?: string | null;
+  renderedHtmlHash?: string | null;
+  rawWordCount?: number;
 }
 
 export interface DomainSignals {
@@ -141,62 +146,95 @@ export async function fetchPageSignals(url: string): Promise<PageSignals> {
     const hasCSP = !!res.headers.get('content-security-policy');
     const isCompressed = /gzip|br|deflate/i.test(res.headers.get('content-encoding') || '');
 
-    const html = await res.text();
-    const htmlSizeKb = Math.round(Buffer.byteLength(html, 'utf8') / 1024);
-    const lowerHtml = html.toLowerCase();
+    const rawHtml = await res.text();
+    // Render guard: if served HTML looks like a JS shell, score the rendered DOM.
+    let scoreHtml = rawHtml
+    let renderMode: 'http' | 'rendered' | 'render_failed' = 'http'
+    let rawHtmlHash: string | null = null
+    let renderedHtmlHash: string | null = null
+    let renderNeeded = false
+    let rawWordCount = 0
+    try {
+      const { resolvePageRender, htmlForDetectors, hashHtml } = await import(
+        '@/lib/crawl-render'
+      )
+      rawHtmlHash = hashHtml(rawHtml)
+      const evidence = await resolvePageRender({ url, rawHtml })
+      renderNeeded = evidence.renderNeeded
+      renderMode = evidence.renderMode
+      renderedHtmlHash = evidence.renderedHtmlHash
+      scoreHtml = htmlForDetectors(evidence)
+    } catch {
+      /* render optional — fall back to raw */
+    }
+    {
+      const rawText = rawHtml
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+      rawWordCount = rawText.split(/\s+/).filter(Boolean).length
+    }
 
-    const title = html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]?.trim() || '';
+    const htmlSizeKb = Math.round(Buffer.byteLength(scoreHtml, 'utf8') / 1024);
+    const lowerHtml = scoreHtml.toLowerCase();
+
+    const title = scoreHtml.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]?.trim() || '';
     const metaDescription =
-      html.match(/<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i)?.[1]?.trim() ||
-      html.match(/<meta\s+content=["']([^"']+)["']\s+name=["']description["']/i)?.[1]?.trim() ||
+      scoreHtml.match(/<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i)?.[1]?.trim() ||
+      scoreHtml.match(/<meta\s+content=["']([^"']+)["']\s+name=["']description["']/i)?.[1]?.trim() ||
       '';
 
     const noindex =
-      /name=["']robots["'][^>]*content=["'][^"']*noindex/i.test(html) ||
-      /content=["'][^"']*noindex[^"']*["'][^>]*name=["']robots["']/i.test(html);
+      /name=["']robots["'][^>]*content=["'][^"']*noindex/i.test(scoreHtml) ||
+      /content=["'][^"']*noindex[^"']*["'][^>]*name=["']robots["']/i.test(scoreHtml);
 
     const canonicalMatch =
-      html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i) ||
-      html.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["']canonical["']/i);
+      scoreHtml.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i) ||
+      scoreHtml.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["']canonical["']/i);
     const hasCanonical = Boolean(canonicalMatch);
     const canonicalUrl = canonicalMatch?.[1]?.trim() || '';
 
-    const h1Matches = Array.from(html.matchAll(/<h1[^>]*>([\s\S]*?)<\/h1>/gi));
+    const h1Matches = Array.from(scoreHtml.matchAll(/<h1[^>]*>([\s\S]*?)<\/h1>/gi));
     const h1Count = h1Matches.length;
     const h1 = h1Count > 0 ? h1Matches[0][1].replace(/<[^>]+>/g, '').trim() : '';
 
-    const h2Matches = Array.from(html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi));
+    const h2Matches = Array.from(scoreHtml.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi));
     const h2s = h2Matches.map(m => m[1].replace(/<[^>]+>/g, '').trim()).filter(Boolean).slice(0, 20);
 
-    // Render-blocking scripts in <head>
-    const headSection = html.match(/<head[\s\S]*?<\/head>/i)?.[0] || '';
+    // Render-blocking scripts in <head> (judge raw head — scripts are transport)
+    const headSection = rawHtml.match(/<head[\s\S]*?<\/head>/i)?.[0] || '';
     const headScriptTags = Array.from(headSection.matchAll(/<script\b([^>]*)>/gi));
     const renderBlockingScripts = headScriptTags.filter(m => !/\basync\b|\bdefer\b/i.test(m[1])).length;
 
     // Images without lazy loading / dimensions
-    const imgTagsRaw = Array.from(html.matchAll(/<img\s[^>]*/gi));
+    const imgTagsRaw = Array.from(scoreHtml.matchAll(/<img\s[^>]*/gi));
     const imagesWithoutLazy = imgTagsRaw.filter(m => !/\bloading\s*=\s*["']?lazy/i.test(m[0])).length;
     const imagesWithoutDimensions = imgTagsRaw.filter(m =>
       !/\bwidth\s*=\s*["']?\d/i.test(m[0]) || !/\bheight\s*=\s*["']?\d/i.test(m[0])
     ).length;
 
-    // Language attribute on <html>
-    const hasLangAttribute = /<html[^>]+\slang\s*=/i.test(html);
+    // Language attribute on <html> — allow <html lang=...> (space after html)
+    const hasLangAttribute = /<html\b[^>]*\slang\s*=/i.test(scoreHtml) || /<html\blang\s*=/i.test(scoreHtml);
 
     // Schema: speakable, person, howto
-    const hasSpeakableSchema = /"@type"\s*:\s*"SpeakableSpecification"/i.test(html);
-    const hasPersonSchema = /"@type"\s*:\s*"Person"/i.test(html);
-    const hasHowToSchema = /"@type"\s*:\s*"HowTo"/i.test(html);
+    const hasSpeakableSchema = /"@type"\s*:\s*"SpeakableSpecification"/i.test(scoreHtml);
+    const hasPersonSchema = /"@type"\s*:\s*"Person"/i.test(scoreHtml);
+    const hasHowToSchema = /"@type"\s*:\s*"HowTo"/i.test(scoreHtml);
 
     // Q&A structure: any H2 ending with '?'
     const hasQAStructure = h2Matches.some(m => m[1].replace(/<[^>]+>/g, '').trim().endsWith('?'));
 
     // Paragraph count (rough)
-    const paragraphCount = (html.match(/<p[\s>]/gi) || []).length;
+    const paragraphCount = (scoreHtml.match(/<p[\s>]/gi) || []).length;
 
-    const imgMatches = Array.from(html.matchAll(/<img\s[^>]*/gi));
+    const imgMatches = Array.from(scoreHtml.matchAll(/<img\s[^>]*/gi));
     const images = imgMatches.length;
     const imagesWithoutAlt = imgMatches.filter(m => !/alt=["'][^"']+["']/.test(m[0])).length;
+
+    // From here, content/link/meta signals judge scoreHtml (rendered when available).
+    const html = scoreHtml;
 
     const hasSchema = html.includes('application/ld+json');
     const hasArticleSchema = /"@type"\s*:\s*"Article"/i.test(html) || /"@type"\s*:\s*"BlogPosting"/i.test(html) || /"@type"\s*:\s*"NewsArticle"/i.test(html);
@@ -346,6 +384,7 @@ export async function fetchPageSignals(url: string): Promise<PageSignals> {
       answerBlockCount, questionHeadingCount, factDensityScore,
       dateModifiedAge, hasAuthorByline, hasAuthorBio, hasExperienceSignals,
       hasProductSchema, hasAiImageLabel, deprecatedSchemas,
+      renderMode, renderNeeded, rawHtmlHash, renderedHtmlHash, rawWordCount,
     };
   } catch (err: any) {
     return emptyPage(url, { fetchTimeMs: Date.now() - startTime, fetchError: err.message?.slice(0, 100) });
@@ -607,6 +646,27 @@ export function scorePage(
     };
   }
 
+  // Never emit a headline score when render was required but failed.
+  if (page.renderMode === 'render_failed') {
+    return {
+      score: 0,
+      searchScore: 0,
+      aiScore: 0,
+      issues: [
+        {
+          severity: 'notice' as const,
+          category: 'crawlability' as const,
+          message:
+            'Render needed but headless render failed — no headline verdict for this page (coverage incomplete)',
+          deduction: 0,
+        },
+      ],
+      opportunities: [
+        'Re-run the audit when render capacity is available; content/link scores are withheld until the DOM can be judged',
+      ],
+    };
+  }
+
   let searchScore = 100;
   let aiScore = 100;
   const issues: AuditIssue[] = [];
@@ -831,6 +891,12 @@ export function scorePage(
     sCrit('links', 'No internal links — page is orphaned, Google cannot distribute authority');
   } else if (page.internalLinks <= 2) {
     sWarn('links', `Only ${page.internalLinks} internal link${page.internalLinks !== 1 ? 's' : ''} — add more to improve crawlability`);
+  }
+  if (page.renderMode === 'rendered' && (page.rawWordCount ?? 0) < 50 && page.wordCount >= 100) {
+    sNote(
+      'content',
+      `RAW_RENDER_MISMATCH: raw body had ${page.rawWordCount} words; rendered DOM has ${page.wordCount} — pre-hydration artefact (informational)`,
+    );
   }
   if (page.externalLinks === 0 && page.wordCount > 300) {
     sWarn('links', 'No outbound links — citing sources builds EEAT trust');

@@ -372,6 +372,15 @@ export default function FindingsListPage() {
                   ? ` · ${crawl.urlsDiscovered} enqueued`
                   : ''}
               </span>
+              <span
+                className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]"
+                title="Pages where headless render ran after a thin/JS shell was detected"
+              >
+                {crawl.pagesRendered ?? 0} rendered
+                {(crawl.pagesRenderFailed ?? 0) > 0
+                  ? ` · ${crawl.pagesRenderFailed} render failed`
+                  : ''}
+              </span>
               {crawl.urlCap != null && (
                 <span className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]">
                   Cap {crawl.urlCap}

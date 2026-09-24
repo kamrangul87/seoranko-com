@@ -35,6 +35,7 @@ import {
   type RobotsRules,
 } from './crawler-identity'
 import { safeCrawlFetch } from './safe-crawl-fetch'
+import { buildRawRenderMismatch } from '@/lib/crawl-render/raw-render-mismatch'
 
 export type StartCrawlInput = {
   /** Connected site id, or null for detection-only. */
@@ -221,6 +222,8 @@ export async function processCrawlTick(
   let crawledN = run.urlsCrawled
   let failedN = run.urlsFailed
   let clientOnlyN = run.urlsClientOnly
+  let pagesRenderedN = run.pagesRendered
+  let pagesRenderFailedN = run.pagesRenderFailed
   let urlsDiscovered = run.urlsDiscovered
   let urlsFound = run.urlsFound
   let linkGraphAdded = run.discoverySeeds?.fromLinkGraph ?? 0
@@ -313,14 +316,22 @@ export async function processCrawlTick(
           finalUrl: page.finalUrl,
           streamComplete: true,
           clientOnly: true,
-          html: page.html || '',
+          html: page.html || page.rawHtml || '',
+          renderMode: page.renderMode,
+          rawHtmlHash: page.rawHtmlHash,
+          renderedHtmlHash: page.renderedHtmlHash,
+          errorDetail: page.errorDetail,
         })
         notes.push({
-          code: 'client_only',
+          code:
+            page.renderMode === 'render_failed' ? 'render_failed' : 'client_only',
           detail:
-            'Served HTML looks client_only — content detectors skipped; outbound links may appear only after rendering (topic 67)',
+            page.renderMode === 'render_failed'
+              ? `render_needed but headless render failed (${page.renderEvidence?.renderError || 'unknown'}) — no headline verdict for this URL`
+              : 'Served HTML looks client_only and render did not produce a DOM — content detectors skipped',
           url: job.url,
         })
+        if (page.renderMode === 'render_failed') pagesRenderFailedN++
         continue
       }
 
@@ -342,6 +353,14 @@ export async function processCrawlTick(
       }
 
       crawledN++
+      if (page.renderMode === 'rendered') {
+        pagesRenderedN++
+        notes.push({
+          code: 'rendered',
+          detail: `Headless render succeeded for ${page.finalUrl} (reasons: ${(page.renderEvidence?.renderNeededReasons || []).join(',') || 'n/a'})`,
+          url: page.finalUrl,
+        })
+      }
       await store.updateUrlJob(job.id, {
         status: 'crawled',
         httpStatus: page.status,
@@ -349,6 +368,9 @@ export async function processCrawlTick(
         streamComplete: true,
         clientOnly: false,
         html: page.html,
+        renderMode: page.renderMode,
+        rawHtmlHash: page.rawHtmlHash,
+        renderedHtmlHash: page.renderedHtmlHash,
       })
       crawled.push(page)
 
@@ -391,8 +413,56 @@ export async function processCrawlTick(
 
   if (crawled.length > 0) {
     // PER-PAGE detectors only — WHOLE-SITE runs after frontier drain.
+    // Prefer rendered HTML already on CrawledPage.html; skip headline
+    // detectors for pages that needed render but failed (handled as client_only).
     const emits = await runDetectorsOnPages(run.origin, crawled)
-    await store.appendRunEmits(runId, emits)
+    const mismatchEmits = crawled.flatMap((p) => {
+      if (!p.renderEvidence || p.renderMode !== 'rendered') return []
+      const host = (() => {
+        try {
+          return new URL(run.origin).hostname
+        } catch {
+          return 'localhost'
+        }
+      })()
+      const m = buildRawRenderMismatch({
+        pageUrl: p.finalUrl,
+        evidence: p.renderEvidence,
+        originHost: host,
+      })
+      if (!m) return []
+      return [
+        {
+          topicId: '67',
+          kind: 'crawl/raw-render-mismatch',
+          bucket: 'informational' as const,
+          verdict: m.verdict,
+          severity: 'informational',
+          pageUrl: p.finalUrl,
+          declarationSite: p.finalUrl,
+          detail: m.detail,
+          autoFixable: false,
+          proposedDiff: null,
+          evidenceValues: m.evidence,
+        },
+      ]
+    })
+    await store.appendRunEmits(runId, [...emits, ...mismatchEmits])
+
+    // Persist render evidence rows (best-effort; ignore when table absent in tests).
+    try {
+      const { persistPageRenderEvidenceBatch } = await import(
+        '@/lib/crawl-render/persist-evidence'
+      )
+      await persistPageRenderEvidenceBatch({
+        runId,
+        userId: run.userId,
+        pages: crawled,
+        jobs: await store.listJobsForRun(runId),
+      })
+    } catch {
+      /* memory store / missing table */
+    }
   }
 
   const counts = await store.countJobsByStatus(runId)
@@ -452,10 +522,13 @@ export async function processCrawlTick(
     'crawler_backoff',
     'stream_incomplete',
     'discovery_cap',
+    'plan_page_limit',
+    'render_failed',
   ])
   const coverageIncomplete =
     clientOnlyN > 0 ||
     failedN > 0 ||
+    pagesRenderFailedN > 0 ||
     notes.some((n) => enduringCodes.has(n.code)) ||
     (urlsFound > 0 && urlsDiscovered < urlsFound && done) ||
     run.isPartial
@@ -475,6 +548,8 @@ export async function processCrawlTick(
     urlsCrawled: crawledN,
     urlsFailed: failedN,
     urlsClientOnly: clientOnlyN,
+    pagesRendered: pagesRenderedN,
+    pagesRenderFailed: pagesRenderFailedN,
     urlsDiscovered,
     urlsFound,
     discoverySeeds: {

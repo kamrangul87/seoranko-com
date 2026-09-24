@@ -50,6 +50,9 @@ export type CoverageNote = {
     | 'discovery_cap'
     | 'plan_page_limit'
     | 'link_graph_expand'
+    | 'render_needed'
+    | 'render_failed'
+    | 'rendered'
   detail: string
   url?: string
 }
@@ -112,6 +115,8 @@ export type CrawlRunRecord = {
   urlsSkippedOffHost: number
   /** Cap applied at enqueue time (CRAWL_MAX_DISCOVERED and/or maxUrls). */
   urlCap: number | null
+  pagesRendered: number
+  pagesRenderFailed: number
   /** Seed breakdown for discovery reporting. */
   discoverySeeds: {
     fromRobotsSitemaps: number
@@ -139,6 +144,9 @@ export type CrawlUrlJob = {
   clientOnly: boolean
   crawlerCausedBackoff: boolean
   errorDetail: string | null
-  /** Served HTML snapshot for full-run link graph (topic 43). */
+  /** HTML snapshot for detectors (rendered when available). */
   html: string | null
+  renderMode: 'http' | 'rendered' | 'render_failed' | null
+  rawHtmlHash: string | null
+  renderedHtmlHash: string | null
 }
