@@ -7,9 +7,27 @@ import { DashboardNav } from '@/components/DashboardNav'
 import {
   canOfferFix,
   type FixFlowState,
+  type SourceTier,
   type UiFinding,
 } from '@/lib/fix-strategies/findings-ui/client'
 import { affectedUrlsForFinding } from '@/lib/fix-strategies/findings-ui/affected-urls'
+
+function sourceTierTone(tier: SourceTier): string {
+  if (tier === 'STANDARD') return 'text-emerald-800 bg-emerald-50 border-emerald-100'
+  if (tier === 'VENDOR-DOCUMENTED')
+    return 'text-sky-800 bg-sky-50 border-sky-100'
+  if (tier === 'OBSERVED') return 'text-amber-800 bg-amber-50 border-amber-100'
+  return 'text-[#6B6B6B] bg-[#F4F4F2] border-[#E8E8E4]'
+}
+
+function primarySourceForFinding(f: UiFinding) {
+  const id = f.primarySourceId
+  return (
+    (id != null ? f.sources.find((s) => s.sourceId === id) : null) ??
+    f.sources[0] ??
+    null
+  )
+}
 
 export default function FindingDetailPage() {
   const params = useParams()
@@ -80,9 +98,45 @@ export default function FindingDetailPage() {
                 <p className="text-xs uppercase tracking-wide text-[#9B9B9B] mb-1">
                   Topic {finding.topicId} · {finding.kind}
                 </p>
-                <h1 className="text-2xl font-semibold tracking-tight">
+                {finding.ownerPlainEnglish && (
+                  <p className="text-lg text-[#0F0F0F] leading-snug mb-2">
+                    {finding.ownerPlainEnglish}
+                  </p>
+                )}
+                <h1 className="text-xl font-semibold tracking-tight font-mono">
                   {finding.verdict}
                 </h1>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded border ${sourceTierTone(finding.sourceTier)}`}
+                  >
+                    {finding.sourceTier}
+                  </span>
+                  {(() => {
+                    const row = primarySourceForFinding(finding)
+                    const sid = row?.sourceId ?? finding.primarySourceId
+                    if (sid == null) return null
+                    const verified = row?.verifiedOn
+                      ? ` · verified ${row.verifiedOn}`
+                      : ''
+                    const label = `_sources.md #${sid}${verified}`
+                    if (row?.url) {
+                      return (
+                        <a
+                          href={row.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-[#FF6B2C] hover:underline"
+                        >
+                          {label}
+                        </a>
+                      )
+                    }
+                    return (
+                      <span className="text-xs text-[#6B6B6B]">{label}</span>
+                    )
+                  })()}
+                </div>
                 {(() => {
                   const urls = affectedUrlsForFinding(finding)
                   const multi = finding.rolledUp || urls.length > 1
@@ -246,6 +300,17 @@ export default function FindingDetailPage() {
                   </section>
                 )}
 
+              {finding.whyNotAutoFixed && (
+                <section className="rounded-[10px] border border-[#E8E8E4] bg-white p-5">
+                  <h2 className="text-sm font-medium mb-2">
+                    Why SEORANKO did not fix this
+                  </h2>
+                  <p className="text-[#6B6B6B] leading-relaxed">
+                    {finding.whyNotAutoFixed}
+                  </p>
+                </section>
+              )}
+
               <section className="rounded-[10px] border border-[#E8E8E4] bg-white p-5">
                 <h2 className="text-sm font-medium mb-3">Sources</h2>
                 {finding.sources.length === 0 ? (
@@ -286,7 +351,8 @@ export default function FindingDetailPage() {
                   className="text-sm text-[#6B6B6B] hover:text-[#0F0F0F]"
                   onClick={() => setShowInternal((v) => !v)}
                 >
-                  {showInternal ? 'Hide' : 'Show'} internal evidence
+                  {showInternal ? 'Hide' : 'Show'} what SEORANKO checked and left
+                  alone
                   {finding.internalEvidence.length > 0
                     ? ` (${finding.internalEvidence.length})`
                     : ''}
@@ -303,8 +369,17 @@ export default function FindingDetailPage() {
                           key={`${e.verdict}-${i}`}
                           className="rounded-md border border-[#E8E8E4] bg-[#F4F4F2] px-3 py-2"
                         >
-                          <span className="font-mono text-xs">{e.verdict}</span>
-                          <p className="text-[#6B6B6B] mt-1">{e.detail}</p>
+                          <p className="text-[#0F0F0F] leading-snug">
+                            {e.whyNotFixed ?? e.detail}
+                          </p>
+                          <p className="font-mono text-xs text-[#6B6B6B] mt-1">
+                            {e.verdict}
+                          </p>
+                          {e.detail && e.whyNotFixed && e.detail !== e.whyNotFixed && (
+                            <p className="text-[#6B6B6B] mt-1 text-xs">
+                              {e.detail}
+                            </p>
+                          )}
                         </li>
                       ))
                     )}

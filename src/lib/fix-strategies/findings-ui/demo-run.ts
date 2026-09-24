@@ -4,9 +4,25 @@
  */
 
 import { classifySurfaceClass, classifyVerdictBucket } from './buckets'
-import { sourcesForDossier } from './sources'
+import {
+  ownerPlainEnglish,
+  primarySourceIdForTopic,
+  sourceTierForTopic,
+  whyFindingNotAutoFixed,
+  whyNotFixedOrFallback,
+} from './owner-copy'
+import { sourcesForTopic } from './sources'
 import { dossierSlugForTopic } from './topic-registry'
-import type { UiFinding } from './types'
+import type { InternalEvidenceItem, UiFinding } from './types'
+
+function withWhyNotFixed(
+  items: Array<Omit<InternalEvidenceItem, 'whyNotFixed'> & { whyNotFixed?: string | null }>,
+): InternalEvidenceItem[] {
+  return items.map((e) => ({
+    ...e,
+    whyNotFixed: e.whyNotFixed ?? whyNotFixedOrFallback(e.verdict),
+  }))
+}
 
 function buildFinding(
   partial: Omit<
@@ -16,6 +32,10 @@ function buildFinding(
     | 'sources'
     | 'dossierSlug'
     | 'reportOnly'
+    | 'ownerPlainEnglish'
+    | 'sourceTier'
+    | 'primarySourceId'
+    | 'whyNotAutoFixed'
   > & { reportOnly?: boolean },
 ): UiFinding {
   const dossierSlug = dossierSlugForTopic(partial.topicId)
@@ -33,16 +53,30 @@ function buildFinding(
   // Informational force
   const forcedReportOnly =
     bucket === 'informational' ? true : reportOnly
+  const surfaceClass = classifySurfaceClass(partial.verdict, {
+    autoFixable: partial.autoFixable,
+    reportOnly: forcedReportOnly,
+  })
   return {
     ...partial,
     reportOnly: forcedReportOnly,
     bucket,
-    surfaceClass: classifySurfaceClass(partial.verdict, {
+    surfaceClass,
+    dossierSlug,
+    sources: sourcesForTopic(
+      partial.topicId,
+      dossierSlug,
+      primarySourceIdForTopic(partial.topicId),
+    ),
+    internalEvidence: withWhyNotFixed(partial.internalEvidence),
+    ownerPlainEnglish: ownerPlainEnglish(partial.verdict),
+    sourceTier: sourceTierForTopic(partial.topicId),
+    primarySourceId: primarySourceIdForTopic(partial.topicId),
+    whyNotAutoFixed: whyFindingNotAutoFixed({
       autoFixable: partial.autoFixable,
       reportOnly: forcedReportOnly,
+      surfaceClass,
     }),
-    dossierSlug,
-    sources: sourcesForDossier(dossierSlug),
   }
 }
 

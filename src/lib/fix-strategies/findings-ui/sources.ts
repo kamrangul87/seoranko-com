@@ -81,6 +81,37 @@ export function sourcesForDossier(
   }))
 }
 
+/** Look up a single _sources.md row by id. */
+export function sourceById(sourceId: number | null): SourceCitation | null {
+  if (sourceId == null) return null
+  const row = loadSourceRows().find((r) => r.sourceId === sourceId)
+  if (!row) return null
+  return {
+    sourceId: row.sourceId,
+    url: row.url,
+    section: row.section,
+    requirement: row.requirement,
+    verifiedOn: row.verifiedOn,
+  }
+}
+
+/**
+ * Dossier sources with the topic’s preferred _sources.md row forced in front
+ * when known (so UI tier links always resolve).
+ */
+export function sourcesForTopic(
+  topicId: string,
+  dossierSlug: string | null,
+  primarySourceId: number | null,
+  limit = 3,
+): SourceCitation[] {
+  const base = sourcesForDossier(dossierSlug, limit)
+  const primary = sourceById(primarySourceId)
+  if (!primary) return base
+  const rest = base.filter((s) => s.sourceId !== primary.sourceId)
+  return [primary, ...rest].slice(0, Math.max(limit, 1))
+}
+
 /** Test helper — inject parsed rows without reading disk. */
 export function _setSourceRowsForTest(rows: SourceCitationRow[] | null): void {
   cachedRows = rows
