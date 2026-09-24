@@ -166,4 +166,7 @@ export type CrawlUrlJob = {
   renderMode: 'http' | 'rendered' | 'render_failed' | null
   rawHtmlHash: string | null
   renderedHtmlHash: string | null
+  /** Set when status transitions to crawled/failed/client_only. Topic 3's
+   * persistent-5xx cross-run comparison needs this real timestamp. */
+  processedAt: string | null
 }

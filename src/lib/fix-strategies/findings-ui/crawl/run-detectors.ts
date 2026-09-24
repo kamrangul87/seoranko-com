@@ -136,12 +136,13 @@ function mapFetchAttempt(outcome: FetchOutcome): FetchAttemptRecord {
       status: outcome.status,
       kind: 'http',
       headers: outcome.headers,
+      observedAtMs: outcome.observedAtMs,
     }
   }
   if (outcome.kind === 'network-error') {
-    return { status: null, kind: 'network' }
+    return { status: null, kind: 'network', observedAtMs: outcome.observedAtMs }
   }
-  return { status: null, kind: outcome.kind }
+  return { status: null, kind: outcome.kind, observedAtMs: outcome.observedAtMs }
 }
 
 function ingestArray(
@@ -339,9 +340,12 @@ function takeBuckets(
  * PER-PAGE detectors across a chunk of crawled pages (same origin).
  * WHOLE-SITE detectors are deliberately excluded — see runWholeSiteDetectorsOnCrawl.
  */
+export type PriorFiveXXObservation = { status: number | null; observedAtMs: number }
+
 export async function runDetectorsOnPages(
   origin: string,
   pages: CrawledPage[],
+  priorFiveXXByUrl?: Map<string, PriorFiveXXObservation>,
 ): Promise<DetectorEmit[]> {
   void origin
   const out: DetectorEmit[] = []
@@ -535,6 +539,7 @@ export async function runDetectorsOnPages(
           pageUrl,
           attempts: p.evidence.attempts.map(mapFetchAttempt),
           liveStatus: p.status,
+          priorObservation: priorFiveXXByUrl?.get(pageUrl) ?? null,
         }),
         out,
         pageUrl,

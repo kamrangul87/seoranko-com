@@ -76,6 +76,15 @@ export type DetectTopic3Options = {
   /** Live status when contrasting with GSC (defaults to last attempt). */
   liveStatus?: number | null
   nowMs?: number
+  /**
+   * The most recent PRIOR crawl run's recorded status for this exact URL,
+   * if that run also observed a 5xx here. The live re-fetch pair alone
+   * (seconds apart) can never span persistent5xxObservationWindowMs
+   * (48h) — this is the real cross-run signal that makes persistent-5xx
+   * reachable from actual crawl data instead of only from a synthetic
+   * test that fabricates both attempts' observedAtMs.
+   */
+  priorObservation?: { status: number | null; observedAtMs: number } | null
 }
 
 function is5xxClass(a: FetchAttemptRecord): boolean {
@@ -266,21 +275,43 @@ export function detect5xxResponses(
       retryAfterMsHonoured,
     })
 
-    // persistent-5xx only when product window is set AND satisfied
-    if (
-      typeof windowMs === 'number' &&
-      windowMs > 0 &&
+    // persistent-5xx only when product window is set AND satisfied — by
+    // either of two independent sources of a real time span:
+    //  (a) the caller's own attempts already span the window (a caller
+    //      that itself polls over real time, not just the topic-68
+    //      re-fetch pair), or
+    //  (b) a prior crawl run's observation of this same URL, supplied by
+    //      the caller as priorObservation — this is what the live crawl
+    //      pipeline actually wires in, since one run's re-fetch pair is
+    //      always seconds apart, never 48h.
+    const windowSet = typeof windowMs === 'number' && windowMs > 0
+    const spanFromAttempts =
+      windowSet &&
       first.observedAtMs != null &&
       second.observedAtMs != null &&
       Math.abs(second.observedAtMs - first.observedAtMs) >= windowMs
-    ) {
+
+    const prior = options.priorObservation
+    const priorIs5xx =
+      prior != null && prior.status != null && prior.status >= 500 && prior.status < 600
+    const spanFromPriorRun =
+      windowSet &&
+      priorIs5xx &&
+      second.observedAtMs != null &&
+      Math.abs(second.observedAtMs - prior!.observedAtMs) >= windowMs
+
+    if (spanFromAttempts || spanFromPriorRun) {
       findings.push({
         kind: 'status/5xx',
         verdict: 'report-persistent-5xx',
         classification: 'persistent-5xx',
         severity: null,
         pageUrl: options.pageUrl,
-        detail: `persistent-5xx: stable across observation window (${windowMs}ms) — product decision`,
+        detail: spanFromPriorRun
+          ? `persistent-5xx: also 5xx (${prior!.status}) in a prior crawl run, ${Math.round(
+              Math.abs((second.observedAtMs ?? 0) - prior!.observedAtMs) / 3_600_000,
+            )}h apart — spans the ${Math.round(windowMs / 3_600_000)}h observation window`
+          : `persistent-5xx: stable across observation window (${windowMs}ms) — product decision`,
         autoFixable: false,
         statuses,
         gscCrawlDate: null,

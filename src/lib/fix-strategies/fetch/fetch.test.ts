@@ -244,6 +244,7 @@ describe('topic 67 stream-completion detector guard', () => {
       body: '<html></html>',
       url: 'https://example.com/',
       streamComplete: false,
+      observedAtMs: 0,
     }
     const gate = requireCompleteStream(outcome)
     expect(gate.refused).toBe(true)

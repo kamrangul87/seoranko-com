@@ -28,12 +28,17 @@ export type FetchOutcome =
       url: string
       /** Topic 67: true only when the response stream was read to completion. */
       streamComplete: boolean
+      /** Wall-clock ms (deps.now()) when this attempt completed. Topic 3's
+       * persistent-5xx window needs a real timestamp, not just a relative
+       * ordering, to compare against an observation from a prior crawl run. */
+      observedAtMs: number
     }
   | {
       kind: 'timeout' | 'connection-reset' | 'dns-failure' | 'network-error'
       error: string
       url: string
       streamComplete: false
+      observedAtMs: number
     }
 
 export type EvidenceResult =

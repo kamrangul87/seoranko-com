@@ -91,6 +91,7 @@ export async function fetchUrl(
       body,
       url,
       streamComplete,
+      observedAtMs: deps.now(),
     }
   } catch (err) {
     return {
@@ -98,6 +99,7 @@ export async function fetchUrl(
       error: err instanceof Error ? err.message : String(err),
       url,
       streamComplete: false,
+      observedAtMs: deps.now(),
     }
   } finally {
     clearTimeout(timer)

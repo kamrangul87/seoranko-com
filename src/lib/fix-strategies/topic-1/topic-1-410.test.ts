@@ -90,6 +90,7 @@ describe('detectGoneAnchorsFromFetch (topic 67 gate)', () => {
       body: htmlFixture(),
       url: PAGE_URL,
       streamComplete: false,
+      observedAtMs: 0,
     }
     const result = await detectGoneAnchorsFromFetch(incomplete, PAGE_URL, deps)
     expect(result.refused).toBe(true)

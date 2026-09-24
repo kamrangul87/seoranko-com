@@ -254,6 +254,7 @@ export function createMemoryFindingsStore(): FindingsStore {
           renderMode: null,
           rawHtmlHash: null,
           renderedHtmlHash: null,
+          processedAt: null,
         }
         // De-dupe by run+url
         const exists = Array.from(state().jobs.values()).some(
@@ -286,6 +287,7 @@ export function createMemoryFindingsStore(): FindingsStore {
           renderMode: null,
           rawHtmlHash: null,
           renderedHtmlHash: null,
+          processedAt: null,
         })
         added++
       }
@@ -306,7 +308,11 @@ export function createMemoryFindingsStore(): FindingsStore {
     async updateUrlJob(jobId, patch) {
       const cur = state().jobs.get(jobId)
       if (!cur) return
-      state().jobs.set(jobId, { ...cur, ...patch })
+      const processedAt =
+        patch.status === 'crawled' || patch.status === 'failed' || patch.status === 'client_only'
+          ? new Date().toISOString()
+          : cur.processedAt
+      state().jobs.set(jobId, { ...cur, ...patch, processedAt })
     },
 
     async listJobsForRun(runId) {
