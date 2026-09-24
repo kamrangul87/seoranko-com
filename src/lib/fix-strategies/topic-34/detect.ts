@@ -27,6 +27,8 @@ export type Topic34Verdict =
   | 'suppress-article-no-inlanguage'
   | 'suppress-nested-lang-override'
   | 'suppress-no-authoritative-source'
+  /** 3xx Location points at a different host — do not assess lang here. */
+  | 'suppress-cross-host-redirect'
 
 export type Topic34Finding = {
   kind: 'head/lang-declaration'
@@ -57,6 +59,31 @@ export type DetectTopic34Options = {
   artefactPath?: string
   isGenerated?: boolean
   generatorPath?: string | null
+  /**
+   * When the crawl response is a 3xx whose Location is on another host,
+   * lang must not be assessed on this URL (final host owns the document).
+   * Absolute URL of the Location target when that is cross-host.
+   */
+  crossHostRedirectLocation?: string | null
+}
+
+/** True when Location resolves to a different host than `pageUrl`. */
+export function crossHostRedirectLocation(
+  pageUrl: string,
+  status: number | null | undefined,
+  locationHeader: string | null | undefined,
+): string | null {
+  if (status == null || status < 300 || status >= 400) return null
+  const raw = locationHeader?.trim()
+  if (!raw) return null
+  try {
+    const from = new URL(pageUrl)
+    const to = new URL(raw, from)
+    if (to.host.toLowerCase() === from.host.toLowerCase()) return null
+    return to.href
+  } catch {
+    return null
+  }
 }
 
 export function detectLangDeclaration(
@@ -71,6 +98,18 @@ export function detectLangDeclaration(
   })
   const insp = options.inspection
   const auth = options.authoritativeLocale?.trim() || null
+
+  // Cross-host 3xx: the document (and lang) live on the Location host.
+  // Assessing lang on the redirect response is a false positive
+  // (e.g. autodun.com/mot-predictor → mot.autodun.com with lang="en").
+  const crossHost = options.crossHostRedirectLocation?.trim() || null
+  if (crossHost) {
+    suppressed.push({
+      verdict: 'suppress-cross-host-redirect',
+      detail: `Cross-host redirect to ${crossHost} — lang is not assessed on this URL.`,
+    })
+    return { findings, suppressed }
+  }
 
   const make = (
     verdict: Topic34Verdict,

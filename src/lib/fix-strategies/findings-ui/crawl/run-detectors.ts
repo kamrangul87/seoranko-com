@@ -55,7 +55,7 @@ import { detectTagsOutsideHead } from '@/lib/fix-strategies/topic-29'
 import { detectTitleMissingOrMalformed } from '@/lib/fix-strategies/topic-30'
 import { detectMetaDescriptionIssues } from '@/lib/fix-strategies/topic-31'
 import { detectDuplicateTitlesDescriptions } from '@/lib/fix-strategies/topic-33'
-import { detectLangDeclaration } from '@/lib/fix-strategies/topic-34'
+import { detectLangDeclaration, crossHostRedirectLocation } from '@/lib/fix-strategies/topic-34'
 import { detectRequiredPropertiesAbsent } from '@/lib/fix-strategies/topic-35'
 import { detectSchemaUrlsDontResolve } from '@/lib/fix-strategies/topic-36'
 import { detectInvalidOrMismatchedType } from '@/lib/fix-strategies/topic-37'
@@ -579,7 +579,14 @@ export async function runDetectorsOnPages(
     takeBuckets(
       '34',
       'head/missing-or-wrong-lang',
-      detectLangDeclaration({ inspection: head }),
+      detectLangDeclaration({
+        inspection: head,
+        crossHostRedirectLocation: crossHostRedirectLocation(
+          p.requestedUrl || p.finalUrl,
+          p.status,
+          p.headers.get('location') ?? p.headers.get('Location'),
+        ),
+      }),
       out,
       pageUrl,
     )
