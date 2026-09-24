@@ -1,0 +1,320 @@
+# Findings owner-copy — verdict → sentence
+
+Fixed text resolved at read time. Not model-generated. Must not claim ranking effects.
+
+## Plain English (149 listable verdicts)
+
+- `auto-absolutize-relative` — A relative URL should be rewritten as an absolute URL.
+- `auto-add-self-canonical` — This page does not declare its preferred URL, so Google may pick a different version.
+- `auto-canonical-annotation` — A canonical annotation can be applied mechanically.
+- `auto-collapse-redundant` — A redundant annotation can be collapsed mechanically.
+- `auto-fix-absolutize-relative` — A relative URL should be rewritten as an absolute URL.
+- `auto-fix-case-convention` — URL or tag casing can be normalized mechanically.
+- `auto-fix-en-uk-to-en-gb` — The language tag en-UK should be corrected to en-GB.
+- `auto-fix-generator-bug` — A known generator bug can be corrected mechanically.
+- `auto-fix-inverted-order` — An inverted language-region order can be corrected mechanically.
+- `auto-fix-repoint-redirect` — A redirect target can be repointed mechanically.
+- `auto-fix-x-default-strip-language` — x-default should not carry a language code — it can be stripped mechanically.
+- `auto-fixable` — SEORANKO can apply a mechanical fix for this issue.
+- `auto-redirect` — This URL should redirect to the preferred version.
+- `auto-remove-body-misplaced` — An important tag is outside the document head and should be moved or removed from the body.
+- `auto-remove-confirmed-4xx` — Your sitemap points Google at a page that no longer exists.
+- `auto-remove-crawl-delay` — A crawl-delay directive can be removed mechanically.
+- `auto-remove-header-single-route` — A single-route header directive can be removed mechanically.
+- `auto-remove-injected-noindex` — An injected noindex directive can be removed mechanically.
+- `auto-remove-repo-noindex` — A repository noindex directive can be removed mechanically.
+- `auto-remove-static-4xx` — A static reference to a 4xx URL can be removed mechanically.
+- `auto-replace-single-hop-redirect` — A single-hop redirect can be replaced with a direct link to the final URL.
+- `auto-repoint-redirect` — A redirect should be updated to point at the final destination.
+- `auto-rewrite` — An internal link points through a redirect instead of straight at the final URL.
+- `auto-self-canonical` — This page should declare itself as the preferred URL.
+- `auto-set-dimensions` — Your page may visibly jump around while images load.
+- `auto-set-text-plain` — The response should be served as text/plain.
+- `client-only-pre-hydration` — Links or content appear only after JavaScript hydration, so a raw crawl sees an incomplete page.
+- `client_only-limited` — Some pages only expose links after JavaScript — the link graph from raw HTML is incomplete.
+- `critical-5xx-complete-disallow` — robots.txt completely disallows crawling while the server also returns 5xx — the site is effectively unreachable to crawlers.
+- `critical-canonical-casualty` — A canonical target is unavailable, so the preferred-URL signal is broken.
+- `critical-hreflang-casualty` — An hreflang target is unavailable, so the language cluster is broken.
+- `d17-faq-markup-not-visible` — You have FAQ markup for content that isn’t on the page — Google’s guidelines prohibit marking up content readers cannot see.
+- `finding-absent-duplicates-proven` — You are telling Google two different things about which version of this page is the real one.
+- `finding-body-misplaced` — An important head tag (such as canonical) appears in the body instead of the head.
+- `finding-canonical-chain` — The canonical points at a URL that itself canonicalizes elsewhere — a chain of preferred URLs.
+- `finding-conflicting-return-target` — Language alternates disagree on where the return link should point.
+- `finding-dead-4xx` — Your sitemap or canonical points Google at a page that no longer exists.
+- `finding-duplicate` — The same content is available at more than one URL shape.
+- `finding-header-noindex-surprise` — An HTTP header applies noindex in a way that may surprise the page author.
+- `finding-hreflang-with-media` — An hreflang annotation includes a media attribute Google does not use for language targeting.
+- `finding-invalid-code` — A language or region code in hreflang is not a valid BCP 47 tag.
+- `finding-link-graph-orphan` — No other page on your site links to this URL in crawlable HTML.
+- `finding-loop` — A redirect points back at itself (or in a circle), so crawlers never reach content.
+- `finding-meta-stricter` — Meta robots is stricter than the HTTP header — the stricter rule wins.
+- `finding-method-cluster-divergence` — Different hreflang methods on this site disagree about the language cluster.
+- `finding-missing-location` — A redirect response is missing its Location header, so the destination is unknown.
+- `finding-missing-return` — A language alternate does not link back — hreflang clusters should be reciprocal.
+- `finding-missing-self-reference` — A language cluster is missing a self-referencing hreflang entry.
+- `finding-nofollow-conflict` — Nofollow directives disagree between meta and header.
+- `finding-orphan-in-sitemap-lower` — No crawlable internal links point here; it is listed in the sitemap, which helps discovery but does not fix the link graph.
+- `finding-orphan-onclick-only` — This page is only reachable via a non-crawlable control (onclick / javascript:), not a real link.
+- `finding-self-redirect` — This URL redirects to itself, so crawlers never reach content.
+- `finding-soft-404` — The page returns 200 but behaves like a soft 404.
+- `finding-soft-404-injected` — A soft-404-like response appears to be injected at runtime.
+- `finding-srcset-ratio-mismatch` — Responsive image candidates disagree on aspect ratio, which can cause layout jumps.
+- `finding-target-5xx-route-topic-3` — An hreflang alternate points at a URL that returns a server error.
+- `finding-terminal-4xx` — A redirect ends on a page that does not exist.
+- `finding-wrong-ratio` — An image’s width and height do not match its real proportions, which can distort layout.
+- `hard-failure-over-10` — Hard fetch failures exceeded the threshold for this check.
+- `high-description-casualty` — A meta description target or related URL is unavailable.
+- `honour-retry-after` — The server asked crawlers to wait (Retry-After) — SEORANKO will respect that.
+- `human-review` — This finding needs human review before any change.
+- `human-review-5xx-stableAcrossRefetch` — A 5xx response stayed stable across refetches — confirm whether the origin is down or misconfigured.
+- `human-review-atomic-locale-removal` — Removing a locale annotation would be atomic across the cluster — confirm first.
+- `human-review-blast-radius` — A fix here would touch many pages — review the blast radius before changing.
+- `human-review-campaign-landing` — This looks like a campaign landing page — confirm the intended indexability.
+- `human-review-canonical-elsewhere` — This page points its canonical at a different URL — confirm that is intentional.
+- `human-review-conditional-noindex` — noindex appears to be conditional — confirm when it should apply.
+- `human-review-conditional-redirect` — A redirect appears conditional — confirm when it should apply.
+- `human-review-conflict` — Conflicting signals need your judgment before any automatic change.
+- `human-review-conflicting` — Conflicting signals need your judgment before any automatic change.
+- `human-review-cross-domain` — A cross-domain canonical needs your judgment before any change.
+- `human-review-cross-locale-canonical` — A locale page canonicalizes across languages — confirm that is intentional.
+- `human-review-date-ordering` — Published and modified dates are in an order that looks inconsistent.
+- `human-review-declared-4xx` — Your sitemap points Google at a page that no longer exists.
+- `human-review-duplicate-conflicting` — Duplicate URL variants conflict — confirm which shape to keep.
+- `human-review-entity-url-mismatch` — Structured data names a different URL than the page carrying the markup — that may be deliberate syndication, so it needs your judgment.
+- `human-review-es-419` — The es-419 locale tag needs confirmation for your market setup.
+- `human-review-event-date-ordering` — Event start and end dates in markup look inconsistent.
+- `human-review-future-datePublished` — The published date in markup is in the future.
+- `human-review-https-exception` — An HTTP/HTTPS exception needs your judgment.
+- `human-review-indeterminate` — SEORANKO cannot determine the correct fix from available evidence.
+- `human-review-indeterminate-noindex` — SEORANKO cannot tell from the repo alone whether noindex applies live.
+- `human-review-intermediate-work` — This looks like intermediate work in progress — confirm before changing production.
+- `human-review-item-count-mismatch` — Structured data counts items differently than what appears on the page.
+- `human-review-layout-cascade` — A shared layout may be cascading this issue across many pages.
+- `human-review-malformed` — Markup looks malformed and needs a human decision on the intended fix.
+- `human-review-multi-site` — This signal spans more than one site configuration — needs your judgment.
+- `human-review-no-height-auto` — An image is missing a fixed height, so the page may jump as it loads.
+- `human-review-noindex-in-robots` — robots.txt or meta robots blocks indexing in a way that needs review.
+- `human-review-non-xml` — A declared sitemap is not served as XML.
+- `human-review-not-canonical` — This URL is not the preferred (canonical) version of the page.
+- `human-review-outside-repo` — The change lives outside the connected repository, so SEORANKO cannot apply it automatically.
+- `human-review-permanent-302` — A 302 looks permanent in practice — confirm whether it should be a 301.
+- `human-review-preferred-absent` — No preferred URL shape could be determined from site signals.
+- `human-review-preferred-conflict` — Site signals disagree on which URL shape should be preferred.
+- `human-review-preferred-unresolved` — Preferred URL signals could not be resolved cleanly.
+- `human-review-rating-inconsistent` — Rating values in markup do not match what the page shows.
+- `human-review-region-only` — A region-only hreflang code needs confirmation.
+- `human-review-repo-noindex` — The repository declares noindex — confirm that matches live intent.
+- `human-review-repo-noindex-contradiction` — Repo and live noindex signals disagree.
+- `human-review-repoint` — A URL should be repointed — confirm the intended destination.
+- `human-review-repoint-or-remove` — Either repoint or remove this entry — confirm which.
+- `human-review-robots-disallowed` — robots.txt disallows a path that may need to stay crawlable.
+- `human-review-shared-nav` — A shared navigation component is involved — a fix may affect the whole site.
+- `human-review-size-limit` — A sitemap size or URL-count limit may be exceeded — confirm how to split it.
+- `human-review-soft-404` — This page may be a soft 404 — confirm whether it should return a real 404 or show content.
+- `human-review-stateful` — The outcome depends on request state — SEORANKO will not auto-apply a fix.
+- `human-review-structured-vs-structured` — Two structured-data blocks on the page disagree with each other.
+- `human-review-temporary-redirect` — A redirect looks temporary — confirm it should stay temporary.
+- `human-review-temporary-to-unavailable` — A temporary redirect points at an unavailable page.
+- `human-review-unreadable-dimensions` — SEORANKO could not read this image’s size, so layout stability is unclear.
+- `human-review-unstable` — Signals were unstable across checks — confirm before changing.
+- `human-review-would-drop-query-or-fragment` — Normalizing this URL would drop a query or fragment that may matter.
+- `indeterminate-generateMetadata` — SEORANKO cannot prove the live metadata because it is generated at request time.
+- `indeterminate-header-scope` — SEORANKO cannot prove the live outcome from the repo alone because header scope is unclear.
+- `indeterminate-middleware` — SEORANKO cannot prove the live outcome from the repo alone because middleware may change it.
+- `informational-deprecated-type` — This page uses a structured-data type Google no longer supports for rich results.
+- `informational-generated-only` — Content appears only in generated output, not in the static source checked here.
+- `informational-no-casualty` — No unavailable-target casualty was found for this check.
+- `informational-no-duplicates` — No duplicate titles or descriptions were found for this check.
+- `informational-recommended-absent` — Recommended structured-data fields are missing — optional, but useful for rich results.
+- `informational-redundant` — A redundant annotation was noted for awareness.
+- `low-lang-inlanguage-disagree` — The HTML lang attribute and schema inLanguage disagree.
+- `low-robots-casualty` — A robots-related URL target is unavailable.
+- `metric-click-depth` — Some pages sit many clicks from the homepage in the crawlable link graph.
+- `metric-pagination-pattern` — Pagination patterns were measured in the link graph — awareness only.
+- `moderate-og-casualty` — An Open Graph URL target is unavailable.
+- `moderate-out-of-scope` — Your sitemap lists a URL on a different host than this site.
+- `not-mechanically-fixable-5xx` — A server error cannot be fixed by editing HTML or config in the repo.
+- `observation-38b` — Structured data and visible content disagree on a detail Google may check.
+- `observation-potential-soft-404` — The page returns 200 but looks empty or error-like — Google may treat it as a soft 404.
+- `potential-soft-404-2b` — The page returns 200 but may look like an error page to crawlers.
+- `potential-soft-404-unprovable` — A soft-404 suspicion could not be proven from the available signals.
+- `record-connection-failure` — SEORANKO could not connect to this URL during the check.
+- `record-timeout` — SEORANKO timed out waiting for this URL during the check.
+- `record-transient` — SEORANKO saw a transient failure fetching this URL.
+- `reject-homepage-repoint` — SEORANKO will not automatically repoint the homepage canonical.
+- `report-blocked-resource` — robots.txt blocks a CSS or script this page needs to render.
+- `report-client-only-graph` — The crawl could not build a full link graph because content arrives only after rendering.
+- `report-historical-gsc` — This is historical Search Console context, not a live crawl defect.
+- `report-layout-cascade` — A shared layout appears to cascade this issue across pages.
+- `report-layout-cascade-source` — This shared layout is the likely source of a cascading issue.
+- `report-omission` — An indexable page is missing from your sitemap.
+- `report-omission-orphaned` — An indexable page is missing from both your sitemap and your internal links.
+- `report-only-12b` — This duplicate-URL variant is reported for awareness only.
+- `report-persistent-5xx` — This URL keeps returning a server error across checks.
+- `report-sitewide-description` — A sitewide meta description is reused across pages.
+- `report-stable-across-refetch` — The issue remained stable across refetch — reported for awareness.
+
+## Why SEORANKO did not fix (115 suppress/route/skip/ok)
+
+- `ok` — Check passed — nothing to fix.
+- `ok-already-normalises` — Check passed — the URL already normalises correctly.
+- `ok-no-redirect` — Check passed — nothing to rewrite; the URL does not redirect.
+- `ok-single-hop` — Check passed — the redirect is a single hop within policy.
+- `route-topic-1-non-200` — Routed to topic 1 (non-200 / broken targets) — handle it there, not under this detector.
+- `route-topic-13-18-canonical-group` — Routed to topic 13-18 (canonical group) — handle it there, not under this detector.
+- `route-topic-14` — Routed to topic 14 (canonical to non-200) — handle it there, not under this detector.
+- `route-topic-14-injected` — Routed to topic 14 (canonical to non-200) — handle it there, not under this detector.
+- `route-topic-16` — Routed to topic 16 (HTML vs HTTP canonical disagreement) — handle it there, not under this detector.
+- `route-topic-17` — Routed to topic 17 (multiple canonical tags) — handle it there, not under this detector.
+- `route-topic-17-multiple-head` — Routed to topic 17 (multiple canonical tags) — handle it there, not under this detector.
+- `route-topic-18-cross-domain` — Routed to topic 18 (cross-domain canonical) — handle it there, not under this detector.
+- `route-topic-20-directive-conflict` — Routed to topic 20 (robots directive conflict) — handle it there, not under this detector.
+- `route-topic-22-robots-unreachable` — Routed to topic 22 (robots unreachable / invalid) — handle it there, not under this detector.
+- `route-topic-24-relative-or-broken` — Routed to topic 24 (sitemap missing or broken) — handle it there, not under this detector.
+- `route-topic-29` — Routed to topic 29 (tags outside head) — handle it there, not under this detector.
+- `route-topic-29-body-annotation` — Routed to topic 29 (tags outside head) — handle it there, not under this detector.
+- `route-topic-2a-injected` — Routed to topic 2a (injected soft-404 / status handling) — handle it there, not under this detector.
+- `route-topic-3-persistent-5xx` — Routed to topic 3 (persistent or transient 5xx) — handle it there, not under this detector.
+- `route-topic-3-transient-5xx` — Routed to topic 3 (persistent or transient 5xx) — handle it there, not under this detector.
+- `route-topic-33-sitewide` — Routed to topic 33 (duplicate titles / descriptions) — handle it there, not under this detector.
+- `route-topic-39-deprecated` — Routed to topic 39 (deprecated structured-data types) — handle it there, not under this detector.
+- `route-topic-4-long-chain` — Routed to topic 4 (redirect chains) — handle it there, not under this detector.
+- `route-topic-4-max-hops` — Routed to topic 4 (redirect chains) — handle it there, not under this detector.
+- `route-topic-4-redirect-chain` — Routed to topic 4 (redirect chains) — handle it there, not under this detector.
+- `route-topic-43-depth-undefined` — Routed to topic 43 (orphan pages / link-graph depth) — handle it there, not under this detector.
+- `route-topic-48-unhealthy-target` — Routed to topic 48 (hreflang unhealthy targets) — handle it there, not under this detector.
+- `route-topic-5-loop` — Routed to topic 5 (redirect loops / missing Location) — handle it there, not under this detector.
+- `route-topic-5-missing-location` — Routed to topic 5 (redirect loops / missing Location) — handle it there, not under this detector.
+- `route-topic-7-terminal-not-200` — Routed to topic 7 (redirect targets that are not 200) — handle it there, not under this detector.
+- `route-topic-8-12-url-variants` — Routed to topic 8-12 (duplicate URL variants) — handle it there, not under this detector.
+- `route-topic-8-slash-mismatch` — Routed to topic 8 (trailing-slash / URL-shape duplicates) — handle it there, not under this detector.
+- `route-topic-8-trailing-slash-bounce` — Routed to topic 8 (trailing-slash / URL-shape duplicates) — handle it there, not under this detector.
+- `skip-external` — External destinations are out of scope for this internal-link check.
+- `skip-external-destination` — External destinations are out of scope for this internal-link check.
+- `skip-not-redirect` — The URL does not redirect — nothing to rewrite.
+- `skip-svg-viewbox` — SVG with a viewBox is exempt from width/height pixel requirements.
+- `skip-unstable` — The fetch was unstable across re-checks — SEORANKO will not act on a flaky signal.
+- `suppress-404-normal` — A robots.txt 404 is normal and means crawling is allowed.
+- `suppress-allowed-by-allow-rule` — An Allow rule explicitly permits this path — left alone.
+- `suppress-analytics` — Blocked analytics scripts are ignored — they are not essential for rendering content.
+- `suppress-article-no-inlanguage` — inLanguage is not required on Article rich results — absence is not a finding.
+- `suppress-article-recommended-only` — Only a recommended Article field is missing — not treated as a finding.
+- `suppress-at-id-identifier` — @id is being used as an identifier in an accepted way — left alone.
+- `suppress-auth-token-param` — Auth-token query parameters are ignored for this duplicate-URL check.
+- `suppress-availability-5xx` — A 5xx availability problem is recorded elsewhere — suppressed here to avoid double-counting.
+- `suppress-canonical-elsewhere` — Canonical points elsewhere by design for this check — left alone.
+- `suppress-cross-domain-unreachable` — A cross-domain target could not be verified — not raised as a same-site finding.
+- `suppress-cross-origin` — Cross-origin resources are out of scope for this check.
+- `suppress-dateModified-equals-datePublished` — dateModified equals datePublished — valid and left alone.
+- `suppress-deliberate-exclusion` — The exclusion looks deliberate — SEORANKO will not override it.
+- `suppress-different-content` — The URL variants serve different content, so they are not duplicates.
+- `suppress-disallow` — robots.txt Disallow covers this path — indexability findings are not raised.
+- `suppress-empty-lang-valid` — lang="" is valid per the HTML specification — not treated as missing.
+- `suppress-format-only-date-diff` — Dates differ only in format, not in meaning — left alone.
+- `suppress-genuine-temporary` — The redirect looks intentionally temporary, so it was not flipped to permanent.
+- `suppress-header-only-ok` — Header-only signalling is acceptable for this check — left alone.
+- `suppress-header-present` — The required header is present — left alone.
+- `suppress-healthy-sitemap-only` — The URL is healthy and listed only via sitemap — not treated as a link-graph orphan.
+- `suppress-healthy-target` — The target URL is healthy — no finding.
+- `suppress-homepage` — The site root is excluded from orphan checks — a homepage with no inbound links is normal.
+- `suppress-hub-pattern-permitted` — A hub/pagination pattern is permitted here — left alone.
+- `suppress-iframe-srcdoc` — iframe srcdoc content is out of scope for this check.
+- `suppress-incomplete-conditions` — Not all conditions for a finding were met — left alone.
+- `suppress-index-declares-children` — The sitemap index already declares its children — left alone.
+- `suppress-infer-from-name` — The type can be inferred from the name — not raised as missing.
+- `suppress-js-rendered-inbound` — Inbound links appear after rendering — not treated as a link-graph orphan.
+- `suppress-list-item-url-expected` — ListItem url shape is expected here — left alone.
+- `suppress-listed-in-index-child` — The URL is listed in a sitemap-index child — left alone.
+- `suppress-live-external-profile` — A live external profile URL is accepted — left alone.
+- `suppress-multiple-records-ok` — Multiple records of this type are allowed — left alone.
+- `suppress-nested-lang-override` — A nested lang override is valid — left alone.
+- `suppress-no-authoritative-source` — No authoritative source was available to judge this — left alone.
+- `suppress-no-declaration` — No sitemap was declared, so “broken declared sitemap” does not apply.
+- `suppress-no-permanence-evidence` — There is not enough evidence the redirect is permanent — left alone.
+- `suppress-no-robots-inspection` — No robots inspection data was available — left alone.
+- `suppress-no-sitemap` — No sitemap exists for this site — sitemap-entry checks do not apply.
+- `suppress-noindex` — The page declares noindex, so SEO indexability findings are not raised.
+- `suppress-non-crawlable-does-not-reduce-depth` — Non-crawlable controls do not reduce click depth — left alone.
+- `suppress-non-googlebot-ua` — A non-Googlebot user-agent rule is out of scope for this Google-oriented check.
+- `suppress-non-html` — The response is not HTML, so HTML-only checks do not apply.
+- `suppress-non-indexable` — The page is not indexable, so this check does not apply.
+- `suppress-non-indexable-referrer` — The referring page is not indexable — left alone for this check.
+- `suppress-non-primary-entity-url` — A non-primary entity url is accepted here — left alone.
+- `suppress-not-200` — The URL is not HTTP 200, so this check does not apply.
+- `suppress-not-applicable` — This check does not apply to this page.
+- `suppress-not-identical` — The variants are not identical — not treated as duplicates.
+- `suppress-not-indexable` — The page is not indexable (noindex or non-200), so this check does not apply.
+- `suppress-not-internally-linked` — The page is not internally linked — this check does not apply.
+- `suppress-origin-still-exists` — The origin URL still exists — not treated as a broken redirect source.
+- `suppress-paginated` — Title/description duplication across pagination is expected and suppressed.
+- `suppress-parameterised` — Parameterised URLs are handled under a different rule — left alone here.
+- `suppress-paywalled-permitted` — Paywalled markup is permitted under the applicable guidelines — left alone.
+- `suppress-post-hydration` — The tag appears only after hydration; SEORANKO judges served HTML for this check.
+- `suppress-reciprocal-via-other-method` — Reciprocity is satisfied via another hreflang method — left alone.
+- `suppress-record-present` — The required record is present — left alone.
+- `suppress-repo-declared-noindex` — The repository deliberately declares noindex — left alone.
+- `suppress-robots-vs-googlebot-scopes` — robots and Googlebot scopes differ in an accepted way — left alone.
+- `suppress-self-canonical` — A self-referencing canonical is present and healthy — left alone.
+- `suppress-single-observation` — A single error observation is not enough; transient failures need more evidence.
+- `suppress-site-root` — The site root is exempt from this duplicate-URL shape check.
+- `suppress-staging` — Staging or non-production hosts are excluded from this check.
+- `suppress-supported-type` — The structured-data type is supported — left alone.
+- `suppress-target-not-200` — The target is not 200 — handled under availability/canonical topics instead.
+- `suppress-tracking-content-differs` — Tracking-parameter variants serve different content — not collapsed.
+- `suppress-type-array-ok` — A type expressed as an array is valid here — left alone.
+- `suppress-undated-table-entry` — An undated table entry is accepted for this check — left alone.
+- `suppress-undated-tables` — Undated tables are accepted for this check — left alone.
+- `suppress-unknown-type` — Unknown schema.org types are not treated as non-compliant by themselves.
+- `suppress-valid-index` — The sitemap index is valid — left alone.
+- `suppress-valid-script-region` — The script/region combination is valid — left alone.
+- `suppress-valid-unsupported-type` — The type is valid but unsupported for rich results — tracked under deprecated/informational rules.
+- `suppress-x-default-absent` — Missing x-default is allowed for this cluster shape — left alone.
+- `suppress-x-default-ok` — x-default is present and valid — left alone.
+- `suppress-x-default-redirecting-homepage` — x-default pointing at a redirecting homepage is accepted here — left alone.
+
+## Source tier by topic
+
+- topic `1` — **VENDOR-DOCUMENTED** · primary source #4
+- topic `3` — **VENDOR-DOCUMENTED** · primary source #30
+- topic `4` — **VENDOR-DOCUMENTED** · primary source #36
+- topic `5` — **STANDARD** · primary source #36
+- topic `6` — **VENDOR-DOCUMENTED** · primary source #39
+- topic `7` — **VENDOR-DOCUMENTED** · primary source #48
+- topic `8` — **VENDOR-DOCUMENTED** · primary source #52
+- topic `9` — **VENDOR-DOCUMENTED** · primary source #54
+- topic `10` — **VENDOR-DOCUMENTED** · primary source #54
+- topic `11` — **VENDOR-DOCUMENTED** · primary source #54
+- topic `12` — **VENDOR-DOCUMENTED** · primary source #54
+- topic `13` — **STANDARD** · primary source #59
+- topic `14` — **VENDOR-DOCUMENTED** · primary source #61
+- topic `15` — **VENDOR-DOCUMENTED** · primary source #61
+- topic `16` — **VENDOR-DOCUMENTED** · primary source #60
+- topic `17` — **VENDOR-DOCUMENTED** · primary source #62
+- topic `19` — **VENDOR-DOCUMENTED** · primary source #67
+- topic `20` — **VENDOR-DOCUMENTED** · primary source #67
+- topic `21` — **VENDOR-DOCUMENTED** · primary source #66
+- topic `22` — **STANDARD** · primary source #65
+- topic `24` — **STANDARD** · primary source #69
+- topic `25` — **STANDARD** · primary source #69
+- topic `26` — **VENDOR-DOCUMENTED** · primary source #70
+- topic `27` — **VENDOR-DOCUMENTED** · primary source #70
+- topic `28` — **STANDARD** · primary source #72
+- topic `29` — **STANDARD** · primary source #73
+- topic `2b` — **VENDOR-DOCUMENTED** · primary source #27
+- topic `30` — **STANDARD** · primary source #73
+- topic `31` — **STANDARD** · primary source #73
+- topic `33` — **VENDOR-DOCUMENTED** · primary source #73
+- topic `34` — **STANDARD** · primary source #73
+- topic `35` — **VENDOR-DOCUMENTED** · primary source #80
+- topic `36` — **VENDOR-DOCUMENTED** · primary source #80
+- topic `37` — **VENDOR-DOCUMENTED** · primary source #80
+- topic `38` — **VENDOR-DOCUMENTED** · primary source #80
+- topic `39` — **VENDOR-DOCUMENTED** · primary source #80
+- topic `42` — **VENDOR-DOCUMENTED** · primary source #36
+- topic `43` — **VENDOR-DOCUMENTED** · primary source #54
+- topic `45` — **OBSERVED** · primary source #54
+- topic `46` — **VENDOR-DOCUMENTED** · primary source #88
+- topic `47` — **STANDARD** · primary source #88
+- topic `48` — **VENDOR-DOCUMENTED** · primary source #88
+- topic `49` — **STANDARD** · primary source #92
+- topic `67` — **VENDOR-DOCUMENTED** · primary source #7
