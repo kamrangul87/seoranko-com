@@ -79,8 +79,18 @@ import { classifyVerdictBucket, classifySurfaceClass } from '../buckets'
 import { sourcesForDossier } from '../sources'
 import { dossierSlugForTopic } from '../topic-registry'
 import type { CrawledPage } from './fetch-page'
+import { htmlForTopic } from '@/lib/crawl-render'
 import { CRAWL_INTER_REQUEST_GAP_MS } from './constants'
 import type { FetchDeps, FetchOutcome } from '@/lib/fix-strategies/fetch/types'
+
+/** HTML body for a detector per its declared representation (raw / rendered / both). */
+function pageBodyForTopic(topicId: string, p: CrawledPage): string {
+  return htmlForTopic(
+    topicId,
+    p.rawHtml || p.html,
+    p.renderMode === 'rendered' ? p.html : null,
+  )
+}
 
 export type DetectorEmit = {
   topicId: string
@@ -464,7 +474,7 @@ export async function runDetectorsOnPages(
       detectMetaHeaderDisagree(
         usable.map((p) => ({
           url: p.finalUrl,
-          body: p.html,
+          body: pageBodyForTopic('20', p),
           headers: p.headers,
         })),
       ),
@@ -474,7 +484,10 @@ export async function runDetectorsOnPages(
       '42',
       'internal-links/through-redirects',
       await detectLinksThroughRedirects(
-        usable.map((p) => ({ url: p.finalUrl, html: p.html })),
+        usable.map((p) => ({
+          url: p.finalUrl,
+          html: pageBodyForTopic('42', p),
+        })),
         { deps: fetchDeps },
       ),
       out,
@@ -483,15 +496,16 @@ export async function runDetectorsOnPages(
 
   for (const p of usable) {
     const pageUrl = p.finalUrl
-    const extraction = extractStructuredData(p.html, pageUrl)
-    const head = inspectDocumentHead(p.html)
+    const contentHtml = pageBodyForTopic('35', p)
+    const extraction = extractStructuredData(contentHtml, pageUrl)
+    const head = inspectDocumentHead(contentHtml)
     void extractCanonicalDeclarations
 
     // Topic 1: broken internal links (network)
     takeBuckets(
       '1',
       'internal-links/broken',
-      await detectBrokenInternalLinks(p.html, p.finalUrl, {
+      await detectBrokenInternalLinks(pageBodyForTopic('1', p), p.finalUrl, {
         deps: fetchDeps,
       }),
       out,
@@ -505,7 +519,7 @@ export async function runDetectorsOnPages(
       detectPotentialSoft404({
         pageUrl,
         status: p.status,
-        html: p.html,
+        html: pageBodyForTopic('2b', p),
         contentClientOnly: p.clientOnly,
       }),
       out,
@@ -542,7 +556,7 @@ export async function runDetectorsOnPages(
           inspection: head,
           status200: p.status === 200,
           headers: p.headers,
-          body: p.html,
+          body: pageBodyForTopic('30', p),
         },
       }),
       out,
@@ -556,7 +570,7 @@ export async function runDetectorsOnPages(
           inspection: head,
           status200: p.status === 200,
           headers: p.headers,
-          body: p.html,
+          body: pageBodyForTopic('31', p),
         },
       }),
       out,
@@ -573,7 +587,7 @@ export async function runDetectorsOnPages(
       '35',
       'structured-data/required-properties-absent',
       detectRequiredPropertiesAbsent({
-        html: p.html,
+        html: contentHtml,
         pageUrl,
         extraction,
       }),
@@ -585,7 +599,7 @@ export async function runDetectorsOnPages(
     // not treat that property URL as the crawl page.
     {
       const t36 = detectSchemaUrlsDontResolve({
-        html: p.html,
+        html: contentHtml,
         pageUrl,
         extraction,
       })
@@ -604,7 +618,7 @@ export async function runDetectorsOnPages(
       '37',
       'structured-data/invalid-or-mismatched-type',
       detectInvalidOrMismatchedType({
-        html: p.html,
+        html: contentHtml,
         pageUrl,
         extraction,
       }),
@@ -615,7 +629,7 @@ export async function runDetectorsOnPages(
       '38',
       'structured-data/contradicts-visible-page',
       detectStructuredDataContradictsVisible({
-        html: p.html,
+        html: contentHtml,
         pageUrl,
         extraction,
         // Page-local markup unless a real shared generator path is known.
@@ -628,7 +642,7 @@ export async function runDetectorsOnPages(
       '39',
       'structured-data/deprecated-types',
       detectDeprecatedTypes({
-        html: p.html,
+        html: contentHtml,
         pageUrl,
         extraction,
       }),
@@ -636,7 +650,10 @@ export async function runDetectorsOnPages(
       pageUrl,
     )
 
-    const img = await detectImgMissingDimensions(p.html, pageUrl, {
+    const img = await detectImgMissingDimensions(
+      pageBodyForTopic('49', p),
+      pageUrl,
+      {
       fetch,
       // Page-local HTML file / route — not a shared image generator.
       declarationSite: pageUrl,

@@ -35,7 +35,7 @@ Only observations with a stated method, never a quality judgement:
 |---|---|
 | main-content word count as a **fact**, with no threshold attached | measurement |
 | that a page's main content is empty or near-empty in the **served HTML** | topic 2a — this is a soft-404 signature, not a thin-content judgement |
-| pre-hydration emptiness where content arrives client-side | topic 67 — a crawler artefact, not a content defect |
+| pre-hydration emptiness where content arrives client-side | topic 67 — a crawler artefact, not a content defect. With the render guard, judge the rendered DOM; raw-only thin signals become informational `RAW_RENDER_MISMATCH` |
 | that the page is in "Crawled — currently not indexed" | topic 57 — reported as itself, never as evidence of thinness |
 
 The second and third rows matter most: the autodun "thin content: 28 words"

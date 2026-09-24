@@ -172,6 +172,8 @@ export function createMemoryFindingsStore(): FindingsStore {
         urlsClientOnly: 0,
         urlsSkippedOffHost: 0,
         urlCap: null,
+        pagesRendered: 0,
+        pagesRenderFailed: 0,
         discoverySeeds: null,
         coverageNotes: [],
         isPartial: false,
@@ -234,6 +236,9 @@ export function createMemoryFindingsStore(): FindingsStore {
           crawlerCausedBackoff: false,
           errorDetail: null,
           html: null,
+          renderMode: null,
+          rawHtmlHash: null,
+          renderedHtmlHash: null,
         }
         // De-dupe by run+url
         const exists = Array.from(state().jobs.values()).some(
@@ -263,6 +268,9 @@ export function createMemoryFindingsStore(): FindingsStore {
           crawlerCausedBackoff: false,
           errorDetail: null,
           html: null,
+          renderMode: null,
+          rawHtmlHash: null,
+          renderedHtmlHash: null,
         })
         added++
       }

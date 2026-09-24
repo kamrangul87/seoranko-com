@@ -117,6 +117,28 @@ responses for rendering (R7) and re-extracts links after rendering (R10), so
 client-rendered content and links are not invisible to Google. A detector
 that reports them as missing is wrong.
 
+## Rendered-DOM measurement (product decision CLOSED 2026-09-24)
+
+SEORANKO now runs a **render guard** on the fetch layer:
+
+1. Fetch **raw HTTP** to stream completion (still required — R31).
+2. Flag `render_needed` when the served body looks like a pre-hydration shell
+   (thin body text, JS framework root with little text, noscript JS warnings).
+3. When needed, fetch the **rendered DOM** (headless Chromium) and store
+   `raw_html_hash`, `rendered_html_hash`, and `render_mode`
+   (`http` | `rendered` | `render_failed`).
+4. Content / link / meta detectors judge the **rendered DOM when available**.
+   Transport detectors (status, robots, redirects) still judge raw HTTP.
+
+**What did not change:** client-only content is still **not a Google defect**
+(R7, R10). Findings must never claim Google cannot see client-rendered content.
+
+**What did change:** a raw-only signal that disappears after render is a
+**measurement artefact**, not an actionable fix. Emit informational
+`RAW_RENDER_MISMATCH` (never actionable). When `render_mode = render_failed`,
+suppress headline actionable verdicts for that URL and report coverage
+(pages crawled / rendered / render failures).
+
 ## what this guard invalidates
 
 Any detector that reads content, links, or metadata from a partial stream.
@@ -167,7 +189,9 @@ SEORANKO's own fetch layer:
   rendering" rather than "missing"
 
 Where a detector needs the rendered DOM rather than the served HTML, that is a
-second fetch mode and must be labelled as such in the finding (R18).
+second fetch mode and must be labelled as such in the finding (R18). The
+render guard implements that mode; evidence rows record which representation
+was judged.
 
 ## postcondition
 
@@ -183,8 +207,8 @@ That single pair of fixtures is the whole test.
 |---|---|---|
 | 1 | Content absent from the first chunk | **read the full stream** (R31). Never conclude from a prefix |
 | 2 | Content rendered by a Client Component | may still be in initial HTML (R26, R27). Never assume absence |
-| 3 | Content produced in `useEffect` or a browser-only fetch | `client-only` (R28). Google normally renders it (R7) — not a defect |
-| 4 | Links absent from served HTML | WRS re-extracts links after rendering (R10). Not invisible to Google |
+| 3 | Content produced in `useEffect` or a browser-only fetch | `client-only` (R28). Google normally renders it (R7) — not a defect. Measure rendered DOM when available; if raw looked empty and rendered is rich, emit informational `RAW_RENDER_MISMATCH` only |
+| 4 | Links absent from served HTML | WRS re-extracts links after rendering (R10). Not invisible to Google. Prefer rendered link graph when render succeeded; raw-only orphans → `RAW_RENDER_MISMATCH`, not actionable |
 | 5 | Next.js "dynamic rendering" treated as Google's dynamic-rendering workaround | **R23.** Unrelated concepts |
 | 6 | Dynamic rendering reported as "deprecated" | R19 — "a workaround, not recommended long-term" |
 | 7 | A WRS timeout value cited | no published figure |
@@ -216,16 +240,18 @@ Google, and each is mechanically detectable.
 
 See `_open-questions.md` (topic 67). Summary:
 
-1. Should SEORANKO acquire a rendered-DOM fetch mode at all, or stay
-   served-HTML-only and report `client-only` honestly? A rendering pipeline is
-   a large dependency; the honest-reporting path may be sufficient for every
-   Tier A topic. Product decision.
+1. ~~Should SEORANKO acquire a rendered-DOM fetch mode?~~ **CLOSED 2026-09-24:**
+   yes — render guard + `RAW_RENDER_MISMATCH` informational. Client-only remains
+   not a Google defect; raw/rendered mismatches are measurement artefacts.
 2. Guards 11–14 describe genuinely-hidden-content cases. Whether they become a
    finding of their own, or a variant within topics 2 and 60, is undecided.
 
 **Autodun check (2026-09-16):** complete-stream root fetch is still ~28 words
-and 0 anchors — step 3 (`client_only`), not step 2. The three stuck findings
-are suppressed by this guard's presence model; they are not content defects.
+and 0 anchors — step 3 (`client_only`), not step 2.
+
+**Autodun check (2026-09-24):** render guard hydrates the Vite `#root` shell;
+rendered DOM has hundreds of words and dozens of internal links. Thin/orphan
+raw-only signals become informational `RAW_RENDER_MISMATCH`, not actionable.
 
 ## Cross-references
 

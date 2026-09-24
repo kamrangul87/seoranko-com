@@ -41,10 +41,11 @@ Last consolidated: 2026-09-16
 - **(68)** Confirm the three PENDING rows against RFC 9110 §15.6.4 directly
   (Retry-After MAY on 503, etc.). Fallback interval remains a product
   decision. Source: `plumbing__single_fetch_insufficiency_refetch.md`.
-- **(67)** Should SEORANKO acquire a rendered-DOM fetch mode at all, or stay
-  served-HTML-only and report `client-only` honestly? A rendering pipeline is
-  a large dependency; honest reporting may suffice for every Tier A topic.
-  Product decision. Source: `plumbing__pre_hydration_crawl_false_findings.md`.
+- **(67)** ~~Should SEORANKO acquire a rendered-DOM fetch mode?~~ **CLOSED
+  2026-09-24:** render guard ships; content/link/meta judge rendered DOM when
+  available; client-only remains not a Google defect; raw-only artefacts →
+  informational `RAW_RENDER_MISMATCH`. Source:
+  `plumbing__pre_hydration_crawl_false_findings.md`.
 - **(67)** Guards 11–14 (cookies/storage, WebSocket/WebRTC, robots-blocked
   resources) — whether they become a finding of their own or a variant within
   topics 2 and 60 is undecided.

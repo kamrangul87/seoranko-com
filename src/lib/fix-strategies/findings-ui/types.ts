@@ -99,6 +99,8 @@ export type FindingsListResponse = {
     /** Cap applied at enqueue, if any. */
     urlCap: number | null
     chunkSize: number
+    pagesRendered?: number
+    pagesRenderFailed?: number
   } | null
   counts: {
     actionable: number

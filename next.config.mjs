@@ -4,7 +4,9 @@ const PUBLISH_DOMAIN = process.env.NEXT_PUBLIC_PUBLISH_DOMAIN || 'blog.seoranko.
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: { serverComponentsExternalPackages: ['sharp'] },
+  experimental: {
+    serverComponentsExternalPackages: ['sharp', '@sparticuz/chromium', 'puppeteer-core'],
+  },
   // Hosted publish route (Step 2): serves under a SEORANKO subdomain via a
   // rewrite rather than a real subdirectory — the actual file-based route
   // stays app/(public)/blog/[brand]/[slug] (see publish-hosted.ts's

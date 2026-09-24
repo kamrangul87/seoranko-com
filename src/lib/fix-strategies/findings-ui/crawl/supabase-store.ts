@@ -34,6 +34,8 @@ function mapRun(row: Record<string, unknown>): CrawlRunRecord {
     urlsClientOnly: Number(row.urls_client_only ?? 0),
     urlsSkippedOffHost: Number(row.urls_skipped_off_host ?? 0),
     urlCap: row.url_cap == null ? null : Number(row.url_cap),
+    pagesRendered: Number(row.pages_rendered ?? 0),
+    pagesRenderFailed: Number(row.pages_render_failed ?? 0),
     discoverySeeds:
       (row.discovery_seeds as CrawlRunRecord['discoverySeeds']) ?? null,
     coverageNotes: (row.coverage_notes as CoverageNote[]) ?? [],
@@ -59,6 +61,10 @@ function mapJob(row: Record<string, unknown>): CrawlUrlJob {
     crawlerCausedBackoff: Boolean(row.crawler_caused_backoff),
     errorDetail: (row.error_detail as string | null) ?? null,
     html: (row.body_html as string | null) ?? null,
+    renderMode:
+      (row.render_mode as CrawlUrlJob['renderMode']) ?? null,
+    rawHtmlHash: (row.raw_html_hash as string | null) ?? null,
+    renderedHtmlHash: (row.rendered_html_hash as string | null) ?? null,
   }
 }
 
@@ -174,6 +180,9 @@ export function createSupabaseFindingsStore(
       if (patch.urlsSkippedOffHost != null)
         row.urls_skipped_off_host = patch.urlsSkippedOffHost
       if (patch.urlCap !== undefined) row.url_cap = patch.urlCap
+      if (patch.pagesRendered != null) row.pages_rendered = patch.pagesRendered
+      if (patch.pagesRenderFailed != null)
+        row.pages_render_failed = patch.pagesRenderFailed
       if (patch.discoverySeeds !== undefined)
         row.discovery_seeds = patch.discoverySeeds
       if (patch.coverageNotes != null) row.coverage_notes = patch.coverageNotes
@@ -251,6 +260,10 @@ export function createSupabaseFindingsStore(
         row.crawler_caused_backoff = patch.crawlerCausedBackoff
       if (patch.errorDetail !== undefined) row.error_detail = patch.errorDetail
       if (patch.html !== undefined) row.body_html = patch.html
+      if (patch.renderMode !== undefined) row.render_mode = patch.renderMode
+      if (patch.rawHtmlHash !== undefined) row.raw_html_hash = patch.rawHtmlHash
+      if (patch.renderedHtmlHash !== undefined)
+        row.rendered_html_hash = patch.renderedHtmlHash
       if (patch.status === 'crawled' || patch.status === 'failed' || patch.status === 'client_only') {
         row.processed_at = new Date().toISOString()
       }

@@ -555,6 +555,7 @@ export async function POST(req: NextRequest) {
       .map(page => {
         const { score, searchScore, aiScore, issues, opportunities } = scorePage(page, pageSignals, domainSignals);
         const ai = aiData.find(r => r.url === page.url);
+        const renderFailed = page.renderMode === 'render_failed'
         return {
           url: page.url,
           title: page.title,
@@ -579,24 +580,47 @@ export async function POST(req: NextRequest) {
           noindex: page.noindex,
           isHttps: page.isHttps,
           httpStatus: page.httpStatus,
+          renderMode: page.renderMode ?? 'http',
+          renderNeeded: page.renderNeeded ?? false,
+          rawHtmlHash: page.rawHtmlHash ?? null,
+          renderedHtmlHash: page.renderedHtmlHash ?? null,
+          // Persist 0 when render failed; UI must not treat it as a real grade.
           score,
           searchScore,
           aiScore,
-          grade: gradeLabel(score),
-          aiGrade: gradeLabel(aiScore),
+          grade: renderFailed ? '—' : gradeLabel(score),
+          aiGrade: renderFailed ? '—' : gradeLabel(aiScore),
           issues,
           opportunities,
           aiAnalysis: ai ? { detectedKeyword: ai.detectedKeyword, quickWins: ai.quickWins } : undefined,
           fetchError: page.fetchError,
+          headlineVerdictSuppressed: renderFailed,
         };
       })
-      .sort((a, b) => a.score - b.score);
+      .sort((a, b) => {
+        if (a.headlineVerdictSuppressed && !b.headlineVerdictSuppressed) return 1
+        if (!a.headlineVerdictSuppressed && b.headlineVerdictSuppressed) return -1
+        return a.score - b.score
+      });
 
     // Merge freshly scraped results with preserved fixed pages (smart mode)
     const fixedResults = Array.from(fixedPageMap.values()).map(rowToResult);
-    const allResults = [...freshResults, ...fixedResults].sort((a, b) => a.score - b.score);
+    const allResults = [...freshResults, ...fixedResults].sort((a, b) => {
+      const aSup = Boolean((a as { headlineVerdictSuppressed?: boolean }).headlineVerdictSuppressed)
+      const bSup = Boolean((b as { headlineVerdictSuppressed?: boolean }).headlineVerdictSuppressed)
+      if (aSup && !bSup) return 1
+      if (!aSup && bSup) return -1
+      return ((a as { score: number }).score ?? 0) - ((b as { score: number }).score ?? 0)
+    });
 
-    const scores = allResults.map(r => r.score);
+    const pagesRendered = pageSignals.filter((p) => p.renderMode === 'rendered').length
+    const pagesRenderFailed = pageSignals.filter((p) => p.renderMode === 'render_failed').length
+    const pagesCrawled = pageSignals.length
+
+    const scoredForAvg = allResults.filter(
+      (r) => !(r as { headlineVerdictSuppressed?: boolean }).headlineVerdictSuppressed,
+    ) as Array<{ score: number; issues: AuditIssue[]; hasSchema?: boolean; h1?: string; aiScore?: number | null }>
+    const scores = scoredForAvg.map((r) => r.score);
     const avgScore = scores.length > 0
       ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
       : 0;
@@ -630,12 +654,15 @@ export async function POST(req: NextRequest) {
       summary: {
         totalPages: urlList.length,
         audited: allResults.length,
+        pagesCrawled,
+        pagesRendered,
+        pagesRenderFailed,
         avgScore,
-        criticalIssues: allResults.filter(r => r.issues.some((i: AuditIssue) => i.severity === 'critical')).length,
-        pagesNeedingAttention: allResults.filter(r => r.score < 70).length,
+        criticalIssues: scoredForAvg.filter(r => r.issues.some((i: AuditIssue) => i.severity === 'critical')).length,
+        pagesNeedingAttention: scoredForAvg.filter(r => r.score < 70).length,
         pagesWithSchema: allResults.filter(r => r.hasSchema).length,
         pagesWithoutH1: allResults.filter(r => !r.h1).length,
-        aiReadyPages: allResults.filter(r => (r.aiScore ?? 0) >= 70).length,
+        aiReadyPages: scoredForAvg.filter(r => (r.aiScore ?? 0) >= 70).length,
       },
       results: allResults,
     });

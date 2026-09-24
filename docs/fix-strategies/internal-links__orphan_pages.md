@@ -37,11 +37,17 @@ real `<a href>` is **not** orphaned, but record that rendering was required
 
 ## detect
 
-1. Build the crawlable internal link graph from served HTML (topic 67), then
-   note any additional edges that appear only after render (N4).
+1. Build the crawlable internal link graph for measurement (topic 67). Prefer
+   the **rendered DOM when available**; fall back to served HTML when render
+   was not needed or failed. Note edges that appear only after render (N4).
 2. For each indexable 200 page that is not the site root: count inbound
-   crawlable internal links.
-3. Zero → finding. Depth is undefined for these pages (topic 45).
+   crawlable internal links **in the measured graph**.
+3. Zero in the measured graph → finding. Depth is undefined for these pages
+   (topic 45).
+4. If raw served HTML had zero inbound edges but the rendered graph has some,
+   that is **not** an orphan finding — emit informational `RAW_RENDER_MISMATCH`
+   (topic 67). Client-only content remains **not** a Google defect (R7, R10);
+   never claim Google cannot discover or see client-rendered links.
 
 ## fix
 
@@ -56,8 +62,9 @@ Add at least one contextual internal link from a related indexable page.
 
 ## postcondition
 
-Live: at least one other internal page's served HTML contains a crawlable
-`<a href>` to the URL. Asserted via a code path separate from the executor.
+Live: at least one other internal page's **measured** HTML (rendered DOM when
+available, else served) contains a crawlable `<a href>` to the URL. Asserted
+via a code path separate from the executor.
 
 ## idempotent?
 
@@ -97,7 +104,8 @@ does not close the finding (N9).
 | 3 | Page is listed in the XML sitemap | still orphaned in the link graph, but discovery is not blocked (N8, N9). Lower severity, and say so |
 | 4 | Page has external inbound links | not detectable without a backlink API — unavailable. State the limitation rather than assuming none |
 | 5 | Page reachable only via `onclick` or `javascript:` | **is** orphaned (N1, N3) — most actionable variant |
-| 6 | Page reachable only via JS-rendered `<a href>` | **not** orphaned (N4). Flag that rendering was required |
+| 6 | Page reachable only via JS-rendered `<a href>` | **not** orphaned (N4). When render succeeded, those edges are in the measured graph. When only raw was available, flag render-required / `client_only-limited` — never claim Google cannot see them |
+| 6b | Raw HTML shows an orphan, rendered DOM does not | informational `RAW_RENDER_MISMATCH` only — not actionable |
 | 7 | Deliberate landing or campaign page | often intentionally unlinked. `human-review` |
 | 8 | Wording claims Google cannot discover/index the page | unsupported (N8). Reword to link-graph orphan only |
 
