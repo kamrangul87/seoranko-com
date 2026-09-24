@@ -36,6 +36,7 @@ function mapRun(row: Record<string, unknown>): CrawlRunRecord {
     urlCap: row.url_cap == null ? null : Number(row.url_cap),
     pagesRendered: Number(row.pages_rendered ?? 0),
     pagesRenderFailed: Number(row.pages_render_failed ?? 0),
+    totalRenderTimeMs: Number(row.total_render_time_ms ?? 0),
     discoverySeeds:
       (row.discovery_seeds as CrawlRunRecord['discoverySeeds']) ?? null,
     coverageNotes: (row.coverage_notes as CoverageNote[]) ?? [],
@@ -183,6 +184,8 @@ export function createSupabaseFindingsStore(
       if (patch.pagesRendered != null) row.pages_rendered = patch.pagesRendered
       if (patch.pagesRenderFailed != null)
         row.pages_render_failed = patch.pagesRenderFailed
+      if (patch.totalRenderTimeMs != null)
+        row.total_render_time_ms = patch.totalRenderTimeMs
       if (patch.discoverySeeds !== undefined)
         row.discovery_seeds = patch.discoverySeeds
       if (patch.coverageNotes != null) row.coverage_notes = patch.coverageNotes

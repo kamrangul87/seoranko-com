@@ -167,16 +167,46 @@ export const FIX_STRATEGY_PRODUCT_DECISIONS = {
   crawlPagesStripeMetadataKey: 'seoranko_crawl_pages' as string,
 
   /**
-   * Render guard — body text char floor (after stripping tags/scripts).
-   * Below this → render_needed. Chosen 2026-09-24: 200.
+   * Render guard — body word floor (after stripping tags/scripts).
+   * Below this → render_needed (content detectors would judge an empty shell).
+   * Chosen 2026-09-24: 50 words (was char-based 200).
+   */
+  crawlRenderMinBodyWords: 50 as number,
+
+  /**
+   * @deprecated Prefer crawlRenderMinBodyWords. Kept for compatibility;
+   * detect still exposes bodyTextChars for diagnostics.
    */
   crawlRenderMinBodyTextChars: 200 as number,
 
   /**
-   * Headless render navigation timeout (ms) inside a crawl tick.
-   * Chosen 2026-09-24: 12_000 — fits Hobby tick budget with headroom.
+   * Per-page headless render hard timeout (ms). Must sit well inside the
+   * former 12s soft budget so a hung Chromium cannot exhaust the tick.
+   * Chosen 2026-09-24: 5_000.
    */
-  crawlRenderTimeoutMs: 12_000 as number,
+  crawlRenderTimeoutMs: 5_000 as number,
+
+  /**
+   * Soft ceiling for render wall-clock per page (ms) — documentation /
+   * planning budget. Timeout (crawlRenderTimeoutMs) must stay below this.
+   * Chosen 2026-09-24: 12_000.
+   */
+  crawlRenderBudgetMs: 12_000 as number,
+
+  /**
+   * Max URLs claimed per tick when the run is known to need headless render
+   * (prior pagesRendered/pagesRenderFailed > 0, or mid-tick after first
+   * render_needed). Keeps render cost inside CRAWL_TICK_DEADLINE_MS.
+   * Chosen 2026-09-24: 2.
+   */
+  crawlRenderChunkSize: 2 as number,
+
+  /**
+   * Max headless renders executed in one tick. Excess render_needed URLs
+   * are re-queued for the next tick (partial coverage stays honest).
+   * Chosen 2026-09-24: 2.
+   */
+  crawlRenderMaxPerTick: 2 as number,
 
   /**
    * Findings crawl — minimum gap between HTTP requests to one target host.

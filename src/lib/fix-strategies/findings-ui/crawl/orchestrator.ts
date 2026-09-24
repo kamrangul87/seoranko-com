@@ -19,6 +19,7 @@ import {
   CRAWL_URL_CHUNK_SIZE,
   type CoverageNote,
 } from './constants'
+import { FIX_STRATEGY_PRODUCT_DECISIONS } from '@/lib/fix-strategies/product-decisions'
 import { discoverSameHostUrls, extractSameHostLinks } from './discover'
 import { crawlOneUrl, type CrawledPage } from './fetch-page'
 import {
@@ -216,7 +217,17 @@ export async function processCrawlTick(
     startedAt: run.startedAt ?? new Date().toISOString(),
   })
 
-  const jobs = await store.claimUrlChunk(runId, chunkSize)
+  // Shrink claim size when this run already paid render cost — keeps the
+  // tick inside deadline when headless work is expected.
+  const knownRenderHeavy =
+    (run.pagesRendered ?? 0) + (run.pagesRenderFailed ?? 0) > 0
+  const renderChunk = FIX_STRATEGY_PRODUCT_DECISIONS.crawlRenderChunkSize
+  const renderMaxPerTick = FIX_STRATEGY_PRODUCT_DECISIONS.crawlRenderMaxPerTick
+  const adaptiveChunk = knownRenderHeavy
+    ? Math.min(chunkSize, renderChunk)
+    : chunkSize
+
+  const jobs = await store.claimUrlChunk(runId, adaptiveChunk)
   const crawled: CrawledPage[] = []
   const notes: CoverageNote[] = [...run.coverageNotes]
   let crawledN = run.urlsCrawled
@@ -224,6 +235,8 @@ export async function processCrawlTick(
   let clientOnlyN = run.urlsClientOnly
   let pagesRenderedN = run.pagesRendered
   let pagesRenderFailedN = run.pagesRenderFailed
+  let totalRenderTimeMsN = run.totalRenderTimeMs ?? 0
+  let rendersThisTick = 0
   let urlsDiscovered = run.urlsDiscovered
   let urlsFound = run.urlsFound
   let linkGraphAdded = run.discoverySeeds?.fromLinkGraph ?? 0
@@ -249,7 +262,33 @@ export async function processCrawlTick(
     }
 
     try {
-      const page = await crawlOneUrl(job.url, { robotsRules })
+      const allowRender = rendersThisTick < renderMaxPerTick
+      const page = await crawlOneUrl(job.url, {
+        robotsRules,
+        skipRender: !allowRender,
+      })
+
+      // Render needed but tick budget exhausted → re-queue (not render_failed).
+      if (
+        !allowRender &&
+        page.renderEvidence?.renderNeeded &&
+        page.renderEvidence.renderError === 'skip_render'
+      ) {
+        await store.updateUrlJob(job.id, {
+          status: 'queued',
+          html: null,
+          renderMode: null,
+          rawHtmlHash: null,
+          renderedHtmlHash: null,
+          errorDetail: null,
+        })
+        notes.push({
+          code: 'render_deferred',
+          detail: `Render deferred — tick render budget (${renderMaxPerTick}) reached; URL re-queued`,
+          url: job.url,
+        })
+        continue
+      }
       if (
         page.errorDetail === 'robots_disallow' ||
         page.errorDetail === 'blocked_unsafe_url'
@@ -331,7 +370,11 @@ export async function processCrawlTick(
               : 'Served HTML looks client_only and render did not produce a DOM — content detectors skipped',
           url: job.url,
         })
-        if (page.renderMode === 'render_failed') pagesRenderFailedN++
+        if (page.renderMode === 'render_failed') {
+          pagesRenderFailedN++
+          rendersThisTick++
+          totalRenderTimeMsN += page.renderEvidence?.renderTookMs ?? 0
+        }
         continue
       }
 
@@ -355,9 +398,20 @@ export async function processCrawlTick(
       crawledN++
       if (page.renderMode === 'rendered') {
         pagesRenderedN++
+        rendersThisTick++
+        totalRenderTimeMsN += page.renderEvidence?.renderTookMs ?? 0
         notes.push({
           code: 'rendered',
-          detail: `Headless render succeeded for ${page.finalUrl} (reasons: ${(page.renderEvidence?.renderNeededReasons || []).join(',') || 'n/a'})`,
+          detail: `Headless render succeeded for ${page.finalUrl} in ${page.renderEvidence?.renderTookMs ?? 0}ms (reasons: ${(page.renderEvidence?.renderNeededReasons || []).join(',') || 'n/a'})`,
+          url: page.finalUrl,
+        })
+      } else if (page.renderMode === 'render_failed' && page.renderEvidence?.renderNeeded) {
+        pagesRenderFailedN++
+        rendersThisTick++
+        totalRenderTimeMsN += page.renderEvidence?.renderTookMs ?? 0
+        notes.push({
+          code: 'render_failed',
+          detail: `render_needed but headless render failed (${page.renderEvidence?.renderError || 'unknown'}) — no headline verdict for this URL`,
           url: page.finalUrl,
         })
       }
@@ -550,8 +604,10 @@ export async function processCrawlTick(
     urlsClientOnly: clientOnlyN,
     pagesRendered: pagesRenderedN,
     pagesRenderFailed: pagesRenderFailedN,
+    totalRenderTimeMs: totalRenderTimeMsN,
     urlsDiscovered,
     urlsFound,
+    chunkSize: adaptiveChunk,
     discoverySeeds: {
       ...seedsBase,
       fromLinkGraph: linkGraphAdded,

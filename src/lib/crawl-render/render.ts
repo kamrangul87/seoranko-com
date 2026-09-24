@@ -1,7 +1,7 @@
 /**
  * Headless render for crawl guard — @sparticuz/chromium + puppeteer-core.
- * Soft-fails to render_failed when chromium cannot launch (local/CI without
- * binary, or Vercel budget exceeded).
+ * Soft-fails to render_failed when chromium cannot launch or the per-page
+ * hard timeout fires. A hung render must never block the crawl tick.
  */
 
 import type { Browser } from 'puppeteer-core'
@@ -38,7 +38,6 @@ async function getBrowser(): Promise<Browser> {
         })
       }
 
-      // Local / cloud-agent: prefer system chrome when present.
       const candidates = [
         process.env.CHROME_PATH,
         process.env.PUPPETEER_EXECUTABLE_PATH,
@@ -89,16 +88,8 @@ export async function closeCrawlRenderBrowser(): Promise<void> {
   }
 }
 
-export async function renderPageHtml(url: string): Promise<RenderPageResult> {
+async function renderOnce(url: string, timeoutMs: number): Promise<RenderPageResult> {
   const started = Date.now()
-  if (!isSafePublicUrl(url)) {
-    return { ok: false, error: 'blocked_unsafe_url', tookMs: Date.now() - started }
-  }
-  if (process.env.CRAWL_RENDER_DISABLED === '1') {
-    return { ok: false, error: 'render_disabled', tookMs: Date.now() - started }
-  }
-
-  const timeoutMs = FIX_STRATEGY_PRODUCT_DECISIONS.crawlRenderTimeoutMs
   let page: Awaited<ReturnType<Browser['newPage']>> | null = null
   try {
     const browser = await getBrowser()
@@ -107,9 +98,9 @@ export async function renderPageHtml(url: string): Promise<RenderPageResult> {
     await page.setUserAgent(
       'Mozilla/5.0 (compatible; SEORANKO-Render/1.0; +https://www.seoranko.com)',
     )
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: timeoutMs })
-    // Small settle for client routers that paint after network idle.
-    await new Promise((r) => setTimeout(r, 400))
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
+    // Brief settle for client routers; keep well under remaining timeout.
+    await new Promise((r) => setTimeout(r, 250))
     const html = await page.content()
     return { ok: true, html, tookMs: Date.now() - started }
   } catch (err) {
@@ -127,5 +118,46 @@ export async function renderPageHtml(url: string): Promise<RenderPageResult> {
         /* ignore */
       }
     }
+  }
+}
+
+/**
+ * Render one URL with a hard wall-clock timeout. On timeout or error,
+ * returns render_failed evidence — callers must continue the chunk.
+ */
+export async function renderPageHtml(url: string): Promise<RenderPageResult> {
+  const started = Date.now()
+  if (!isSafePublicUrl(url)) {
+    return { ok: false, error: 'blocked_unsafe_url', tookMs: Date.now() - started }
+  }
+  if (process.env.CRAWL_RENDER_DISABLED === '1') {
+    return { ok: false, error: 'render_disabled', tookMs: Date.now() - started }
+  }
+
+  const timeoutMs = FIX_STRATEGY_PRODUCT_DECISIONS.crawlRenderTimeoutMs
+  let timer: ReturnType<typeof setTimeout> | null = null
+  try {
+    const result = await Promise.race([
+      renderOnce(url, timeoutMs),
+      new Promise<RenderPageResult>((resolve) => {
+        timer = setTimeout(() => {
+          resolve({
+            ok: false,
+            error: `render_timeout_${timeoutMs}ms`,
+            tookMs: Date.now() - started,
+          })
+        }, timeoutMs)
+      }),
+    ])
+    return result
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return {
+      ok: false,
+      error: message.slice(0, 300),
+      tookMs: Date.now() - started,
+    }
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }

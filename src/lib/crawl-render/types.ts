@@ -14,4 +14,6 @@ export type PageRenderEvidence = {
   /** Populated when renderMode === 'rendered'. */
   renderedHtml: string | null
   renderError: string | null
+  /** Wall-clock ms spent in headless render (0 when skipped). */
+  renderTookMs: number
 }

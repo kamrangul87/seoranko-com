@@ -91,6 +91,7 @@ export async function GET(request: Request) {
             chunkSize: latest.chunkSize || CRAWL_URL_CHUNK_SIZE,
             pagesRendered: latest.pagesRendered ?? 0,
             pagesRenderFailed: latest.pagesRenderFailed ?? 0,
+            totalRenderTimeMs: latest.totalRenderTimeMs ?? 0,
           }
         : null,
       counts,
@@ -148,6 +149,7 @@ export async function GET(request: Request) {
           chunkSize: latest.chunkSize || CRAWL_URL_CHUNK_SIZE,
           pagesRendered: latest.pagesRendered ?? 0,
           pagesRenderFailed: latest.pagesRenderFailed ?? 0,
+          totalRenderTimeMs: latest.totalRenderTimeMs ?? 0,
         }
       : null,
     counts,

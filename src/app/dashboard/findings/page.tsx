@@ -374,11 +374,14 @@ export default function FindingsListPage() {
               </span>
               <span
                 className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]"
-                title="Pages where headless render ran after a thin/JS shell was detected"
+                title="Headless render coverage — only pages where raw HTML lacked links/content"
               >
                 {crawl.pagesRendered ?? 0} rendered
                 {(crawl.pagesRenderFailed ?? 0) > 0
                   ? ` · ${crawl.pagesRenderFailed} render failed`
+                  : ''}
+                {(crawl.totalRenderTimeMs ?? 0) > 0
+                  ? ` · ${Math.round((crawl.totalRenderTimeMs ?? 0) / 100) / 10}s render`
                   : ''}
               </span>
               {crawl.urlCap != null && (
