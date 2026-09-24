@@ -1,26 +1,21 @@
-# Fix-flow E2E status — autodun actionable four → two
+# Fix-flow E2E status — autodun
 
-Source: `FINDINGS_LIVE_CRAWL_AUTODUN_REPORT.md` (recrawl 2026-09-22T08:00:43Z).
+Source: live crawl 2026-09-24 (post render-guard + #46–#48).
 Outcome ledger: `FIX_VERIFY_OUTCOME_RECORD.md`.
-Production: `eafa461` Ready on `autodun.com`.
+Production: `7cc9538` Ready on `autodun.com`.
 
-## Closed (fix → production verify → recrawl)
+## Closed this batch (owner-approved 2026-09-24)
 
 | Topic | Verdict | Page | PR | Status |
 |-------|---------|------|----|--------|
-| 49 | `auto-set-dimensions` | `/blog/mot-advisories-explained-uk.html` | [#34](https://github.com/kamrangul87/autodun-ai/pull/34) | Closed earlier |
-| 49 | `human-review-no-height-auto` | `/blog/electric-car-charger-map-uk.html` | [#35](https://github.com/kamrangul87/autodun-ai/pull/35) | **Closed** — owner-approved agent merge |
-| 49 | `finding-wrong-ratio` | `/blog/mot-changes-2026-dvsa-updates.html` | [#36](https://github.com/kamrangul87/autodun-ai/pull/36) | **Closed** — no object-fit; dims corrected |
-| 8 | `human-review-preferred-conflict` | `/blog` | [#37](https://github.com/kamrangul87/autodun-ai/pull/37) | **Closed** — canonical `/blog` |
-| 25 | `moderate-out-of-scope` | `mot.autodun.com` in sitemap | [#38](https://github.com/kamrangul87/autodun-ai/pull/38) | **Closed** — entry removed; mot has own sitemap |
+| 1 | `human-review` (404 href) | `/about` → was `/charging-map` | [autodun-ai#46](https://github.com/kamrangul87/autodun-ai/pull/46) | **Closed** — href → `https://ev.autodun.com/` |
+| 27 | `report-omission` | `/about` | [autodun-ai#47](https://github.com/kamrangul87/autodun-ai/pull/47) | **Closed** — added to sitemap |
+| 27 | `report-omission` | `/contact` | [autodun-ai#48](https://github.com/kamrangul87/autodun-ai/pull/48) | **Closed** — added to sitemap |
 
-Actionable **4 → 2**.
+## Left alone
 
-## Remaining actionable
+| Topic | Verdict | Page | Why |
+|-------|---------|------|-----|
+| 34 | `human-review-missing-lang` | `/mot-predictor` | Cross-host 308 → `mot.autodun.com` (has `lang="en"`). Guard added in seoranko `suppress-cross-host-redirect`. |
 
-| Topic | Verdict | Scope | Notes |
-|-------|---------|-------|-------|
-| 49 | `human-review-no-height-auto` | 5 URLs (rollup) · sample `/blog/ev-charging-on-uk-motorways.html` | Other pages still lack scoped `height:auto` |
-| 49 | `finding-wrong-ratio` | `/blog/mot-cost-uk-2026.html` | Different page from #36 |
-
-API rejects `approve`/`commit` for non-`auto-fixable` surface classes unless owner-approved human/agent path.
+Actionable after this batch: **0** (recrawl 2026-09-24T09:21Z).

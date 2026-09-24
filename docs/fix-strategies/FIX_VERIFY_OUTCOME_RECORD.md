@@ -246,3 +246,97 @@ Owner re-authorized the same two fix types for any remaining pages. Live check:
 Grouped findings UI: list + detail now render **every** `memberUrls` entry (not count-only).
 
 Final actionable count: **0**.
+
+---
+
+## 13. Topic 1 · `human-review` · about → charging-map href
+
+| Field | Value |
+|-------|-------|
+| Origin | `https://autodun.com` |
+| Topic | 1 |
+| Verdict | `human-review` (broken internal link / 404) |
+| Page | `https://autodun.com/about` |
+| Kind | `broken-internal-link/404` |
+| Detected | 2026-09-24 (live crawl after render guard; actionable 4) |
+| Fixed | 2026-09-24T09:12:24Z |
+| PR | [autodun-ai#46](https://github.com/kamrangul87/autodun-ai/pull/46) — merge `9150765` |
+| auto_merged | **false** |
+| owner_approved | **true** — Kamran explicitly approved applying #1–#3 on 2026-09-24 |
+| Pre-check | `https://ev.autodun.com/` → **200**, **0 redirect hops**. Used final URL `https://ev.autodun.com/`. |
+| Fix detail | Rewrote CTA href `/charging-map` → `https://ev.autodun.com/`; CTA text kept |
+| Preview verify | **OK** — preview `/about` has `href="https://ev.autodun.com/"`, no `/charging-map` |
+| Production verify | **OK** — live `/about` CTA → `https://ev.autodun.com/` |
+| Production tip | included in `c35e8ee` / later `7cc9538` Ready (`dpl_GpX2FdsU3surk1KrgwUFh7Z5ZRxp`) |
+| Outcome | **closed** |
+
+---
+
+## 14. Topic 27 · `report-omission` · /about sitemap
+
+| Field | Value |
+|-------|-------|
+| Origin | `https://autodun.com` |
+| Topic | 27 |
+| Verdict | `report-omission` |
+| Page | `https://autodun.com/about` |
+| Detected | 2026-09-24 |
+| Fixed | 2026-09-24T09:12:33Z |
+| PR | [autodun-ai#47](https://github.com/kamrangul87/autodun-ai/pull/47) — merge `c35e8ee` |
+| auto_merged | **false** |
+| owner_approved | **true** — Kamran, 2026-09-24 |
+| Pre-check | 200, self-canonical `https://autodun.com/about`, no noindex / X-Robots-Tag |
+| Fix detail | Added `<loc>https://autodun.com/about</loc>` to hand-maintained `public/sitemap.xml`; XML validated |
+| Preview verify | **OK** |
+| Production verify | **OK** — sitemap lists about |
+| Outcome | **closed** |
+
+---
+
+## 15. Topic 27 · `report-omission` · /contact sitemap
+
+| Field | Value |
+|-------|-------|
+| Origin | `https://autodun.com` |
+| Topic | 27 |
+| Verdict | `report-omission` |
+| Page | `https://autodun.com/contact` |
+| Detected | 2026-09-24 |
+| Fixed | 2026-09-24T09:17:57Z |
+| PR | [autodun-ai#48](https://github.com/kamrangul87/autodun-ai/pull/48) — merge `7cc9538` |
+| auto_merged | **false** |
+| owner_approved | **true** — Kamran, 2026-09-24 |
+| Pre-check | 200, self-canonical `https://autodun.com/contact`, no noindex / X-Robots-Tag |
+| Fix detail | Added `<loc>https://autodun.com/contact</loc>` to `public/sitemap.xml` (rebased onto #47); XML validated |
+| Preview verify | **OK** — preview sitemap has about + contact |
+| Production verify | **OK** — live sitemap lists contact |
+| Production tip | **`7cc9538`** (`dpl_GpX2FdsU3surk1KrgwUFh7Z5ZRxp`) **Ready** |
+| Outcome | **closed** |
+
+---
+
+## 16. Topic 34 · `human-review-missing-lang` · /mot-predictor (no fix — guard)
+
+| Field | Value |
+|-------|-------|
+| Origin | `https://autodun.com` |
+| Topic | 34 |
+| Verdict | `human-review-missing-lang` (false positive) |
+| Page | `https://autodun.com/mot-predictor` |
+| Detected | 2026-09-24 |
+| Action | **No site change** — left alone per owner |
+| Exclusion | Cross-host redirect: 308 → `https://mot.autodun.com/` which already has `<html lang="en">` |
+| Detector guard | seoranko [PR #144](https://github.com/kamrangul87/seoranko-com/pull/144) / main `f370e0e` — `suppress-cross-host-redirect` when 3xx Location is another host |
+| owner_approved | **true** — Kamran directed leave #4 alone + add guard, 2026-09-24 |
+| Outcome | **excluded** — not a content fix; FP prevented going forward |
+
+### Recrawl summary (after #13–#15 + topic 34 guard)
+
+| Metric | Before (2026-09-24 pre-fix) | After |
+|--------|------------------------------|-------|
+| Actionable | **4** | **0** |
+| Informational | 42 | 41 |
+| Topic 34 `/mot-predictor` | `human-review-missing-lang` | `suppress-cross-host-redirect` (internal) |
+| Production tip | — | **`7cc9538`** Ready |
+
+Remaining listable: **none** actionable. Informational left: click-depth metrics, recommended `author.url` absent, FAQPage deprecated-type (inert — do not auto-remove), one `raw-render-mismatch` on `/`, trailing-slash `informational-generated-only`.
