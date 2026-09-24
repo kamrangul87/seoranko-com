@@ -12,6 +12,14 @@ import {
 
 const STEPS = ['approve', 'commit', 'verify'] as const
 
+type UpgradePrompt = {
+  title: string
+  body: string
+  benefits: string[]
+  ctaLabel: string
+  billingPath: string
+}
+
 export default function FindingFixFlowPage() {
   const params = useParams()
   const router = useRouter()
@@ -19,6 +27,7 @@ export default function FindingFixFlowPage() {
   const [finding, setFinding] = useState<UiFinding | null>(null)
   const [fixFlow, setFixFlow] = useState<FixFlowState | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [upgrade, setUpgrade] = useState<UpgradePrompt | null>(null)
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
@@ -51,6 +60,7 @@ export default function FindingFixFlowPage() {
   async function run(action: 'approve' | 'commit' | 'verify') {
     setBusy(true)
     setError(null)
+    setUpgrade(null)
     try {
       const res = await fetch(`/api/fix-strategies/findings/${id}/fix`, {
         method: 'POST',
@@ -59,10 +69,31 @@ export default function FindingFixFlowPage() {
       })
       const body = (await res.json()) as {
         error?: string
+        code?: string
+        billingPath?: string
+        upgrade?: {
+          title: string
+          body: string
+          benefits: string[]
+          ctaLabel: string
+        }
         finding?: UiFinding
         fixFlow?: FixFlowState
       }
-      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`)
+      if (!res.ok) {
+        if (
+          res.status === 402 &&
+          body.code === 'SUBSCRIPTION_REQUIRED' &&
+          body.upgrade
+        ) {
+          setUpgrade({
+            ...body.upgrade,
+            billingPath: body.billingPath || '/dashboard/billing',
+          })
+          return
+        }
+        throw new Error(body.error || `HTTP ${res.status}`)
+      }
       if (body.finding) setFinding(body.finding)
       if (body.fixFlow) setFixFlow(body.fixFlow)
     } catch (e) {
@@ -100,10 +131,29 @@ export default function FindingFixFlowPage() {
             Fix flow
           </h1>
           <p className="text-[#6B6B6B] mt-1">
-            Approve → commit → verify against the live response.
+            Approve → commit → verify against the live response. Detection and
+            findings stay free — only committing a write requires a plan.
           </p>
 
-          {error && (
+          {upgrade && (
+            <div className="mt-4 rounded-[10px] border border-[#FF6B2C]/30 bg-white px-4 py-4 text-sm">
+              <p className="font-medium text-[#0F0F0F]">{upgrade.title}</p>
+              <p className="mt-1 text-[#6B6B6B]">{upgrade.body}</p>
+              <ul className="mt-3 list-disc pl-5 space-y-1 text-[#0F0F0F]">
+                {upgrade.benefits.map((b) => (
+                  <li key={b}>{b}</li>
+                ))}
+              </ul>
+              <Link
+                href={upgrade.billingPath}
+                className="inline-block mt-4 px-4 py-2 rounded-md bg-[#FF6B2C] text-white text-sm font-medium hover:opacity-90"
+              >
+                {upgrade.ctaLabel}
+              </Link>
+            </div>
+          )}
+
+          {error && !upgrade && (
             <div className="mt-4 rounded-[10px] border border-red-100 bg-red-50 text-red-800 px-4 py-3 text-sm">
               {error}
             </div>
@@ -162,7 +212,10 @@ export default function FindingFixFlowPage() {
                   </p>
                   <button
                     type="button"
-                    disabled={busy || (fixFlow?.step !== 'idle' && fixFlow?.step !== 'failed')}
+                    disabled={
+                      busy ||
+                      (fixFlow?.step !== 'idle' && fixFlow?.step !== 'failed')
+                    }
                     onClick={() => void run('approve')}
                     className="mt-3 px-4 py-2 rounded-md bg-[#0F0F0F] text-white text-sm disabled:opacity-40"
                   >
@@ -179,7 +232,7 @@ export default function FindingFixFlowPage() {
                   <h2 className="text-sm font-medium">2. Commit</h2>
                   <p className="text-sm text-[#6B6B6B] mt-1">
                     Open a pull request on the connected GitHub repo (never
-                    pushes to main).
+                    pushes to main). Requires an active subscription.
                   </p>
                   <button
                     type="button"

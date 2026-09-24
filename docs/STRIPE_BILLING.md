@@ -22,8 +22,11 @@ real plans ship, update `STRIPE_PLACEHOLDER_PRICE_ID` (and later extend
 
 **Entitlements (1.6):** Detect-only audits stay free. `commit` on findings
 fix-flow requires an active/trialing/past_due `subscriptions` row (or
-`MASTER_EMAIL`). Crawl starts: free 5/UTC day, subscribed 50/UTC day —
-see `src/lib/stripe/entitlements.ts`.
+`MASTER_EMAIL`). Crawl starts: free 5/UTC day, subscribed 50/UTC day.
+Per-crawl pages: free **25**; paid from Stripe Price/Product metadata
+`seoranko_crawl_pages` (fallback `crawl_pages_per_run`), default **500**.
+Hitting the page cap → status `partial` with a plan-named note — see
+`src/lib/stripe/entitlements.ts` and `product-decisions.ts`.
 
 ## Stripe Dashboard checklist
 

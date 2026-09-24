@@ -12,7 +12,7 @@ import {
   assertCrawlStartAllowed,
   recordCrawlStart,
 } from '@/lib/fix-strategies/findings-ui/crawl/rate-limit'
-import { crawlDailyLimitForUser } from '@/lib/stripe/entitlements'
+import { crawlDailyLimitForUser, crawlPageQuotaForUser } from '@/lib/stripe/entitlements'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -77,18 +77,31 @@ export async function POST(request: Request) {
       if (quota) {
         return NextResponse.json({ error: quota, code: 'CRAWL_QUOTA' }, { status: 429 })
       }
-      const { runId, urlsDiscovered } = await startCrawlRun({
+      const pageQuota = await crawlPageQuotaForUser({
+        userId: user.id,
+        email: user.email,
+      })
+      // Plan page cap is authoritative; optional body.maxUrls may only lower it (tests).
+      const maxUrls =
+        typeof body.maxUrls === 'number' && body.maxUrls > 0
+          ? Math.min(body.maxUrls, pageQuota.maxPages)
+          : pageQuota.maxPages
+      const { runId, urlsDiscovered, urlsFound } = await startCrawlRun({
         siteId: null,
         userId: user.id,
         origin,
         detectOnly: true,
         store,
-        maxUrls: body.maxUrls,
+        maxUrls,
+        planPageLimit: { planLabel: pageQuota.planLabel },
       })
       recordCrawlStart(user.id)
       return NextResponse.json({
         runId,
         urlsDiscovered,
+        urlsFound,
+        pageLimit: pageQuota.maxPages,
+        planLabel: pageQuota.planLabel,
         chunkSize: CRAWL_URL_CHUNK_SIZE,
         status: 'queued',
         origin,
@@ -148,17 +161,29 @@ export async function POST(request: Request) {
     if (quota) {
       return NextResponse.json({ error: quota, code: 'CRAWL_QUOTA' }, { status: 429 })
     }
-    const { runId, urlsDiscovered } = await startCrawlRun({
+    const pageQuota = await crawlPageQuotaForUser({
+      userId: user.id,
+      email: user.email,
+    })
+    const maxUrls =
+      typeof body.maxUrls === 'number' && body.maxUrls > 0
+        ? Math.min(body.maxUrls, pageQuota.maxPages)
+        : pageQuota.maxPages
+    const { runId, urlsDiscovered, urlsFound } = await startCrawlRun({
       siteId,
       userId: user.id,
       origin,
       store,
-      maxUrls: body.maxUrls,
+      maxUrls,
+      planPageLimit: { planLabel: pageQuota.planLabel },
     })
     recordCrawlStart(user.id)
     return NextResponse.json({
       runId,
       urlsDiscovered,
+      urlsFound,
+      pageLimit: pageQuota.maxPages,
+      planLabel: pageQuota.planLabel,
       chunkSize: CRAWL_URL_CHUNK_SIZE,
       status: 'queued',
       origin,

@@ -100,6 +100,7 @@ export async function POST(
           error: entitled.error,
           code: entitled.code,
           billingPath: entitled.billingPath,
+          upgrade: entitled.upgrade,
         },
         { status: entitled.status },
       )

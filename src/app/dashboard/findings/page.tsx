@@ -390,29 +390,66 @@ export default function FindingsListPage() {
 
           {showPartialBanner && crawl && (
             <div className="mb-6 rounded-[10px] border border-amber-200 bg-amber-50 text-amber-950 px-4 py-3 text-sm">
-              <p className="font-medium">Partial crawl coverage</p>
-              <p className="mt-1 text-amber-900/80">
-                This run did not exhaust the crawl frontier. Findings below
-                reflect only the URLs successfully crawled — do not treat this
-                as a complete audit.
-                {uncrawledFound > 0 && (
+              {(() => {
+                const planNote = crawl.coverageNotes.find(
+                  (n) => n.code === 'plan_page_limit',
+                )
+                if (planNote) {
+                  const crawled = crawl.urlsCrawled || crawl.urlsDiscovered
+                  const message =
+                    planNote.detail.includes('pages crawled')
+                      ? planNote.detail.replace(
+                          /^\d+ of \d+ pages crawled/,
+                          `${crawled} of ${crawl.urlsFound} pages crawled`,
+                        )
+                      : `${crawled} of ${crawl.urlsFound} pages crawled — plan limit`
+                  return (
+                    <>
+                      <p className="font-medium">{message}</p>
+                      <p className="mt-1 text-amber-900/80">
+                        This run stopped as partial because of your plan&apos;s
+                        per-crawl page limit — not a silent truncation. Findings
+                        below reflect only the URLs crawled.
+                      </p>
+                      <p className="mt-2">
+                        <Link
+                          href="/dashboard/billing"
+                          className="font-medium text-[#FF6B2C] hover:underline"
+                        >
+                          Upgrade for a higher page limit →
+                        </Link>
+                      </p>
+                    </>
+                  )
+                }
+                return (
                   <>
-                    {' '}
-                    {uncrawledFound} of {crawl.urlsFound} discovered URL
-                    {crawl.urlsFound === 1 ? '' : 's'} were not crawled
-                    {crawl.urlCap != null ? ` (cap ${crawl.urlCap})` : ''}.
+                    <p className="font-medium">Partial crawl coverage</p>
+                    <p className="mt-1 text-amber-900/80">
+                      This run did not exhaust the crawl frontier. Findings below
+                      reflect only the URLs successfully crawled — do not treat this
+                      as a complete audit.
+                      {uncrawledFound > 0 && (
+                        <>
+                          {' '}
+                          {uncrawledFound} of {crawl.urlsFound} discovered URL
+                          {crawl.urlsFound === 1 ? '' : 's'} were not crawled
+                          {crawl.urlCap != null ? ` (cap ${crawl.urlCap})` : ''}.
+                        </>
+                      )}
+                    </p>
+                    {crawl.coverageNotes.length > 0 && (
+                      <ul className="mt-2 list-disc pl-5 space-y-0.5 text-amber-900/70">
+                        {crawl.coverageNotes.slice(0, 8).map((n, i) => (
+                          <li key={`${n.code}-${i}`}>
+                            {n.code}: {n.detail}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </>
-                )}
-              </p>
-              {crawl.coverageNotes.length > 0 && (
-                <ul className="mt-2 list-disc pl-5 space-y-0.5 text-amber-900/70">
-                  {crawl.coverageNotes.slice(0, 8).map((n, i) => (
-                    <li key={`${n.code}-${i}`}>
-                      {n.code}: {n.detail}
-                    </li>
-                  ))}
-                </ul>
-              )}
+                )
+              })()}
             </div>
           )}
 

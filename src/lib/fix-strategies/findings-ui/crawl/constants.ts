@@ -48,6 +48,7 @@ export type CoverageNote = {
     | 'off_host'
     | 'stream_incomplete'
     | 'discovery_cap'
+    | 'plan_page_limit'
     | 'link_graph_expand'
   detail: string
   url?: string

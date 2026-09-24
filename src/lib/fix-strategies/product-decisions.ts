@@ -147,6 +147,26 @@ export const FIX_STRATEGY_PRODUCT_DECISIONS = {
   crawlRunsPerUserPerDaySubscribed: 50 as number,
 
   /**
+   * Per-crawl page enqueue limit — free / no subscription.
+   * Chosen 2026-09-24 (1.6 billing): 25. Hitting the cap → status partial with
+   * an explicit plan-named note (never silent truncation).
+   */
+  crawlPagesPerRunFree: 25 as number,
+
+  /**
+   * Per-crawl page enqueue limit — paid default when Stripe Price/Product
+   * metadata does not set `seoranko_crawl_pages` (or `crawl_pages_per_run`).
+   * Chosen 2026-09-24 (1.6 billing): 500 (matches CRAWL_MAX_DISCOVERED safety).
+   */
+  crawlPagesPerRunPaidDefault: 500 as number,
+
+  /**
+   * Stripe metadata key (Price, then Product, then Subscription) for the
+   * per-crawl page limit. Value must be a positive integer.
+   */
+  crawlPagesStripeMetadataKey: 'seoranko_crawl_pages' as string,
+
+  /**
    * Findings crawl — minimum gap between HTTP requests to one target host.
    * Product decision. Chosen 2026-09-22: 500 ms (was 250 ms operational
    * constant). Aligns crawl politeness with a clearer product knob; the
