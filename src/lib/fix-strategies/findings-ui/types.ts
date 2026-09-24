@@ -33,6 +33,16 @@ export type InternalEvidenceItem = {
   verdict: string
   detail: string
   pageUrl?: string | null
+  /** Plain-English reason this suppress/route/skip/ok was left alone. */
+  whyNotFixed?: string | null
+}
+
+/** Aggregated “checked and left alone” row for the findings list view. */
+export type LeftAloneItem = {
+  verdict: string
+  whyNotFixed: string
+  count: number
+  topicIds: string[]
 }
 
 /**
@@ -79,7 +89,21 @@ export type UiFinding = {
   /** Suppress / ok / route rows related to this finding — never in the list. */
   internalEvidence: InternalEvidenceItem[]
   dossierSlug: string | null
+  /** Fixed owner-facing sentence for this verdict (not model-generated). */
+  ownerPlainEnglish: string | null
+  /** Source-rule tier for the topic. */
+  sourceTier: SourceTier
+  /** Preferred _sources.md row id for this topic. */
+  primarySourceId: number | null
+  /** Why SEORANKO did not auto-apply this listable finding (null if auto-fixable). */
+  whyNotAutoFixed: string | null
 }
+
+export type SourceTier =
+  | 'STANDARD'
+  | 'VENDOR-DOCUMENTED'
+  | 'SEORANKO PRODUCT DECISION'
+  | 'OBSERVED'
 
 export type FindingsListResponse = {
   origin: string
@@ -110,6 +134,11 @@ export type FindingsListResponse = {
     internal: number
   }
   findings: UiFinding[]
+  /**
+   * Suppress / route / skip / ok reasons attached to listed findings.
+   * Internal-bucket rows stay out of `findings`; this is the audit trail view.
+   */
+  leftAlone: LeftAloneItem[]
 }
 
 export type FixFlowStep = 'idle' | 'approved' | 'committed' | 'verified' | 'failed'

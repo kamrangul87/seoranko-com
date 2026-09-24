@@ -6,7 +6,10 @@ import {
   getFindingsStore,
 } from '@/lib/fix-strategies/findings-ui/crawl'
 import { normalizePublicOrigin } from '@/lib/fix-strategies/findings-ui/crawl/normalize-public-origin'
-import { persistedToUiFinding } from '@/lib/fix-strategies/findings-ui/map-persisted'
+import {
+  aggregateLeftAlone,
+  persistedToUiFinding,
+} from '@/lib/fix-strategies/findings-ui/map-persisted'
 import type { FindingsListResponse } from '@/lib/fix-strategies/findings-ui/types'
 
 export const dynamic = 'force-dynamic'
@@ -96,6 +99,7 @@ export async function GET(request: Request) {
         : null,
       counts,
       findings,
+      leftAlone: aggregateLeftAlone(findings),
     }
     return NextResponse.json(body)
   }
@@ -154,6 +158,7 @@ export async function GET(request: Request) {
       : null,
     counts,
     findings,
+    leftAlone: aggregateLeftAlone(findings),
   }
 
   return NextResponse.json(body)

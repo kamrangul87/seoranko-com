@@ -7,6 +7,8 @@ export type {
   ProposedDiff,
   SourceCitation,
   InternalEvidenceItem,
+  LeftAloneItem,
+  SourceTier,
   UiFinding,
   FindingsListResponse,
   FixFlowStep,
@@ -19,3 +21,15 @@ export {
   isListVisible,
   canOfferFix,
 } from './buckets'
+
+export {
+  ownerPlainEnglish,
+  whyNotFixed,
+  whyNotFixedOrFallback,
+  sourceTierForTopic,
+  primarySourceIdForTopic,
+  sourceTierLabel,
+  whyFindingNotAutoFixed,
+  OWNER_PLAIN_ENGLISH,
+  WHY_NOT_FIXED,
+} from './owner-copy'

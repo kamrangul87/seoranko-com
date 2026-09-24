@@ -4,12 +4,44 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { getSupabaseClient } from '@/lib/supabase-client'
 import { DashboardNav } from '@/components/DashboardNav'
-import type { FindingsListResponse, UiFinding } from '@/lib/fix-strategies/findings-ui/client'
+import type {
+  FindingsListResponse,
+  SourceTier,
+  UiFinding,
+} from '@/lib/fix-strategies/findings-ui/client'
 import { affectedUrlsForFinding } from '@/lib/fix-strategies/findings-ui/affected-urls'
 import type { User } from '@supabase/supabase-js'
 
 type Site = { id: string; domain: string; brand: string | null }
 type CrawlMode = 'connected' | 'detect'
+
+function sourceTierTone(tier: SourceTier): string {
+  if (tier === 'STANDARD') return 'text-emerald-800 bg-emerald-50 border-emerald-100'
+  if (tier === 'VENDOR-DOCUMENTED')
+    return 'text-sky-800 bg-sky-50 border-sky-100'
+  if (tier === 'OBSERVED') return 'text-amber-800 bg-amber-50 border-amber-100'
+  return 'text-[#6B6B6B] bg-[#F4F4F2] border-[#E8E8E4]'
+}
+
+function primarySourceLabel(f: UiFinding): {
+  text: string
+  href: string | null
+} {
+  const id = f.primarySourceId
+  const row =
+    (id != null ? f.sources.find((s) => s.sourceId === id) : null) ??
+    f.sources[0] ??
+    null
+  if (!row && id == null) {
+    return { text: f.sourceTier, href: null }
+  }
+  const sid = row?.sourceId ?? id
+  const verified = row?.verifiedOn ? ` · verified ${row.verifiedOn}` : ''
+  return {
+    text: `${f.sourceTier} · #${sid}${verified}`,
+    href: row?.url ?? null,
+  }
+}
 
 function severityTone(severity: string | null): string {
   if (severity === 'high' || severity === 'critical') return 'text-red-700 bg-red-50 border-red-100'
@@ -54,6 +86,7 @@ export default function FindingsListPage() {
   /** Normalized origin returned by the API after a detect crawl/list. */
   const [detectOrigin, setDetectOrigin] = useState<string | null>(null)
   const [includeInformational, setIncludeInformational] = useState(false)
+  const [showLeftAlone, setShowLeftAlone] = useState(false)
   const [data, setData] = useState<FindingsListResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -487,15 +520,64 @@ export default function FindingsListPage() {
             </div>
           )}
 
-          <label className="flex items-center gap-2 mb-6 text-sm text-[#6B6B6B] cursor-pointer select-none">
-            <input
-              type="checkbox"
-              className="rounded border-[#E8E8E4] text-[#FF6B2C] focus:ring-[#FF6B2C]"
-              checked={includeInformational}
-              onChange={(e) => setIncludeInformational(e.target.checked)}
-            />
-            Show informational
-          </label>
+          <div className="flex flex-wrap gap-4 mb-6">
+            <label className="flex items-center gap-2 text-sm text-[#6B6B6B] cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="rounded border-[#E8E8E4] text-[#FF6B2C] focus:ring-[#FF6B2C]"
+                checked={includeInformational}
+                onChange={(e) => setIncludeInformational(e.target.checked)}
+              />
+              Show informational
+            </label>
+            <label className="flex items-center gap-2 text-sm text-[#6B6B6B] cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="rounded border-[#E8E8E4] text-[#FF6B2C] focus:ring-[#FF6B2C]"
+                checked={showLeftAlone}
+                onChange={(e) => setShowLeftAlone(e.target.checked)}
+              />
+              What SEORANKO checked and left alone
+            </label>
+          </div>
+
+          {showLeftAlone && data && (
+            <section className="mb-8 rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-4">
+              <h2 className="text-sm font-medium text-[#0F0F0F] mb-1">
+                Checked and left alone
+              </h2>
+              <p className="text-sm text-[#6B6B6B] mb-4">
+                Suppress, route, skip, and ok reasons from this crawl. These
+                never appear in the findings list.
+              </p>
+              {(data.leftAlone ?? []).length === 0 ? (
+                <p className="text-sm text-[#9B9B9B]">
+                  No left-alone reasons attached to the findings in this view.
+                </p>
+              ) : (
+                <ul className="space-y-3">
+                  {(data.leftAlone ?? []).map((row) => (
+                    <li
+                      key={row.verdict}
+                      className="rounded-md border border-[#E8E8E4] bg-[#F4F4F2] px-3 py-2"
+                    >
+                      <p className="text-[#0F0F0F] leading-snug">
+                        {row.whyNotFixed}
+                      </p>
+                      <p className="mt-1 font-mono text-xs text-[#6B6B6B]">
+                        {row.verdict}
+                        {' · '}
+                        {row.count}×
+                        {row.topicIds.length > 0
+                          ? ` · topic ${row.topicIds.join(', ')}`
+                          : ''}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
 
           {loading && (
             <div className="space-y-3">
@@ -551,8 +633,29 @@ export default function FindingsListPage() {
                       <span className="text-xs text-[#9B9B9B]">
                         Topic {f.topicId}
                       </span>
+                      {f.sourceTier &&
+                        (() => {
+                          const src = primarySourceLabel(f)
+                          return (
+                            <span
+                              className={`text-xs px-2 py-0.5 rounded border ${sourceTierTone(f.sourceTier)}`}
+                              title={
+                                src.href
+                                  ? `${src.href} (_sources.md)`
+                                  : '_sources.md row'
+                              }
+                            >
+                              {src.text}
+                            </span>
+                          )
+                        })()}
                     </div>
-                    <p className="font-medium text-[#0F0F0F] leading-snug">
+                    {f.ownerPlainEnglish && (
+                      <p className="text-[#0F0F0F] leading-snug mb-1">
+                        {f.ownerPlainEnglish}
+                      </p>
+                    )}
+                    <p className="font-mono text-sm text-[#6B6B6B] leading-snug">
                       {f.verdict}
                     </p>
                     {(() => {
