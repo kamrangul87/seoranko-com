@@ -103,8 +103,16 @@ export default function FindingFixFlowPage() {
     }
   }
 
-  const stepIndex =
-    fixFlow?.step === 'verified'
+  // A finding that regressed after its fix-flow reached 'verified' must not
+  // keep showing as done — the underlying problem is back. Re-verify is the
+  // right next action, so treat it as if verify still needs to run, not as
+  // 'idle' (the PR/commit already happened and stays that way).
+  const isRegressedAfterVerify =
+    finding?.status === 'regressed' && fixFlow?.step === 'verified'
+
+  const stepIndex = isRegressedAfterVerify
+    ? 2
+    : fixFlow?.step === 'verified'
       ? 3
       : fixFlow?.step === 'committed'
         ? 2
@@ -134,6 +142,17 @@ export default function FindingFixFlowPage() {
             Approve → commit → verify against the live response. Detection and
             findings stay free — only committing a write requires a plan.
           </p>
+
+          {finding?.status === 'regressed' && (
+            <div className="mt-4 rounded-[10px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              This finding was previously verified fixed{' '}
+              {finding.resolvedAt
+                ? `(resolved ${new Date(finding.resolvedAt).toLocaleDateString()})`
+                : ''}{' '}
+              but has come back. Re-run Verify to confirm the fix again, or
+              investigate — the earlier fix may have been reverted or undone.
+            </div>
+          )}
 
           {upgrade && (
             <div className="mt-4 rounded-[10px] border border-[#FF6B2C]/30 bg-white px-4 py-4 text-sm">
@@ -269,7 +288,10 @@ export default function FindingFixFlowPage() {
                   </p>
                   <button
                     type="button"
-                    disabled={busy || fixFlow?.step !== 'committed'}
+                    disabled={
+                      busy ||
+                      !(fixFlow?.step === 'committed' || isRegressedAfterVerify)
+                    }
                     onClick={() => void run('verify')}
                     className="mt-3 px-4 py-2 rounded-md border border-[#E8E8E4] bg-white text-sm disabled:opacity-40"
                   >
