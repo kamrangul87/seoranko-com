@@ -27,6 +27,7 @@ export async function resolvePageRender(input: {
       rawHtml: input.rawHtml,
       renderedHtml: null,
       renderError: null,
+      renderTookMs: 0,
     }
   }
 
@@ -41,6 +42,7 @@ export async function resolvePageRender(input: {
       rawHtml: input.rawHtml,
       renderedHtml: null,
       renderError: 'skip_render',
+      renderTookMs: 0,
     }
   }
 
@@ -56,6 +58,7 @@ export async function resolvePageRender(input: {
       rawHtml: input.rawHtml,
       renderedHtml: null,
       renderError: rendered.error,
+      renderTookMs: rendered.tookMs,
     }
   }
 
@@ -69,6 +72,7 @@ export async function resolvePageRender(input: {
     rawHtml: input.rawHtml,
     renderedHtml: rendered.html,
     renderError: null,
+    renderTookMs: rendered.tookMs,
   }
 }
 

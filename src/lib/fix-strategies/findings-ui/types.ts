@@ -101,6 +101,8 @@ export type FindingsListResponse = {
     chunkSize: number
     pagesRendered?: number
     pagesRenderFailed?: number
+    /** Cumulative headless render wall-clock ms. */
+    totalRenderTimeMs?: number
   } | null
   counts: {
     actionable: number

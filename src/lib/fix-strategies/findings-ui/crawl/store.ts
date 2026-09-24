@@ -174,6 +174,7 @@ export function createMemoryFindingsStore(): FindingsStore {
         urlCap: null,
         pagesRendered: 0,
         pagesRenderFailed: 0,
+        totalRenderTimeMs: 0,
         discoverySeeds: null,
         coverageNotes: [],
         isPartial: false,

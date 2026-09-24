@@ -53,6 +53,7 @@ export type CoverageNote = {
     | 'render_needed'
     | 'render_failed'
     | 'rendered'
+    | 'render_deferred'
   detail: string
   url?: string
 }
@@ -117,6 +118,8 @@ export type CrawlRunRecord = {
   urlCap: number | null
   pagesRendered: number
   pagesRenderFailed: number
+  /** Cumulative headless render wall-clock ms for this run. */
+  totalRenderTimeMs: number
   /** Seed breakdown for discovery reporting. */
   discoverySeeds: {
     fromRobotsSitemaps: number
