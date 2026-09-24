@@ -66,6 +66,7 @@ function mapJob(row: Record<string, unknown>): CrawlUrlJob {
       (row.render_mode as CrawlUrlJob['renderMode']) ?? null,
     rawHtmlHash: (row.raw_html_hash as string | null) ?? null,
     renderedHtmlHash: (row.rendered_html_hash as string | null) ?? null,
+    processedAt: (row.processed_at as string | null) ?? null,
   }
 }
 

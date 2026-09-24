@@ -26,6 +26,7 @@ import {
   runDetectorsOnPages,
   runWholeSiteDetectorsOnCrawl,
   rollupAndClassify,
+  type PriorFiveXXObservation,
 } from './run-detectors'
 import { POST_CRAWL_TOPIC_IDS } from '@/lib/fix-strategies/detector-scope'
 import { getFindingsStore, type FindingsStore } from './store'
@@ -68,6 +69,46 @@ export type TickResult = {
   isPartial: boolean
   coverageNotes: CoverageNote[]
   done: boolean
+}
+
+/**
+ * Topic 3's persistent-5xx window needs a real prior observation, not just
+ * the current run's own re-fetch pair (which is only ever seconds apart).
+ * Looks up the single most recent OTHER run in this same scope and returns
+ * its 5xx-status URLs, keyed by finalUrl — best-effort: no prior run, or a
+ * lookup failure, just means persistent-5xx can't fire yet for this run
+ * (same as before this existed), not a crawl failure.
+ */
+export async function buildPriorFiveXXByUrl(
+  store: FindingsStore,
+  run: { id: string; siteId: string | null; detectOrigin: string | null; userId: string },
+): Promise<Map<string, PriorFiveXXObservation>> {
+  const byUrl = new Map<string, PriorFiveXXObservation>()
+  try {
+    const priorRuns = run.siteId
+      ? await store.listRunsForSite(run.siteId)
+      : run.detectOrigin
+        ? await store.listRunsForDetectOrigin(run.userId, run.detectOrigin)
+        : []
+    const priorRun = priorRuns.find((r) => r.id !== run.id)
+    if (!priorRun) return byUrl
+
+    const jobs = await store.listJobsForRun(priorRun.id)
+    for (const job of jobs) {
+      if (job.httpStatus == null || job.httpStatus < 500 || job.httpStatus >= 600) continue
+      if (!job.processedAt) continue
+      const key = job.finalUrl ?? job.url
+      const observedAtMs = Date.parse(job.processedAt)
+      if (Number.isNaN(observedAtMs)) continue
+      const existing = byUrl.get(key)
+      if (!existing || observedAtMs > existing.observedAtMs) {
+        byUrl.set(key, { status: job.httpStatus, observedAtMs })
+      }
+    }
+  } catch (err) {
+    console.warn('[orchestrator] buildPriorFiveXXByUrl failed (non-fatal):', err)
+  }
+  return byUrl
 }
 
 export async function startCrawlRun(
@@ -469,7 +510,8 @@ export async function processCrawlTick(
     // PER-PAGE detectors only — WHOLE-SITE runs after frontier drain.
     // Prefer rendered HTML already on CrawledPage.html; skip headline
     // detectors for pages that needed render but failed (handled as client_only).
-    const emits = await runDetectorsOnPages(run.origin, crawled)
+    const priorFiveXXByUrl = await buildPriorFiveXXByUrl(store, run)
+    const emits = await runDetectorsOnPages(run.origin, crawled, priorFiveXXByUrl)
     const mismatchEmits = crawled.flatMap((p) => {
       if (!p.renderEvidence || p.renderMode !== 'rendered') return []
       const host = (() => {
