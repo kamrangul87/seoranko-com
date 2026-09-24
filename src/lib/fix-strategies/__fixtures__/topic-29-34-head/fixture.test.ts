@@ -20,6 +20,7 @@ import {
 } from '@/lib/fix-strategies/topic-33'
 import {
   detectLangDeclaration,
+  crossHostRedirectLocation,
   suppressArticleMissingInLanguage,
   rejectedDefaultLangEn,
 } from '@/lib/fix-strategies/topic-34'
@@ -515,6 +516,28 @@ describe('topic 34 — lang declaration', () => {
     expect(r9.findings[0]?.verdict).toBe('auto-set-lang-from-locale')
     expect(r9.findings[0]?.autoFixable).toBe(true)
     expect(r9.findings[0]?.proposedLang).toBe('fr-CA')
+
+    // 10. cross-host 3xx — never assess lang on the redirect URL
+    expect(
+      crossHostRedirectLocation(
+        'https://autodun.com/mot-predictor',
+        308,
+        'https://mot.autodun.com',
+      ),
+    ).toBe('https://mot.autodun.com/')
+    expect(
+      crossHostRedirectLocation(
+        'https://autodun.com/blog',
+        301,
+        'https://autodun.com/blog/',
+      ),
+    ).toBeNull()
+    const r10 = detectLangDeclaration({
+      inspection: inspectDocumentHead(page({ head: '<title>T</title>' })),
+      crossHostRedirectLocation: 'https://mot.autodun.com/',
+    })
+    expect(r10.findings).toHaveLength(0)
+    expect(r10.suppressed[0]?.verdict).toBe('suppress-cross-host-redirect')
 
     expect(() => rejectedDefaultLangEn()).toThrow(/REJECTED/)
   })

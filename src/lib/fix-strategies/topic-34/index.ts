@@ -1,5 +1,6 @@
 export {
   detectLangDeclaration,
+  crossHostRedirectLocation,
   suppressArticleMissingInLanguage,
   rejectedDefaultLangEn,
 } from './detect'

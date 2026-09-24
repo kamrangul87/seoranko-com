@@ -210,6 +210,7 @@ Fixed text resolved at read time. Not model-generated. Must not claim ranking ef
 - `suppress-different-content` — The URL variants serve different content, so they are not duplicates.
 - `suppress-disallow` — robots.txt Disallow covers this path — indexability findings are not raised.
 - `suppress-empty-lang-valid` — lang="" is valid per the HTML specification — not treated as missing.
+- `suppress-cross-host-redirect` — This URL redirects to another host — language is judged on the destination page, not here.
 - `suppress-format-only-date-diff` — Dates differ only in format, not in meaning — left alone.
 - `suppress-genuine-temporary` — The redirect looks intentionally temporary, so it was not flipped to permanent.
 - `suppress-header-only-ok` — Header-only signalling is acceptable for this check — left alone.
