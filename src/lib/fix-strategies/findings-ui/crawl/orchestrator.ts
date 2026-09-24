@@ -618,6 +618,18 @@ export async function processCrawlTick(
     errorDetail: null,
   })
 
+  // Findings close on a genuinely complete crawl only — a partial run never
+  // had full coverage, so a finding's absence from it proves nothing (the
+  // page that would have re-raised it may not have been re-crawled at all).
+  if (status === 'complete') {
+    await store.resolveAbsentFindings({
+      siteId: run.siteId,
+      detectOrigin: run.detectOrigin,
+      userId: run.userId,
+      runId,
+    })
+  }
+
   return {
     runId,
     status,

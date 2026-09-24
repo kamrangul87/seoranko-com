@@ -96,6 +96,8 @@ describe('map-persisted owner fields', () => {
       lastSeenRunId: 'r1',
       firstSeenAt: '2026-01-01T00:00:00Z',
       lastSeenAt: '2026-01-01T00:00:00Z',
+      status: 'open',
+      resolvedAt: null,
     }
     const ui = persistedToUiFinding(row, [
       {

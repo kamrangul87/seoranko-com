@@ -97,6 +97,10 @@ export type UiFinding = {
   primarySourceId: number | null
   /** Why SEORANKO did not auto-apply this listable finding (null if auto-fixable). */
   whyNotAutoFixed: string | null
+  /** open / resolved (absent from a later complete crawl) / regressed (a resolved finding reappeared). */
+  status: 'open' | 'resolved' | 'regressed'
+  /** Set once status has ever been resolved; preserved across a later regression. */
+  resolvedAt: string | null
 }
 
 export type SourceTier =

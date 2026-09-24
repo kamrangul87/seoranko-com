@@ -58,6 +58,17 @@ export type CoverageNote = {
   url?: string
 }
 
+/**
+ * open = currently detected, or never resolved.
+ * resolved = absent from a later *complete*-coverage crawl of the same
+ *   scope — never inferred from a partial run (absence proves nothing when
+ *   coverage was incomplete).
+ * regressed = a resolved finding reappeared. Stays regressed on repeat
+ *   re-observation; only a later resolution (going absent again) can move
+ *   it back to resolved.
+ */
+export type FindingStatus = 'open' | 'resolved' | 'regressed'
+
 export type PersistedFindingRow = {
   id: string
   siteId: string | null
@@ -84,6 +95,9 @@ export type PersistedFindingRow = {
   lastSeenRunId: string | null
   firstSeenAt: string
   lastSeenAt: string
+  status: FindingStatus
+  /** Set when status transitions to resolved; preserved across a later regression. */
+  resolvedAt: string | null
 }
 
 export type PersistedEvidenceRow = {

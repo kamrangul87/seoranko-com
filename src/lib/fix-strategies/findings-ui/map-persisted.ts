@@ -104,6 +104,8 @@ export function persistedToUiFinding(
       reportOnly: row.reportOnly,
       surfaceClass,
     }),
+    status: row.status,
+    resolvedAt: row.resolvedAt,
   }
 }
 

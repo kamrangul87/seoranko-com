@@ -96,6 +96,8 @@ function mapFinding(row: Record<string, unknown>): PersistedFindingRow {
     lastSeenRunId: (row.last_seen_run_id as string | null) ?? null,
     firstSeenAt: String(row.first_seen_at),
     lastSeenAt: String(row.last_seen_at),
+    status: (row.status as PersistedFindingRow['status']) ?? 'open',
+    resolvedAt: (row.resolved_at as string | null) ?? null,
   }
 }
 
@@ -320,7 +322,7 @@ export function createSupabaseFindingsStore(
       for (const f of findings) {
         let existingQuery = db()
           .from('fix_strategies_findings')
-          .select('id, first_seen_run_id, first_seen_at')
+          .select('id, first_seen_run_id, first_seen_at, status')
           .eq('topic_id', f.topicId)
           .eq('rollup_key', f.rollupKey)
         if (siteId) {
@@ -336,6 +338,12 @@ export function createSupabaseFindingsStore(
         let findingId: string
         if (existing) {
           findingId = String(existing.id)
+          // A finding re-observed after being marked resolved is a
+          // regression, not a plain re-detection — flag it, and leave
+          // resolved_at as the historical "last considered fixed" date
+          // rather than clearing it.
+          const nextStatus =
+            existing.status === 'resolved' ? 'regressed' : undefined
           const { error } = await db()
             .from('fix_strategies_findings')
             .update({
@@ -357,6 +365,7 @@ export function createSupabaseFindingsStore(
               last_seen_run_id: runId,
               last_seen_at: now,
               updated_at: now,
+              ...(nextStatus ? { status: nextStatus } : {}),
             })
             .eq('id', findingId)
           if (error) throw new Error(error.message)
@@ -429,6 +438,23 @@ export function createSupabaseFindingsStore(
           page_url: e.pageUrl || null,
         })
       }
+    },
+
+    async resolveAbsentFindings({ siteId, detectOrigin, userId, runId }) {
+      const originNorm = detectOrigin?.replace(/\/$/, '') ?? null
+      const now = new Date().toISOString()
+      let q = db()
+        .from('fix_strategies_findings')
+        .update({ status: 'resolved', resolved_at: now, updated_at: now })
+        .neq('bucket', 'internal')
+        .neq('status', 'resolved')
+        .neq('last_seen_run_id', runId)
+      q = siteId
+        ? q.eq('site_id', siteId)
+        : q.is('site_id', null).eq('user_id', userId).eq('detect_origin', originNorm)
+      const { data, error } = await q.select('id')
+      if (error) throw new Error(error.message)
+      return { resolvedCount: (data ?? []).length }
     },
 
     async appendRunEmits(runId, emits) {
