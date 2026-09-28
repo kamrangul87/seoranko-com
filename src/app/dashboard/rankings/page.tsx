@@ -7,6 +7,7 @@ import { ContentROIDashboard } from '@/components/ContentROIDashboard'
 import { RANKODiagnosisPanel } from '@/components/RANKODiagnosisPanel'
 import { SiteSelector } from '@/components/SiteSelector'
 import { supabase } from '@/lib/supabase-client'
+import { readParamFromUrl, writeParamToUrl } from '@/lib/site-selection-url'
 import type { User } from '@supabase/supabase-js'
 
 // §10 item 13 / §5: "Velocity and decay become COLUMNS in Rankings, not
@@ -20,12 +21,23 @@ const TABS = [
   { id: 'roi',      label: 'ROI',      icon: '💰' },
 ]
 
+const SITE_QUERY_PARAM = 'site'
+const readSiteDomainFromUrl = () => readParamFromUrl(SITE_QUERY_PARAM)
+const writeSiteDomainToUrl = (domain: string | null) => writeParamToUrl(SITE_QUERY_PARAM, domain)
+
 export default function RankingsPage() {
   const [activeTab, setActiveTab] = useState('track')
   const [userId, setUserId] = useState('')
-  // The domain chosen in the SiteSelector — no placeholder fallback.
-  const [selectedSite, setSelectedSite] = useState<string | null>(null)
+  // The domain chosen in the SiteSelector — no placeholder fallback. Seeded
+  // from ?site= so SiteSelector's own "default to primary" logic (it only
+  // fires when this is still null) doesn't silently override a real choice.
+  const [selectedSite, setSelectedSite] = useState<string | null>(() => readSiteDomainFromUrl())
   const [selectedSiteId, setSelectedSiteId] = useState<string | undefined>(undefined)
+
+  function selectSite(domain: string) {
+    setSelectedSite(domain)
+    writeSiteDomainToUrl(domain)
+  }
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }: { data: { user: User | null } }) => {
@@ -60,7 +72,7 @@ export default function RankingsPage() {
             <div className="mb-4">
               <SiteSelector
                 selectedDomain={selectedSite}
-                onSelect={setSelectedSite}
+                onSelect={selectSite}
                 onSelectSite={site => setSelectedSiteId(site.id)}
               />
             </div>
