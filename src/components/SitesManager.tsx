@@ -1,7 +1,8 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { Suspense, useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase-client'
 import { ConnectSiteModal } from '@/components/ConnectSiteModal'
+import { GithubAppConnect } from '@/components/GithubAppConnect'
 import {
   getConnectedSites, addConnectedSite, setPrimarySite, removeConnectedSite,
   ConnectedSite
@@ -109,6 +110,11 @@ export function SitesManager() {
 
   return (
     <div className="space-y-4">
+      <Suspense fallback={null}>
+        <GithubAppConnect />
+      </Suspense>
+      <div className="border-t border-gray-100 pt-4" />
+
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-base font-semibold text-gray-900">Your Sites</h3>

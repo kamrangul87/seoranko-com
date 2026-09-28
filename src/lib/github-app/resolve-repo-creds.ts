@@ -80,24 +80,34 @@ async function refreshInstallationAccount(installationId: number): Promise<{
  *
  * Also recovers rows whose account_login was left as "unknown" (OAuth callback
  * overwrite) by refreshing from GET /app/installations/{id}.
+ *
+ * `userId`, when given, restricts matching to installations linked to that
+ * user (github_installations.user_id) — without it, any signed-in user
+ * naming a real org's login could ride an installation another user linked,
+ * since GitHub account_login alone is not proof of who's entitled to use it
+ * on this side. Every caller resolving credentials on behalf of a specific
+ * user must pass it; only the health/diagnostic paths omit it deliberately.
  */
 export async function resolveGithubAppRepoCreds(input: {
   owner: string
   repo: string
   baseBranch?: string
+  userId?: string
 }): Promise<GithubAppRepoCreds | null> {
   const owner = input.owner.trim()
   const repo = input.repo.trim()
   if (!owner || !repo) return null
 
   const supabase = createServiceRoleClient()
-  const { data, error } = await supabase
+  let query = supabase
     .from('github_installations')
     .select('installation_id, account_login, repository_selection, uninstalled_at, suspended_at')
     .is('uninstalled_at', null)
     .is('suspended_at', null)
-    .order('updated_at', { ascending: false })
-    .limit(20)
+  if (input.userId) {
+    query = query.eq('user_id', input.userId)
+  }
+  const { data, error } = await query.order('updated_at', { ascending: false }).limit(20)
 
   if (error || !data?.length) return null
 

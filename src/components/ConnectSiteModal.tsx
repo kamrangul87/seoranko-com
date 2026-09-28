@@ -31,7 +31,7 @@ const PLATFORM_META: Record<
   github: {
     label: 'GitHub',
     short: 'GitHub',
-    blurb: 'Beta primary path — Fix Agent commits deterministic fixes and verifies live.',
+    blurb: 'Primary path — Fix Agent commits deterministic fixes and verifies live. Uses the SEORANKO GitHub App if installed; a pasted token is a fallback.',
   },
   wordpress: {
     label: 'WordPress',
@@ -88,21 +88,23 @@ const PLATFORM_FIELDS: Record<Exclude<ConnectPlatform, 'universal-tag'>, { help:
   github: {
     help: (
       <>
-        Create a fine-grained token at{' '}
+        If you&rsquo;ve installed the SEORANKO GitHub App on this repo&rsquo;s owner (see the
+        GitHub App section above), leave the token blank — we&rsquo;ll use the App automatically.
+        Otherwise, create a fine-grained token at{' '}
         <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
           github.com/settings/tokens
         </a>{' '}
         scoped to the repository that builds this live site, with{' '}
-        <strong>Contents: Read and write</strong> on the default branch (Fix Agent pushes directly — no PR fallback).
+        <strong>Contents: Read and write</strong> on the default branch.
       </>
     ),
     fields: [
       { key: 'owner', label: 'GitHub owner / org', placeholder: 'your-github-org' },
       { key: 'repo', label: 'Repository name', placeholder: 'your-site-repo' },
       { key: 'branch', label: 'Branch', placeholder: 'main', optional: true },
-      { key: 'accessToken', label: 'Access token', placeholder: 'github_pat_…', secret: true },
+      { key: 'accessToken', label: 'Personal access token (fallback — optional if the GitHub App covers this repo)', placeholder: 'github_pat_…', secret: true, optional: true },
     ],
-    footnote: 'All Fix Agent changes commit directly to the default branch. Do not enable “require a pull request” branch protection on that branch for the connected token.',
+    footnote: 'Findings commit via pull request. With the GitHub App this needs no branch protection changes; a pasted token needs Contents: Read and write on the branch PRs open against.',
   },
   webflow: {
     help: (

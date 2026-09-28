@@ -6,6 +6,7 @@ import { cookies } from 'next/headers'
 import { getAdapter, SUPPORTED_PLATFORMS } from '@/lib/site-adapters'
 import { detectSeoPlugin, normaliseSiteUrl } from '@/lib/wordpress-connector'
 import { encryptCredentialsJson } from '@/lib/site-connection-crypto'
+import { resolveGithubAppRepoCreds } from '@/lib/github-app/resolve-repo-creds'
 
 export const maxDuration = 60
 
@@ -61,8 +62,39 @@ export async function POST(req: NextRequest) {
     const creds = { siteUrl, siteId, ...(credentials || {}) }
     const adapter = getAdapter(platform, supabase)
 
+    // GitHub, no pasted token: try the SEORANKO GitHub App first — it's the
+    // primary path (short-lived installation tokens, minted fresh per use,
+    // never stored). Only fall back to requiring a manually pasted PAT
+    // below when the App isn't installed for this owner/repo. Scoped to
+    // this user's own linked installation (resolveGithubAppRepoCreds
+    // userId) — an org login alone is not proof of entitlement.
+    let usedGithubApp = false
+    let check: { success: boolean; error?: string; detail?: string } | undefined
+    if (
+      platform === 'github' &&
+      !creds.accessToken &&
+      typeof creds.owner === 'string' &&
+      typeof creds.repo === 'string'
+    ) {
+      const appCreds = await resolveGithubAppRepoCreds({
+        owner: creds.owner,
+        repo: creds.repo,
+        baseBranch: typeof creds.branch === 'string' ? creds.branch : undefined,
+        userId: user.id,
+      })
+      if (appCreds) {
+        usedGithubApp = true
+        check = {
+          success: true,
+          detail: `Connected via the SEORANKO GitHub App (installed on ${appCreds.owner}).`,
+        }
+      }
+      // App not installed for this owner/repo — fall through to the normal
+      // adapter check below, which requires and validates a pasted token.
+    }
+
     // Never store a credential we haven't proven works.
-    const check = await adapter.verifyConnection(creds)
+    check ??= await adapter.verifyConnection(creds)
     if (!check.success) {
       return NextResponse.json({ success: false, message: check.error })
     }
@@ -80,7 +112,15 @@ export async function POST(req: NextRequest) {
     // Encrypt at rest. Keep credentials JSONB as a non-secret pointer so
     // older readers that only check "is credentials set?" still work;
     // plaintext secrets live only in credentials_ciphertext.
-    const credPayload = credentials && typeof credentials === 'object' ? credentials : {}
+    const credPayload: Record<string, unknown> =
+      credentials && typeof credentials === 'object' ? { ...credentials } : {}
+    if (usedGithubApp) {
+      // No token to store — resolveGithubCreds() re-mints a fresh
+      // installation token from the App at commit time. This flag is
+      // metadata only, read nowhere for auth decisions.
+      credPayload.viaGithubApp = true
+      delete credPayload.accessToken
+    }
     let ciphertext: string
     try {
       ciphertext = encryptCredentialsJson(credPayload as Record<string, unknown>)
