@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { CompanyFooter } from '@/components/CompanyFooter';
+import { SEORANKO_PLANS, SEORANKO_FREE_PLAN } from '@/lib/stripe/plans';
 
 export default function LandingPage() {
   return (
@@ -103,20 +104,18 @@ export default function LandingPage() {
         <div style={{ textAlign: 'center', marginBottom: '48px' }}>
           <div style={{ fontSize: '11px', fontWeight: 700, color: '#FF6B2C', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '12px' }}>Pricing</div>
           <h2 style={{ fontSize: '34px', fontWeight: 800, letterSpacing: '-1px', marginBottom: '10px' }}>Simple, honest pricing</h2>
-          <p style={{ fontSize: '15px', color: '#6B6B6B' }}>All plans include keyword research, AI clustering, and EEAT scoring. Cancel anytime.</p>
+          <p style={{ fontSize: '15px', color: '#6B6B6B' }}>Site audit and agentic fix. Cancel anytime.</p>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
           {[
-            { plan: 'FREE', price: '£0', desc: 'Try it out', features: ['3 keyword searches/mo', '1 AI article/mo', 'EEAT scoring', 'No credit card'], featured: false },
-            { plan: 'STARTER', price: '£29', desc: 'Solo creators', features: ['50 keyword searches/mo', '10 AI articles/mo', 'Fact verification', '13+ country markets'], featured: false },
-            { plan: 'PRO', price: '£79', desc: 'Content teams', features: ['Unlimited keywords', '50 AI articles/mo', 'Discovery Engine', 'Priority support'], featured: true },
-            { plan: 'AGENCY', price: '£149', desc: 'Large teams', features: ['Unlimited everything', 'Unlimited articles', 'White-label reports', 'API access'], featured: false },
+            { ...SEORANKO_FREE_PLAN, featured: false },
+            ...Object.values(SEORANKO_PLANS).map((p, i) => ({ ...p, featured: i === 1 })),
           ].map(p => (
-            <div key={p.plan} style={{ border: p.featured ? '2px solid #FF6B2C' : '1px solid #E8E8E4', borderRadius: '12px', padding: '24px', background: '#fff', position: 'relative' }}>
+            <div key={p.id} style={{ border: p.featured ? '2px solid #FF6B2C' : '1px solid #E8E8E4', borderRadius: '12px', padding: '24px', background: '#fff', position: 'relative' }}>
               {p.featured && <div style={{ position: 'absolute', top: '-12px', left: '50%', transform: 'translateX(-50%)', background: '#FF6B2C', color: '#fff', fontSize: '10px', fontWeight: 700, padding: '3px 12px', borderRadius: '20px', whiteSpace: 'nowrap' }}>MOST POPULAR</div>}
-              <div style={{ fontSize: '11px', fontWeight: 700, color: '#9B9B9B', letterSpacing: '1px', marginBottom: '6px' }}>{p.plan}</div>
-              <div style={{ fontSize: '30px', fontWeight: 800, letterSpacing: '-1px', marginBottom: '2px' }}>{p.price}<span style={{ fontSize: '14px', fontWeight: 400, color: '#9B9B9B' }}>/mo</span></div>
-              <div style={{ fontSize: '12px', color: '#9B9B9B', marginBottom: '20px' }}>{p.desc}</div>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: '#9B9B9B', letterSpacing: '1px', marginBottom: '6px' }}>{p.label.toUpperCase()}</div>
+              <div style={{ fontSize: '30px', fontWeight: 800, letterSpacing: '-1px', marginBottom: '2px' }}>{p.priceDisplay.replace('/mo', '')}<span style={{ fontSize: '14px', fontWeight: 400, color: '#9B9B9B' }}>{p.priceDisplay.includes('/mo') ? '/mo' : ''}</span></div>
+              <div style={{ fontSize: '12px', color: '#9B9B9B', marginBottom: '20px' }}>{p.tagline}</div>
               <div style={{ borderTop: '1px solid #E8E8E4', paddingTop: '16px', marginBottom: '20px' }}>
                 {p.features.map(f => (
                   <div key={f} style={{ fontSize: '12px', color: '#444', padding: '4px 0', display: 'flex', gap: '7px' }}>
@@ -125,7 +124,7 @@ export default function LandingPage() {
                 ))}
               </div>
               <Link href="/signup" style={{ display: 'block', textAlign: 'center', padding: '10px', borderRadius: '7px', fontSize: '13px', fontWeight: 600, textDecoration: 'none', background: p.featured ? '#FF6B2C' : 'transparent', color: p.featured ? '#fff' : '#333', border: p.featured ? 'none' : '1.5px solid #E8E8E4' }}>
-                {p.plan === 'FREE' ? 'Start free' : 'Get started'}
+                {p.id === 'free' ? 'Start free' : 'Get started'}
               </Link>
             </div>
           ))}

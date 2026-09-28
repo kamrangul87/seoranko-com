@@ -314,7 +314,7 @@ export async function POST(req: NextRequest) {
       const used = profile?.articles_used_month ?? 0;
       if (used >= limit.articles) {
         const msg = plan === "free"
-          ? "You've used your free article. Upgrade to Starter for 30 articles/month."
+          ? "You've used your free article. Upgrade for more."
           : "Monthly limit reached. Upgrade your plan.";
         return new Response(
           JSON.stringify({ error: msg }),

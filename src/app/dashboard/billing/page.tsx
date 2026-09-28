@@ -132,8 +132,7 @@ function BillingContent() {
         <h1 className="text-2xl font-semibold">Billing</h1>
         <p className="text-[#6B6B6B] mt-1">
           Detect-only site audits stay free. An active subscription unlocks applying fixes to your
-          connected site and a higher daily crawl limit. Pricing is a placeholder until plans are
-          finalized — changing the Stripe Price ID is a config update, not a code change.
+          connected site and a higher daily crawl limit.
         </p>
       </div>
 

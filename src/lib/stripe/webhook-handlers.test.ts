@@ -184,11 +184,25 @@ describe('handleStripeEvent (SEORANKO namespace)', () => {
 })
 
 describe('plans config', () => {
-  it('resolves placeholder price from env', async () => {
+  it('resolves each real plan price from its own env var', async () => {
     const { resolvePlanPriceId } = await import('./plans')
-    const prev = process.env.STRIPE_PLACEHOLDER_PRICE_ID
-    process.env.STRIPE_PLACEHOLDER_PRICE_ID = 'price_test_123'
-    expect(resolvePlanPriceId('seoranko_starter')).toBe('price_test_123')
-    process.env.STRIPE_PLACEHOLDER_PRICE_ID = prev
+    const cases: Array<[string, string]> = [
+      ['STRIPE_STARTER_PRICE_ID', 'seoranko_starter'],
+      ['STRIPE_PRO_PRICE_ID', 'seoranko_pro'],
+      ['STRIPE_AGENCY_PRICE_ID', 'seoranko_agency'],
+    ]
+    const prev = cases.map(([envVar]) => process.env[envVar])
+    try {
+      cases.forEach(([envVar], i) => {
+        process.env[envVar] = `price_test_${i}`
+      })
+      cases.forEach(([, planId], i) => {
+        expect(resolvePlanPriceId(planId)).toBe(`price_test_${i}`)
+      })
+    } finally {
+      cases.forEach(([envVar], i) => {
+        process.env[envVar] = prev[i]
+      })
+    }
   })
 })
