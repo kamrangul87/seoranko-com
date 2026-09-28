@@ -166,12 +166,10 @@ export async function drainCrawlRunToTerminal(
   const maxTicks = opts?.maxTicks ?? DRAIN_GUARD
   let guard = 0
   let lastStatus = 'running'
-  let done = false
   let isPartial = false
   while (guard++ < maxTicks) {
     const tick = await processCrawlTick(runId, { store })
     lastStatus = tick.status
-    done = tick.done
     isPartial = tick.isPartial
     if (tick.done) break
   }
