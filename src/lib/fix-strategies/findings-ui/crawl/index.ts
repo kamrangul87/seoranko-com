@@ -88,6 +88,19 @@ export {
   runScheduledRecrawlForSite,
   runScheduledRecrawlPass,
 } from './scheduled-recrawl'
+export { summarizePartialCoverage } from './partial-coverage'
+export type {
+  PartialCoverageBucket,
+  PartialCoverageSummary,
+} from './partial-coverage'
+export {
+  buildWhatChangedDigest,
+  pickPreviousTerminalRunId,
+} from './what-changed'
+export type {
+  WhatChangedDigest,
+  WhatChangedFindingRef,
+} from './what-changed'
 export type {
   ScheduledSkipReason,
   ScheduledSiteDecision,

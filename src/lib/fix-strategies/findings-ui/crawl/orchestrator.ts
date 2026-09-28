@@ -773,12 +773,20 @@ export async function processCrawlTick(
   })
 
   // Resolve on complete AND partial — but only for URLs this run assessed.
-  // Never close a finding for a page a partial crawl never reached.
+  // Assessed = terminal fetch outcome (crawled / failed / client_only), not
+  // URLs still queued or never claimed. A 404 is assessed; a never-reached
+  // URL is not — never close findings for pages this run did not touch.
   if (status === 'complete' || status === 'partial') {
     const assessedJobs = await store.listJobsForRun(runId)
     const assessedPageUrls: string[] = []
     for (const j of assessedJobs) {
-      if (j.status !== 'crawled') continue
+      if (
+        j.status !== 'crawled' &&
+        j.status !== 'failed' &&
+        j.status !== 'client_only'
+      ) {
+        continue
+      }
       assessedPageUrls.push(j.finalUrl || j.url)
       assessedPageUrls.push(j.url)
     }

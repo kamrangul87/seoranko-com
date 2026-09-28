@@ -12,6 +12,7 @@ import {
   runScheduledRecrawlPass,
 } from '@/lib/fix-strategies/findings-ui/crawl/scheduled-recrawl'
 import { getFindingsStore } from '@/lib/fix-strategies/findings-ui/crawl'
+import { summarizePartialCoverage } from '@/lib/fix-strategies/findings-ui/crawl/partial-coverage'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -120,27 +121,47 @@ export async function GET(req: NextRequest) {
     skipped: pass.skipped,
     failed: pass.failed,
     continueUrls,
-    results: pass.processed.map((p) => ({
-      siteId: p.siteId,
-      origin: p.origin,
-      decision: p.decision,
-      resumed: p.resumed ?? false,
-      runId: p.runId ?? null,
-      status: p.status ?? null,
-      finishedAt: p.finishedAt ?? null,
-      urlsFound: p.urlsFound ?? null,
-      urlsDiscovered: p.urlsDiscovered ?? null,
-      urlsCrawled: p.urlsCrawled ?? null,
-      pagesRendered: p.pagesRendered ?? null,
-      pagesRenderFailed: p.pagesRenderFailed ?? null,
-      urlCap: p.urlCap ?? null,
-      isPartial: p.isPartial ?? null,
-      planPageLimitNote:
-        p.coverageNotes?.find((n) => n.code === 'plan_page_limit')?.detail ??
-        null,
-      resolvedCount: p.resolvedCount ?? 0,
-      regressedCount: p.regressedCount ?? 0,
-      error: p.error ?? null,
-    })),
+    results: pass.processed.map((p) => {
+      const partialCoverage =
+        p.isPartial && p.coverageNotes
+          ? summarizePartialCoverage(p.coverageNotes, {
+              urlsFound: p.urlsFound,
+              urlsCrawled: p.urlsCrawled,
+            })
+          : null
+      return {
+        siteId: p.siteId,
+        origin: p.origin,
+        decision: p.decision,
+        resumed: p.resumed ?? false,
+        runId: p.runId ?? null,
+        status: p.status ?? null,
+        finishedAt: p.finishedAt ?? null,
+        urlsFound: p.urlsFound ?? null,
+        urlsDiscovered: p.urlsDiscovered ?? null,
+        urlsCrawled: p.urlsCrawled ?? null,
+        pagesRendered: p.pagesRendered ?? null,
+        pagesRenderFailed: p.pagesRenderFailed ?? null,
+        urlCap: p.urlCap ?? null,
+        isPartial: p.isPartial ?? null,
+        planPageLimitNote:
+          p.coverageNotes?.find((n) => n.code === 'plan_page_limit')?.detail ??
+          null,
+        partialCoverage,
+        resolvedCount: p.resolvedCount ?? 0,
+        regressedCount: p.regressedCount ?? 0,
+        whatChanged: p.whatChanged
+          ? {
+              summaryLine: p.whatChanged.summaryLine,
+              previousRunId: p.whatChanged.previousRunId,
+              newCount: p.whatChanged.newFindings.length,
+              resolvedCount: p.whatChanged.resolvedFindings.length,
+              regressedCount: p.whatChanged.regressedFindings.length,
+              stillOpenCount: p.whatChanged.stillOpenCount,
+            }
+          : null,
+        error: p.error ?? null,
+      }
+    }),
   })
 }
