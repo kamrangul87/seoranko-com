@@ -6,9 +6,11 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { SEORANKO_PLANS, SEORANKO_FREE_PLAN } from "@/lib/stripe/plans";
 
-// NOTE FOR DEPLOYMENT:
-// Go to Supabase Dashboard → Authentication → Settings → Email →
-// turn OFF "Enable email confirmations" for instant signup without email verification.
+// Email confirmation is ON (Supabase Dashboard → Authentication → Settings →
+// Email). signUp() below returns session: null until the user clicks the
+// confirmation link — see the confirmationSent branch in handleSignUp.
+// Requires a working SMTP config (docs/AUTH_EMAIL.md) or confirmation
+// emails never arrive and every signup is silently stuck.
 
 const PLANS = [
   { id: SEORANKO_FREE_PLAN.id, label: SEORANKO_FREE_PLAN.label, price: SEORANKO_FREE_PLAN.priceDisplay, description: SEORANKO_FREE_PLAN.tagline },
@@ -25,6 +27,7 @@ export default function SignupPage() {
   const [plan, setPlan] = useState("free");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [confirmationSent, setConfirmationSent] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -51,7 +54,10 @@ export default function SignupPage() {
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { name, plan } },
+        options: {
+          data: { name, plan },
+          emailRedirectTo: `${window.location.origin}/dashboard`,
+        },
       });
 
       if (signUpError) {
@@ -63,16 +69,20 @@ export default function SignupPage() {
 
       console.log('Supabase signup success:', data);
 
-      if (data.user) {
-        await supabase.from("user_profiles").upsert({
-          id: data.user.id,
-          email,
-          name,
-          plan,
-        });
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+
+      if (!data.session) {
+        // Confirmation required — signUp() made no session. user_profiles is
+        // populated by the handle_new_user() trigger (including the picked
+        // plan), not this client, since there's no session yet to write with.
+        setConfirmationSent(true);
+        setLoading(false);
+        return;
       }
 
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      // Confirmation is off, or this account was pre-confirmed — session
+      // exists immediately, so the row from the trigger already has the
+      // right name/plan and nothing else to write here.
       router.push("/dashboard");
 
     } catch {
@@ -98,6 +108,19 @@ export default function SignupPage() {
         </div>
 
         <div className="bg-white border border-[#E8E8E4] rounded-[12px] p-8 shadow-sm">
+          {confirmationSent ? (
+            <div className="text-center py-4">
+              <h1 className="text-xl font-bold text-[#0F0F0F] mb-2">Check your email</h1>
+              <p className="text-[#6B6B6B] text-sm">
+                We sent a confirmation link to <span className="font-medium text-[#0F0F0F]">{email}</span>.
+                Click it to activate your account, then come back and sign in.
+              </p>
+              <Link href="/login" className="inline-block mt-6 text-[#FF6B2C] hover:underline text-sm font-medium">
+                Back to sign in
+              </Link>
+            </div>
+          ) : (
+            <>
           <h1 className="text-xl font-bold text-[#0F0F0F] mb-1">Create your account</h1>
           <p className="text-[#6B6B6B] text-sm mb-6">Audit your site and start fixing today</p>
 
@@ -199,6 +222,8 @@ export default function SignupPage() {
               Sign In
             </Link>
           </p>
+            </>
+          )}
         </div>
       </div>
     </div>
