@@ -132,6 +132,9 @@ export type PersistedEvidenceRow = {
   pageUrl: string | null
 }
 
+/** Who/what started the crawl — scheduled = Change Monitoring weekly cron. */
+export type CrawlRunTrigger = 'manual' | 'scheduled'
+
 export type CrawlRunRecord = {
   id: string
   siteId: string | null
@@ -140,6 +143,8 @@ export type CrawlRunRecord = {
   detectOrigin: string | null
   userId: string
   origin: string
+  /** manual (default) or scheduled weekly recrawl. */
+  trigger: CrawlRunTrigger
   status: CrawlRunStatus
   chunkSize: number
   /** Same-host locs found before any product/test cap. */

@@ -8,6 +8,7 @@ export {
 export type {
   CrawlRunStatus,
   CrawlUrlJobStatus,
+  CrawlRunTrigger,
   CoverageNote,
   FindingStatus,
   PostFixStatus,
@@ -79,3 +80,17 @@ export {
   resolveFixPrReference,
 } from './regression-report'
 export type { FixPrRef, RegressionReport } from './regression-report'
+
+export {
+  utcWeekStartMs,
+  decideScheduledRecrawl,
+  drainCrawlRunToTerminal,
+  runScheduledRecrawlForSite,
+  runScheduledRecrawlPass,
+} from './scheduled-recrawl'
+export type {
+  ScheduledSkipReason,
+  ScheduledSiteDecision,
+  ScheduledRecrawlSiteResult,
+  ScheduledSiteInput,
+} from './scheduled-recrawl'

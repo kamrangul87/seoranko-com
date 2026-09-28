@@ -53,4 +53,6 @@ Fixed in product:
 - **Stage 2 (§3.2)** — regression / post-fix fields on the P1 finding row
   (`fixed_at`, `verification_at`, `post_fix_status`, `regression_observed_at`).
   See `docs/fix-strategies/CHANGE_MONITORING_STAGE_2.md`.
-- Stages 3–4 not started.
+- **Stage 3 (§3.3)** — weekly scheduled recrawl (quota + plan cap + terminal
+  drain). See `docs/fix-strategies/CHANGE_MONITORING_STAGE_3.md`.
+- Stage 4 (what-changed digest) not started.
