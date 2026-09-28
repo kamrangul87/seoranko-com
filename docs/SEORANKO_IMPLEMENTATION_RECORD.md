@@ -45,3 +45,9 @@ Fixed in product:
 2. Terminal `complete` / `partial` with `finished_at` when the queue drains.
 3. Abandoned runs (`queued`/`running` with no tick for 30+ minutes) → `failed`.
 4. Resolution on `complete` **and** `partial`, only for URLs that run assessed.
+
+## Change Monitoring
+
+- **Stage 1 (§3.1)** — URL observation timeline (persist + classify). See
+  `docs/fix-strategies/CHANGE_MONITORING_STAGE_1.md`.
+- Stages 2–4 not started.

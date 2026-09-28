@@ -376,10 +376,12 @@ export async function processCrawlTick(
 
     try {
       const allowRender = rendersThisTick < renderMaxPerTick
+      const fetchStarted = Date.now()
       const page = await crawlOneUrl(job.url, {
         robotsRules,
         skipRender: !allowRender,
       })
+      const fetchDurationMs = Date.now() - fetchStarted
 
       // Render needed but tick budget exhausted → re-queue (not render_failed).
       if (
@@ -400,8 +402,14 @@ export async function processCrawlTick(
           detail: `Render deferred — tick render budget (${renderMaxPerTick}) reached; URL re-queued`,
           url: job.url,
         })
+        // Deferred — not a terminal assessment this tick.
         continue
       }
+
+      // Change Monitoring 3.1 — persist observation for every assessed URL
+      // (including failures / client_only).
+      const recordObservation = () =>
+        persistUrlObservation(store, run, job.url, page, fetchDurationMs)
       if (
         page.errorDetail === 'robots_disallow' ||
         page.errorDetail === 'blocked_unsafe_url'
@@ -422,6 +430,7 @@ export async function processCrawlTick(
               : 'Skipped — URL refused by isSafePublicUrl',
           url: job.url,
         })
+        await recordObservation()
         continue
       }
       if (page.crawlerCausedBackoff) {
@@ -440,6 +449,7 @@ export async function processCrawlTick(
             'SEORANKO crawl triggered 429/5xx — backed off; not raised as a site finding (topic 3 guard 5)',
           url: job.url,
         })
+        await recordObservation()
         continue
       }
 
@@ -457,6 +467,7 @@ export async function processCrawlTick(
           detail: 'Response stream incomplete — detectors refused (topic 67)',
           url: job.url,
         })
+        await recordObservation()
         continue
       }
 
@@ -488,6 +499,7 @@ export async function processCrawlTick(
           rendersThisTick++
           totalRenderTimeMsN += page.renderEvidence?.renderTookMs ?? 0
         }
+        await recordObservation()
         continue
       }
 
@@ -505,6 +517,7 @@ export async function processCrawlTick(
           detail: page.errorDetail ?? `HTTP ${page.status}`,
           url: job.url,
         })
+        await recordObservation()
         continue
       }
 
@@ -539,6 +552,7 @@ export async function processCrawlTick(
         rawHtmlHash: page.rawHtmlHash,
         renderedHtmlHash: page.renderedHtmlHash,
       })
+      await recordObservation()
       crawled.push(page)
 
       // Link-graph frontier expansion (same-host <a href> only).
@@ -575,6 +589,18 @@ export async function processCrawlTick(
         errorDetail: detail,
       })
       notes.push({ code: 'fetch_failure', detail, url: job.url })
+      await store.appendUrlObservation({
+        runId,
+        siteId: run.siteId,
+        detectOrigin: run.detectOrigin,
+        userId: run.userId,
+        url: job.url,
+        finalUrl: null,
+        httpStatus: null,
+        redirectHops: [],
+        retryAfter: null,
+        durationMs: null,
+      })
     }
   }
 
@@ -793,6 +819,43 @@ function dedupeNotes(notes: CoverageNote[]): CoverageNote[] {
     out.push(n)
   }
   return out
+}
+
+/** Change Monitoring 3.1 — one observation row per assessed URL per run. */
+async function persistUrlObservation(
+  store: FindingsStore,
+  run: { id: string; siteId: string | null; detectOrigin: string | null; userId: string },
+  requestedUrl: string,
+  page: CrawledPage,
+  durationMs: number,
+): Promise<void> {
+  const hops = Array.from(
+    new Set(
+      page.evidence.attempts
+        .map((a) => a.url)
+        .filter((u) => u && u !== requestedUrl && u !== page.finalUrl),
+    ),
+  )
+  if (
+    page.finalUrl &&
+    page.finalUrl !== requestedUrl &&
+    !hops.includes(page.finalUrl)
+  ) {
+    hops.push(page.finalUrl)
+  }
+  const retryAfter = page.headers.get('retry-after')
+  await store.appendUrlObservation({
+    runId: run.id,
+    siteId: run.siteId,
+    detectOrigin: run.detectOrigin,
+    userId: run.userId,
+    url: requestedUrl,
+    finalUrl: page.finalUrl || null,
+    httpStatus: page.status,
+    redirectHops: hops,
+    retryAfter,
+    durationMs,
+  })
 }
 
 /**

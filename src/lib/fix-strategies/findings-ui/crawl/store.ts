@@ -17,6 +17,7 @@ import type {
 } from './constants'
 import { CRAWL_URL_CHUNK_SIZE } from './constants'
 import type { RolledPersistCandidate, DetectorEmit } from './run-detectors'
+import type { UrlObservationRecord } from './observation-timeline'
 import {
   createSupabaseFindingsStore,
   supabaseFindingsStoreAvailable,
@@ -98,6 +99,26 @@ export type FindingsStore = {
   ): Promise<void>
   listRunEmits(runId: string): Promise<DetectorEmit[]>
   clearRunEvidence(runId: string): Promise<void>
+  /** Change Monitoring 3.1 — append one URL observation for a finished job. */
+  appendUrlObservation(input: {
+    runId: string
+    siteId: string | null
+    detectOrigin?: string | null
+    userId: string
+    url: string
+    finalUrl: string | null
+    httpStatus: number | null
+    redirectHops: string[]
+    retryAfter: string | null
+    durationMs: number | null
+    observedAt?: string
+  }): Promise<void>
+  listUrlObservations(input: {
+    siteId?: string | null
+    detectOrigin?: string | null
+    userId?: string
+    url: string
+  }): Promise<UrlObservationRecord[]>
   listFindings(input: {
     siteId?: string | null
     detectOrigin?: string | null
@@ -124,6 +145,7 @@ type MemState = {
   observations: Set<string>
   evidence: PersistedEvidenceRow[]
   runEmits: Map<string, DetectorEmit[]>
+  urlObservations: UrlObservationRecord[]
 }
 
 const g = globalThis as unknown as { __fsFindingsStore?: MemState }
@@ -141,6 +163,7 @@ function state(): MemState {
       observations: new Set(),
       evidence: [],
       runEmits: new Map(),
+      urlObservations: [],
     }
   }
   return g.__fsFindingsStore
@@ -154,6 +177,7 @@ export function resetMemoryFindingsStore(): void {
     observations: new Set(),
     evidence: [],
     runEmits: new Map(),
+    urlObservations: [],
   }
   activeStore = null
 }
@@ -528,6 +552,47 @@ export function createMemoryFindingsStore(): FindingsStore {
 
     async clearRunEvidence(runId) {
       state().evidence = state().evidence.filter((e) => e.runId !== runId)
+    },
+
+    async appendUrlObservation(input) {
+      const originNorm = input.detectOrigin?.replace(/\/$/, '') ?? null
+      const existing = state().urlObservations.findIndex(
+        (o) => o.runId === input.runId && o.url === input.url,
+      )
+      const row: UrlObservationRecord = {
+        id: existing >= 0 ? state().urlObservations[existing]!.id : randomUUID(),
+        runId: input.runId,
+        siteId: input.siteId ?? null,
+        detectOrigin: originNorm,
+        userId: input.userId,
+        url: input.url,
+        finalUrl: input.finalUrl,
+        httpStatus: input.httpStatus,
+        redirectHops: input.redirectHops,
+        retryAfter: input.retryAfter,
+        durationMs: input.durationMs,
+        observedAt: input.observedAt ?? new Date().toISOString(),
+      }
+      if (existing >= 0) state().urlObservations[existing] = row
+      else state().urlObservations.push(row)
+    },
+
+    async listUrlObservations({ siteId, detectOrigin, userId, url }) {
+      const originNorm = detectOrigin?.replace(/\/$/, '') ?? null
+      return state()
+        .urlObservations.filter((o) => {
+          if (o.url !== url) return false
+          if (siteId) return o.siteId === siteId
+          if (originNorm) {
+            return (
+              o.siteId == null &&
+              o.detectOrigin === originNorm &&
+              (userId == null || o.userId === userId)
+            )
+          }
+          return false
+        })
+        .sort((a, b) => a.observedAt.localeCompare(b.observedAt))
     },
 
     async listFindings({

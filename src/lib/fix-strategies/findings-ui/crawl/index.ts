@@ -63,3 +63,10 @@ export type { StartCrawlInput, TickResult } from './orchestrator'
 export { normalizeAssessedPageUrl } from './store'
 
 export { normalizePublicOrigin } from './normalize-public-origin'
+
+export { classifyUrlObservationPattern } from './observation-timeline'
+export type {
+  UrlObservationPattern,
+  UrlObservationPoint,
+  UrlObservationRecord,
+} from './observation-timeline'

@@ -3,8 +3,10 @@
 Sequenced work to make the **existing** repository a coherent GitHub+GSC beta.
 No new Fix Agent strategies, CMS connectors, or content features.
 
-**Branch policy (this repo):** direct-to-`main` unless explicitly requesting human
-review. Do not leave draft PRs green and unmerged.
+**Branch policy (this repo):** feature branch → PR → CI → merge to `main`.
+Never push commits straight to `main` (skips preview; Production has failed
+silently behind green previews when that was skipped). Do not leave draft PRs
+green and unmerged. A task is not done until Production on `main` is Ready.
 
 ---
 
