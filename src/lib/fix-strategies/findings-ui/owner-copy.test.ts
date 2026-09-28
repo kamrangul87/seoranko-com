@@ -13,6 +13,8 @@ import { classifyVerdictBucket } from './buckets'
 import { aggregateLeftAlone, persistedToUiFinding } from './map-persisted'
 import { buildDemoFindings } from './demo-run'
 import type { PersistedFindingRow } from './crawl/constants'
+import { BANNED_CLAIM_WORDS_RE } from '@/lib/copy-rules'
+import { HOMEPAGE_COPY } from '@/lib/homepage-copy'
 
 describe('owner-copy plain English', () => {
   it('covers user tone examples without ranking claims', () => {
@@ -29,7 +31,10 @@ describe('owner-copy plain English', () => {
       /cannot see/,
     )
     for (const s of Object.values(OWNER_PLAIN_ENGLISH)) {
-      expect(s.toLowerCase()).not.toMatch(/\brank(ing|s)?\b/)
+      expect(s).not.toMatch(BANNED_CLAIM_WORDS_RE)
+    }
+    for (const s of Object.values(WHY_NOT_FIXED)) {
+      expect(s).not.toMatch(BANNED_CLAIM_WORDS_RE)
     }
   })
 
@@ -131,5 +136,38 @@ describe('map-persisted owner fields', () => {
     expect(withEvidence.internalEvidence.every((e) => e.whyNotFixed)).toBe(
       true,
     )
+  })
+})
+
+/** Every string leaf in an arbitrarily nested object/array of copy. */
+function collectStrings(value: unknown, out: string[] = []): string[] {
+  if (typeof value === 'string') {
+    out.push(value)
+  } else if (Array.isArray(value)) {
+    for (const v of value) collectStrings(v, out)
+  } else if (value && typeof value === 'object') {
+    for (const v of Object.values(value)) collectStrings(v, out)
+  }
+  return out
+}
+
+describe('homepage claim discipline (docs/POSITIONING.md)', () => {
+  it('no homepage copy claims rankings, traffic, position, visibility, or penalty avoidance', () => {
+    const strings = collectStrings(HOMEPAGE_COPY)
+    expect(strings.length).toBeGreaterThan(10) // guards against the object silently going empty
+    for (const s of strings) {
+      expect(s).not.toMatch(BANNED_CLAIM_WORDS_RE)
+    }
+  })
+
+  it('the "in your code" scope is stated honestly — GitHub fixes, other platforms audit-only', () => {
+    const strings = collectStrings(HOMEPAGE_COPY).join(' ')
+    expect(strings).toMatch(/GitHub/)
+    expect(strings).toMatch(/WordPress.*Shopify.*Wix|audit only/i)
+  })
+
+  it('"proves the fix is live" differentiator is present and distinct from a build/merge claim', () => {
+    const strings = collectStrings(HOMEPAGE_COPY).join(' ')
+    expect(strings).toMatch(/re-fetch|actually (shipped|live)|confirms? the (fix|change)/i)
   })
 })
