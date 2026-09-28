@@ -8,6 +8,10 @@ import {
 } from '@/lib/fix-strategies/findings-ui/crawl'
 import { normalizePublicOrigin } from '@/lib/fix-strategies/findings-ui/crawl/normalize-public-origin'
 import {
+  buildWhatChangedDigest,
+  pickPreviousTerminalRunId,
+} from '@/lib/fix-strategies/findings-ui/crawl/what-changed'
+import {
   aggregateLeftAlone,
   persistedToUiFinding,
 } from '@/lib/fix-strategies/findings-ui/map-persisted'
@@ -79,6 +83,17 @@ export async function GET(request: Request) {
       findings.push(persistedToUiFinding(row, evidence))
     }
 
+    const terminal =
+      latest &&
+      (latest.status === 'complete' || latest.status === 'partial')
+    const whatChanged = terminal
+      ? buildWhatChangedDigest({
+          currentRunId: latest.id,
+          previousRunId: pickPreviousTerminalRunId(runs, latest.id),
+          findings: rows,
+        })
+      : null
+
     const body: FindingsListResponse = {
       origin,
       crawledAt: latest?.finishedAt ?? latest?.startedAt ?? null,
@@ -93,6 +108,8 @@ export async function GET(request: Request) {
             urlsFound: latest.urlsFound || latest.urlsDiscovered,
             urlsDiscovered: latest.urlsDiscovered,
             urlsCrawled: latest.urlsCrawled,
+            urlsFailed: latest.urlsFailed ?? 0,
+            urlsClientOnly: latest.urlsClientOnly ?? 0,
             urlCap: latest.urlCap ?? null,
             chunkSize: latest.chunkSize || CRAWL_URL_CHUNK_SIZE,
             pagesRendered: latest.pagesRendered ?? 0,
@@ -100,6 +117,7 @@ export async function GET(request: Request) {
             totalRenderTimeMs: latest.totalRenderTimeMs ?? 0,
           }
         : null,
+      whatChanged,
       counts,
       findings,
       leftAlone: aggregateLeftAlone(findings),
@@ -140,6 +158,17 @@ export async function GET(request: Request) {
 
   const origin = `https://${String(site.domain).replace(/^www\./, '')}`
 
+  const terminal =
+    latest &&
+    (latest.status === 'complete' || latest.status === 'partial')
+  const whatChanged = terminal
+    ? buildWhatChangedDigest({
+        currentRunId: latest.id,
+        previousRunId: pickPreviousTerminalRunId(runs, latest.id),
+        findings: rows,
+      })
+    : null
+
   const body: FindingsListResponse = {
     origin,
     crawledAt: latest?.finishedAt ?? latest?.startedAt ?? null,
@@ -154,6 +183,8 @@ export async function GET(request: Request) {
           urlsFound: latest.urlsFound || latest.urlsDiscovered,
           urlsDiscovered: latest.urlsDiscovered,
           urlsCrawled: latest.urlsCrawled,
+          urlsFailed: latest.urlsFailed ?? 0,
+          urlsClientOnly: latest.urlsClientOnly ?? 0,
           urlCap: latest.urlCap ?? null,
           chunkSize: latest.chunkSize || CRAWL_URL_CHUNK_SIZE,
           pagesRendered: latest.pagesRendered ?? 0,
@@ -161,6 +192,7 @@ export async function GET(request: Request) {
           totalRenderTimeMs: latest.totalRenderTimeMs ?? 0,
         }
       : null,
+    whatChanged,
     counts,
     findings,
     leftAlone: aggregateLeftAlone(findings),

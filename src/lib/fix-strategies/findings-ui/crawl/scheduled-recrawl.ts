@@ -29,6 +29,11 @@ import {
   getFindingsStore,
   type FindingsStore,
 } from './store'
+import {
+  buildWhatChangedDigest,
+  pickPreviousTerminalRunId,
+  type WhatChangedDigest,
+} from './what-changed'
 
 /** UTC Monday 00:00:00.000 of the week containing `now`. */
 export function utcWeekStartMs(nowMs: number = Date.now()): number {
@@ -135,6 +140,8 @@ export type ScheduledRecrawlSiteResult = {
   resolvedCount?: number
   /** Findings with status=regressed last seen on this run. */
   regressedCount?: number
+  /** CM 3.4 — delta vs previous terminal crawl. */
+  whatChanged?: WhatChangedDigest | null
   error?: string
 }
 
@@ -285,16 +292,34 @@ export async function runScheduledRecrawlForSite(
     if (active) {
       const drained = await drainCrawlRunToTerminal(active.id, store)
       const run = await store.getRun(active.id)
+      const scope = {
+        siteId: site.siteId,
+        detectOrigin: site.detectOnly ? origin : null,
+        userId: site.userId,
+      }
       const { resolvedCount, regressedCount } = await countResolvedAndRegressed(
         store,
-        {
-          siteId: site.siteId,
-          detectOrigin: site.detectOnly ? origin : null,
-          userId: site.userId,
-        },
+        scope,
         active.id,
         drained.finishedAt,
       )
+      const allRuns = site.siteId
+        ? await store.listRunsForSite(site.siteId)
+        : await store.listRunsForDetectOrigin(site.userId, origin)
+      const findings = await store.listFindings({
+        siteId: site.siteId,
+        detectOrigin: site.detectOnly ? origin : undefined,
+        userId: site.userId,
+        includeInformational: true,
+      })
+      const whatChanged =
+        drained.status === 'complete' || drained.status === 'partial'
+          ? buildWhatChangedDigest({
+              currentRunId: active.id,
+              previousRunId: pickPreviousTerminalRunId(allRuns, active.id),
+              findings,
+            })
+          : null
       return {
         siteId: site.siteId,
         userId: site.userId,
@@ -314,6 +339,7 @@ export async function runScheduledRecrawlForSite(
         coverageNotes: run?.coverageNotes,
         resolvedCount,
         regressedCount,
+        whatChanged,
       }
     }
   }
@@ -393,6 +419,24 @@ export async function runScheduledRecrawlForSite(
     drained.finishedAt,
   )
 
+  const allRuns = site.siteId
+    ? await store.listRunsForSite(site.siteId)
+    : await store.listRunsForDetectOrigin(site.userId, origin)
+  const findings = await store.listFindings({
+    siteId: site.siteId,
+    detectOrigin: site.detectOnly ? origin : undefined,
+    userId: site.userId,
+    includeInformational: true,
+  })
+  const whatChanged =
+    drained.status === 'complete' || drained.status === 'partial'
+      ? buildWhatChangedDigest({
+          currentRunId: runId,
+          previousRunId: pickPreviousTerminalRunId(allRuns, runId),
+          findings,
+        })
+      : null
+
   return {
     siteId: site.siteId,
     userId: site.userId,
@@ -412,6 +456,7 @@ export async function runScheduledRecrawlForSite(
     coverageNotes: run?.coverageNotes,
     resolvedCount,
     regressedCount,
+    whatChanged,
     error:
       drained.status === 'failed'
         ? run?.errorDetail || 'scheduled crawl failed'

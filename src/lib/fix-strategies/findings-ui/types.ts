@@ -123,6 +123,39 @@ export type SourceTier =
   | 'SEORANKO PRODUCT DECISION'
   | 'OBSERVED'
 
+/** Change Monitoring 3.4 — delta since previous terminal crawl. */
+export type WhatChangedDigestUi = {
+  runId: string
+  previousRunId: string | null
+  generatedAt: string
+  summaryLine: string
+  stillOpenCount: number
+  newFindings: Array<{
+    id: string
+    topicId: string
+    verdict: string
+    pageUrl: string | null
+    status: string
+  }>
+  resolvedFindings: Array<{
+    id: string
+    topicId: string
+    verdict: string
+    pageUrl: string | null
+    status: string
+  }>
+  regressedFindings: Array<{
+    id: string
+    topicId: string
+    verdict: string
+    pageUrl: string | null
+    status: string
+    regressionDetail?: string | null
+    fixPrUrl?: string | null
+    fixPrNumber?: number | null
+  }>
+}
+
 export type FindingsListResponse = {
   origin: string
   crawledAt: string | null
@@ -138,6 +171,8 @@ export type FindingsListResponse = {
     /** Locs enqueued (≤ urlsFound). */
     urlsDiscovered: number
     urlsCrawled: number
+    urlsFailed?: number
+    urlsClientOnly?: number
     /** Cap applied at enqueue, if any. */
     urlCap: number | null
     chunkSize: number
@@ -146,6 +181,8 @@ export type FindingsListResponse = {
     /** Cumulative headless render wall-clock ms. */
     totalRenderTimeMs?: number
   } | null
+  /** Present when the latest run is terminal — CM Stage 4. */
+  whatChanged?: WhatChangedDigestUi | null
   counts: {
     actionable: number
     informational: number

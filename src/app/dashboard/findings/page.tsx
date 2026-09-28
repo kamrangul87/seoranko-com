@@ -10,6 +10,7 @@ import type {
   UiFinding,
 } from '@/lib/fix-strategies/findings-ui/client'
 import { affectedUrlsForFinding } from '@/lib/fix-strategies/findings-ui/affected-urls'
+import { summarizePartialCoverage } from '@/lib/fix-strategies/findings-ui/crawl/partial-coverage'
 import type { User } from '@supabase/supabase-js'
 
 type Site = { id: string; domain: string; brand: string | null }
@@ -436,25 +437,20 @@ export default function FindingsListPage() {
           {showPartialBanner && crawl && (
             <div className="mb-6 rounded-[10px] border border-amber-200 bg-amber-50 text-amber-950 px-4 py-3 text-sm">
               {(() => {
-                const planNote = crawl.coverageNotes.find(
-                  (n) => n.code === 'plan_page_limit',
-                )
-                if (planNote) {
-                  const crawled = crawl.urlsCrawled || crawl.urlsDiscovered
-                  const message =
-                    planNote.detail.includes('pages crawled')
-                      ? planNote.detail.replace(
-                          /^\d+ of \d+ pages crawled/,
-                          `${crawled} of ${crawl.urlsFound} pages crawled`,
-                        )
-                      : `${crawled} of ${crawl.urlsFound} pages crawled — plan limit`
+                const summary = summarizePartialCoverage(crawl.coverageNotes, {
+                  urlsFound: crawl.urlsFound,
+                  urlsCrawled: crawl.urlsCrawled,
+                  urlsFailed: crawl.urlsFailed,
+                  urlsClientOnly: crawl.urlsClientOnly,
+                })
+                if (summary.isPlanLimit) {
                   return (
                     <>
-                      <p className="font-medium">{message}</p>
+                      <p className="font-medium">{summary.headline}</p>
                       <p className="mt-1 text-amber-900/80">
                         This run stopped as partial because of your plan&apos;s
                         per-crawl page limit — not a silent truncation. Findings
-                        below reflect only the URLs crawled.
+                        below reflect only URLs this run assessed.
                       </p>
                       <p className="mt-2">
                         <Link
@@ -469,25 +465,42 @@ export default function FindingsListPage() {
                 }
                 return (
                   <>
-                    <p className="font-medium">Partial crawl coverage</p>
+                    <p className="font-medium">{summary.headline}</p>
                     <p className="mt-1 text-amber-900/80">
-                      This run did not exhaust the crawl frontier. Findings below
-                      reflect only the URLs successfully crawled — do not treat this
-                      as a complete audit.
-                      {uncrawledFound > 0 && (
+                      Findings below reflect only URLs this run assessed
+                      (including fetch failures). Pages never reached cannot
+                      resolve open findings.
+                      {uncrawledFound > 0 && summary.buckets.length === 0 ? (
                         <>
                           {' '}
                           {uncrawledFound} of {crawl.urlsFound} discovered URL
                           {crawl.urlsFound === 1 ? '' : 's'} were not crawled
                           {crawl.urlCap != null ? ` (cap ${crawl.urlCap})` : ''}.
                         </>
-                      )}
+                      ) : null}
                     </p>
-                    {crawl.coverageNotes.length > 0 && (
-                      <ul className="mt-2 list-disc pl-5 space-y-0.5 text-amber-900/70">
-                        {crawl.coverageNotes.slice(0, 8).map((n, i) => (
-                          <li key={`${n.code}-${i}`}>
-                            {n.code}: {n.detail}
+                    {summary.buckets.length > 0 && (
+                      <ul className="mt-2 list-disc pl-5 space-y-1 text-amber-900/80">
+                        {summary.buckets.map((b) => (
+                          <li key={b.code}>
+                            <span className="font-medium">{b.label}</span>
+                            {b.urls.length > 0 ? (
+                              <ul className="mt-0.5 list-none pl-0 space-y-0.5 font-mono text-xs">
+                                {b.urls.map((u) => (
+                                  <li key={u} className="break-all">
+                                    {u}
+                                    {b.details.length === 1
+                                      ? ` — ${b.details[0]}`
+                                      : ''}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <span className="text-amber-900/70">
+                                {' '}
+                                — {b.details[0] ?? b.code}
+                              </span>
+                            )}
                           </li>
                         ))}
                       </ul>
@@ -495,6 +508,56 @@ export default function FindingsListPage() {
                   </>
                 )
               })()}
+            </div>
+          )}
+
+          {data?.whatChanged && (
+            <div className="mb-6 rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-3 text-sm">
+              <p className="text-xs uppercase tracking-wide text-[#9B9B9B] mb-1">
+                What changed
+              </p>
+              <p className="font-medium text-[#0F0F0F]">
+                {data.whatChanged.summaryLine}
+              </p>
+              {data.whatChanged.regressedFindings.length > 0 && (
+                <ul className="mt-2 space-y-1 text-[#6B6B6B]">
+                  {data.whatChanged.regressedFindings.map((f) => (
+                    <li key={f.id}>
+                      <Link
+                        href={`/dashboard/findings/${f.id}`}
+                        className="text-[#FF6B2C] hover:underline font-mono text-xs"
+                      >
+                        REGRESSION · {f.verdict}
+                      </Link>
+                      {f.pageUrl ? (
+                        <span className="ml-2 font-mono text-xs break-all">
+                          {f.pageUrl}
+                        </span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {data.whatChanged.newFindings.length > 0 && (
+                <ul className="mt-2 space-y-1 text-[#6B6B6B]">
+                  {data.whatChanged.newFindings.slice(0, 5).map((f) => (
+                    <li key={f.id}>
+                      <Link
+                        href={`/dashboard/findings/${f.id}`}
+                        className="hover:underline font-mono text-xs"
+                      >
+                        New · {f.verdict}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {data.whatChanged.resolvedFindings.length > 0 && (
+                <p className="mt-2 text-[#6B6B6B]">
+                  {data.whatChanged.resolvedFindings.length} resolved since the
+                  previous crawl.
+                </p>
+              )}
             </div>
           )}
 
