@@ -132,7 +132,7 @@ async function resolveGithubCreds(
     baseBranch?: string,
   ): Promise<GithubPrCreds | null> => {
     try {
-      const appCreds = await resolveGithubAppRepoCreds({ owner, repo, baseBranch })
+      const appCreds = await resolveGithubAppRepoCreds({ owner, repo, baseBranch, userId })
       if (!appCreds) return null
       return {
         owner: appCreds.owner,
