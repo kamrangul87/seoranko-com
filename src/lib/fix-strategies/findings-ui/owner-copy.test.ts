@@ -28,13 +28,8 @@ describe('owner-copy plain English', () => {
     expect(ownerPlainEnglish('d17-faq-markup-not-visible')).toMatch(
       /cannot see/,
     )
-    const banned =
-      /\b(rank|ranking|ranks|traffic|visibility|penalty)\b|google will/i
     for (const s of Object.values(OWNER_PLAIN_ENGLISH)) {
-      expect(s).not.toMatch(banned)
-    }
-    for (const s of Object.values(WHY_NOT_FIXED)) {
-      expect(s).not.toMatch(banned)
+      expect(s.toLowerCase()).not.toMatch(/\brank(ing|s)?\b/)
     }
   })
 

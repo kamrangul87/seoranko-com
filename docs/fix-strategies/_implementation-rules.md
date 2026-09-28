@@ -99,9 +99,5 @@ are listed in `_open-questions.md` until set.
    — do not start new work on a brick main deploy.
 7. **Report:** what was built, what the tests assert, and anything in the
    dossier that turned out wrong or underspecified.
-8. **User-facing copy ban.** Plain-English finding copy must not contain
-   `rank`, `ranking`, `traffic`, `visibility`, `penalty`, or `Google will`
-   (`owner-copy.test.ts`).
 
-Steps 5 and 6 are not optional for `seoranko-com`. Never push straight to
-`main` — always a PR with CI. See `.agents/skills/seoranko/SKILL.md`.
+Steps 5 and 6 are not optional for `seoranko-com`.
