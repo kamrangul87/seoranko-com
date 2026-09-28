@@ -11,14 +11,28 @@ webhook at `/api/webhooks/stripe` ignores events that are not SEORANKO.
 |----------|----------|-----------------|
 | `STRIPE_SECRET_KEY` | Yes | Stripe Dashboard → **Developers → API keys** (Test mode: `sk_test_…`) |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Yes (client / future Elements) | Same page (`pk_test_…`) |
-| `STRIPE_PLACEHOLDER_PRICE_ID` | Yes (Checkout) | **Product catalog → Products** → create a Product + recurring Price → copy `price_…` |
+| `STRIPE_STARTER_PRICE_ID` | Yes (Checkout, Starter £29/mo) | **Product catalog → Products** → create a Product + recurring Price → copy `price_…` |
+| `STRIPE_PRO_PRICE_ID` | Yes (Checkout, Pro £79/mo) | Same, second Product/Price |
+| `STRIPE_AGENCY_PRICE_ID` | Yes (Checkout, Agency £149/mo) | Same, third Product/Price |
 | `STRIPE_WEBHOOK_SECRET` | Yes (webhook sync) | **Developers → Webhooks → Add endpoint** → signing secret `whsec_…` |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes (webhook writes) | Supabase project → **Settings → API → service_role** |
 | `NEXT_PUBLIC_APP_URL` | Recommended | Your production origin (Checkout return URLs) |
 
-Pricing is intentionally a single placeholder tier (`seoranko_starter`). When
-real plans ship, update `STRIPE_PLACEHOLDER_PRICE_ID` (and later extend
-`src/lib/stripe/plans.ts`) — Checkout/webhook code stays the same.
+Three real tiers (`seoranko_starter` / `seoranko_pro` / `seoranko_agency`),
+content and price display defined in `src/lib/stripe/plans.ts` — the single
+source of truth read by signup, the homepage pricing section, and the
+billing page. Adding/renaming a tier or changing its price/copy is a change
+to that one file; Checkout/webhook code stays the same, and the display
+price (`priceDisplay`) is copy only — the amount actually charged is whatever
+each Stripe Price is set to, so keep them in sync by hand.
+
+**Important — tiers are not yet functionally different.** `entitlements.ts`
+only checks "subscribed" vs "free", not which of the three tiers. The one
+real per-tier lever already wired: `crawl_pages_per_run` (or
+`seoranko_crawl_pages`) Price/Product metadata (see below) — set it to a
+different number on each of the three Prices if you want Starter/Pro/Agency
+to actually enforce different crawl sizes. Until then, all three unlock the
+same allowance.
 
 **Entitlements (1.6):** Detect-only audits stay free. `commit` on findings
 fix-flow requires an active/trialing/past_due `subscriptions` row (or
@@ -30,9 +44,11 @@ Hitting the page cap → status `partial` with a plan-named note — see
 
 ## Stripe Dashboard checklist
 
-1. **Product + Price**  
-   Create a test Product (e.g. “SEORANKO Starter”) with a recurring Price.  
-   Set `STRIPE_PLACEHOLDER_PRICE_ID` to that Price ID.
+1. **Product + Price** (×3)  
+   Create three test Products — “SEORANKO Starter” (£29/mo), “SEORANKO Pro”
+   (£79/mo), “SEORANKO Agency” (£149/mo) — each with one recurring Price.  
+   Set `STRIPE_STARTER_PRICE_ID` / `STRIPE_PRO_PRICE_ID` / `STRIPE_AGENCY_PRICE_ID`
+   to the matching Price IDs.
 
 2. **Webhook endpoint** (dedicated to SEORANKO — do not reuse for other products)  
    - URL: `https://<your-domain>/api/webhooks/stripe`  

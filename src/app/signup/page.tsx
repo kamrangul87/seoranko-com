@@ -4,15 +4,15 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { SEORANKO_PLANS, SEORANKO_FREE_PLAN } from "@/lib/stripe/plans";
 
 // NOTE FOR DEPLOYMENT:
 // Go to Supabase Dashboard → Authentication → Settings → Email →
 // turn OFF "Enable email confirmations" for instant signup without email verification.
 
 const PLANS = [
-  { id: "free",    label: "Free",    price: "£0",      description: "5 keywords/day · 1 article/day" },
-  { id: "starter", label: "Starter", price: "£19/mo",  description: "500 keywords · 30 articles/mo" },
-  { id: "pro",     label: "Pro",     price: "£49/mo",  description: "2,000 keywords · 100 articles/mo" },
+  { id: SEORANKO_FREE_PLAN.id, label: SEORANKO_FREE_PLAN.label, price: SEORANKO_FREE_PLAN.priceDisplay, description: SEORANKO_FREE_PLAN.tagline },
+  ...Object.values(SEORANKO_PLANS).map((p) => ({ id: p.id, label: p.label, price: p.priceDisplay, description: p.tagline })),
 ];
 
 const TIMEOUT_MS = 8000;
@@ -99,7 +99,7 @@ export default function SignupPage() {
 
         <div className="bg-white border border-[#E8E8E4] rounded-[12px] p-8 shadow-sm">
           <h1 className="text-xl font-bold text-[#0F0F0F] mb-1">Create your account</h1>
-          <p className="text-[#6B6B6B] text-sm mb-6">Start ranking on Google today</p>
+          <p className="text-[#6B6B6B] text-sm mb-6">Audit your site and start fixing today</p>
 
           <form onSubmit={handleSignUp} className="space-y-4">
             <div>
@@ -141,7 +141,7 @@ export default function SignupPage() {
 
             <div>
               <label className="block text-sm font-medium text-[#0F0F0F] mb-2">Plan</label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {PLANS.map((p) => (
                   <button
                     key={p.id}
