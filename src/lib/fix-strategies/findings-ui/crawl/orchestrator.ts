@@ -71,6 +71,8 @@ export type StartCrawlInput = {
   planPageLimit?: {
     planLabel: string
   }
+  /** Change Monitoring weekly cron vs owner/API start. */
+  trigger?: 'manual' | 'scheduled'
 }
 
 export type TickResult = {
@@ -133,6 +135,7 @@ export async function startCrawlRun(
     userId: input.userId,
     origin: originNorm,
     detectOnly: input.detectOnly === true,
+    trigger: input.trigger === 'scheduled' ? 'scheduled' : 'manual',
   })
 
   const discovered = await discoverSameHostUrls(run.origin)

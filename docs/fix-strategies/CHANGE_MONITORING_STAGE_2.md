@@ -34,4 +34,5 @@ See `finding-regression.test.ts`:
 
 ## Not in this stage
 
-Scheduled recrawl (§3.3), what-changed digest (§3.4).
+Scheduled recrawl (§3.3 — see `CHANGE_MONITORING_STAGE_3.md`), what-changed
+digest (§3.4).

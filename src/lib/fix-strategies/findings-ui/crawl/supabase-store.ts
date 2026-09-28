@@ -26,6 +26,10 @@ function mapRun(row: Record<string, unknown>): CrawlRunRecord {
     detectOrigin: (row.detect_origin as string | null) ?? null,
     userId: String(row.user_id),
     origin: String(row.origin),
+    trigger:
+      row.trigger === 'scheduled'
+        ? 'scheduled'
+        : ('manual' as CrawlRunRecord['trigger']),
     status: row.status as CrawlRunRecord['status'],
     chunkSize: Number(row.chunk_size ?? CRAWL_URL_CHUNK_SIZE),
     urlsFound: Number(row.urls_found ?? row.urls_discovered ?? 0),
@@ -127,7 +131,7 @@ export function createSupabaseFindingsStore(
   const db = () => client ?? createServiceRoleClient()
 
   return {
-    async createRun({ siteId, userId, origin, detectOnly }) {
+    async createRun({ siteId, userId, origin, detectOnly, trigger }) {
       const originNorm = origin.replace(/\/$/, '')
       const { data, error } = await db()
         .from('fix_strategies_crawl_runs')
@@ -139,6 +143,7 @@ export function createSupabaseFindingsStore(
           chunk_size: CRAWL_URL_CHUNK_SIZE,
           detect_only: detectOnly === true,
           detect_origin: detectOnly ? originNorm : null,
+          trigger: trigger === 'scheduled' ? 'scheduled' : 'manual',
         })
         .select('*')
         .single()

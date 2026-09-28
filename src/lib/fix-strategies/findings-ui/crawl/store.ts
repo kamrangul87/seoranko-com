@@ -31,6 +31,8 @@ export type FindingsStore = {
     origin: string
     /** Public-URL detection; no connected_sites row. */
     detectOnly?: boolean
+    /** Change Monitoring weekly cron vs owner/API start. */
+    trigger?: 'manual' | 'scheduled'
   }): Promise<CrawlRunRecord>
   getRun(runId: string): Promise<CrawlRunRecord | null>
   listRunsForSite(siteId: string): Promise<CrawlRunRecord[]>
@@ -224,7 +226,7 @@ export function normalizeAssessedPageUrl(raw: string): string {
 
 export function createMemoryFindingsStore(): FindingsStore {
   return {
-    async createRun({ siteId, userId, origin, detectOnly }) {
+    async createRun({ siteId, userId, origin, detectOnly, trigger }) {
       const now = new Date().toISOString()
       const originNorm = origin.replace(/\/$/, '')
       const run: CrawlRunRecord = {
@@ -234,6 +236,7 @@ export function createMemoryFindingsStore(): FindingsStore {
         detectOrigin: detectOnly ? originNorm : null,
         userId,
         origin: originNorm,
+        trigger: trigger === 'scheduled' ? 'scheduled' : 'manual',
         status: 'queued',
         chunkSize: CRAWL_URL_CHUNK_SIZE,
         urlsFound: 0,
