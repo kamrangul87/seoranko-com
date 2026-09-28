@@ -3,6 +3,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import {
   CRAWL_URL_CHUNK_SIZE,
+  failAbandonedCrawlRuns,
   getFindingsStore,
 } from '@/lib/fix-strategies/findings-ui/crawl'
 import { normalizePublicOrigin } from '@/lib/fix-strategies/findings-ui/crawl/normalize-public-origin'
@@ -58,6 +59,8 @@ export async function GET(request: Request) {
         { status: 400 },
       )
     }
+    const runsRaw = await store.listRunsForDetectOrigin(user.id, origin)
+    await failAbandonedCrawlRuns(store, runsRaw)
     const runs = await store.listRunsForDetectOrigin(user.id, origin)
     const latest = runs[0] ?? null
     const rows = await store.listFindings({
@@ -122,6 +125,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Site not found' }, { status: 404 })
   }
 
+  const runsRaw = await store.listRunsForSite(siteId)
+  await failAbandonedCrawlRuns(store, runsRaw)
   const runs = await store.listRunsForSite(siteId)
   const latest = runs[0] ?? null
   const rows = await store.listFindings({ siteId, includeInformational })

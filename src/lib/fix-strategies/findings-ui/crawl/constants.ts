@@ -12,6 +12,14 @@ export const CRAWL_URL_CHUNK_SIZE = 5
 /** Soft wall-clock budget per tick (ms). Leave headroom under maxDuration=60. */
 export const CRAWL_TICK_DEADLINE_MS = 45_000
 
+/**
+ * A run still queued/running whose `updatedAt` is older than this is treated as
+ * abandoned (ticks stopped reaching it) and marked `failed`.
+ * Why 30m: well above a healthy multi-tick crawl for small sites; short enough
+ * that a tab-close / function-kill cannot leave status=running forever.
+ */
+export const CRAWL_ABANDONED_MS = 30 * 60 * 1000
+
 /** Min delay between SEORANKO requests to a customer origin (ms). */
 export const CRAWL_INTER_REQUEST_GAP_MS = 250
 
@@ -60,9 +68,9 @@ export type CoverageNote = {
 
 /**
  * open = currently detected, or never resolved.
- * resolved = absent from a later *complete*-coverage crawl of the same
- *   scope — never inferred from a partial run (absence proves nothing when
- *   coverage was incomplete).
+ * resolved = absent from a later complete *or* partial run for a URL that
+ *   run actually crawled (assessed). Never resolved for URLs a partial crawl
+ *   never reached — absence proves nothing without a re-assessment.
  * regressed = a resolved finding reappeared. Stays regressed on repeat
  *   re-observation; only a later resolution (going absent again) can move
  *   it back to resolved.

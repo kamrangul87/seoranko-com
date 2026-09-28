@@ -14,7 +14,7 @@ import type {
   PersistedEvidenceRow,
   PersistedFindingRow,
 } from './constants'
-import type { FindingsStore } from './store'
+import { normalizeAssessedPageUrl, type FindingsStore } from './store'
 import type { DetectorEmit } from './run-detectors'
 
 function mapRun(row: Record<string, unknown>): CrawlRunRecord {
@@ -254,6 +254,17 @@ export function createSupabaseFindingsStore(
       )
     },
 
+    async requeueOrphanedRunningJobs(runId) {
+      const { data, error } = await db()
+        .from('fix_strategies_crawl_url_jobs')
+        .update({ status: 'queued' })
+        .eq('run_id', runId)
+        .eq('status', 'running')
+        .select('id')
+      if (error) throw new Error(error.message)
+      return (data ?? []).length
+    },
+
     async updateUrlJob(jobId, patch) {
       const row: Record<string, unknown> = {}
       if (patch.status != null) row.status = patch.status
@@ -441,20 +452,52 @@ export function createSupabaseFindingsStore(
       }
     },
 
-    async resolveAbsentFindings({ siteId, detectOrigin, userId, runId }) {
+    async resolveAbsentFindings({
+      siteId,
+      detectOrigin,
+      userId,
+      runId,
+      assessedPageUrls,
+      fullCoverage,
+    }) {
       const originNorm = detectOrigin?.replace(/\/$/, '') ?? null
+      const assessed = new Set(
+        assessedPageUrls.map((u) => normalizeAssessedPageUrl(u)),
+      )
       const now = new Date().toISOString()
+
+      // Fetch candidates then filter in-process — pageUrl membership cannot
+      // be expressed cleanly as a single PostgREST filter over normalized URLs.
       let q = db()
         .from('fix_strategies_findings')
-        .update({ status: 'resolved', resolved_at: now, updated_at: now })
+        .select('id, page_url, last_seen_run_id, status, bucket')
         .neq('bucket', 'internal')
         .neq('status', 'resolved')
         .neq('last_seen_run_id', runId)
       q = siteId
         ? q.eq('site_id', siteId)
         : q.is('site_id', null).eq('user_id', userId).eq('detect_origin', originNorm)
-      const { data, error } = await q.select('id')
+      const { data: candidates, error } = await q
       if (error) throw new Error(error.message)
+
+      const toResolve: string[] = []
+      for (const row of candidates ?? []) {
+        const page = (row.page_url as string | null)?.trim() || ''
+        if (page) {
+          if (!assessed.has(normalizeAssessedPageUrl(page))) continue
+        } else if (!fullCoverage) {
+          continue
+        }
+        toResolve.push(String(row.id))
+      }
+      if (toResolve.length === 0) return { resolvedCount: 0 }
+
+      const { data, error: updErr } = await db()
+        .from('fix_strategies_findings')
+        .update({ status: 'resolved', resolved_at: now, updated_at: now })
+        .in('id', toResolve)
+        .select('id')
+      if (updErr) throw new Error(updErr.message)
       return { resolvedCount: (data ?? []).length }
     },
 
@@ -548,7 +591,7 @@ export function createSupabaseFindingsStore(
     },
 
     async counts({ siteId, detectOrigin, userId }) {
-      let q = db().from('fix_strategies_findings').select('bucket')
+      let q = db().from('fix_strategies_findings').select('bucket, status')
       if (siteId) {
         q = q.eq('site_id', siteId)
       } else if (detectOrigin) {
@@ -565,6 +608,7 @@ export function createSupabaseFindingsStore(
       let informational = 0
       let internal = 0
       for (const row of data ?? []) {
+        if (row.status === 'resolved') continue
         if (row.bucket === 'actionable') actionable++
         else if (row.bucket === 'informational') informational++
         else internal++

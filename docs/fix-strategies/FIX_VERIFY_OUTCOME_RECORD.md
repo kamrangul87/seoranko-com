@@ -1,7 +1,7 @@
 # Fix → verify → outcome record
 
 Ledger of findings that completed the full loop: detect → fix (PR) →
-production verify → recrawl confirms absence.
+production verify → (optional) live recrawl snapshot.
 
 Each entry is keyed to a finding identity `(origin, topic, verdict, page)`.
 Detected date = first live crawl that raised it. Fixed date = PR merge to
@@ -12,6 +12,22 @@ deploy.
 `auto_merged: true` = product merged under site `auto_merge_enabled` gates.
 `auto_merged: false` = human merged the customer PR, **or** the agent merged
 only after **explicit per-PR owner approval** (see `_implementation-rules.md`).
+
+### Honest accounting (read before the 5 → 4 → 0 tables)
+
+The eleven autodun-ai production fixes below were **real**: each PR merged,
+production tip Ready, and live HTML/sitemap postconditions verified.
+
+What those “actionable before/after” and “Final actionable count: 0” lines
+**do not** mean: that SEORANKO’s finding-resolution lifecycle closed rows
+(`status=resolved` / a resolution event). Until crawl runs reliably reach
+`complete`/`partial` with `finished_at` set, resolution never fired. Count
+drops across recrawls were **list snapshots from differently-scoped or
+still-`running` crawls** (findings from one run looking “gone” when a later
+run’s emit set differed), not closed-via-resolution. Outcome **`closed`**
+in this ledger = **production fix verified**, not DB resolution.
+
+See also `docs/SEORANKO_IMPLEMENTATION_RECORD.md`.
 
 ---
 
@@ -34,10 +50,8 @@ only after **explicit per-PR owner approval** (see `_implementation-rules.md`).
 | Attribute check | All 3 `<img>` tags carry `width="1200"` and `height="675"` |
 | Ratio check | Declared ratio matches intrinsic JPEG headers (failures: none) |
 | Recrawl | 2026-09-22 — `LIVE_CRAWL=1` autodun report |
-| Actionable before | 5 (included `auto-set-dimensions` on this page) |
-| Actionable after | **4** — `auto-set-dimensions` absent |
-| Remaining actionable | `human-review-no-height-auto`, `finding-wrong-ratio`, topic 8 `human-review-preferred-conflict`, topic 25 `moderate-out-of-scope` |
-| Outcome | **closed** — finding gone on recrawl; production postcondition holds |
+| Recrawl snapshot note | Prior list showed 5 actionable including this page; a later crawl list showed 4 — **not** a resolution event (see intro) |
+| Outcome | **closed** — production postcondition holds (dims on live HTML) |
 
 Script used for production verify: `scripts/verify-prod-topic49.ts`.
 
@@ -225,11 +239,11 @@ Autodun Production tip after this batch: **`0b5c0eb`**
 
 ### Recrawl summary (after six residual topic-49 fixes)
 
-| Metric | Before (post-rollup fix) | After |
-|--------|--------------------------|-------|
-| Actionable | **6** (all topic 49) | **0** |
-| Topic 49 actionable | 6 | **0** |
-| Production tip | — | `0b5c0eb` Ready |
+| Metric | Note |
+|--------|------|
+| Production tip | `0b5c0eb` Ready — six page-level topic-49 fixes verified on live HTML |
+| List snapshot “6 → 0 actionable” | **Not** finding resolution. Differently-scoped / incomplete crawl lists; no `status=resolved` events fired |
+| What was proven | Live pages no longer match the pre-fix topic-49 postconditions for those URLs |
 
 ## 12. Fresh verify (2026-09-22, owner re-confirm)
 
@@ -237,15 +251,15 @@ Owner re-authorized the same two fix types for any remaining pages. Live check:
 
 | Check | Result |
 |-------|--------|
-| Live crawl (`LIVE_CRAWL=1`) | actionable **0**; topic 49 per-page section empty |
+| Live crawl (`LIVE_CRAWL=1`) | Snapshot listed actionable **0** for topic 49 per-page (list snapshot — not resolution) |
 | Production tip | `0b5c0eb` (`fix(seo): topic 49 correct img ratio dimensions — mot-cost-uk-2026 (#44)`) |
 | 5× `human-review-no-height-auto` pages | Live HTML has `article img { … height:auto }` + width/height attrs |
 | `mot-cost-uk-2026` wrong-ratio | **No `object-fit`** (would have been FP stop); dims already corrected 2048×2048 / 1024×1024 |
-| New autodun PRs this turn | **None** — §6–§11 already closed every remaining page |
+| New autodun PRs this turn | **None** — §6–§11 already shipped every remaining page fix |
 
 Grouped findings UI: list + detail now render **every** `memberUrls` entry (not count-only).
 
-Final actionable count: **0**.
+Proven: production HTML for the fixed pages. **Not** proven: resolution lifecycle closed those finding rows.
 
 ---
 
@@ -332,11 +346,10 @@ Final actionable count: **0**.
 
 ### Recrawl summary (after #13–#15 + topic 34 guard)
 
-| Metric | Before (2026-09-24 pre-fix) | After |
-|--------|------------------------------|-------|
-| Actionable | **4** | **0** |
-| Informational | 42 | 41 |
-| Topic 34 `/mot-predictor` | `human-review-missing-lang` | `suppress-cross-host-redirect` (internal) |
-| Production tip | — | **`7cc9538`** Ready |
+| Metric | Note |
+|--------|------|
+| Production tip | **`7cc9538`** Ready — #46–#48 verified on live site |
+| Topic 34 `/mot-predictor` | Detector guard `suppress-cross-host-redirect` (no site change) |
+| List snapshot “4 → 0 actionable” | **Not** finding resolution. Crawl runs were still `status=running` / `finished_at=null`; counts were cross-run list drift, not closed rows |
 
-Remaining listable: **none** actionable. Informational left: click-depth metrics, recommended `author.url` absent, FAQPage deprecated-type (inert — do not auto-remove), one `raw-render-mismatch` on `/`, trailing-slash `informational-generated-only`.
+Production fixes for #13–#15 stand. Resolution-driven closure was not available until crawl completion landed (see crawl orchestrator reclaim + abandon timeout).

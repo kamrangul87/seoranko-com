@@ -50,6 +50,12 @@ export type FindingsStore = {
     runId: string,
     limit: number,
   ): Promise<CrawlUrlJob[]>
+  /**
+   * Re-queue jobs left in `running` after a killed/crashed tick. Without this,
+   * `done` (queued===0 && running===0) can never become true and the run
+   * stays status=running with finished_at=null forever.
+   */
+  requeueOrphanedRunningJobs(runId: string): Promise<number>
   updateUrlJob(
     jobId: string,
     patch: Partial<CrawlUrlJob>,
@@ -67,17 +73,20 @@ export type FindingsStore = {
     internalEvidence: DetectorEmit[]
   }): Promise<void>
   /**
-   * Marks every non-internal finding in this scope not touched by `runId`
-   * as resolved. Callers must only invoke this after a run reaches
-   * status 'complete' (full coverage) — absence from a partial run proves
-   * nothing, since the page that would have re-raised the finding may not
-   * have been re-crawled at all.
+   * Marks non-internal findings in this scope not touched by `runId` as
+   * resolved, but only when their pageUrl was actually assessed in that run
+   * (`assessedPageUrls`). Call after status reaches `complete` or `partial`.
+   * Findings for URLs the run never crawled are left open.
+   * Site-level findings with no pageUrl resolve only when `fullCoverage`
+   * is true (complete run).
    */
   resolveAbsentFindings(input: {
     siteId: string | null
     detectOrigin?: string | null
     userId: string
     runId: string
+    assessedPageUrls: string[]
+    fullCoverage: boolean
   }): Promise<{ resolvedCount: number }>
   /** Stage page-level detector emits for a run (re-rolled on each tick). */
   appendRunEmits(runId: string, emits: DetectorEmit[]): Promise<void>
@@ -163,6 +172,19 @@ function scopeKey(input: {
 }): string {
   if (input.siteId) return input.siteId
   return `detect:${input.detectOrigin ?? ''}`
+}
+
+/** Normalize page URLs for assessed-set membership (resolution scope). */
+export function normalizeAssessedPageUrl(raw: string): string {
+  try {
+    const u = new URL(raw)
+    u.hash = ''
+    let path = u.pathname
+    if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1)
+    return `${u.origin}${path}${u.search}`
+  } catch {
+    return raw.replace(/\/$/, '')
+  }
 }
 
 export function createMemoryFindingsStore(): FindingsStore {
@@ -305,6 +327,17 @@ export function createMemoryFindingsStore(): FindingsStore {
       return queued
     },
 
+    async requeueOrphanedRunningJobs(runId) {
+      let n = 0
+      for (const j of state().jobs.values()) {
+        if (j.runId !== runId || j.status !== 'running') continue
+        j.status = 'queued'
+        state().jobs.set(j.id, j)
+        n++
+      }
+      return n
+    },
+
     async updateUrlJob(jobId, patch) {
       const cur = state().jobs.get(jobId)
       if (!cur) return
@@ -440,8 +473,18 @@ export function createMemoryFindingsStore(): FindingsStore {
       }
     },
 
-    async resolveAbsentFindings({ siteId, detectOrigin, userId, runId }) {
+    async resolveAbsentFindings({
+      siteId,
+      detectOrigin,
+      userId,
+      runId,
+      assessedPageUrls,
+      fullCoverage,
+    }) {
       const originNorm = detectOrigin?.replace(/\/$/, '') ?? null
+      const assessed = new Set(
+        assessedPageUrls.map((u) => normalizeAssessedPageUrl(u)),
+      )
       const now = new Date().toISOString()
       let resolvedCount = 0
       for (const f of state().findings.values()) {
@@ -452,6 +495,13 @@ export function createMemoryFindingsStore(): FindingsStore {
         if (f.bucket === 'internal') continue
         if (f.status === 'resolved') continue
         if (f.lastSeenRunId === runId) continue
+        const page = f.pageUrl?.trim() || ''
+        if (page) {
+          if (!assessed.has(normalizeAssessedPageUrl(page))) continue
+        } else if (!fullCoverage) {
+          // No pageUrl + partial coverage → absence proves nothing.
+          continue
+        }
         f.status = 'resolved'
         f.resolvedAt = now
         resolvedCount += 1
@@ -532,6 +582,8 @@ export function createMemoryFindingsStore(): FindingsStore {
               (userId == null || f.userId === userId)
             : false
         if (!match) continue
+        // Resolved rows stay in the table for history but do not count as open work.
+        if (f.status === 'resolved') continue
         if (f.bucket === 'actionable') actionable++
         else if (f.bucket === 'informational') informational++
         else internal++

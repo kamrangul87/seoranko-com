@@ -5,6 +5,7 @@ import {
   CRAWL_URL_CHUNK_SIZE,
   startCrawlRun,
   processCrawlTick,
+  failAbandonedCrawlRuns,
   getFindingsStore,
 } from '@/lib/fix-strategies/findings-ui/crawl'
 import { normalizePublicOrigin } from '@/lib/fix-strategies/findings-ui/crawl/normalize-public-origin'
@@ -91,6 +92,10 @@ export async function POST(request: Request) {
           : pageQuota.maxPages
       let runId: string, urlsDiscovered: number, urlsFound: number
       try {
+        await failAbandonedCrawlRuns(
+          store,
+          await store.listRunsForDetectOrigin(user.id, origin),
+        )
         ;({ runId, urlsDiscovered, urlsFound } = await startCrawlRun({
           siteId: null,
           userId: user.id,
@@ -182,6 +187,10 @@ export async function POST(request: Request) {
         : pageQuota.maxPages
     let runId: string, urlsDiscovered: number, urlsFound: number
     try {
+      await failAbandonedCrawlRuns(
+        store,
+        await store.listRunsForSite(siteId),
+      )
       ;({ runId, urlsDiscovered, urlsFound } = await startCrawlRun({
         siteId,
         userId: user.id,

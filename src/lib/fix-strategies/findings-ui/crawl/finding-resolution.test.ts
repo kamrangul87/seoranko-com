@@ -56,32 +56,44 @@ describe('finding resolution lifecycle', () => {
     expect(row!.resolvedAt).toBeNull()
   })
 
-  it('does not resolve anything after a partial run — absence proves nothing without full coverage', async () => {
+  it('partial run does not resolve findings for URLs it never crawled', async () => {
     const store = createMemoryFindingsStore()
     const run1 = await store.createRun({ siteId: 'site-a', userId: 'user-a', origin: 'https://example.com' })
     await store.upsertFindings({
       siteId: 'site-a', userId: 'user-a', runId: run1.id,
-      findings: [makeFinding()], internalEvidence: [],
+      findings: [
+        makeFinding({ pageUrl: 'https://example.com/page', rollupKey: '13|auto-add-canonical|https://example.com/page' }),
+        makeFinding({
+          pageUrl: 'https://example.com/other',
+          rollupKey: '13|auto-add-canonical|https://example.com/other',
+        }),
+      ],
+      internalEvidence: [],
     })
 
-    // Simulate a second, later run that did NOT re-detect this finding
-    // (e.g. the page wasn't re-crawled) but is only PARTIAL coverage —
-    // resolveAbsentFindings must never be called for a partial run, and
-    // even if it were, nothing here exercises the call, matching how
-    // orchestrator.ts gates it behind status === 'complete'.
     const run2 = await store.createRun({ siteId: 'site-a', userId: 'user-a', origin: 'https://example.com' })
     await store.upsertFindings({
       siteId: 'site-a', userId: 'user-a', runId: run2.id,
-      findings: [], internalEvidence: [],
+      findings: [],
+      internalEvidence: [],
     })
-    // No resolveAbsentFindings call here — the partial-run path.
+    // Partial: only /page was assessed — /other must stay open.
+    const { resolvedCount } = await store.resolveAbsentFindings({
+      siteId: 'site-a',
+      userId: 'user-a',
+      runId: run2.id,
+      assessedPageUrls: ['https://example.com/page'],
+      fullCoverage: false,
+    })
+    expect(resolvedCount).toBe(1)
 
-    const [row] = await store.listFindings({ siteId: 'site-a', includeInformational: false })
-    expect(row!.status).toBe('open')
-    expect(row!.resolvedAt).toBeNull()
+    const rows = await store.listFindings({ siteId: 'site-a', includeInformational: false })
+    const byUrl = Object.fromEntries(rows.map((r) => [r.pageUrl, r.status]))
+    expect(byUrl['https://example.com/page']).toBe('resolved')
+    expect(byUrl['https://example.com/other']).toBe('open')
   })
 
-  it('resolves a finding absent from a later complete run', async () => {
+  it('resolves a finding absent from a later complete run for an assessed URL', async () => {
     const store = createMemoryFindingsStore()
     const run1 = await store.createRun({ siteId: 'site-a', userId: 'user-a', origin: 'https://example.com' })
     await store.upsertFindings({
@@ -95,7 +107,11 @@ describe('finding resolution lifecycle', () => {
       findings: [], internalEvidence: [],
     })
     const { resolvedCount } = await store.resolveAbsentFindings({
-      siteId: 'site-a', userId: 'user-a', runId: run2.id,
+      siteId: 'site-a',
+      userId: 'user-a',
+      runId: run2.id,
+      assessedPageUrls: ['https://example.com/page'],
+      fullCoverage: true,
     })
     expect(resolvedCount).toBe(1)
 
@@ -117,13 +133,18 @@ describe('finding resolution lifecycle', () => {
       siteId: 'site-a', userId: 'user-a', runId: run2.id,
       findings: [], internalEvidence: [],
     })
-    await store.resolveAbsentFindings({ siteId: 'site-a', userId: 'user-a', runId: run2.id })
+    await store.resolveAbsentFindings({
+      siteId: 'site-a',
+      userId: 'user-a',
+      runId: run2.id,
+      assessedPageUrls: ['https://example.com/page'],
+      fullCoverage: true,
+    })
 
     const [resolved] = await store.listFindings({ siteId: 'site-a', includeInformational: false })
     const resolvedAt = resolved!.resolvedAt
     expect(resolved!.status).toBe('resolved')
 
-    // The same underlying problem comes back on a third run.
     const run3 = await store.createRun({ siteId: 'site-a', userId: 'user-a', origin: 'https://example.com' })
     await store.upsertFindings({
       siteId: 'site-a', userId: 'user-a', runId: run3.id,
@@ -132,9 +153,7 @@ describe('finding resolution lifecycle', () => {
 
     const [regressed] = await store.listFindings({ siteId: 'site-a', includeInformational: false })
     expect(regressed!.status).toBe('regressed')
-    // resolvedAt is history ("when was this last considered fixed"), not cleared.
     expect(regressed!.resolvedAt).toBe(resolvedAt)
-    // Same finding id throughout — this is a regression, not a new finding.
     expect(regressed!.id).toBe(resolved!.id)
   })
 
@@ -160,13 +179,17 @@ describe('finding resolution lifecycle', () => {
       internalEvidence: [],
     })
 
-    // Resolve site-a's absent findings on a fresh site-a run that found nothing.
     const runA2 = await store.createRun({ siteId: 'site-a', userId: 'user-a', origin: 'https://example.com' })
     await store.upsertFindings({ siteId: 'site-a', userId: 'user-a', runId: runA2.id, findings: [], internalEvidence: [] })
-    const { resolvedCount } = await store.resolveAbsentFindings({ siteId: 'site-a', userId: 'user-a', runId: runA2.id })
+    const { resolvedCount } = await store.resolveAbsentFindings({
+      siteId: 'site-a',
+      userId: 'user-a',
+      runId: runA2.id,
+      assessedPageUrls: ['https://example.com/page'],
+      fullCoverage: true,
+    })
     expect(resolvedCount).toBe(1)
 
-    // site-b's finding is untouched — different scope.
     const [siteBRow] = await store.listFindings({ siteId: 'site-b', includeInformational: false })
     expect(siteBRow!.status).toBe('open')
   })

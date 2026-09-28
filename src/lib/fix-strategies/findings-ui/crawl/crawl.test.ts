@@ -1,7 +1,9 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import {
+  CRAWL_ABANDONED_MS,
   CRAWL_URL_CHUNK_SIZE,
   createMemoryFindingsStore,
+  failAbandonedCrawlRuns,
   resetMemoryFindingsStore,
   useMemoryFindingsStore,
   rollupAndClassify,
@@ -337,5 +339,73 @@ describe('rollupAndClassify buckets', () => {
     expect(findings.every((f) => f.bucket !== 'internal')).toBe(true)
     expect(findings).toHaveLength(1)
     expect(findings[0]!.rollupKey).toContain('generator:x')
+  })
+
+  it('reclaims orphaned running jobs so a stuck run can reach complete/partial', async () => {
+    const { processCrawlTick } = await import('./orchestrator')
+    const store = createMemoryFindingsStore()
+    const run = await store.createRun({
+      siteId: 'site-orphan',
+      userId: 'u',
+      origin: 'https://example.com',
+    })
+    await store.updateRun(run.id, { status: 'running', urlsDiscovered: 1, urlsFound: 1 })
+    await store.enqueueUrls(run.id, ['https://example.com/stuck'])
+    // Simulate a killed tick: job claimed to running, never terminalized.
+    const claimed = await store.claimUrlChunk(run.id, 1)
+    expect(claimed).toHaveLength(1)
+    expect((await store.countJobsByStatus(run.id)).running).toBe(1)
+
+    // Without reclaim, done would stay false forever. processCrawlTick reclaims
+    // then sees an empty claim after we mark the job crawled mid-flight via
+    // requeue → claim → we mark crawled before detectors by stubbing: mark
+    // the requeued job crawled after reclaim by processing with a sync path.
+    // Here we just assert reclaim + empty-queue finalize: reclaim, mark crawled,
+    // then tick with nothing left.
+    const requeued = await store.requeueOrphanedRunningJobs(run.id)
+    expect(requeued).toBe(1)
+    const again = await store.claimUrlChunk(run.id, 1)
+    await store.updateUrlJob(again[0]!.id, {
+      status: 'crawled',
+      httpStatus: 200,
+      finalUrl: again[0]!.url,
+      html: '<html><body>ok</body></html>',
+    })
+    await store.updateRun(run.id, { urlsCrawled: 1 })
+
+    const tick = await processCrawlTick(run.id, { store })
+    expect(tick.done).toBe(true)
+    expect(['complete', 'partial']).toContain(tick.status)
+    const finished = await store.getRun(run.id)
+    expect(finished!.finishedAt).not.toBeNull()
+    expect(finished!.status).not.toBe('running')
+  })
+
+  it('marks abandoned runs failed after CRAWL_ABANDONED_MS', async () => {
+    const { processCrawlTick } = await import('./orchestrator')
+    const store = createMemoryFindingsStore()
+    const run = await store.createRun({
+      siteId: 'site-abandon',
+      userId: 'u',
+      origin: 'https://example.com',
+    })
+    const staleIso = new Date(Date.now() - CRAWL_ABANDONED_MS - 1000).toISOString()
+    // Bypass updateRun's always-fresh updatedAt by writing through a fresh patch
+    // then forcing updatedAt via a second create path — use failAbandonedCrawlRuns
+    // with an injected "now" after manually aging the record.
+    await store.updateRun(run.id, { status: 'running' })
+    const cur = await store.getRun(run.id)
+    // Memory store: mutate updatedAt directly through updateRun can't age it.
+    // Use failAbandonedCrawlRuns with a synthetic run list.
+    const aged = { ...cur!, updatedAt: staleIso, status: 'running' as const }
+    const n = await failAbandonedCrawlRuns(store, [aged], Date.now())
+    expect(n).toBe(1)
+    const after = await store.getRun(run.id)
+    expect(after!.status).toBe('failed')
+    expect(after!.finishedAt).not.toBeNull()
+
+    const tick = await processCrawlTick(run.id, { store })
+    expect(tick.done).toBe(true)
+    expect(tick.status).toBe('failed')
   })
 })
