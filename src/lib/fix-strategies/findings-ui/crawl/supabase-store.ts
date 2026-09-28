@@ -591,7 +591,7 @@ export function createSupabaseFindingsStore(
     },
 
     async counts({ siteId, detectOrigin, userId }) {
-      let q = db().from('fix_strategies_findings').select('bucket')
+      let q = db().from('fix_strategies_findings').select('bucket, status')
       if (siteId) {
         q = q.eq('site_id', siteId)
       } else if (detectOrigin) {
@@ -608,6 +608,7 @@ export function createSupabaseFindingsStore(
       let informational = 0
       let internal = 0
       for (const row of data ?? []) {
+        if (row.status === 'resolved') continue
         if (row.bucket === 'actionable') actionable++
         else if (row.bucket === 'informational') informational++
         else internal++

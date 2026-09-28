@@ -582,6 +582,8 @@ export function createMemoryFindingsStore(): FindingsStore {
               (userId == null || f.userId === userId)
             : false
         if (!match) continue
+        // Resolved rows stay in the table for history but do not count as open work.
+        if (f.status === 'resolved') continue
         if (f.bucket === 'actionable') actionable++
         else if (f.bucket === 'informational') informational++
         else internal++
