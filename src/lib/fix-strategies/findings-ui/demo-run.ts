@@ -38,6 +38,11 @@ function buildFinding(
     | 'whyNotAutoFixed'
     | 'status'
     | 'resolvedAt'
+    | 'fixedAt'
+    | 'verificationAt'
+    | 'postFixStatus'
+    | 'regressionObservedAt'
+    | 'regressionReport'
   > & { reportOnly?: boolean },
 ): UiFinding {
   const dossierSlug = dossierSlugForTopic(partial.topicId)
