@@ -7,8 +7,9 @@
 Observation timeline across crawl runs — persist one row per assessed URL per
 run, classify the ordered series in code.
 
-Not in this stage: regression fields (§3.2), scheduled recrawl (§3.3),
-what-changed digest (§3.4).
+Not in this stage originally: regression fields (§3.2 — see
+`CHANGE_MONITORING_STAGE_2.md`), scheduled recrawl (§3.3), what-changed
+digest (§3.4).
 
 ## Shipped here
 

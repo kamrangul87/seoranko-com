@@ -26,6 +26,7 @@ import { appendOutcomeRecordLocal } from './outcome-record'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import { findOwnedSiteConnection } from '@/lib/site-connection-lookup'
 import { normaliseDomain } from '@/lib/connected-sites'
+import { getFindingsStore } from '../crawl/store'
 
 export type AutoMergeGateResult =
   | { allowed: true }
@@ -316,6 +317,7 @@ export async function maybeAutoMergeAfterPreviewVerify(
       ? `Production verify FAILED after auto-merge. Revert PR opened: ${revert.prUrl}. Merge the revert promptly.`
       : `Production verify FAILED after auto-merge. Revert PR FAILED to open: ${revert.error}. Manual revert required.`
 
+    const verifiedAtFail = new Date().toISOString()
     appendOutcomeRecordLocal({
       origin: originOf(input.productionUrl),
       topicId: input.finding.topicId,
@@ -330,11 +332,21 @@ export async function maybeAutoMergeAfterPreviewVerify(
       autoMerged: true,
       productionVerify: 'FAILED',
       productionVerifyDetail: prod.detail,
-      productionVerifiedAt: new Date().toISOString(),
+      productionVerifiedAt: verifiedAtFail,
       revertPrUrl: revert.ok ? revert.prUrl : null,
       outcome: 'production_verify_failed_revert_opened',
       fixDetail: cur.commitDetail || undefined,
     })
+
+    // Same finding row — stamp post-fix fields (CM 3.2). Ledger stays source of truth for narrative.
+    await getFindingsStore()
+      .recordSeorankoFix({
+        findingId: input.findingId,
+        fixedAt: merged.mergedAt,
+        verificationAt: verifiedAtFail,
+        postFixStatus: 'verify_failed',
+      })
+      .catch(() => undefined)
 
     return store.save({
       ...cur,
@@ -353,6 +365,7 @@ export async function maybeAutoMergeAfterPreviewVerify(
     })
   }
 
+  const verifiedAtOk = new Date().toISOString()
   appendOutcomeRecordLocal({
     origin: originOf(input.productionUrl),
     topicId: input.finding.topicId,
@@ -367,10 +380,19 @@ export async function maybeAutoMergeAfterPreviewVerify(
     autoMerged: true,
     productionVerify: 'OK',
     productionVerifyDetail: prod.detail,
-    productionVerifiedAt: new Date().toISOString(),
+    productionVerifiedAt: verifiedAtOk,
     outcome: 'closed',
     fixDetail: cur.commitDetail || undefined,
   })
+
+  await getFindingsStore()
+    .recordSeorankoFix({
+      findingId: input.findingId,
+      fixedAt: merged.mergedAt,
+      verificationAt: verifiedAtOk,
+      postFixStatus: 'verified',
+    })
+    .catch(() => undefined)
 
   return store.save({
     ...cur,

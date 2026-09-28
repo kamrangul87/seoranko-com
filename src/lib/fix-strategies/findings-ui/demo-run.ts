@@ -38,6 +38,11 @@ function buildFinding(
     | 'whyNotAutoFixed'
     | 'status'
     | 'resolvedAt'
+    | 'fixedAt'
+    | 'verificationAt'
+    | 'postFixStatus'
+    | 'regressionObservedAt'
+    | 'regressionReport'
   > & { reportOnly?: boolean },
 ): UiFinding {
   const dossierSlug = dossierSlugForTopic(partial.topicId)
@@ -68,6 +73,11 @@ function buildFinding(
     // Demo data is a static snapshot — every demo finding is 'open'.
     status: 'open',
     resolvedAt: null,
+    fixedAt: null,
+    verificationAt: null,
+    postFixStatus: null,
+    regressionObservedAt: null,
+    regressionReport: null,
     sources: sourcesForTopic(
       partial.topicId,
       dossierSlug,

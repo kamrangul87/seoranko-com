@@ -9,6 +9,8 @@ export type {
   CrawlRunStatus,
   CrawlUrlJobStatus,
   CoverageNote,
+  FindingStatus,
+  PostFixStatus,
   PersistedFindingRow,
   PersistedEvidenceRow,
   CrawlRunRecord,
@@ -70,3 +72,10 @@ export type {
   UrlObservationPoint,
   UrlObservationRecord,
 } from './observation-timeline'
+
+export {
+  buildRegressionReport,
+  lookupOutcomeLedgerPr,
+  resolveFixPrReference,
+} from './regression-report'
+export type { FixPrRef, RegressionReport } from './regression-report'

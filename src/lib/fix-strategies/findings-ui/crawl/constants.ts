@@ -77,6 +77,12 @@ export type CoverageNote = {
  */
 export type FindingStatus = 'open' | 'resolved' | 'regressed'
 
+/**
+ * Change Monitoring 3.2 — post-SEORANKO-fix state on the same finding row.
+ * Null when the finding never had a SEORANKO fix (crawl-only resolution).
+ */
+export type PostFixStatus = 'verified' | 'verify_failed' | 'regressed'
+
 export type PersistedFindingRow = {
   id: string
   siteId: string | null
@@ -106,6 +112,14 @@ export type PersistedFindingRow = {
   status: FindingStatus
   /** Set when status transitions to resolved; preserved across a later regression. */
   resolvedAt: string | null
+  /** SEORANKO customer-PR merge time; null when only crawl-resolved. */
+  fixedAt: string | null
+  /** Production (or preview) verify completion time for a SEORANKO fix. */
+  verificationAt: string | null
+  /** Post-fix lifecycle on the same row — not a parallel status machine. */
+  postFixStatus: PostFixStatus | null
+  /** Set on resolved → regressed; preserved across later re-resolve. */
+  regressionObservedAt: string | null
 }
 
 export type PersistedEvidenceRow = {

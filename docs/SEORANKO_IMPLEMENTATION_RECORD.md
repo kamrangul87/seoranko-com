@@ -50,4 +50,7 @@ Fixed in product:
 
 - **Stage 1 (§3.1)** — URL observation timeline (persist + classify). See
   `docs/fix-strategies/CHANGE_MONITORING_STAGE_1.md`.
-- Stages 2–4 not started.
+- **Stage 2 (§3.2)** — regression / post-fix fields on the P1 finding row
+  (`fixed_at`, `verification_at`, `post_fix_status`, `regression_observed_at`).
+  See `docs/fix-strategies/CHANGE_MONITORING_STAGE_2.md`.
+- Stages 3–4 not started.

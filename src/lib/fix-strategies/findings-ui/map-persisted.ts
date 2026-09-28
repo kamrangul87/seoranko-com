@@ -1,4 +1,5 @@
 import type { PersistedEvidenceRow, PersistedFindingRow } from './crawl/constants'
+import { buildRegressionReport } from './crawl/regression-report'
 import { dossierSlugForTopic } from './topic-registry'
 import {
   ownerPlainEnglish,
@@ -60,6 +61,9 @@ function mapInternalEvidence(
 export function persistedToUiFinding(
   row: PersistedFindingRow,
   evidence: PersistedEvidenceRow[] = [],
+  opts?: {
+    fixFlow?: { prUrl: string | null; prNumber: number | null } | null
+  },
 ): UiFinding {
   const surfaceClass = row.surfaceClass as FindingSurfaceClass
   const dossierSlug = dossierSlugForTopic(row.topicId)
@@ -74,6 +78,11 @@ export function persistedToUiFinding(
           return [primary, ...stored]
         })()
       : sourcesForTopic(row.topicId, dossierSlug, primarySourceId)
+
+  const regression =
+    row.status === 'regressed'
+      ? buildRegressionReport(row, { fixFlow: opts?.fixFlow })
+      : null
 
   return {
     id: row.id,
@@ -106,6 +115,20 @@ export function persistedToUiFinding(
     }),
     status: row.status,
     resolvedAt: row.resolvedAt,
+    firstSeenAt: row.firstSeenAt,
+    lastSeenAt: row.lastSeenAt,
+    fixedAt: row.fixedAt,
+    verificationAt: row.verificationAt,
+    postFixStatus: row.postFixStatus,
+    regressionObservedAt: row.regressionObservedAt,
+    regressionReport: regression
+      ? {
+          headline: regression.headline,
+          detail: regression.detail,
+          fixPrUrl: regression.fixPr?.prUrl ?? null,
+          fixPrNumber: regression.fixPr?.prNumber ?? null,
+        }
+      : null,
   }
 }
 
