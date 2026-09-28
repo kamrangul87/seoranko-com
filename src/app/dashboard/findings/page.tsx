@@ -11,10 +11,15 @@ import type {
 } from '@/lib/fix-strategies/findings-ui/client'
 import { affectedUrlsForFinding } from '@/lib/fix-strategies/findings-ui/affected-urls'
 import { summarizePartialCoverage } from '@/lib/fix-strategies/findings-ui/crawl/partial-coverage'
+import { readParamFromUrl, writeParamToUrl } from '@/lib/site-selection-url'
 import type { User } from '@supabase/supabase-js'
 
 type Site = { id: string; domain: string; brand: string | null }
 type CrawlMode = 'connected' | 'detect'
+
+const SITE_QUERY_PARAM = 'site'
+const readSiteIdFromUrl = () => readParamFromUrl(SITE_QUERY_PARAM)
+const writeSiteIdToUrl = (id: string) => writeParamToUrl(SITE_QUERY_PARAM, id || null)
 
 function sourceTierTone(tier: SourceTier): string {
   if (tier === 'STANDARD') return 'text-emerald-800 bg-emerald-50 border-emerald-100'
@@ -107,7 +112,10 @@ export default function FindingsListPage() {
         const rows = (list || []) as Site[]
         setSites(rows)
         if (rows[0]) {
-          setSiteId(rows[0].id)
+          const fromUrl = readSiteIdFromUrl()
+          const initial = (fromUrl && rows.find((r) => r.id === fromUrl)?.id) || rows[0].id
+          setSiteId(initial)
+          writeSiteIdToUrl(initial)
           setMode('connected')
         } else {
           setMode('detect')
@@ -349,7 +357,10 @@ export default function FindingsListPage() {
                 <select
                   className="ml-1 rounded-md border border-[#E8E8E4] bg-white px-2 py-1.5 text-[#0F0F0F]"
                   value={siteId}
-                  onChange={(e) => setSiteId(e.target.value)}
+                  onChange={(e) => {
+                    setSiteId(e.target.value)
+                    writeSiteIdToUrl(e.target.value)
+                  }}
                   disabled={crawling}
                 >
                   {sites.length === 0 && (
