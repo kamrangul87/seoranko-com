@@ -1,6 +1,7 @@
 export {
   CRAWL_URL_CHUNK_SIZE,
   CRAWL_TICK_DEADLINE_MS,
+  CRAWL_ABANDONED_MS,
   CRAWL_INTER_REQUEST_GAP_MS,
   CRAWL_MAX_DISCOVERED,
 } from './constants'
@@ -56,7 +57,9 @@ export {
   startCrawlRun,
   processCrawlTick,
   runCrawlToCompletion,
+  failAbandonedCrawlRuns,
 } from './orchestrator'
 export type { StartCrawlInput, TickResult } from './orchestrator'
+export { normalizeAssessedPageUrl } from './store'
 
 export { normalizePublicOrigin } from './normalize-public-origin'

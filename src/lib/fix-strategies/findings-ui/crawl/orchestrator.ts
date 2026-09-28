@@ -9,11 +9,19 @@
  * Status:
  * - complete = frontier exhausted (no cap), queue empty, no coverage gaps
  * - partial = discovery/maxUrls cap, or client_only / fetch failures / backoff
- *   / stream_incomplete after the queue drains (or permanently stopped with
- *   work left). Mid-tick time_limit with URLs still queued → stays running.
+ *   / stream_incomplete after the queue drains. Mid-tick time_limit with URLs
+ *   still queued → stays running (resume on next tick).
+ * - failed = ticks stopped reaching the run (abandoned) past CRAWL_ABANDONED_MS,
+ *   or an unrecoverable tick error after reclaim.
+ *
+ * Stuck-running root cause (fixed): claimUrlChunk sets jobs to `running`; if the
+ * serverless tick is killed before those jobs are terminal, they stay `running`,
+ * `done` (queued===0 && running===0) never becomes true, and finished_at stays
+ * null. Fix: reclaim orphaned `running` jobs at tick start + abandon timeout.
  */
 
 import {
+  CRAWL_ABANDONED_MS,
   CRAWL_MAX_DISCOVERED,
   CRAWL_TICK_DEADLINE_MS,
   CRAWL_URL_CHUNK_SIZE,
@@ -29,7 +37,11 @@ import {
   type PriorFiveXXObservation,
 } from './run-detectors'
 import { POST_CRAWL_TOPIC_IDS } from '@/lib/fix-strategies/detector-scope'
-import { getFindingsStore, type FindingsStore } from './store'
+import {
+  getFindingsStore,
+  normalizeAssessedPageUrl,
+  type FindingsStore,
+} from './store'
 import { isSafePublicUrl } from '@/lib/fetch-page-content'
 import {
   isDisallowedByRobots,
@@ -224,18 +236,49 @@ async function robotsForRun(runId: string, origin: string): Promise<RobotsRules>
   return rules
 }
 
+/**
+ * Mark queued/running runs whose ticks stopped as `failed`.
+ * Call on tick, list, and start so abandoned runs cannot sit at running forever
+ * waiting for a client that will never return.
+ */
+export async function failAbandonedCrawlRuns(
+  store: FindingsStore,
+  runs: Awaited<ReturnType<FindingsStore['listRunsForSite']>>,
+  nowMs: number = Date.now(),
+): Promise<number> {
+  let n = 0
+  for (const run of runs) {
+    if (run.status !== 'running' && run.status !== 'queued') continue
+    const updated = Date.parse(run.updatedAt)
+    if (!Number.isFinite(updated)) continue
+    if (nowMs - updated < CRAWL_ABANDONED_MS) continue
+    await store.requeueOrphanedRunningJobs(run.id)
+    await store.updateRun(run.id, {
+      status: 'failed',
+      finishedAt: new Date(nowMs).toISOString(),
+      errorDetail: `Abandoned — no tick for ${Math.round(CRAWL_ABANDONED_MS / 60000)}+ minutes`,
+      isPartial: true,
+    })
+    n++
+  }
+  return n
+}
+
 export async function processCrawlTick(
   runId: string,
   opts?: {
     store?: FindingsStore
     chunkSize?: number
     deadlineMs?: number
+    /** Test seam: override "now" for abandon timeout. */
+    nowMs?: number
   },
 ): Promise<TickResult> {
   const store = opts?.store ?? getFindingsStore()
   const chunkSize = opts?.chunkSize ?? CRAWL_URL_CHUNK_SIZE
   const deadline =
     Date.now() + (opts?.deadlineMs ?? CRAWL_TICK_DEADLINE_MS)
+  const nowMs = opts?.nowMs ?? Date.now()
 
   let run = await store.getRun(runId)
   if (!run) throw new Error(`run not found: ${runId}`)
@@ -252,6 +295,34 @@ export async function processCrawlTick(
       done: true,
     }
   }
+
+  // Abandoned: ticks stopped reaching this run.
+  const updatedMs = Date.parse(run.updatedAt)
+  if (
+    Number.isFinite(updatedMs) &&
+    nowMs - updatedMs >= CRAWL_ABANDONED_MS
+  ) {
+    await store.requeueOrphanedRunningJobs(runId)
+    run = await store.updateRun(runId, {
+      status: 'failed',
+      finishedAt: new Date(nowMs).toISOString(),
+      errorDetail: `Abandoned — no tick for ${Math.round(CRAWL_ABANDONED_MS / 60000)}+ minutes`,
+      isPartial: true,
+    })
+    return {
+      runId,
+      status: 'failed',
+      processedThisTick: 0,
+      remainingQueued: 0,
+      isPartial: true,
+      coverageNotes: run.coverageNotes,
+      done: true,
+    }
+  }
+
+  // Reclaim jobs left `running` by a previous killed/crashed tick — otherwise
+  // done never becomes true and finished_at stays null.
+  await store.requeueOrphanedRunningJobs(runId)
 
   run = await store.updateRun(runId, {
     status: 'running',
@@ -290,6 +361,7 @@ export async function processCrawlTick(
 
   const robotsRules = await robotsForRun(runId, run.origin)
 
+  try {
   for (const job of jobs) {
     if (Date.now() > deadline) {
       // Re-queue unprocessed claimed jobs
@@ -567,34 +639,45 @@ export async function processCrawlTick(
 
   // WHOLE-SITE detectors once the frontier is drained (avoids chunk false
   // positives — same fix class as topic 43 orphans on a per-chunk graph).
+  // Must not leave the run stuck at running if this throws — finalize below.
   if (done) {
-    const allJobs = await store.listJobsForRun(runId)
-    const sitemapUrls = new Set(
-      allJobs.map((j) => j.url.replace(/\/$/, '')),
-    )
-    const wholeSitePages = allJobs
-      .filter(
-        (j) =>
-          (j.status === 'crawled' || j.status === 'client_only') &&
-          (j.html != null || j.clientOnly),
+    try {
+      const allJobs = await store.listJobsForRun(runId)
+      const sitemapUrls = new Set(
+        allJobs.map((j) => j.url.replace(/\/$/, '')),
       )
-      .map((j) => ({
-        url: j.finalUrl || j.url,
-        html: j.html ?? '',
-        status: j.httpStatus,
-        clientOnly: j.clientOnly,
-        inSitemap: sitemapUrls.has((j.finalUrl || j.url).replace(/\/$/, '')),
-      }))
-    const wholeSiteEmits = await runWholeSiteDetectorsOnCrawl(
-      run.origin,
-      wholeSitePages,
-    )
-    for (const topicId of POST_CRAWL_TOPIC_IDS) {
-      await store.replaceRunEmitsForTopic(
-        runId,
-        topicId,
-        wholeSiteEmits.filter((e) => e.topicId === topicId),
+      const wholeSitePages = allJobs
+        .filter(
+          (j) =>
+            (j.status === 'crawled' || j.status === 'client_only') &&
+            (j.html != null || j.clientOnly),
+        )
+        .map((j) => ({
+          url: j.finalUrl || j.url,
+          html: j.html ?? '',
+          status: j.httpStatus,
+          clientOnly: j.clientOnly,
+          inSitemap: sitemapUrls.has((j.finalUrl || j.url).replace(/\/$/, '')),
+        }))
+      const wholeSiteEmits = await runWholeSiteDetectorsOnCrawl(
+        run.origin,
+        wholeSitePages,
       )
+      for (const topicId of POST_CRAWL_TOPIC_IDS) {
+        await store.replaceRunEmitsForTopic(
+          runId,
+          topicId,
+          wholeSiteEmits.filter((e) => e.topicId === topicId),
+        )
+      }
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      notes.push({
+        code: 'fetch_failure',
+        detail: `whole-site detectors failed: ${detail}`,
+      })
+      // Treat as coverage gap so we land on partial, not a silent complete.
+      failedN++
     }
   }
 
@@ -660,15 +743,25 @@ export async function processCrawlTick(
     errorDetail: null,
   })
 
-  // Findings close on a genuinely complete crawl only — a partial run never
-  // had full coverage, so a finding's absence from it proves nothing (the
-  // page that would have re-raised it may not have been re-crawled at all).
-  if (status === 'complete') {
+  // Resolve on complete AND partial — but only for URLs this run assessed.
+  // Never close a finding for a page a partial crawl never reached.
+  if (status === 'complete' || status === 'partial') {
+    const assessedJobs = await store.listJobsForRun(runId)
+    const assessedPageUrls: string[] = []
+    for (const j of assessedJobs) {
+      if (j.status !== 'crawled') continue
+      assessedPageUrls.push(j.finalUrl || j.url)
+      assessedPageUrls.push(j.url)
+    }
     await store.resolveAbsentFindings({
       siteId: run.siteId,
       detectOrigin: run.detectOrigin,
       userId: run.userId,
       runId,
+      assessedPageUrls: [
+        ...new Set(assessedPageUrls.map((u) => normalizeAssessedPageUrl(u))),
+      ],
+      fullCoverage: status === 'complete',
     })
   }
 
@@ -680,6 +773,11 @@ export async function processCrawlTick(
     isPartial,
     coverageNotes: dedupeNotes(notes),
     done,
+  }
+  } catch (err) {
+    // Reclaim any claimed jobs still `running` so the next tick can progress.
+    await store.requeueOrphanedRunningJobs(runId)
+    throw err
   }
 }
 
