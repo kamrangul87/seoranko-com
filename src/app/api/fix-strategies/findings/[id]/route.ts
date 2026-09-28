@@ -44,7 +44,11 @@ export async function GET(
   }
 
   const evidence = await store.listEvidenceForFinding(row.id)
-  const finding = persistedToUiFinding(row, evidence)
   const fixFlow = await getFixFlow(params.id, user.id)
+  const finding = persistedToUiFinding(row, evidence, {
+    fixFlow: fixFlow
+      ? { prUrl: fixFlow.prUrl, prNumber: fixFlow.prNumber }
+      : null,
+  })
   return NextResponse.json({ finding, fixFlow })
 }

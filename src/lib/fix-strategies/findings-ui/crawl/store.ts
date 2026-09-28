@@ -14,6 +14,7 @@ import type {
   FindingStatus,
   PersistedEvidenceRow,
   PersistedFindingRow,
+  PostFixStatus,
 } from './constants'
 import { CRAWL_URL_CHUNK_SIZE } from './constants'
 import type { RolledPersistCandidate, DetectorEmit } from './run-detectors'
@@ -89,6 +90,16 @@ export type FindingsStore = {
     assessedPageUrls: string[]
     fullCoverage: boolean
   }): Promise<{ resolvedCount: number }>
+  /**
+   * Stamp SEORANKO-fix timestamps on an existing finding (same row / lifecycle).
+   * Called after customer PR merge + verify — not a parallel status machine.
+   */
+  recordSeorankoFix(input: {
+    findingId: string
+    fixedAt: string
+    verificationAt: string | null
+    postFixStatus: Exclude<PostFixStatus, 'regressed'>
+  }): Promise<void>
   /** Stage page-level detector emits for a run (re-rolled on each tick). */
   appendRunEmits(runId: string, emits: DetectorEmit[]): Promise<void>
   /** Drop emits for a topic then append replacements (full-run recompute). */
@@ -410,8 +421,10 @@ export function createMemoryFindingsStore(): FindingsStore {
           // regression, not a plain re-detection — flag it, and keep
           // resolvedAt as the historical "last considered fixed" date
           // rather than clearing it.
-          const status: FindingStatus =
-            existing.status === 'resolved' ? 'regressed' : existing.status
+          const becomingRegressed = existing.status === 'resolved'
+          const status: FindingStatus = becomingRegressed
+            ? 'regressed'
+            : existing.status
           const updated: PersistedFindingRow = {
             ...existing,
             kind: f.kind,
@@ -432,6 +445,15 @@ export function createMemoryFindingsStore(): FindingsStore {
             lastSeenRunId: runId,
             lastSeenAt: now,
             status,
+            regressionObservedAt: becomingRegressed
+              ? (existing.regressionObservedAt ?? now)
+              : existing.regressionObservedAt,
+            postFixStatus:
+              becomingRegressed &&
+              (existing.postFixStatus === 'verified' ||
+                existing.fixedAt != null)
+                ? 'regressed'
+                : existing.postFixStatus,
           }
           state().findings.set(key, updated)
           state().observations.add(`${updated.id}::${runId}`)
@@ -463,6 +485,10 @@ export function createMemoryFindingsStore(): FindingsStore {
             lastSeenAt: now,
             status: 'open',
             resolvedAt: null,
+            fixedAt: null,
+            verificationAt: null,
+            postFixStatus: null,
+            regressionObservedAt: null,
           }
           state().findings.set(key, row)
           state().observations.add(`${row.id}::${runId}`)
@@ -531,6 +557,21 @@ export function createMemoryFindingsStore(): FindingsStore {
         resolvedCount += 1
       }
       return { resolvedCount }
+    },
+
+    async recordSeorankoFix({
+      findingId,
+      fixedAt,
+      verificationAt,
+      postFixStatus,
+    }) {
+      for (const f of state().findings.values()) {
+        if (f.id !== findingId) continue
+        f.fixedAt = fixedAt
+        f.verificationAt = verificationAt
+        f.postFixStatus = postFixStatus
+        return
+      }
     },
 
     async appendRunEmits(runId, emits) {

@@ -101,6 +101,20 @@ export type UiFinding = {
   status: 'open' | 'resolved' | 'regressed'
   /** Set once status has ever been resolved; preserved across a later regression. */
   resolvedAt: string | null
+  firstSeenAt?: string
+  lastSeenAt?: string
+  /** SEORANKO customer-PR merge time. */
+  fixedAt: string | null
+  verificationAt: string | null
+  postFixStatus: 'verified' | 'verify_failed' | 'regressed' | null
+  regressionObservedAt: string | null
+  /** Present when status === 'regressed' — owner-facing copy from buildRegressionReport. */
+  regressionReport?: {
+    headline: string
+    detail: string
+    fixPrUrl: string | null
+    fixPrNumber: number | null
+  } | null
 }
 
 export type SourceTier =

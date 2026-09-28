@@ -98,6 +98,33 @@ export default function FindingDetailPage() {
                 <p className="text-xs uppercase tracking-wide text-[#9B9B9B] mb-1">
                   Topic {finding.topicId} · {finding.kind}
                 </p>
+                {finding.status === 'regressed' && (
+                  <div className="mb-3 rounded-[10px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                    <p className="font-semibold tracking-wide">
+                      {finding.regressionReport?.headline ?? 'REGRESSION'}
+                    </p>
+                    <p className="mt-1 leading-relaxed">
+                      {finding.regressionReport?.detail ??
+                        'This finding previously resolved and the condition has reappeared — same finding, not a new one.'}
+                    </p>
+                    {finding.regressionReport?.fixPrUrl && (
+                      <p className="mt-2">
+                        Fix PR:{' '}
+                        <a
+                          href={finding.regressionReport.fixPrUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline text-[#FF6B2C]"
+                        >
+                          {finding.regressionReport.fixPrNumber != null
+                            ? `#${finding.regressionReport.fixPrNumber}`
+                            : finding.regressionReport.fixPrUrl}
+                        </a>
+                        {' — '}fix was reverted or undone.
+                      </p>
+                    )}
+                  </div>
+                )}
                 {finding.ownerPlainEnglish && (
                   <p className="text-lg text-[#0F0F0F] leading-snug mb-2">
                     {finding.ownerPlainEnglish}

@@ -68,6 +68,11 @@ function buildFinding(
     // Demo data is a static snapshot — every demo finding is 'open'.
     status: 'open',
     resolvedAt: null,
+    fixedAt: null,
+    verificationAt: null,
+    postFixStatus: null,
+    regressionObservedAt: null,
+    regressionReport: null,
     sources: sourcesForTopic(
       partial.topicId,
       dossierSlug,

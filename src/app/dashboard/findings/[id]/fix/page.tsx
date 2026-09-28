@@ -145,12 +145,32 @@ export default function FindingFixFlowPage() {
 
           {finding?.status === 'regressed' && (
             <div className="mt-4 rounded-[10px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              This finding was previously verified fixed{' '}
-              {finding.resolvedAt
-                ? `(resolved ${new Date(finding.resolvedAt).toLocaleDateString()})`
-                : ''}{' '}
-              but has come back. Re-run Verify to confirm the fix again, or
-              investigate — the earlier fix may have been reverted or undone.
+              <p className="font-semibold tracking-wide">
+                {finding.regressionReport?.headline ?? 'REGRESSION'}
+              </p>
+              <p className="mt-1">
+                {finding.regressionReport?.detail ??
+                  `This finding was previously resolved${
+                    finding.resolvedAt
+                      ? ` (${new Date(finding.resolvedAt).toLocaleDateString()})`
+                      : ''
+                  } but has come back — same finding, not a new one. The earlier fix may have been reverted or undone.`}
+              </p>
+              {finding.regressionReport?.fixPrUrl && (
+                <p className="mt-2">
+                  SEORANKO fix PR:{' '}
+                  <a
+                    href={finding.regressionReport.fixPrUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                  >
+                    {finding.regressionReport.fixPrNumber != null
+                      ? `#${finding.regressionReport.fixPrNumber}`
+                      : finding.regressionReport.fixPrUrl}
+                  </a>
+                </p>
+              )}
             </div>
           )}
 

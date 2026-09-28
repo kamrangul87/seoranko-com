@@ -100,6 +100,12 @@ function mapFinding(row: Record<string, unknown>): PersistedFindingRow {
     lastSeenAt: String(row.last_seen_at),
     status: (row.status as PersistedFindingRow['status']) ?? 'open',
     resolvedAt: (row.resolved_at as string | null) ?? null,
+    fixedAt: (row.fixed_at as string | null) ?? null,
+    verificationAt: (row.verification_at as string | null) ?? null,
+    postFixStatus:
+      (row.post_fix_status as PersistedFindingRow['postFixStatus']) ?? null,
+    regressionObservedAt:
+      (row.regression_observed_at as string | null) ?? null,
   }
 }
 
@@ -335,7 +341,9 @@ export function createSupabaseFindingsStore(
       for (const f of findings) {
         let existingQuery = db()
           .from('fix_strategies_findings')
-          .select('id, first_seen_run_id, first_seen_at, status')
+          .select(
+            'id, first_seen_run_id, first_seen_at, status, fixed_at, post_fix_status, regression_observed_at',
+          )
           .eq('topic_id', f.topicId)
           .eq('rollup_key', f.rollupKey)
         if (siteId) {
@@ -355,31 +363,41 @@ export function createSupabaseFindingsStore(
           // regression, not a plain re-detection — flag it, and leave
           // resolved_at as the historical "last considered fixed" date
           // rather than clearing it.
-          const nextStatus =
-            existing.status === 'resolved' ? 'regressed' : undefined
+          const becomingRegressed = existing.status === 'resolved'
+          const patch: Record<string, unknown> = {
+            kind: f.kind,
+            bucket: f.bucket,
+            verdict: f.verdict,
+            severity: f.severity,
+            declaration_site: f.declarationSite,
+            affected_url_count: f.affectedUrlCount,
+            page_url: f.pageUrl,
+            detail: f.detail,
+            auto_fixable: f.autoFixable,
+            report_only: f.reportOnly,
+            surface_class: f.surfaceClass,
+            proposed_diff: f.proposedDiff,
+            evidence_values: f.evidenceValues,
+            source_rows: f.sourceRows,
+            detect_origin: originNorm,
+            last_seen_run_id: runId,
+            last_seen_at: now,
+            updated_at: now,
+          }
+          if (becomingRegressed) {
+            patch.status = 'regressed'
+            patch.regression_observed_at =
+              (existing.regression_observed_at as string | null) ?? now
+            if (
+              existing.post_fix_status === 'verified' ||
+              existing.fixed_at != null
+            ) {
+              patch.post_fix_status = 'regressed'
+            }
+          }
           const { error } = await db()
             .from('fix_strategies_findings')
-            .update({
-              kind: f.kind,
-              bucket: f.bucket,
-              verdict: f.verdict,
-              severity: f.severity,
-              declaration_site: f.declarationSite,
-              affected_url_count: f.affectedUrlCount,
-              page_url: f.pageUrl,
-              detail: f.detail,
-              auto_fixable: f.autoFixable,
-              report_only: f.reportOnly,
-              surface_class: f.surfaceClass,
-              proposed_diff: f.proposedDiff,
-              evidence_values: f.evidenceValues,
-              source_rows: f.sourceRows,
-              detect_origin: originNorm,
-              last_seen_run_id: runId,
-              last_seen_at: now,
-              updated_at: now,
-              ...(nextStatus ? { status: nextStatus } : {}),
-            })
+            .update(patch)
             .eq('id', findingId)
           if (error) throw new Error(error.message)
         } else {
@@ -500,6 +518,24 @@ export function createSupabaseFindingsStore(
         .select('id')
       if (updErr) throw new Error(updErr.message)
       return { resolvedCount: (data ?? []).length }
+    },
+
+    async recordSeorankoFix({
+      findingId,
+      fixedAt,
+      verificationAt,
+      postFixStatus,
+    }) {
+      const { error } = await db()
+        .from('fix_strategies_findings')
+        .update({
+          fixed_at: fixedAt,
+          verification_at: verificationAt,
+          post_fix_status: postFixStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', findingId)
+      if (error) throw new Error(error.message)
     },
 
     async appendRunEmits(runId, emits) {
