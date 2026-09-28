@@ -61,6 +61,8 @@ export function SitesManager() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [connectTarget, setConnectTarget] = useState<{ id: string; domain: string; token?: string | null } | null>(null)
+  const [shareBusy, setShareBusy] = useState<string | null>(null)
+  const [copiedShareFor, setCopiedShareFor] = useState<string | null>(null)
 
   useEffect(() => { load() }, [])
 
@@ -106,6 +108,41 @@ export function SitesManager() {
     setShowForm(false)
     setSaving(false)
     load()
+  }
+
+  async function generateShareLink(siteId: string) {
+    setShareBusy(siteId)
+    try {
+      const res = await fetch('/api/fix-strategies/reports/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteId }),
+      })
+      if (res.ok) await load()
+    } finally {
+      setShareBusy(null)
+    }
+  }
+
+  async function revokeShareLink(siteId: string) {
+    setShareBusy(siteId)
+    try {
+      const res = await fetch('/api/fix-strategies/reports/token', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteId }),
+      })
+      if (res.ok) await load()
+    } finally {
+      setShareBusy(null)
+    }
+  }
+
+  function copyShareLink(siteId: string, token: string) {
+    const url = `${window.location.origin}/report/${token}`
+    navigator.clipboard.writeText(url)
+    setCopiedShareFor(siteId)
+    setTimeout(() => setCopiedShareFor((cur) => (cur === siteId ? null : cur)), 2000)
   }
 
   return (
@@ -177,48 +214,78 @@ export function SitesManager() {
             <p className="text-xs text-gray-400 mt-1">Add your domain so RANKO analyses your real site.</p>
           </div>
         ) : sites.map(site => (
-          <div key={site.id} className="flex items-center justify-between gap-3 p-3 bg-white border border-gray-200 rounded-lg">
-            <div className="flex items-center gap-2 min-w-0">
-              <IconGlobe className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              <span className="text-sm font-medium text-gray-800 truncate">{site.domain}</span>
-              <span className="text-xs text-gray-400 capitalize flex-shrink-0">({site.brand})</span>
-              {site.isPrimary && (
-                <span className="text-xs bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full flex items-center gap-1 flex-shrink-0">
-                  <IconStar className="w-3 h-3" /> Primary
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-3 flex-shrink-0">
-              <button
-                onClick={() => setConnectTarget({ id: site.id, domain: site.domain, token: site.universalTagToken })}
-                className={`text-xs transition-colors ${connections[site.id]
-                  ? 'text-green-600 hover:text-green-700'
-                  : 'text-blue-600 hover:text-blue-700'}`}
-              >
-                {connections[site.id]
-                  ? connections[site.id].cms_type === 'universal-tag'
-                    ? '✓ Tag installed · Change connection'
-                    : `✓ ${connections[site.id].cms_type} · Change connection`
-                  : 'Connect site'}
-              </button>
-              {!site.isPrimary && (
+          <div key={site.id} className="p-3 bg-white border border-gray-200 rounded-lg space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <IconGlobe className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <span className="text-sm font-medium text-gray-800 truncate">{site.domain}</span>
+                <span className="text-xs text-gray-400 capitalize flex-shrink-0">({site.brand})</span>
+                {site.isPrimary && (
+                  <span className="text-xs bg-orange-50 text-orange-600 px-2 py-0.5 rounded-full flex items-center gap-1 flex-shrink-0">
+                    <IconStar className="w-3 h-3" /> Primary
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-3 flex-shrink-0">
                 <button
-                  onClick={async () => {
-                    const { data: { session } } = await supabase.auth.getSession()
-                    if (session) { await setPrimarySite(supabase, session.user.id, site.id); load() }
-                  }}
-                  className="text-xs text-gray-400 hover:text-orange-500 transition-colors"
+                  onClick={() => setConnectTarget({ id: site.id, domain: site.domain, token: site.universalTagToken })}
+                  className={`text-xs transition-colors ${connections[site.id]
+                    ? 'text-green-600 hover:text-green-700'
+                    : 'text-blue-600 hover:text-blue-700'}`}
                 >
-                  Make primary
+                  {connections[site.id]
+                    ? connections[site.id].cms_type === 'universal-tag'
+                      ? '✓ Tag installed · Change connection'
+                      : `✓ ${connections[site.id].cms_type} · Change connection`
+                    : 'Connect site'}
+                </button>
+                {!site.isPrimary && (
+                  <button
+                    onClick={async () => {
+                      const { data: { session } } = await supabase.auth.getSession()
+                      if (session) { await setPrimarySite(supabase, session.user.id, site.id); load() }
+                    }}
+                    className="text-xs text-gray-400 hover:text-orange-500 transition-colors"
+                  >
+                    Make primary
+                  </button>
+                )}
+                <button
+                  onClick={async () => { await removeConnectedSite(supabase, site.id); load() }}
+                  className="text-gray-300 hover:text-red-400 transition-colors"
+                  aria-label={`Remove ${site.domain}`}
+                >
+                  <IconTrash className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pl-6">
+              {site.reportShareToken ? (
+                <>
+                  <span className="text-xs text-green-600">Fix report link active</span>
+                  <button
+                    onClick={() => copyShareLink(site.id, site.reportShareToken!)}
+                    className="text-xs text-blue-600 hover:text-blue-700"
+                  >
+                    {copiedShareFor === site.id ? 'Copied!' : 'Copy link'}
+                  </button>
+                  <button
+                    onClick={() => revokeShareLink(site.id)}
+                    disabled={shareBusy === site.id}
+                    className="text-xs text-gray-400 hover:text-red-500 disabled:opacity-50"
+                  >
+                    {shareBusy === site.id ? 'Revoking…' : 'Revoke'}
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => generateShareLink(site.id)}
+                  disabled={shareBusy === site.id}
+                  className="text-xs text-gray-400 hover:text-orange-500 disabled:opacity-50"
+                >
+                  {shareBusy === site.id ? 'Creating…' : 'Create shareable fix report link'}
                 </button>
               )}
-              <button
-                onClick={async () => { await removeConnectedSite(supabase, site.id); load() }}
-                className="text-gray-300 hover:text-red-400 transition-colors"
-                aria-label={`Remove ${site.domain}`}
-              >
-                <IconTrash className="w-4 h-4" />
-              </button>
             </div>
           </div>
         ))}

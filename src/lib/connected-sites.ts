@@ -15,6 +15,8 @@ export interface ConnectedSite {
    * holds. Default false — a human merges otherwise.
    */
   autoMergeEnabled?: boolean
+  /** Opt-in bearer token for the public, read-only, revocable fix report (Item 5). Null = no live link. */
+  reportShareToken?: string | null
 }
 
 /** Normalise user input to a bare host: strips scheme, path, www and trailing slash. */
@@ -33,7 +35,7 @@ export async function getConnectedSites(
 ): Promise<ConnectedSite[]> {
   const { data } = await supabase
     .from('connected_sites')
-    .select('id, domain, brand, is_primary, universal_tag_token, auto_merge_enabled')
+    .select('id, domain, brand, is_primary, universal_tag_token, auto_merge_enabled, report_share_token')
     .eq('user_id', userId)
     .order('is_primary', { ascending: false })
     .order('created_at', { ascending: true })
@@ -45,6 +47,7 @@ export async function getConnectedSites(
     isPrimary: d.is_primary,
     universalTagToken: d.universal_tag_token,
     autoMergeEnabled: Boolean(d.auto_merge_enabled),
+    reportShareToken: d.report_share_token ?? null,
   }))
 }
 
