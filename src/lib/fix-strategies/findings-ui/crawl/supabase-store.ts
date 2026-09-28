@@ -16,6 +16,7 @@ import type {
 } from './constants'
 import { normalizeAssessedPageUrl, type FindingsStore } from './store'
 import type { DetectorEmit } from './run-detectors'
+import type { UrlObservationRecord } from './observation-timeline'
 
 function mapRun(row: Record<string, unknown>): CrawlRunRecord {
   return {
@@ -537,6 +538,65 @@ export function createSupabaseFindingsStore(
         .delete()
         .eq('run_id', runId)
       if (error) throw new Error(error.message)
+    },
+
+    async appendUrlObservation(input) {
+      const originNorm = input.detectOrigin?.replace(/\/$/, '') ?? null
+      const { error } = await db()
+        .from('fix_strategies_url_observations')
+        .upsert(
+          {
+            run_id: input.runId,
+            site_id: input.siteId,
+            detect_origin: originNorm,
+            user_id: input.userId,
+            url: input.url,
+            final_url: input.finalUrl,
+            http_status: input.httpStatus,
+            redirect_hops: input.redirectHops,
+            retry_after: input.retryAfter,
+            duration_ms: input.durationMs,
+            observed_at: input.observedAt ?? new Date().toISOString(),
+          },
+          { onConflict: 'run_id,url' },
+        )
+      if (error) throw new Error(error.message)
+    },
+
+    async listUrlObservations({ siteId, detectOrigin, userId, url }) {
+      let q = db()
+        .from('fix_strategies_url_observations')
+        .select('*')
+        .eq('url', url)
+        .order('observed_at', { ascending: true })
+      if (siteId) {
+        q = q.eq('site_id', siteId)
+      } else if (detectOrigin) {
+        q = q
+          .is('site_id', null)
+          .eq('detect_origin', detectOrigin.replace(/\/$/, ''))
+        if (userId) q = q.eq('user_id', userId)
+      } else {
+        return []
+      }
+      const { data, error } = await q
+      if (error) throw new Error(error.message)
+      return (data ?? []).map(
+        (row): UrlObservationRecord => ({
+          id: String(row.id),
+          runId: String(row.run_id),
+          siteId: row.site_id == null ? null : String(row.site_id),
+          detectOrigin: (row.detect_origin as string | null) ?? null,
+          userId: String(row.user_id),
+          url: String(row.url),
+          finalUrl: (row.final_url as string | null) ?? null,
+          httpStatus: (row.http_status as number | null) ?? null,
+          redirectHops: (row.redirect_hops as string[]) ?? [],
+          retryAfter: (row.retry_after as string | null) ?? null,
+          durationMs: (row.duration_ms as number | null) ?? null,
+          observedAt: String(row.observed_at),
+        }),
+      )
     },
 
     async listFindings({
