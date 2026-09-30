@@ -17,14 +17,27 @@ export async function GET(req: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-  const { data: users } = await supabase
+  const { data: users, error: usersError } = await supabase
     .from('profiles')
     .select('id, full_name, email, digest_enabled')
     .eq('digest_enabled', true)
 
-  if (!users?.length) return NextResponse.json({ sent: 0 })
+  // This previously fell through silently on any query error (data is null
+  // on error too) and reported {sent: 0} as if there was simply nothing to
+  // send — indistinguishable from "no digest_enabled users" even when the
+  // real cause was the query itself failing. Surface it instead.
+  if (usersError) {
+    console.error('[send-digests] failed to load recipients:', usersError.message)
+    return NextResponse.json(
+      { success: false, sent: 0, failed: 0, error: usersError.message },
+      { status: 500 },
+    )
+  }
+
+  if (!users?.length) return NextResponse.json({ success: true, sent: 0, failed: 0 })
 
   let sent = 0
+  const failures: { email: string; status: number; detail: string }[] = []
 
   for (const user of users) {
     const { data: tracked } = await supabase
@@ -118,22 +131,46 @@ export async function GET(req: NextRequest) {
       temporalClaimDrift: temporalClaimDrift.length > 0 ? temporalClaimDrift : undefined
     })
 
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        from: 'SEORANKO Weekly <digest@seoranko.com>',
-        to: user.email,
-        subject: `Your SEORANKO Weekly: ${citationSummary.cited} articles cited by AI · ${freshnessSummary.stale} need refreshing`,
-        html
+    // Previously: awaited but never inspected. Resend returning 4xx/5xx
+    // (bad/unverified sender domain, invalid key, rate limit) was
+    // indistinguishable from a real send — `sent` incremented regardless,
+    // and the route's own {success: true, sent: N} response was reporting
+    // deliveries that never happened.
+    let resendRes: Response
+    try {
+      resendRes = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from: 'SEORANKO Weekly <digest@seoranko.com>',
+          to: user.email,
+          subject: `Your SEORANKO Weekly: ${citationSummary.cited} articles cited by AI · ${freshnessSummary.stale} need refreshing`,
+          html
+        })
       })
-    })
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      console.error(`[send-digests] Resend request failed for ${user.email}:`, detail)
+      failures.push({ email: user.email, status: 0, detail })
+      continue
+    }
+
+    if (!resendRes.ok) {
+      const detail = await resendRes.text().catch(() => '(no response body)')
+      console.error(`[send-digests] Resend rejected send for ${user.email}: ${resendRes.status} ${detail}`)
+      failures.push({ email: user.email, status: resendRes.status, detail })
+      continue
+    }
 
     sent++
   }
 
-  return NextResponse.json({ success: true, sent })
+  if (failures.length > 0) {
+    console.error(`[send-digests] ${failures.length} of ${users.length} sends failed`, failures)
+  }
+
+  return NextResponse.json({ success: failures.length === 0, sent, failed: failures.length, failures })
 }
