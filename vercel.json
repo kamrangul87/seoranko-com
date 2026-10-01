@@ -15,11 +15,25 @@
     }
   },
   "crons": [
-    { "path": "/api/cron/scheduled-recrawl", "schedule": "0 7 * * 1" },
-    { "path": "/api/cron/weekly-jobs", "schedule": "0 8 * * 1" },
-    { "path": "/api/cron/send-digests", "schedule": "0 9 * * 1" },
-    { "path": "/api/cron/verify-liveness", "schedule": "0 8 * * *" },
-    { "path": "/api/cron/verify-publications", "schedule": "0 10 * * *" },
-    { "path": "/api/cron/gsc-sync", "schedule": "0 11 * * *" }
+    {
+      "path": "/api/cron/scheduled-recrawl",
+      "schedule": "0 7 * * 1"
+    },
+    {
+      "path": "/api/cron/weekly-jobs",
+      "schedule": "0 8 * * 1"
+    },
+    {
+      "path": "/api/cron/verify-liveness",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/verify-publications",
+      "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/cron/gsc-sync",
+      "schedule": "0 11 * * *"
+    }
   ]
 }

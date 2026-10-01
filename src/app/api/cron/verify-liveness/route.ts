@@ -3,9 +3,9 @@ import { createClient } from '@supabase/supabase-js'
 import { runVerificationSweep } from '@/lib/publisher-verification-runner'
 import { auditRegistryLinkRows } from '@/lib/registry-url-health'
 
-// Same auth pattern as the existing cron routes (weekly-jobs,
-// send-digests) — Authorization: Bearer ${CRON_SECRET}, checked by Vercel
-// Cron's own request against this env var.
+// Same auth pattern as the other cron routes (weekly-jobs,
+// scheduled-recrawl) — Authorization: Bearer ${CRON_SECRET}, checked by
+// Vercel Cron's own request against this env var.
 export const maxDuration = 60
 
 export async function GET(req: NextRequest) {
