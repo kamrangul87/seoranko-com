@@ -10,6 +10,7 @@ export type DuplicateUrlVerdict =
   | 'suppress-different-content'
   | 'suppress-site-root'
   | 'suppress-not-applicable'
+  | 'suppress-paginated'
   | 'finding-duplicate'
   | 'auto-redirect'
   | 'auto-canonical-annotation'
@@ -45,6 +46,8 @@ export type ClassifyDuplicateInput = {
   allParamsTracking?: boolean
   /** Topic 12: auth/token/signed param present. */
   hasAuthOrSignedParam?: boolean
+  /** Topic 12: every param is a pagination token (page/paged/…). */
+  allParamsPagination?: boolean
   /** Topic 10: redirect cannot be expressed in repo. */
   fixOutsideRepo?: boolean
   /** Middleware-produced variant, scope unresolved. */
@@ -125,6 +128,15 @@ export function classifyDuplicateUrl(
       return {
         verdict: 'suppress-auth-token-param',
         detail: 'Auth/token/signed parameter — never redirect or canonicalize',
+        preferCanonicalOverRedirect: false,
+      }
+    }
+    // Dossier guard 2 + topic 71: pagination params are distinct pages, never duplicates.
+    if (input.allParamsPagination) {
+      return {
+        verdict: 'suppress-paginated',
+        detail:
+          'Pagination parameter — distinct pages in a series; never raise as duplicate (topic 12 / 71)',
         preferCanonicalOverRedirect: false,
       }
     }

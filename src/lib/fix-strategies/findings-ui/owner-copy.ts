@@ -73,6 +73,10 @@ export const OWNER_PLAIN_ENGLISH: Record<string, string> = {
   "in-crawl-not-in-gsc-weak": "Our crawl found this URL, but it did not appear in Search Console top rows — that absence is not proof Google does not know it.",
   "impressions-no-internal-links": "This page gets Search impressions but has no inbound crawlable internal links from your site.",
   "impressions-only-noncrawlable-link": "This page gets Search impressions but is only reachable via a non-crawlable onclick or javascript: control.",
+  "page-canonical-to-series-first": "A later page in a paginated series points its canonical at page 1 — Google says each page should have its own canonical.",
+  "fragment-only-pagination": "Pagination uses #fragment links, which Google does not treat as separate pages.",
+  "noncrawlable-next-without-href": "A next page is signalled without a crawlable link Googlebot can follow.",
+  "informational-rel-next-prev-unused-by-google": "This page still declares rel=next/prev; Google no longer uses those tags.",
   "hard-failure-over-10": "Hard fetch failures exceeded the threshold for this check.",
   "high-description-casualty": "A meta description target or related URL is unavailable.",
   "honour-retry-after": "The server asked crawlers to wait (Retry-After) — SEORANKO will respect that.",
@@ -259,7 +263,7 @@ export const WHY_NOT_FIXED: Record<string, string> = {
   "suppress-not-indexable": "The page is not indexable (noindex or non-200), so this check does not apply.",
   "suppress-not-internally-linked": "The page is not internally linked — this check does not apply.",
   "suppress-origin-still-exists": "The origin URL still exists — not treated as a broken redirect source.",
-  "suppress-paginated": "Title/description duplication across pagination is expected and suppressed.",
+  "suppress-paginated": "Pagination variants are distinct pages (or share titles by design) — left alone.",
   "suppress-parameterised": "Parameterised URLs are handled under a different rule — left alone here.",
   "suppress-paywalled-permitted": "Paywalled markup is permitted under the applicable guidelines — left alone.",
   "suppress-post-hydration": "The tag appears only after hydration; SEORANKO judges served HTML for this check.",
@@ -337,6 +341,7 @@ export const SOURCE_TIER_BY_TOPIC: Record<string, SourceTier> = {
   '58': 'VENDOR-DOCUMENTED',
   '59': 'VENDOR-DOCUMENTED',
   '67': 'VENDOR-DOCUMENTED',
+  '71': 'VENDOR-DOCUMENTED',
 }
 
 /** Preferred _sources.md row id for the topic (UI deep-link). */
@@ -390,6 +395,7 @@ export const PRIMARY_SOURCE_ID_BY_TOPIC: Record<string, number> = {
   '58': 99,
   '59': 102,
   '67': 7,
+  '71': 116,
 }
 
 export function ownerPlainEnglish(verdict: string): string | null {

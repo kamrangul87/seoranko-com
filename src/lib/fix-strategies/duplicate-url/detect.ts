@@ -33,6 +33,7 @@ import {
   hasAuthOrSignedParam,
   type DuplicateUrlVerdict,
 } from './classify'
+import { allParamsArePagination } from '@/lib/fix-strategies/shared/pagination'
 import { resolveDuplicateUrlArtefactPath } from './resolve-artefact'
 
 export type VariantDiscoverability = 'discovered' | 'generated-only'
@@ -330,6 +331,7 @@ async function assessPair(
 
   const allTracking = allParamsAreTracking(pair.paramNames, allowlist)
   const authParam = hasAuthOrSignedParam(pair.paramNames)
+  const allPagination = allParamsArePagination(pair.paramNames)
 
   const classified = classifyDuplicateUrl({
     strategy,
@@ -341,6 +343,7 @@ async function assessPair(
     blanketLowercaseProposed: options.blanketLowercaseProposed,
     allParamsTracking: allTracking,
     hasAuthOrSignedParam: authParam,
+    allParamsPagination: allPagination,
     fixOutsideRepo: options.fixOutsideRepo,
     middlewareIndeterminate: options.middlewareIndeterminate,
   })

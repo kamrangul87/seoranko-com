@@ -72,7 +72,7 @@ describe('detector-scope', () => {
     expect(POST_CRAWL_TOPIC_IDS).toContain('15')
     expect(POST_CRAWL_TOPIC_IDS).toContain('26')
     expect(POST_CRAWL_TOPIC_IDS).toContain('48')
-    for (const id of ['55', '56', '57', '58', '59']) {
+    for (const id of ['55', '56', '57', '58', '59', '71']) {
       expect(POST_CRAWL_TOPIC_IDS).toContain(id)
       expect(CHUNK_LOOP_TOPIC_IDS).not.toContain(id)
     }

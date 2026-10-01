@@ -73,8 +73,13 @@ import { detectDiscoveredNotIndexed } from '@/lib/fix-strategies/topic-56'
 import { detectCrawledNotIndexed } from '@/lib/fix-strategies/topic-57'
 import { detectIndexedVsCrawlMismatch } from '@/lib/fix-strategies/topic-58'
 import { detectImpressionsNoInternalLinks } from '@/lib/fix-strategies/topic-59'
+import { detectPaginationSeriesIssues } from '@/lib/fix-strategies/topic-71'
 import { loadGscDetectContext } from '@/lib/fix-strategies/shared/gsc-detect-context'
 import { normalizeCanonicalForGscMatch } from '@/lib/fix-strategies/shared/canonical-normalize'
+import {
+  isPaginatedUrl,
+  paginationPatternUrlsFromCrawl,
+} from '@/lib/fix-strategies/shared/pagination'
 import {
   assertAllShippedTopicsWired,
   assertChunkLoopTopics,
@@ -936,6 +941,8 @@ export async function runWholeSiteDetectorsOnCrawl(
             internallyLinked:
               inboundLinked.has(norm) ||
               inboundLinked.has(p.url.replace(/\/$/, '')),
+            // Topic 27 guard: paginated page-N may be deliberately omitted from sitemap.
+            parameterised: isPaginatedUrl(p.url),
           }
         }),
       }),
@@ -1030,6 +1037,8 @@ export async function runWholeSiteDetectorsOnCrawl(
         canonicalTarget: canonical
           ? normalizeFixStrategyUrl(canonical, p.url)
           : null,
+        // Shared titles across a paginated series are often legitimate (P1).
+        paginated: isPaginatedUrl(p.url),
       }
     })
     takeBuckets(
@@ -1052,7 +1061,26 @@ export async function runWholeSiteDetectorsOnCrawl(
   takeBuckets(
     '45',
     'internal-links/crawl-depth',
-    detectCrawlDepth({ graph }),
+    detectCrawlDepth({
+      graph,
+      paginationPatternUrls: paginationPatternUrlsFromCrawl(
+        pages.map((p) => p.url),
+      ),
+    }),
+    out,
+  )
+
+  // --- Topic 71: paginated series misconfiguration ---
+  takeBuckets(
+    '71',
+    'pagination/series-misconfigured',
+    detectPaginationSeriesIssues({
+      pages: pages.map((p) => ({
+        url: p.url,
+        html: p.html,
+        status: p.status,
+      })),
+    }),
     out,
   )
 
