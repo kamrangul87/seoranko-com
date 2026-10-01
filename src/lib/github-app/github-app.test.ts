@@ -18,6 +18,7 @@ import {
 import { GithubAppSetupCreateView } from '@/app/admin/github-app-setup/create-view'
 import { GITHUB_APP_URLS } from '@/lib/github-app/urls'
 import { conversionMetaWithoutSecrets } from '@/lib/github-app/exchange-manifest'
+import { buildGithubInstallationUpsertRow } from '@/lib/github-app/installation-upsert'
 
 const cookieSet = vi.fn()
 
@@ -235,5 +236,36 @@ describe('GithubAppSetupPage owner create path (no cookie.set)', () => {
     expect(html).toContain('/api/github/app/manual-register')
     expect(html).toContain('Create via GitHub Manifest')
     expect(cookieSet).not.toHaveBeenCalled()
+  })
+})
+
+describe('buildGithubInstallationUpsertRow', () => {
+  const base = {
+    installationId: 1,
+    accountLogin: 'kamrangul87',
+    accountType: 'User',
+  }
+
+  it('omits user_id when not provided so sync/webhook cannot wipe a link', () => {
+    const row = buildGithubInstallationUpsertRow(base, '2026-10-01T00:00:00.000Z')
+    expect(row).not.toHaveProperty('user_id')
+    expect(row.installation_id).toBe(1)
+    expect(row.account_login).toBe('kamrangul87')
+  })
+
+  it('sets user_id when linking a SEORANKO user', () => {
+    const row = buildGithubInstallationUpsertRow(
+      { ...base, userId: 'user-abc' },
+      '2026-10-01T00:00:00.000Z',
+    )
+    expect(row.user_id).toBe('user-abc')
+  })
+
+  it('allows explicit null user_id when intentionally unlinking', () => {
+    const row = buildGithubInstallationUpsertRow(
+      { ...base, userId: null },
+      '2026-10-01T00:00:00.000Z',
+    )
+    expect(row).toHaveProperty('user_id', null)
   })
 })
