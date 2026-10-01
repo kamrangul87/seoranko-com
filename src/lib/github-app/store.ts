@@ -9,6 +9,12 @@ import {
   encryptCredentialsJson,
 } from '@/lib/site-connection-crypto'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
+import {
+  buildGithubInstallationUpsertRow,
+  type UpsertInstallationInput,
+} from '@/lib/github-app/installation-upsert'
+
+export { buildGithubInstallationUpsertRow, type UpsertInstallationInput } from '@/lib/github-app/installation-upsert'
 
 export type GithubAppPublicMeta = {
   appId: number
@@ -172,34 +178,109 @@ export async function saveGithubAppFromManifest(
   return saveGithubAppCredentials(input)
 }
 
-export async function upsertInstallation(row: {
-  installationId: number
-  accountLogin: string
-  accountType: string
-  accountId?: number | null
-  userId?: string | null
-  repositorySelection?: string | null
-  suspendedAt?: string | null
-  uninstalledAt?: string | null
-  raw?: unknown
-}): Promise<void> {
+export async function upsertInstallation(row: UpsertInstallationInput): Promise<void> {
   const supabase = createServiceRoleClient()
-  const { error } = await supabase.from('github_installations').upsert(
-    {
-      installation_id: row.installationId,
-      account_login: row.accountLogin,
-      account_type: row.accountType,
-      account_id: row.accountId ?? null,
-      user_id: row.userId ?? null,
-      repository_selection: row.repositorySelection ?? null,
-      suspended_at: row.suspendedAt ?? null,
-      uninstalled_at: row.uninstalledAt ?? null,
-      raw: row.raw ?? null,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'installation_id' },
-  )
+  const { error } = await supabase
+    .from('github_installations')
+    .upsert(buildGithubInstallationUpsertRow(row), { onConflict: 'installation_id' })
   if (error) throw new Error(`github_installations upsert failed: ${error.message}`)
+}
+
+export type GithubInstallationStatusRow = {
+  installation_id: number
+  account_login: string
+  account_type: string
+  repository_selection: string | null
+  uninstalled_at: string | null
+  suspended_at: string | null
+}
+
+/**
+ * Installations linked to this SEORANKO user, plus orphans (user_id null) whose
+ * GitHub account_login matches an owner on the user's active github site
+ * connections — then backfill user_id so Settings stops saying "Not installed".
+ */
+export async function listInstallationsForUser(userId: string): Promise<GithubInstallationStatusRow[]> {
+  const supabase = createServiceRoleClient()
+  const { data: linked, error: linkedErr } = await supabase
+    .from('github_installations')
+    .select(
+      'installation_id, account_login, account_type, repository_selection, uninstalled_at, suspended_at',
+    )
+    .eq('user_id', userId)
+    .is('uninstalled_at', null)
+
+  if (linkedErr) throw new Error(`github_installations read failed: ${linkedErr.message}`)
+
+  const byId = new Map<number, GithubInstallationStatusRow>()
+  for (const row of (linked || []) as GithubInstallationStatusRow[]) {
+    byId.set(Number(row.installation_id), row)
+  }
+
+  const owners = await githubOwnersFromUserSiteConnections(userId)
+  if (owners.size > 0) {
+    const { data: orphans, error: orphanErr } = await supabase
+      .from('github_installations')
+      .select(
+        'installation_id, account_login, account_type, repository_selection, uninstalled_at, suspended_at, user_id',
+      )
+      .is('uninstalled_at', null)
+      .is('user_id', null)
+
+    if (orphanErr) throw new Error(`github_installations orphan read failed: ${orphanErr.message}`)
+
+    for (const row of orphans || []) {
+      const login = String(row.account_login || '').toLowerCase()
+      if (!owners.has(login)) continue
+      const installationId = Number(row.installation_id)
+      if (!Number.isFinite(installationId)) continue
+      await supabase
+        .from('github_installations')
+        .update({ user_id: userId, updated_at: new Date().toISOString() })
+        .eq('installation_id', installationId)
+        .is('user_id', null)
+      byId.set(installationId, {
+        installation_id: installationId,
+        account_login: row.account_login,
+        account_type: row.account_type,
+        repository_selection: row.repository_selection,
+        uninstalled_at: row.uninstalled_at,
+        suspended_at: row.suspended_at,
+      })
+    }
+  }
+
+  return Array.from(byId.values())
+}
+
+async function githubOwnersFromUserSiteConnections(userId: string): Promise<Set<string>> {
+  const supabase = createServiceRoleClient()
+  const { data, error } = await supabase
+    .from('site_connections')
+    .select('credentials, credentials_ciphertext')
+    .eq('user_id', userId)
+    .eq('cms_type', 'github')
+    .eq('is_active', true)
+
+  if (error || !data?.length) return new Set()
+
+  const owners = new Set<string>()
+  for (const row of data) {
+    let creds: Record<string, unknown> = {}
+    if (row.credentials && typeof row.credentials === 'object' && !Array.isArray(row.credentials)) {
+      creds = row.credentials as Record<string, unknown>
+    }
+    if (typeof row.credentials_ciphertext === 'string' && row.credentials_ciphertext) {
+      try {
+        creds = { ...creds, ...decryptCredentialsJson(row.credentials_ciphertext) }
+      } catch {
+        // skip undecryptable rows
+      }
+    }
+    const owner = typeof creds.owner === 'string' ? creds.owner.trim().toLowerCase() : ''
+    if (owner) owners.add(owner)
+  }
+  return owners
 }
 
 export async function markInstallationUninstalled(installationId: number): Promise<void> {

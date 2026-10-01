@@ -1,17 +1,14 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
-import { getGithubAppPublicMeta } from '@/lib/github-app/store'
-import { createServiceRoleClient } from '@/lib/supabase/service-role'
+import { getGithubAppPublicMeta, listInstallationsForUser } from '@/lib/github-app/store'
 
 export const dynamic = 'force-dynamic'
 
 /**
  * GET /api/github/app/status
- * Public app config (slug/install URL) + the signed-in user's own linked
- * installations, for the "Connect GitHub" UI in dashboard/settings — the
- * App install flow previously had no client-facing entry point or status
- * display even though the backend (setup/callback routes) already worked.
+ * Public app config (slug/install URL) + the signed-in user's linked
+ * installations (including orphans claimed via their github site_connections).
  */
 export async function GET() {
   const meta = await getGithubAppPublicMeta()
@@ -42,25 +39,20 @@ export async function GET() {
     return NextResponse.json({ ...base, installations: [] })
   }
 
-  const admin = createServiceRoleClient()
-  const { data, error } = await admin
-    .from('github_installations')
-    .select('installation_id, account_login, account_type, repository_selection, uninstalled_at, suspended_at')
-    .eq('user_id', user.id)
-    .is('uninstalled_at', null)
-
-  if (error) {
+  try {
+    const data = await listInstallationsForUser(user.id)
+    return NextResponse.json({
+      ...base,
+      installations: data.map((i) => ({
+        installationId: i.installation_id,
+        accountLogin: i.account_login,
+        accountType: i.account_type,
+        repositorySelection: i.repository_selection,
+        suspended: Boolean(i.suspended_at),
+      })),
+    })
+  } catch (err) {
+    console.error('[github/app/status]', err instanceof Error ? err.message : err)
     return NextResponse.json({ ...base, installations: [] })
   }
-
-  return NextResponse.json({
-    ...base,
-    installations: (data || []).map((i) => ({
-      installationId: i.installation_id,
-      accountLogin: i.account_login,
-      accountType: i.account_type,
-      repositorySelection: i.repository_selection,
-      suspended: Boolean(i.suspended_at),
-    })),
-  })
 }

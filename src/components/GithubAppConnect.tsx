@@ -137,7 +137,9 @@ export function GithubAppConnect() {
 
       {!loading && status?.configured && status.installations.length === 0 && (
         <p className="text-xs text-gray-400">
-          Not installed on any account yet — click Install GitHub App above.
+          No GitHub account linked to your SEORANKO user yet. If the App is already
+          installed on GitHub, click Install GitHub App and approve again to link it —
+          do not create a second App.
         </p>
       )}
     </div>
