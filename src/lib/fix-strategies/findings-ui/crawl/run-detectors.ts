@@ -179,7 +179,10 @@ function ingestArray(
     if (!verdict) continue
     const memberUrls = Array.isArray(item.memberUrls)
       ? (item.memberUrls as unknown[]).filter((u) => typeof u === 'string')
-      : []
+      : Array.isArray(item.observedOn)
+        ? // Topic 42: pages sharing one redirect-target rule
+          (item.observedOn as unknown[]).filter((u) => typeof u === 'string')
+        : []
     const pageUrl = String(
       item.pageUrl ??
         item.sourceUrl ??
@@ -190,7 +193,12 @@ function ingestArray(
         '',
     )
     const declarationSite =
-      typeof item.declarationSite === 'string' ? item.declarationSite : null
+      typeof item.declarationSite === 'string'
+        ? item.declarationSite
+        : typeof (item.declaration as { file?: string } | undefined)?.file ===
+            'string'
+          ? (item.declaration as { file: string }).file
+          : null
     const autoFixable =
       item.autoFixable === true || /^auto[-_]/.test(verdict)
 

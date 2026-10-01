@@ -86,11 +86,16 @@ function parseDateMs(raw: string): number | null {
   return Number.isFinite(t) ? t : null
 }
 
-/** Normalize date strings for equality ignoring display format. */
+/**
+ * Normalize date strings for equality ignoring display format and time-of-day.
+ * Dossier guard 5: timezone / format differences → UTC calendar date compare.
+ * "April 23, 2026" and "2026-04-23T06:26:41+00:00" are the same date, not a
+ * contradiction (full ISO timestamps would disagree on the clock).
+ */
 export function normalizeDateForCompare(raw: string): string | null {
   const ms = parseDateMs(raw)
   if (ms == null) return null
-  return new Date(ms).toISOString()
+  return new Date(ms).toISOString().slice(0, 10) // YYYY-MM-DD (UTC)
 }
 
 function collectTimeDatetimes(html: string): string[] {
@@ -233,6 +238,14 @@ const ORG_PERSON_TYPES = [
 
 const LIST_MEMBER_TYPES = ['listitem', 'itemlist', 'breadcrumblist']
 
+/** Theme chrome — Organization/Person nested here is never the page entity. */
+const SITE_CHROME_TYPES = [
+  'wpheader',
+  'wpfooter',
+  'sitenavigationelement',
+  'website',
+]
+
 function typeKey(t: string): string {
   return t.replace(/^https?:\/\/schema\.org\//i, '').toLowerCase()
 }
@@ -240,8 +253,9 @@ function typeKey(t: string): string {
 /**
  * True when this node's `url` should be compared to the page URL (38a D6).
  * Primary = WebPage / Article / Product / … describing this page.
- * Org/Person only when no page-content type is present (about-page case).
- * ListItem / ItemList never — those urls point at other pages by design.
+ * Org/Person only when no page-content type is present (about-page case) —
+ * and never when nested under site chrome (WPHeader/WPFooter/nav) in
+ * microdata/RDFa. ListItem / ItemList never — those urls point elsewhere.
  */
 export function isPrimaryPageEntityForUrlCheck(
   node: StructuredDataNode,
@@ -253,6 +267,22 @@ export function isPrimaryPageEntityForUrlCheck(
   if (keys.some((k) => PRIMARY_PAGE_ENTITY_TYPES.includes(k))) return true
 
   if (keys.some((k) => ORG_PERSON_TYPES.includes(k))) {
+    const ancestors = (node.ancestorTypes ?? []).map(typeKey)
+    if (ancestors.some((k) => SITE_CHROME_TYPES.includes(k))) {
+      return false
+    }
+    // Microdata/RDFa Organization in a shared header is emitted as a
+    // top-level node even when not nested (WP themes often mark the header
+    // block and the Organization as siblings / parallel scopes). If the
+    // page also declares site chrome types, Org/Person is chrome — not D6.
+    if (
+      (node.format === 'microdata' || node.format === 'rdfa') &&
+      allNodes.some((n) =>
+        n.types.some((t) => SITE_CHROME_TYPES.includes(typeKey(t))),
+      )
+    ) {
+      return false
+    }
     const pageHasContentType = allNodes.some((n) =>
       n.types.some((t) => PRIMARY_PAGE_ENTITY_TYPES.includes(typeKey(t))),
     )
