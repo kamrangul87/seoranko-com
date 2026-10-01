@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { runPublicationsVerificationSweep } from '@/lib/publish-verification'
 
 // Step 4's post-publish verification job. Same auth pattern as the other
-// cron routes (weekly-jobs, send-digests, verify-liveness) — Authorization:
+// cron routes (weekly-jobs, verify-liveness) — Authorization:
 // Bearer ${CRON_SECRET}. Once-daily schedule only (vercel.json) — this
 // project is on Vercel's Hobby plan, which rejects any cron more frequent
 // than once per day (see verify-liveness/route.ts's own note on this — the

@@ -17,10 +17,10 @@ crawls against an email address they don't own.
 
 ## Supabase Dashboard → Authentication → Emails → SMTP Settings
 
-Resend is already used for other mail in this app (`RESEND_API_KEY`, see
-`src/app/api/cron/send-digests/route.ts`, sending from `digest@seoranko.com`)
-— reuse the same Resend account via its SMTP relay rather than adding a new
-provider.
+Resend is already wired in this app via `RESEND_API_KEY` — reuse that same
+Resend account via its SMTP relay rather than adding a new provider. (The
+old weekly `send-digests` cron that also used Resend was retired; see
+`docs/RETIRED_WEEKLY_EMAIL_DIGEST.md`.)
 
 | Field | Value |
 |---|---|
@@ -35,8 +35,7 @@ provider.
 **I could not confirm `seoranko.com` is a verified sending domain in Resend
 myself** — no Resend API access from this session, and the Vercel MCP
 connection 403s on this project's env vars, so I can't check `RESEND_API_KEY`
-either. `digest@seoranko.com` sending in already-shipped code implies it's
-verified, but check Resend → Domains yourself before relying on this.
+either. Check Resend → Domains yourself before relying on this.
 
 ## Also check while you're in the dashboard
 
