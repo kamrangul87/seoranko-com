@@ -32,8 +32,12 @@ describe('detector-scope', () => {
     for (const id of ['9', '10', '11', '12']) {
       expect(scopeForTopic(id)).toBe('per-page')
     }
-    // Unshipped: index vs crawl set divergence
-    expect(UNSHIPPED_DETECTOR_SCOPE['58']).toBe('whole-site')
+    // GSC block 55–59 shipped as whole-site (post-crawl)
+    for (const id of ['55', '56', '57', '58', '59']) {
+      expect(scopeForTopic(id)).toBe('whole-site')
+      expect(DETECTOR_SCOPE_BY_TOPIC[id]).toBe('whole-site')
+    }
+    expect(UNSHIPPED_DETECTOR_SCOPE['58']).toBeUndefined()
   })
 
   it('chunk-loop wiring is exclusively per-page', () => {
@@ -68,6 +72,10 @@ describe('detector-scope', () => {
     expect(POST_CRAWL_TOPIC_IDS).toContain('15')
     expect(POST_CRAWL_TOPIC_IDS).toContain('26')
     expect(POST_CRAWL_TOPIC_IDS).toContain('48')
+    for (const id of ['55', '56', '57', '58', '59']) {
+      expect(POST_CRAWL_TOPIC_IDS).toContain(id)
+      expect(CHUNK_LOOP_TOPIC_IDS).not.toContain(id)
+    }
     expect(CHUNK_LOOP_TOPIC_IDS).not.toContain('8')
   })
 })

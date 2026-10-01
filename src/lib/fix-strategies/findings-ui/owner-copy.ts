@@ -66,6 +66,13 @@ export const OWNER_PLAIN_ENGLISH: Record<string, string> = {
   "finding-target-5xx-route-topic-3": "An hreflang alternate points at a URL that returns a server error.",
   "finding-terminal-4xx": "A redirect ends on a page that does not exist.",
   "finding-wrong-ratio": "An image’s width and height do not match its real proportions, which can distort layout.",
+  "google-chose-different-canonical": "Google selected a different preferred URL than the one your page declares (historical Search Console data).",
+  "discovered-not-indexed": "Google knows this URL exists but has not crawled it yet (historical Search Console state).",
+  "crawled-not-indexed": "Google crawled this page and has not indexed it; Google does not publish why.",
+  "in-gsc-not-in-crawl": "Search Console knows this URL, but our crawl from your site’s links did not reach it.",
+  "in-crawl-not-in-gsc-weak": "Our crawl found this URL, but it did not appear in Search Console top rows — that absence is not proof Google does not know it.",
+  "impressions-no-internal-links": "This page gets Search impressions but has no inbound crawlable internal links from your site.",
+  "impressions-only-noncrawlable-link": "This page gets Search impressions but is only reachable via a non-crawlable onclick or javascript: control.",
   "hard-failure-over-10": "Hard fetch failures exceeded the threshold for this check.",
   "high-description-casualty": "A meta description target or related URL is unavailable.",
   "honour-retry-after": "The server asked crawlers to wait (Retry-After) — SEORANKO will respect that.",
@@ -324,6 +331,11 @@ export const SOURCE_TIER_BY_TOPIC: Record<string, SourceTier> = {
   '47': 'STANDARD',
   '48': 'VENDOR-DOCUMENTED',
   '49': 'STANDARD',
+  '55': 'VENDOR-DOCUMENTED',
+  '56': 'VENDOR-DOCUMENTED',
+  '57': 'VENDOR-DOCUMENTED',
+  '58': 'VENDOR-DOCUMENTED',
+  '59': 'VENDOR-DOCUMENTED',
   '67': 'VENDOR-DOCUMENTED',
 }
 
@@ -372,6 +384,11 @@ export const PRIMARY_SOURCE_ID_BY_TOPIC: Record<string, number> = {
   '47': 88,
   '48': 88,
   '49': 92,
+  '55': 99,
+  '56': 99,
+  '57': 99,
+  '58': 99,
+  '59': 102,
   '67': 7,
 }
 

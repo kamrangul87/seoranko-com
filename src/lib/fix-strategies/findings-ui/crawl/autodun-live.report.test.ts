@@ -280,7 +280,7 @@ ${
 ## 5. Detector wiring (shipped-but-unwired = 0)
 
 Wired count: ${WIRED_TOPIC_IDS.length} / shipped ${Object.keys(DETECTOR_SCOPE_BY_TOPIC).length}.
-Unshipped reserved: topic 58 = ${UNSHIPPED_DETECTOR_SCOPE['58']}.
+Unshipped reserved: ${Object.keys(UNSHIPPED_DETECTOR_SCOPE).length === 0 ? 'none' : Object.entries(UNSHIPPED_DETECTOR_SCOPE).map(([k, v]) => `topic ${k} = ${v}`).join(', ')}.
 
 | Topic | DETECTOR_SCOPE | Crawl call |
 |-------|----------------|------------|

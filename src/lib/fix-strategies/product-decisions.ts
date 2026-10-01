@@ -68,14 +68,21 @@ export const FIX_STRATEGY_PRODUCT_DECISIONS = {
 
   /**
    * Topic 59 — impressions floor before raising "impressions, no internal links".
+   * Product decision (not a Google threshold). Chosen 2026-10-01: 10 finalized
+   * impressions in the stored Search Analytics window — high enough to ignore
+   * noise singles, low enough to surface orphaned pages that still get search
+   * traffic. UI must label as product decision; B22 top-row truncation still applies.
    */
-  impressionsFloor: null as UnsetProductDecision,
+  impressionsFloor: 10 as number,
 
   /**
-   * Topics 55–59 — URL Inspection prioritisation under the 2,000/day cap.
-   * Policy string or structured policy once chosen; unset until then.
+   * Topics 55–59 — URL Inspection prioritisation under the 2,000/day soft cap.
+   * Chosen 2026-10-01: inspect highest-impression URLs first, then remaining
+   * crawl URLs by inbound-link priority; never claim full-site Inspection
+   * coverage — UI must state partial coverage (B18).
    */
-  urlInspectionPrioritisationPolicy: null as UnsetProductDecision,
+  urlInspectionPrioritisationPolicy:
+    'highest_impressions_then_crawl_inbound_priority' as string,
 
   /**
    * Topic 49 — tolerance when comparing intrinsic image ratio to width/height

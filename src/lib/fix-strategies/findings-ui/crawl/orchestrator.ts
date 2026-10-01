@@ -691,6 +691,7 @@ export async function processCrawlTick(
       const wholeSiteEmits = await runWholeSiteDetectorsOnCrawl(
         run.origin,
         wholeSitePages,
+        { siteId: run.siteId },
       )
       for (const topicId of POST_CRAWL_TOPIC_IDS) {
         await store.replaceRunEmitsForTopic(
