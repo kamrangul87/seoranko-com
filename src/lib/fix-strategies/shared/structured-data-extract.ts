@@ -32,6 +32,12 @@ export type StructuredDataNode = {
   context: string | string[] | null
   /** Source path hint (e.g. script index). */
   source: string
+  /**
+   * Outer itemscope / typeof chain for microdata & RDFa (nearest ancestor
+   * first). Used so header/footer Organization is not treated as the page
+   * primary entity (topic 38 D6).
+   */
+  ancestorTypes?: string[]
 }
 
 export type StructuredDataExtraction = {
@@ -211,18 +217,45 @@ function flattenProp(
   out[path] = value
 }
 
+/** Walk parse5 parentNode chain for outer itemscope itemtypes (nearest first). */
+function microdataAncestorTypes(el: HtmlElement['node']): string[] {
+  const out: string[] = []
+  let parent: HtmlElement['node']['parentNode'] | null = el.parentNode
+  while (parent && 'attrs' in parent) {
+    const attrs: Record<string, string> = {}
+    for (const a of (parent as HtmlElement['node']).attrs) {
+      attrs[a.name] = a.value
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(attrs, 'itemscope') &&
+      attrs.itemtype
+    ) {
+      for (const t of attrs.itemtype.split(/\s+/)) {
+        const bare = t.replace(/^https?:\/\/schema\.org\//i, '')
+        if (bare) out.push(bare)
+      }
+    }
+    parent = (parent as HtmlElement['node']).parentNode
+  }
+  return out
+}
+
 function extractMicrodata(
   _html: string,
   parsed: ReturnType<typeof parseHtml>,
   nodes: StructuredDataNode[],
 ): void {
   let idx = 0
+  // Deduplicate itemscope nodes — a second walk over nested div/section
+  // hosts used to re-emit Organization without its WPHeader ancestor chain.
+  const seenScopes = new Set<HtmlElement['node']>()
   const walkEl = (el: HtmlElement['node']) => {
     const attrs: Record<string, string> = {}
     for (const a of el.attrs) attrs[a.name] = a.value
     const hasScope = Object.prototype.hasOwnProperty.call(attrs, 'itemscope')
     const itemtype = attrs.itemtype ?? ''
-    if (hasScope && itemtype) {
+    if (hasScope && itemtype && !seenScopes.has(el)) {
+      seenScopes.add(el)
       idx++
       const types = itemtype
         .split(/\s+/)
@@ -230,6 +263,7 @@ function extractMicrodata(
         .filter(Boolean)
       const properties: Record<string, unknown> = {}
       collectMicrodataProps(el, properties)
+      const ancestorTypes = microdataAncestorTypes(el)
       nodes.push({
         format: 'microdata',
         types,
@@ -237,6 +271,7 @@ function extractMicrodata(
         id: attrs.itemid ?? null,
         context: 'https://schema.org',
         source: `microdata#${idx}`,
+        ancestorTypes: ancestorTypes.length ? ancestorTypes : undefined,
       })
     }
     for (const child of el.childNodes) {
@@ -250,19 +285,30 @@ function extractMicrodata(
     }
   }
 
-  // Walk from html root via any head/body element we can reach
-  for (const el of [
-    ...parsed.headElements('html'),
-    ...parsed.bodyElements('body'),
-    ...parsed.headElements('body'),
+  // Walk common hosts in head + body (including header/footer/nav chrome).
+  for (const tag of [
+    'header',
+    'footer',
+    'nav',
+    'aside',
+    'div',
+    'section',
+    'article',
+    'main',
+    'li',
+    'span',
+    'body',
   ]) {
-    walkEl(el.node)
-  }
-  // Also walk common hosts found in body
-  for (const tag of ['div', 'section', 'article', 'main', 'li', 'span']) {
-    for (const el of parsed.bodyElements(tag)) {
+    for (const el of [
+      ...parsed.headElements(tag),
+      ...parsed.bodyElements(tag),
+    ]) {
       walkEl(el.node)
     }
+  }
+  // documentElement walk as last resort for odd trees
+  for (const el of parsed.headElements('html')) {
+    walkEl(el.node)
   }
 }
 
@@ -320,6 +366,19 @@ function extractRdfa(
 ): void {
   const all = collectAllElements(parsed)
   let idx = 0
+  // Build ancestor typeof chain by walking each element's parent chain via
+  // a second pass over collected elements (nearest typeof ancestor first).
+  const typeofByNode = new Map<HtmlElement['node'], string[]>()
+  for (const el of all) {
+    const typeofAttr = el.attrs.typeof ?? el.attrs['typeof']
+    if (!typeofAttr) continue
+    const types = typeofAttr.split(/\s+/).map((t) => {
+      if (t.startsWith('http')) return t.replace(/^https?:\/\/schema\.org\//i, '')
+      return t
+    })
+    typeofByNode.set(el.node, types)
+  }
+
   for (const el of all) {
     const typeofAttr = el.attrs.typeof ?? el.attrs['typeof']
     if (!typeofAttr) continue
@@ -332,6 +391,14 @@ function extractRdfa(
     const properties: Record<string, unknown> = {}
     // Collect property attrs on descendants
     collectRdfaProps(el.node, properties)
+    // Ancestor types: other typeof nodes that contain this node.
+    const ancestorTypes: string[] = []
+    for (const [ancNode, ancTypes] of typeofByNode) {
+      if (ancNode === el.node) continue
+      if (nodeContains(ancNode, el.node)) {
+        ancestorTypes.push(...ancTypes)
+      }
+    }
     nodes.push({
       format: 'rdfa',
       types,
@@ -339,8 +406,29 @@ function extractRdfa(
       id: el.attrs.resource ?? el.attrs.about ?? null,
       context: vocab.includes('schema.org') ? 'https://schema.org' : vocab,
       source: `rdfa#${idx}`,
+      ancestorTypes: ancestorTypes.length ? ancestorTypes : undefined,
     })
   }
+}
+
+function nodeContains(
+  ancestor: HtmlElement['node'],
+  descendant: HtmlElement['node'],
+): boolean {
+  const walk = (n: HtmlElement['node']): boolean => {
+    for (const child of n.childNodes) {
+      if (child === descendant) return true
+      if (
+        child.nodeName !== '#text' &&
+        child.nodeName !== '#comment' &&
+        'tagName' in child
+      ) {
+        if (walk(child as HtmlElement['node'])) return true
+      }
+    }
+    return false
+  }
+  return walk(ancestor)
 }
 
 function collectRdfaProps(

@@ -56,7 +56,13 @@ export type Topic42Finding = {
   rewriteHref: string | null
   finalUrl: string | null
   declaration: HrefDeclaration
-  /** Pages where this href was observed (deduped for shared-nav). */
+  /**
+   * Rollup / fix declaration site. Shared-nav → component file; otherwise a
+   * stable `redirect-target:` key so one WordPress menu rule is ONE finding,
+   * not one per page (ingest falls back to pageUrl when this is null).
+   */
+  declarationSite: string | null
+  /** Pages where this href was observed (deduped for shared-nav / same target). */
   observedOn: string[]
   detail: string
   conditions: ClassifyRedirectResult['conditions']
@@ -183,10 +189,13 @@ export async function detectLinksThroughRedirects(
     const declaration = declarationFor(obs.href, options)
     const norm =
       normalizeFixStrategyUrl(obs.targetUrl) ?? obs.targetUrl.split('#')[0]!
+    // Collapse by target URL — one redirect rule (e.g. WP menu → /checkout/
+    // 302) is ONE finding with observedOn[], not one row per source page.
+    // Shared-nav still keys on the component file when known.
     const key =
       declaration.kind === 'shared-nav' && declaration.file
         ? `nav:${declaration.file}:${norm}`
-        : `page:${obs.sourceUrl}:${norm}`
+        : `target:${norm}`
     const existing = groups.get(key)
     if (existing) existing.obs.push(obs)
     else groups.set(key, { obs: [obs], declaration })
@@ -274,6 +283,22 @@ export async function detectLinksThroughRedirects(
           })
         : resolveFixTarget(art)
 
+    const observedOn = Array.from(new Set(group.obs.map((o) => o.sourceUrl)))
+    const normTarget =
+      normalizeFixStrategyUrl(targetUrl) ?? targetUrl.split('#')[0]!
+    const declarationSite =
+      group.declaration.kind === 'shared-nav' && group.declaration.file
+        ? group.declaration.file
+        : `redirect-target:${normTarget}`
+
+    let detail = classified.detail
+    if (
+      classified.verdict === 'human-review-temporary-redirect' &&
+      observedOn.length > 1
+    ) {
+      detail = `${classified.detail} — same target on ${observedOn.length} pages (one redirect rule; not per-page)`
+    }
+
     findings.push({
       kind: 'internal-link/points-at-redirect',
       sourceUrl,
@@ -285,8 +310,9 @@ export async function detectLinksThroughRedirects(
       rewriteHref: classified.rewriteHref,
       finalUrl: classified.finalUrl,
       declaration: group.declaration,
-      observedOn: Array.from(new Set(group.obs.map((o) => o.sourceUrl))),
-      detail: classified.detail,
+      declarationSite,
+      observedOn,
+      detail,
       conditions: classified.conditions,
       fixTarget,
     })

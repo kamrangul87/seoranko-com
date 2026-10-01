@@ -183,6 +183,18 @@ async function decideSoftOr404(
  * - generateMetadata robots conditional → human-review indeterminate
  * - repo does not declare, live carries noindex → raise (streamed notFound / R32)
  */
+/**
+ * Standard WordPress / WooCommerce session & checkout routes. These ship
+ * deliberate `noindex` (and often 302 when empty/unauthenticated). Linking to
+ * them is storefront chrome — not a soft-404 broken link (minso FP class).
+ */
+export const DELIBERATE_NOINDEX_UTILITY_PATH =
+  /^\/(cart|basket|checkout|my-account|myaccount|wishlist|account)(\/|$)/i
+
+export function isDeliberateNoindexUtilityPath(pathname: string): boolean {
+  return DELIBERATE_NOINDEX_UTILITY_PATH.test(pathname)
+}
+
 export async function detectBrokenInternalLinks(
   sourceHtml: string,
   sourceUrl: string,
@@ -265,6 +277,18 @@ export async function detectBrokenInternalLinks(
 
       // 200 + noindex — topic 70 discriminator (guard 7 / soft-404 ambiguity)
       const path = new URL(targetUrl).pathname
+
+      // WooCommerce / WP utility routes are deliberately noindexed. Without a
+      // connected repo the topic-70 discriminator collapses to "injected
+      // soft-404" for every such link — suppress by well-known path instead.
+      if (isDeliberateNoindexUtilityPath(path)) {
+        suppressed.push({
+          href: anchor.href,
+          reason: 'deliberate-utility-noindex',
+        })
+        continue
+      }
+
       const resolved = resolveRoute(options.repoRoot, routeRoots, path)
       const appDir = appDirFor(options.repoRoot, routeRoots)
 

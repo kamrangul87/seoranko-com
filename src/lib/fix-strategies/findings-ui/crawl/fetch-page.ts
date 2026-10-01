@@ -93,8 +93,49 @@ function httpBody(outcome: FetchOutcome): {
   }
 }
 
-/** Heuristic: served HTML has almost no text → client_only shell (topic 67). */
-function looksClientOnly(html: string): boolean {
+/**
+ * Non-HTML documents (XML sitemaps, RSS, Atom, JSON) must never be treated as
+ * JS shells. The old heuristic keyed off low word-count after tag-stripping —
+ * a short WordPress `urlset` has few `<loc>` tokens and was mislabeled
+ * client_only, which skipped sitemap expansion entirely.
+ */
+export function looksLikeNonHtmlDocument(
+  html: string,
+  contentType?: string | null,
+): boolean {
+  const ct = (contentType ?? '').toLowerCase()
+  // MIME wins when the server did not claim HTML.
+  if (
+    ct &&
+    !ct.includes('html') &&
+    (ct.includes('xml') ||
+      ct.includes('json') ||
+      ct.includes('rss') ||
+      ct.includes('atom'))
+  ) {
+    return true
+  }
+  // Body prologue — WordPress often serves sitemaps as text/xml or even
+  // mislabeled types; <?xml / <urlset is never a JS shell.
+  const trimmed = html.trimStart()
+  if (/^<\?xml\b/i.test(trimmed)) return true
+  if (/^<(urlset|sitemapindex|rss|feed|rdf:RDF)[\s>/]/i.test(trimmed)) {
+    return true
+  }
+  return false
+}
+
+/**
+ * Heuristic: served HTML has almost no text → client_only shell (topic 67).
+ * Keys off (1) JS bundle + zero anchors, or (2) very low visible word count —
+ * but only for HTML documents. Content-Type / XML prologue win over word count.
+ */
+export function looksClientOnly(
+  html: string,
+  contentType?: string | null,
+): boolean {
+  if (looksLikeNonHtmlDocument(html, contentType)) return false
+
   const hasAppBundle =
     /<script[^>]+src=["'][^"']+\.js["']/i.test(html) ||
     /type=["']module["']/i.test(html)
@@ -179,12 +220,16 @@ export async function crawlOneUrl(
       last.kind === 'http' && last.statusClass === '2xx' && !last.streamComplete
 
     const rawHtml = streamIncomplete ? '' : body.html
+    const contentType =
+      last.kind === 'http'
+        ? last.headers.get('content-type') ?? last.headers.get('Content-Type')
+        : null
     const shellLooksClientOnly =
       !streamIncomplete &&
       last.kind === 'http' &&
       last.statusClass === '2xx' &&
       Boolean(rawHtml) &&
-      looksClientOnly(rawHtml)
+      looksClientOnly(rawHtml, contentType)
 
     let renderEvidence: PageRenderEvidence | null = null
     let html = rawHtml

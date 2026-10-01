@@ -4,7 +4,12 @@ export {
   isInternalHref,
   isSkippableHref,
 } from './extract-anchors'
-export { detectGoneAnchors, detectBrokenInternalLinks } from './detect'
+export {
+  detectGoneAnchors,
+  detectBrokenInternalLinks,
+  isDeliberateNoindexUtilityPath,
+  DELIBERATE_NOINDEX_UTILITY_PATH,
+} from './detect'
 export type {
   DetectTopic1Result,
   Finding404,

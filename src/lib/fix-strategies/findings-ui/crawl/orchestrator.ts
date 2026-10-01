@@ -752,6 +752,23 @@ export async function processCrawlTick(
     isPartial = coverageIncomplete
   }
 
+  // When the frontier is drained, recompute counters from job rows. Hobby
+  // FUNCTION_INVOCATION_TIMEOUT can kill a tick after updateUrlJob persisted
+  // but before updateRun — leaving urlsCrawled stuck at an earlier value.
+  if (done) {
+    crawledN = counts.crawled
+    failedN = counts.failed
+    clientOnlyN = counts.client_only
+    const totalJobs =
+      counts.crawled +
+      counts.failed +
+      counts.client_only +
+      counts.queued +
+      counts.running
+    urlsFound = Math.max(urlsFound, totalJobs)
+    urlsDiscovered = Math.max(urlsDiscovered, totalJobs)
+  }
+
   await store.updateRun(runId, {
     status,
     urlsCrawled: crawledN,
