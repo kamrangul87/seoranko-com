@@ -21,7 +21,8 @@ export async function POST(req: NextRequest) {
       if (authHeader) {
         const { data: { user } } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''))
         if (user) {
-          await supabase.from('geo_audits').insert({
+          // geo_audits is not in the live schema — never pretend persist worked.
+          const { error: persistError } = await supabase.from('geo_audits').insert({
             user_id: user.id,
             url: result.url,
             composite_score: result.compositeScore,
@@ -30,11 +31,20 @@ export async function POST(req: NextRequest) {
             top_fixes: result.topFixes,
             audited_at: result.auditedAt
           })
+          if (persistError) {
+            return NextResponse.json({
+              success: true,
+              result,
+              persisted: false,
+              persistError: persistError.message,
+            })
+          }
+          return NextResponse.json({ success: true, result, persisted: true })
         }
       }
     }
 
-    return NextResponse.json({ success: true, result })
+    return NextResponse.json({ success: true, result, persisted: false })
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 })
   }

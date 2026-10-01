@@ -27,13 +27,20 @@ export async function GET(req: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const supabaseAdmin = adminClient()
-    const { data: saved } = await supabaseAdmin
+    const { data: saved, error: savedError } = await supabaseAdmin
       .from('cannibalization_results')
       .select('pairs, total_conflicts, high_severity, top_action, checked_at')
       .eq('user_id', user.id)
       .order('checked_at', { ascending: false })
       .limit(1)
       .maybeSingle()
+
+    if (savedError) {
+      return NextResponse.json(
+        { success: false, error: savedError.message },
+        { status: 500 },
+      )
+    }
 
     if (!saved) return NextResponse.json({ success: true, result: null })
 

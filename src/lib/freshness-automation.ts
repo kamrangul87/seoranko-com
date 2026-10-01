@@ -63,30 +63,47 @@ export async function runWeeklyFreshnessJobs() {
   const cutoff = new Date()
   cutoff.setDate(cutoff.getDate() - 88)
 
-  const { data: dueArticles } = await supabase
+  // Live schema has last_reoptimise_at — not last_refresh_at. Filtering on a
+  // missing column returns { data: null, error } which used to look like
+  // "nothing due" ({ processed: 0 }).
+  const refreshCutoff = new Date(Date.now() - 30 * 86400000).toISOString()
+  const { data: dueArticles, error: dueError } = await supabase
     .from('ranking_agent_articles')
     .select('id, article_id, keyword, title')
     .lt('created_at', cutoff.toISOString())
-    .or('last_refresh_at.is.null,last_refresh_at.lt.' + new Date(Date.now() - 30 * 86400000).toISOString())
+    .or(
+      `last_reoptimise_at.is.null,last_reoptimise_at.lt.${refreshCutoff}`,
+    )
     .limit(20)
+
+  if (dueError) {
+    console.error('[freshness] due-articles query failed:', dueError.message)
+    return { processed: 0, error: dueError.message }
+  }
 
   if (!dueArticles?.length) return { processed: 0 }
 
   const results = []
   for (const tracked of dueArticles) {
-    const { data: article } = await supabase
+    const { data: article, error: articleErr } = await supabase
       .from('articles')
       .select('content, keyword, created_at')
       .eq('id', tracked.article_id)
       .single()
 
-    if (!article) continue
+    if (articleErr || !article) {
+      console.error(
+        `[freshness] article ${tracked.article_id} load failed:`,
+        articleErr?.message || 'not found',
+      )
+      continue
+    }
 
     // Content-decay monitoring only begins once a hosted publication is
     // LIVE_VERIFIED (Step 5). Only applies when this article actually has
     // a hosted publications row — CMS-tracked or manually-tracked articles
     // (no hosted row at all) are unaffected, matching existing behavior.
-    const { data: hostedPub } = await supabase
+    const { data: hostedPub, error: hostedErr } = await supabase
       .from('publications')
       .select('state')
       .eq('article_id', tracked.article_id)
@@ -94,6 +111,13 @@ export async function runWeeklyFreshnessJobs() {
       .order('published_at', { ascending: false })
       .limit(1)
       .maybeSingle()
+    if (hostedErr) {
+      console.error(
+        `[freshness] publications lookup failed for ${tracked.article_id}:`,
+        hostedErr.message,
+      )
+      continue
+    }
     if (hostedPub && !decayMonitoringEligible(hostedPub.state)) {
       console.log(`[freshness] skipping ${tracked.article_id} — hosted publication not yet LIVE_VERIFIED (${hostedPub.state})`)
       continue
@@ -109,23 +133,37 @@ export async function runWeeklyFreshnessJobs() {
       )
 
       if (refreshResult.refreshApplied && refreshResult.newContent) {
-        await supabase
+        // articles has no freshness_status column in live schema — only content.
+        const { error: artUpdErr } = await supabase
           .from('articles')
           .update({
             content: refreshResult.newContent,
-            freshness_status: 'fresh',
-            updated_at: new Date().toISOString()
+            updated_at: new Date().toISOString(),
           })
           .eq('id', tracked.article_id)
+        if (artUpdErr) {
+          console.error(
+            `[freshness] articles update failed for ${tracked.article_id}:`,
+            artUpdErr.message,
+          )
+          continue
+        }
 
-        await supabase
+        const { error: trackUpdErr } = await supabase
           .from('ranking_agent_articles')
           .update({
-            last_refresh_at: new Date().toISOString(),
+            last_reoptimise_at: new Date().toISOString(),
             freshness_status: 'fresh',
-            needs_refresh: false
+            needs_refresh: false,
           })
           .eq('id', tracked.id)
+        if (trackUpdErr) {
+          console.error(
+            `[freshness] ranking_agent_articles update failed for ${tracked.id}:`,
+            trackUpdErr.message,
+          )
+          continue
+        }
       }
 
       results.push(refreshResult)

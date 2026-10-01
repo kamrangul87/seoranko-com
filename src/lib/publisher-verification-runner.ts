@@ -45,7 +45,17 @@ async function checkAndTransitionPage(supabase: any, page: DuePage, nowIso: stri
 
   let contentMarker = ''
   if (page.article_id) {
-    const { data: article } = await supabase.from('articles').select('title').eq('id', page.article_id).maybeSingle()
+    const { data: article, error: articleErr } = await supabase
+      .from('articles')
+      .select('title')
+      .eq('id', page.article_id)
+      .maybeSingle()
+    if (articleErr) {
+      return {
+        outcome: 'skipped',
+        error: `Page ${page.id}: could not load article title — ${articleErr.message}`,
+      }
+    }
     contentMarker = article?.title || ''
   }
   if (!contentMarker) return { outcome: 'skipped', error: `Page ${page.id} has no linked article title to use as a content marker.` }
@@ -142,13 +152,16 @@ export async function runVerificationSweep(supabase: any, options: { limit?: num
 // itself, which would risk picking up a different due row entirely under
 // concurrent load.
 export async function verifyOnePage(supabase: any, pageId: string, userId: string): Promise<{ success: boolean; message: string; liveness?: LivenessState }> {
-  const { data: page } = await supabase
+  const { data: page, error: pageErr } = await supabase
     .from('pages')
     .select('id, article_id, url, liveness_state, liveness_history, verification_attempts, first_check_at, published_at, user_id')
     .eq('id', pageId)
     .eq('user_id', userId)
     .maybeSingle()
 
+  if (pageErr) {
+    return { success: false, message: `Could not load page: ${pageErr.message}` }
+  }
   if (!page) return { success: false, message: 'Page not found.' }
   if (!['BUILD_PENDING', 'LIVE_UNVERIFIED'].includes(page.liveness_state)) {
     return { success: true, message: `Nothing to verify — page is already ${page.liveness_state}.`, liveness: page.liveness_state }
@@ -156,11 +169,22 @@ export async function verifyOnePage(supabase: any, pageId: string, userId: strin
 
   const nowIso = new Date().toISOString()
   const { outcome, error } = await checkAndTransitionPage(supabase, page as DuePage, nowIso)
-  const { data: updated } = await supabase.from('pages').select('liveness_state').eq('id', pageId).maybeSingle()
+  const { data: updated, error: updatedErr } = await supabase
+    .from('pages')
+    .select('liveness_state')
+    .eq('id', pageId)
+    .maybeSingle()
 
+  // Only "verified" is a successful verification. stillPending / hardFailed /
+  // skipped used to return success:true (outcome !== 'skipped'), which made
+  // auth-wall and not-yet-live checks look like they passed.
+  const success = outcome === 'verified'
   return {
-    success: outcome !== 'skipped',
-    message: error || `Checked. Now ${updated?.liveness_state || page.liveness_state}.`,
-    liveness: updated?.liveness_state,
+    success,
+    message:
+      error ||
+      updatedErr?.message ||
+      `Checked. Now ${updated?.liveness_state || page.liveness_state} (${outcome}).`,
+    liveness: updated?.liveness_state ?? page.liveness_state,
   }
 }

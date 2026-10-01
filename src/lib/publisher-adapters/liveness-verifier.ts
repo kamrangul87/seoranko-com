@@ -43,6 +43,44 @@ function normaliseUrl(url: string): string {
   return url.replace(/\/$/, '').replace(/^https?:\/\//, '').toLowerCase()
 }
 
+/**
+ * Login / SSO interstitials often return HTTP 200. If we only require a
+ * content-marker substring, a marker that appears in chrome (or a generic
+ * title) can falsely VERIFIED. Detect common auth-wall signals.
+ */
+export function looksLikeAuthWall(html: string): boolean {
+  const sample = html.slice(0, 80_000).toLowerCase()
+  const signals = [
+    'type="password"',
+    "type='password'",
+    'name="password"',
+    "name='password'",
+    'autocomplete="current-password"',
+    'id="password"',
+    '>sign in<',
+    '>log in<',
+    '>log into<',
+    'forgot password',
+    '/cdn-cgi/access/',
+    'accounts.google.com/ServiceLogin',
+    'okta.com',
+    'auth0.com',
+    'clerk.accounts',
+    'action="/login"',
+    'action="/signin"',
+    'action="/sign-in"',
+  ]
+  let hits = 0
+  for (const s of signals) {
+    if (sample.includes(s)) hits++
+  }
+  // Password field alone is strong; otherwise need 2 softer signals.
+  if (sample.includes('type="password"') || sample.includes("type='password'")) {
+    return true
+  }
+  return hits >= 2
+}
+
 const FETCH_TIMEOUT_MS = 15000
 
 // Performs ONE fetch-and-check pass — no retry/backoff logic here, that's
@@ -80,6 +118,21 @@ export async function checkOnce(input: VerificationCheckInput): Promise<Verifica
   const contentMarkerFound = html.includes(input.contentMarker)
   const canonicalFound = extractCanonical(html)
   const canonicalMatches = canonicalFound !== null && normaliseUrl(canonicalFound) === normaliseUrl(input.expectedCanonicalUrl)
+
+  // Auth wall / login interstitial: 200 is not "live content".
+  if (looksLikeAuthWall(html)) {
+    return {
+      verdict: 'HARD_FAILURE',
+      httpStatus: res.status,
+      redirected,
+      finalUrl,
+      contentMarkerFound,
+      canonicalFound,
+      canonicalMatches,
+      detail:
+        'Page looks like a login / auth wall (password field or sign-in chrome). HTTP 200 here is not a live article — refusing to mark verified.',
+    }
+  }
 
   // A canonical that's present but points somewhere ELSE is a real
   // configuration problem, not a timing issue — hard-fail immediately
