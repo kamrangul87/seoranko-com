@@ -3,8 +3,8 @@
  * package index. WHOLE-SITE detectors must run once when the frontier is
  * exhausted (same fix class as topic 43); PER-PAGE may run per chunk.
  *
- * Topic 58 (index vs crawl set divergence) is unshipped but reserved as
- * whole-site so it cannot be wired into the chunk loop when added.
+ * Topics 55–59 (GSC block) ship as whole-site and run in the post-crawl pass
+ * when an active GSC connection exists for the site.
  */
 
 import { DETECTOR_SCOPE as t1 } from './topic-1'
@@ -50,6 +50,11 @@ import { DETECTOR_SCOPE as t46 } from './topic-46'
 import { DETECTOR_SCOPE as t47 } from './topic-47'
 import { DETECTOR_SCOPE as t48 } from './topic-48'
 import { DETECTOR_SCOPE as t49 } from './topic-49'
+import { DETECTOR_SCOPE as t55 } from './topic-55'
+import { DETECTOR_SCOPE as t56 } from './topic-56'
+import { DETECTOR_SCOPE as t57 } from './topic-57'
+import { DETECTOR_SCOPE as t58 } from './topic-58'
+import { DETECTOR_SCOPE as t59 } from './topic-59'
 
 export type DetectorScope = 'per-page' | 'whole-site'
 
@@ -98,16 +103,18 @@ export const DETECTOR_SCOPE_BY_TOPIC: Readonly<Record<string, DetectorScope>> = 
   '47': t47,
   '48': t48,
   '49': t49,
+  '55': t55,
+  '56': t56,
+  '57': t57,
+  '58': t58,
+  '59': t59,
 }
 
 /**
- * Reserved for unshipped detectors. Topic 58 = index vs crawl set divergence;
- * must be whole-site when wired.
+ * Reserved for unshipped detectors (none currently — 58 shipped as whole-site).
  */
 export const UNSHIPPED_DETECTOR_SCOPE: Readonly<Record<string, DetectorScope>> =
-  {
-    '58': 'whole-site',
-  }
+  {}
 
 /** Topic ids that may run inside the per-chunk detector loop. */
 export const CHUNK_LOOP_TOPIC_IDS = [
@@ -158,6 +165,11 @@ export const POST_CRAWL_TOPIC_IDS = [
   '46',
   '47',
   '48',
+  '55',
+  '56',
+  '57',
+  '58',
+  '59',
 ] as const
 
 /** Every shipped detector that must be called from the crawl runners. */

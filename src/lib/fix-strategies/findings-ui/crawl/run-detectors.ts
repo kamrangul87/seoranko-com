@@ -68,6 +68,13 @@ import { detectMissingReturnLinks } from '@/lib/fix-strategies/topic-46'
 import { detectInvalidLanguageRegionCodes } from '@/lib/fix-strategies/topic-47'
 import { detectAlternateTargetNotIndexable } from '@/lib/fix-strategies/topic-48'
 import { detectImgMissingDimensions } from '@/lib/fix-strategies/topic-49'
+import { detectGoogleChosenCanonicalMismatch } from '@/lib/fix-strategies/topic-55'
+import { detectDiscoveredNotIndexed } from '@/lib/fix-strategies/topic-56'
+import { detectCrawledNotIndexed } from '@/lib/fix-strategies/topic-57'
+import { detectIndexedVsCrawlMismatch } from '@/lib/fix-strategies/topic-58'
+import { detectImpressionsNoInternalLinks } from '@/lib/fix-strategies/topic-59'
+import { loadGscDetectContext } from '@/lib/fix-strategies/shared/gsc-detect-context'
+import { normalizeCanonicalForGscMatch } from '@/lib/fix-strategies/shared/canonical-normalize'
 import {
   assertAllShippedTopicsWired,
   assertChunkLoopTopics,
@@ -690,9 +697,15 @@ export type WholeSitePageInput = {
  * Covers sitemap set (24/25/26/27/28), robots (19/21/22), cross-URL head (33),
  * link graph (43/45), canonical→noindex (15), and hreflang (46/47/48).
  */
+export type WholeSiteDetectorOptions = {
+  /** When set and GSC is active, topics 55–59 run against stored Inspection/metrics. */
+  siteId?: string | null
+}
+
 export async function runWholeSiteDetectorsOnCrawl(
   origin: string,
   pages: WholeSitePageInput[],
+  options?: WholeSiteDetectorOptions,
 ): Promise<DetectorEmit[]> {
   const out: DetectorEmit[] = []
   if (pages.length === 0) return out
@@ -1071,6 +1084,109 @@ export async function runWholeSiteDetectorsOnCrawl(
       '48',
       'hreflang/alternate-target-not-indexable',
       detectAlternateTargetNotIndexable({ collect: hreflangCollect }),
+      out,
+    )
+  }
+
+  // --- Topics 55–59: GSC-dependent (silent without active connection) ---
+  const gsc = await loadGscDetectContext(options?.siteId ?? null)
+  if (gsc) {
+    const orphanNormalized = new Set<string>()
+    for (const n of graph.nodes) {
+      if (n.urlNormalized === graph.homepageNormalized) continue
+      const inbound = graph.edges.filter(
+        (e) => e.crawlable && e.toNormalized === n.urlNormalized,
+      )
+      if (inbound.length === 0) orphanNormalized.add(n.urlNormalized)
+    }
+
+    const crawledNormalized = new Set<string>()
+    const declaredCanonicalByUrl = new Map<string, string | null>()
+    for (const p of pages) {
+      const norm =
+        normalizeCanonicalForGscMatch(p.url) ||
+        normalizeFixStrategyUrl(p.url) ||
+        p.url
+      if (p.status != null && p.status >= 200 && p.status < 400 && !p.clientOnly) {
+        crawledNormalized.add(norm)
+      }
+      if (p.html) {
+        const canon = extractHtmlCanonical(p.html, p.url, 'text/html')
+        declaredCanonicalByUrl.set(
+          norm,
+          canon ? normalizeCanonicalForGscMatch(canon) : null,
+        )
+      }
+    }
+
+    const onlyNoncrawlableNormalized = new Set<string>()
+    for (const e of graph.edges) {
+      if (!e.crawlable && e.toNormalized) {
+        const hasCrawlable = graph.edges.some(
+          (x) => x.crawlable && x.toNormalized === e.toNormalized,
+        )
+        if (!hasCrawlable) onlyNoncrawlableNormalized.add(e.toNormalized)
+      }
+    }
+
+    takeBuckets(
+      '55',
+      'gsc/google-chosen-canonical-mismatch',
+      detectGoogleChosenCanonicalMismatch({
+        gsc,
+        declaredCanonicalByUrl,
+      }),
+      out,
+    )
+    takeBuckets(
+      '56',
+      'gsc/discovered-not-indexed',
+      detectDiscoveredNotIndexed({
+        gsc,
+        orphanNormalized,
+      }),
+      out,
+    )
+    // Topic 57: list independent findings already raised on the same URL
+    // (never as cause — B12). Built from emits so far in this post-crawl pass
+    // plus any prior per-chunk emits already in `out` when callers merge.
+    const independentFindingsByUrl = new Map<string, string[]>()
+    for (const e of out) {
+      if (e.bucket === 'internal') continue
+      if (!e.pageUrl || !e.verdict) continue
+      const norm =
+        normalizeCanonicalForGscMatch(e.pageUrl) ||
+        normalizeFixStrategyUrl(e.pageUrl) ||
+        e.pageUrl
+      const label = `topic-${e.topicId}: ${e.verdict}`
+      const prev = independentFindingsByUrl.get(norm) || []
+      if (!prev.includes(label)) prev.push(label)
+      independentFindingsByUrl.set(norm, prev)
+    }
+    takeBuckets(
+      '57',
+      'gsc/crawled-not-indexed',
+      detectCrawledNotIndexed({ gsc, independentFindingsByUrl }),
+      out,
+    )
+    takeBuckets(
+      '58',
+      'gsc/indexed-vs-crawl-mismatch',
+      detectIndexedVsCrawlMismatch({
+        gsc,
+        crawledNormalized,
+        orphanNormalized,
+      }),
+      out,
+    )
+    takeBuckets(
+      '59',
+      'gsc/impressions-no-internal-links',
+      detectImpressionsNoInternalLinks({
+        gsc,
+        orphanNormalized,
+        onlyNoncrawlableNormalized,
+      }),
       out,
     )
   }

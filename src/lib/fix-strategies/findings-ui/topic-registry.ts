@@ -47,6 +47,11 @@ export const TOPIC_DOSSIER_SLUG: Record<string, string> = {
   '47': 'hreflang__invalid_language_region_codes',
   '48': 'hreflang__non_200_or_noindexed',
   '49': 'performance__images_missing_width_height',
+  '55': 'gsc__google_chosen_canonical_mismatch',
+  '56': 'gsc__discovered_not_indexed',
+  '57': 'gsc__crawled_not_indexed',
+  '58': 'gsc__indexed_vs_crawl_mismatch',
+  '59': 'gsc__impressions_no_internal_links',
 }
 
 export function dossierSlugForTopic(topicId: string): string | null {
