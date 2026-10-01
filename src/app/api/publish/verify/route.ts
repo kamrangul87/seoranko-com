@@ -30,12 +30,18 @@ export async function POST(req: NextRequest) {
     if (body.publicationId) {
       // Ownership check — the hosted state machine has no per-row
       // liveness_state auth gate the way pages does, so verify here.
-      const { data: pub } = await supabase
+      const { data: pub, error: pubErr } = await supabase
         .from('publications')
         .select('id, user_id, state')
         .eq('id', body.publicationId)
         .eq('user_id', user.id)
         .maybeSingle()
+      if (pubErr) {
+        return NextResponse.json(
+          { success: false, message: pubErr.message },
+          { status: 500 },
+        )
+      }
       if (!pub) return NextResponse.json({ success: false, message: 'Publication not found.' }, { status: 404 })
       if (pub.state !== 'LIVE_UNVERIFIED') {
         return NextResponse.json({ success: true, message: `Nothing to verify — publication is already ${pub.state}.`, state: pub.state })

@@ -22,11 +22,18 @@ export async function GET(req: NextRequest) {
     const { data: { user } } = await supabaseAdmin.auth.getUser(token)
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const { data: saved } = await supabaseAdmin
+    const { data: saved, error: savedError } = await supabaseAdmin
       .from('topical_maps')
       .select('map_data, generated_at')
       .eq('user_id', user.id)
       .maybeSingle()
+
+    if (savedError) {
+      return NextResponse.json(
+        { success: false, error: savedError.message },
+        { status: 500 },
+      )
+    }
 
     if (!saved) return NextResponse.json({ success: true, result: null })
     return NextResponse.json({ success: true, result: saved.map_data })
@@ -54,23 +61,29 @@ export async function POST(req: NextRequest) {
     // (always '[]'), which made every cross-link check a permanent no-op.
     // brand is fetched here too since the follow-up internal-link-registry
     // feature needs it per cluster page; unused by buildTopicalMap itself.
-    const { data: articlesRaw } = await supabaseAdmin
+    const { data: articlesRaw, error: articlesError } = await supabaseAdmin
       .from('articles')
       .select('id, title, keyword, content, article_url, brand')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
 
-    // Soft-deleted articles (ROI Delete) should not shape the map when column exists
+    if (articlesError) {
+      return NextResponse.json(
+        { success: false, error: articlesError.message },
+        { status: 500 },
+      )
+    }
+
+    // Soft-deleted articles (ROI Delete) should not shape the map when column exists.
+    // Live schema has no deleted_at — ignore that filter when it errors.
     let articlesFiltered = articlesRaw || []
-    try {
-      const withActive = await supabaseAdmin
-        .from('articles')
-        .select('id, title, keyword, content, article_url, brand')
-        .eq('user_id', user.id)
-        .is('deleted_at', null)
-        .order('created_at', { ascending: false })
-      if (!withActive.error && withActive.data) articlesFiltered = withActive.data
-    } catch { /* column may not exist yet */ }
+    const withActive = await supabaseAdmin
+      .from('articles')
+      .select('id, title, keyword, content, article_url, brand')
+      .eq('user_id', user.id)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+    if (!withActive.error && withActive.data) articlesFiltered = withActive.data
 
     const articles = articlesFiltered.map(a => ({
       id: a.id,

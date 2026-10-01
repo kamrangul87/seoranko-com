@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
 
   try {
     // Step 1: get all tracked articles
-    const { data: tracked } = await supabase
+    const { data: tracked, error: trackedError } = await supabase
       .from('ranking_agent_articles')
       .select(`
         id, keyword, article_url, current_position,
@@ -47,6 +47,17 @@ export async function GET(req: NextRequest) {
         )
       `)
       .limit(50)
+
+    if (trackedError) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `Failed to load tracked articles: ${trackedError.message}`,
+          ...results,
+        },
+        { status: 500 },
+      )
+    }
 
     if (!tracked?.length) {
       return NextResponse.json({ success: true, message: 'No tracked articles', ...results })
@@ -200,13 +211,16 @@ export async function GET(req: NextRequest) {
 
     // Step 7: AI Visibility weekly citation checks (OpenAI + Perplexity)
     try {
-      const { data: sites } = await supabase
+      const { data: sites, error: sitesError } = await supabase
         .from('connected_sites')
         .select('id, user_id')
         .limit(30)
+      if (sitesError) {
+        results.errors.push(`AI Visibility site list failed: ${sitesError.message}`)
+      }
       const { runCitationCheck } = await import('@/lib/ai-visibility/run-citation-check')
       let aiVisRuns = 0
-      for (const s of sites || []) {
+      for (const s of sitesError ? [] : sites || []) {
         try {
           const r = await runCitationCheck({
             supabase,
@@ -228,5 +242,9 @@ export async function GET(req: NextRequest) {
     results.errors.push(String(err))
   }
 
-  return NextResponse.json({ success: true, ...results })
+  const ok = results.errors.length === 0
+  return NextResponse.json(
+    { success: ok, ...results },
+    { status: ok ? 200 : 500 },
+  )
 }

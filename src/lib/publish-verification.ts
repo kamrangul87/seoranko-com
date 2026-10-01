@@ -21,7 +21,10 @@
 // re-verified. This gap is deliberate and logged, not silently skipped.
 
 import { parse } from 'node-html-parser'
-import { computeBackoff } from './publisher-adapters/liveness-verifier'
+import {
+  computeBackoff,
+  looksLikeAuthWall,
+} from './publisher-adapters/liveness-verifier'
 
 const FETCH_TIMEOUT_MS = 15000
 const VERIFICATION_CEILING_SECONDS = 24 * 60 * 60 // give up after 24h unverified
@@ -140,7 +143,7 @@ export function runRenderedChecks(html: string, expected: {
 
 export async function verifyOnePublication(supabase: any, publicationId: string): Promise<{ verified: boolean; report: VerificationReport }> {
   const nowIso = new Date().toISOString()
-  const { data: pub } = await supabase
+  const { data: pub, error: pubErr } = await supabase
     .from('publications')
     .select('id, public_url, article_id, articles(title, meta_description, hero_image_url)')
     .eq('id', publicationId)
@@ -152,6 +155,11 @@ export async function verifyOnePublication(supabase: any, publicationId: string)
     checks: [],
     allPassed: false,
     skippedChecklist: 'S01-S14 not re-run: not defined anywhere available to this implementation (referenced by ID only in the source task). Only the inline-defined M-series checks (M02/M06/M07/M08/M09/M10/M11) are re-verified.',
+  }
+
+  if (pubErr) {
+    report.fetchError = `Publication query failed: ${pubErr.message}`
+    return { verified: false, report }
   }
 
   if (!pub || !pub.public_url) {
@@ -181,6 +189,16 @@ export async function verifyOnePublication(supabase: any, publicationId: string)
 
   // P02/P03 — re-parse rendered HTML, re-run checks
   const html = await res.text()
+  if (looksLikeAuthWall(html)) {
+    report.checks.push({
+      id: 'P01-not-auth-wall',
+      pass: false,
+      detail:
+        'Rendered HTML looks like a login / auth wall — not a published article.',
+    })
+    report.allPassed = false
+    return { verified: false, report }
+  }
   const article = pub.articles
   const renderedChecks = runRenderedChecks(html, {
     publicUrl: pub.public_url,

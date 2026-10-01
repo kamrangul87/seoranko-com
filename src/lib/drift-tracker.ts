@@ -111,12 +111,17 @@ export async function getDomainDriftSummary(domain: string): Promise<{
   const supabase = getSupabase();
 
   // Get the two most recent snapshots per page
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('score_history')
     .select('page_url, score, recorded_at')
     .eq('domain', domain)
     .order('recorded_at', { ascending: false })
     .limit(200);
+
+  if (error) {
+    console.error('[drift-tracker] score_history query failed:', error.message);
+    throw new Error(`score_history query failed: ${error.message}`);
+  }
 
   if (!data?.length) return { improving: 0, declining: 0, stable: 0, avgChange: null };
 

@@ -91,6 +91,12 @@ export function ContentROIDashboard() {
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(50)
+      if (fallback.error) {
+        console.error('[ContentROI] articles query failed:', fallback.error.message)
+        setLoading(false)
+        setArticles([])
+        return
+      }
       articleRows = (fallback.data || []).map((a: any) => ({ ...a, deleted_at: null }))
     } else {
       articleRows = withDeleted.data

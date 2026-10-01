@@ -38,30 +38,34 @@ export async function recomputeFreshnessForTracked(
   articleId: string
 ): Promise<boolean> {
   try {
-    const { data: row } = await supabase
+    const { data: row, error: rowErr } = await supabase
       .from('ranking_agent_articles')
-      .select('created_at, last_refresh_at, articles ( created_at )')
+      .select('created_at, last_reoptimise_at, articles ( created_at )')
       .eq('id', articleId)
       .maybeSingle()
 
+    if (rowErr) {
+      console.warn('[rank-monitor-pass] freshness load failed:', rowErr.message)
+      return false
+    }
     if (!row) return false
 
     const linked = row.articles as { created_at?: string } | null
     const publishDate =
       linked?.created_at ??
-      row.last_refresh_at ??
+      row.last_reoptimise_at ??
       row.created_at ??
       new Date().toISOString()
 
     const fresh = scoreContentFreshness(publishDate)
     const needsRefresh = fresh.status === 'stale' || fresh.status === 'very-stale'
 
+    // refresh_reason is not a live column — do not write it (silent no-op).
     const { error } = await supabase
       .from('ranking_agent_articles')
       .update({
         freshness_status: fresh.status,
         needs_refresh: needsRefresh,
-        refresh_reason: needsRefresh ? fresh.aeoImpact : null,
       })
       .eq('id', articleId)
 
