@@ -35,8 +35,7 @@ old weekly `send-digests` cron that also used Resend was retired; see
 **I could not confirm `seoranko.com` is a verified sending domain in Resend
 myself** — no Resend API access from this session, and the Vercel MCP
 connection 403s on this project's env vars, so I can't check `RESEND_API_KEY`
-either. `digest@seoranko.com` sending in already-shipped code implies it's
-verified, but check Resend → Domains yourself before relying on this.
+either. Check Resend → Domains yourself before relying on this.
 
 ## Also check while you're in the dashboard
 
