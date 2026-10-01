@@ -55,6 +55,7 @@ import { DETECTOR_SCOPE as t56 } from './topic-56'
 import { DETECTOR_SCOPE as t57 } from './topic-57'
 import { DETECTOR_SCOPE as t58 } from './topic-58'
 import { DETECTOR_SCOPE as t59 } from './topic-59'
+import { DETECTOR_SCOPE as t71 } from './topic-71'
 
 export type DetectorScope = 'per-page' | 'whole-site'
 
@@ -108,6 +109,7 @@ export const DETECTOR_SCOPE_BY_TOPIC: Readonly<Record<string, DetectorScope>> = 
   '57': t57,
   '58': t58,
   '59': t59,
+  '71': t71,
 }
 
 /**
@@ -170,6 +172,7 @@ export const POST_CRAWL_TOPIC_IDS = [
   '57',
   '58',
   '59',
+  '71',
 ] as const
 
 /** Every shipped detector that must be called from the crawl runners. */

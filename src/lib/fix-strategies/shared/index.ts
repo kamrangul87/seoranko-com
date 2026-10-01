@@ -261,6 +261,21 @@ export {
 export type { IntrinsicSize } from './image-intrinsic-size'
 
 export {
+  allParamsArePagination,
+  crawlablePaginationHrefs,
+  extractRelPaginationLinks,
+  hasFragmentOnlyPaginationLinks,
+  hasNoncrawlableNextWithoutHref,
+  isCanonicalToSeriesPageOne,
+  isPaginatedUrl,
+  isPaginationQueryParamName,
+  paginationPatternUrlsFromCrawl,
+  parsePaginationFromUrl,
+  PAGINATION_QUERY_PARAM_NAMES,
+} from './pagination'
+export type { PaginationSignal, RelPaginationLinks } from './pagination'
+
+export {
   buildInternalLinkGraph,
   extractPageLinkSignals,
   recordNonCrawlableInbound,

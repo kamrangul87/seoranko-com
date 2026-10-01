@@ -94,21 +94,7 @@ describe('topic 12 — query parameter variants', () => {
     )
     expect(sortSame.reportOnly[0]?.detail).toMatch(/12b/i)
 
-    // 4. page=2 → 12b
-    const pg = await detectQueryParamDuplicates(
-      [{ url: `${ORIGIN}/p?page=2`, body: page2 }],
-      {
-        deps: {
-          fetch: vi.fn(async () =>
-            new Response(page, {
-              status: 200,
-              headers: { 'content-type': 'text/html' },
-            }),
-          ) as unknown as typeof fetch,
-        },
-      },
-    )
-    // content differs vs clean → suppress; force same:
+    // 4. page=2 → suppress-paginated (distinct pages; never 12b)
     const pgSame = await detectQueryParamDuplicates(
       [{ url: `${ORIGIN}/p?page=2`, body: page }],
       {
@@ -122,8 +108,10 @@ describe('topic 12 — query parameter variants', () => {
         },
       },
     )
-    expect(pgSame.reportOnly.some((r) => r.detail.match(/12b/i))).toBe(true)
-    void pg
+    expect(
+      pgSame.suppressed.some((s) => s.verdict === 'suppress-paginated'),
+    ).toBe(true)
+    expect(pgSame.reportOnly.some((r) => r.detail.match(/12b/i))).toBe(false)
 
     // 5. utm with different content → suppressed
     const utmDiff = await detectQueryParamDuplicates(
