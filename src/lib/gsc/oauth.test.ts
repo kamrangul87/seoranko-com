@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll } from 'vitest'
-import { signGscOAuthState, verifyGscOAuthState } from './oauth'
+import { buildGscAuthorizeUrl, signGscOAuthState, verifyGscOAuthState } from './oauth'
 
 describe('GSC OAuth state', () => {
   beforeAll(() => {
@@ -63,5 +63,16 @@ describe('GSC OAuth state', () => {
       exp: Date.now() - 1000,
     })
     expect(() => verifyGscOAuthState(token)).toThrow(/expired/i)
+  })
+
+  it('requests offline access and consent for a refresh token', () => {
+    process.env.GOOGLE_GSC_CLIENT_ID = 'test-client-id'
+    process.env.GOOGLE_GSC_CLIENT_SECRET = 'test-client-secret'
+    process.env.GOOGLE_GSC_REDIRECT_URI = 'https://www.seoranko.com/api/gsc/callback'
+    const url = new URL(buildGscAuthorizeUrl('state-token'))
+    expect(url.searchParams.get('access_type')).toBe('offline')
+    expect(url.searchParams.get('prompt')).toBe('consent')
+    expect(url.searchParams.get('include_granted_scopes')).toBe('true')
+    expect(url.searchParams.get('scope')).toContain('webmasters.readonly')
   })
 })

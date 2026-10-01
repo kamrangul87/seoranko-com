@@ -104,6 +104,15 @@ export function verifyGscOAuthState(token: string): GscOAuthState {
   }
 }
 
+/**
+ * Build the Google authorize URL for Search Console.
+ *
+ * Always requests offline access + consent so Google issues a refresh_token.
+ * Note: if the OAuth client is still in Google Cloud "Testing" publishing
+ * status, refresh tokens expire after 7 days even with offline access — that
+ * is a Google policy, not missing access_type. Publish the consent screen
+ * (or keep test users reconnecting) for long-lived tokens.
+ */
 export function buildGscAuthorizeUrl(state: string): string {
   const { clientId, redirectUri } = requireGscOAuthConfig()
   const params = new URLSearchParams({
@@ -113,6 +122,7 @@ export function buildGscAuthorizeUrl(state: string): string {
     scope: GSC_OAUTH_SCOPE,
     access_type: 'offline',
     prompt: 'consent',
+    include_granted_scopes: 'true',
     state,
   })
   return `${GOOGLE_AUTH}?${params.toString()}`

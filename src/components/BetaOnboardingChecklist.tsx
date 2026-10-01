@@ -17,6 +17,7 @@ type Step = {
   href: string
   done: boolean
   detail?: string
+  actionLabel?: string
 }
 
 type ApiPayload = {
@@ -91,19 +92,39 @@ export function BetaOnboardingChecklist({ compact }: { compact?: boolean }) {
           <li key={step.id} className="flex items-start gap-2.5 text-sm">
             <span
               className={`mt-0.5 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
-                step.done ? 'bg-[#0F0F0F] text-white' : 'border border-[#D0D0CC] text-transparent'
+                step.done
+                  ? 'bg-[#0F0F0F] text-white'
+                  : step.actionLabel
+                    ? 'border border-amber-500 text-amber-700'
+                    : 'border border-[#D0D0CC] text-transparent'
               }`}
               aria-hidden
             >
-              {step.done ? '✓' : '·'}
+              {step.done ? '✓' : step.actionLabel ? '!' : '·'}
             </span>
             <div className="min-w-0 flex-1">
-              <Link
-                href={step.href}
-                className={`font-medium ${step.done ? 'text-[#6B6B6B]' : 'text-[#0F0F0F] hover:text-[#FF6B2C]'}`}
-              >
-                {step.label}
-              </Link>
+              <div className="flex flex-wrap items-center gap-2">
+                <Link
+                  href={step.href}
+                  className={`font-medium ${
+                    step.done
+                      ? 'text-[#6B6B6B]'
+                      : step.actionLabel
+                        ? 'text-amber-900 hover:text-[#FF6B2C]'
+                        : 'text-[#0F0F0F] hover:text-[#FF6B2C]'
+                  }`}
+                >
+                  {step.label}
+                </Link>
+                {step.actionLabel && (
+                  <Link
+                    href={step.href}
+                    className="inline-flex items-center px-2 py-0.5 rounded-md bg-[#0F0F0F] text-white text-[11px] font-medium hover:opacity-90"
+                  >
+                    {step.actionLabel}
+                  </Link>
+                )}
+              </div>
               {step.detail && (
                 <p className="text-[11px] text-[#9B9B9B] mt-0.5 leading-snug">{step.detail}</p>
               )}

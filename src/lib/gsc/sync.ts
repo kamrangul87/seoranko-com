@@ -86,6 +86,20 @@ export async function syncGscConnection(
   if (conn.status === 'revoked') {
     throw new Error('This Search Console connection was revoked. Reconnect to continue.')
   }
+  if (conn.status === 'expired') {
+    return {
+      siteId: conn.site_id,
+      propertyUrl: conn.property_url,
+      startDate: '',
+      endDate: '',
+      rowsUpserted: 0,
+      pagesFetched: 0,
+      readinessPassed: false,
+      readinessReason: 'token_error',
+      error:
+        'Search Console authorization expired. Reconnect Google Search Console before syncing — the stored refresh token cannot be renewed.',
+    }
+  }
 
   const range = opts?.fullBackfill || (!opts?.startDate && !opts?.endDate)
     ? gscBackfillDateRange()

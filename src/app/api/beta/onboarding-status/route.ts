@@ -29,7 +29,7 @@ export async function GET() {
       { auth: { persistSession: false } },
     )
 
-    const [sites, github, gsc, crawls, verified] = await Promise.all([
+    const [sites, github, gscActive, gscExpired, crawls, verified] = await Promise.all([
       supabase
         .from('connected_sites')
         .select('id', { count: 'exact', head: true })
@@ -42,9 +42,14 @@ export async function GET() {
         .eq('is_active', true),
       supabase
         .from('gsc_connections')
-        .select('id', { count: 'exact', head: true })
+        .select('id, site_id, property_url, last_sync_at, last_error', { count: 'exact' })
         .eq('user_id', user.id)
         .eq('status', 'active'),
+      supabase
+        .from('gsc_connections')
+        .select('id, site_id, property_url, last_sync_at, last_error')
+        .eq('user_id', user.id)
+        .in('status', ['expired', 'revoked']),
       supabase
         .from('index_diagnosis_runs')
         .select('id', { count: 'exact', head: true })
@@ -70,10 +75,42 @@ export async function GET() {
 
     const siteDone = (sites.count ?? 0) > 0
     const githubDone = (github.count ?? 0) > 0
-    const gscDone = (gsc.count ?? 0) > 0
+    const gscDone = (gscActive.count ?? 0) > 0
+    const expiredRows = gscExpired.data || []
     const crawlDone = (crawls.count ?? 0) > 0
     const findingDone = (attempts.count ?? 0) > 0 || (linkAudits.count ?? 0) > 0 || crawlDone
     const verifiedDone = (verified.count ?? 0) > 0
+
+    let gscLabel = 'GSC connected'
+    let gscDetail: string | undefined = gscDone
+      ? undefined
+      : 'Connect Search Console to see Google’s last recorded view.'
+    let gscHref = '/dashboard/experiments'
+    let gscActionLabel: string | undefined
+
+    if (!gscDone && expiredRows.length > 0) {
+      const first = expiredRows[0] as {
+        site_id: string
+        property_url: string | null
+        last_sync_at: string | null
+        last_error: string | null
+      }
+      const { data: expiredSite } = await supabase
+        .from('connected_sites')
+        .select('domain')
+        .eq('id', first.site_id)
+        .maybeSingle()
+      const siteName = expiredSite?.domain || first.property_url || 'your site'
+      const lastSync = first.last_sync_at
+        ? new Date(first.last_sync_at).toLocaleDateString()
+        : 'never'
+      gscLabel = 'GSC expired — reconnect'
+      gscDetail = `${siteName}: last successful sync ${lastSync}. Re-authorize Google Search Console — Sync cannot renew a dead refresh token.${
+        first.last_error ? ` Last error: ${first.last_error}` : ''
+      }`
+      gscHref = `/dashboard/experiments?siteId=${encodeURIComponent(first.site_id)}&gsc=reconnect`
+      gscActionLabel = 'Reconnect'
+    }
 
     const steps: Array<{
       id: StepId
@@ -81,6 +118,7 @@ export async function GET() {
       href: string
       done: boolean
       detail?: string
+      actionLabel?: string
     }> = [
       {
         id: 'site',
@@ -100,10 +138,11 @@ export async function GET() {
       },
       {
         id: 'gsc',
-        label: 'GSC connected',
-        href: '/dashboard/experiments',
+        label: gscLabel,
+        href: gscHref,
         done: gscDone,
-        detail: gscDone ? undefined : 'Connect Search Console to see Google’s last recorded view.',
+        detail: gscDetail,
+        actionLabel: gscActionLabel,
       },
       {
         id: 'crawl',
