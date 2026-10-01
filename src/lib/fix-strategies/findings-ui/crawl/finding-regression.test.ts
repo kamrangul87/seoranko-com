@@ -94,7 +94,10 @@ describe('Change Monitoring 3.2 — regression fields (acceptance)', () => {
     expect(resolved!.status).toBe('resolved')
     expect(resolved!.resolvedAt).not.toBeNull()
 
-    // Run 3: condition back → REGRESSION (same row, not a new finding)
+    // Run 3: condition back → REGRESSION (same row, not a new finding).
+    // Advance past seed lastSeenAt — ISO timestamps are ms-resolution and the
+    // whole seed→resolve→reintroduce path can finish in the same millisecond.
+    await new Promise((r) => setTimeout(r, 5))
     const run3 = await store.createRun({
       siteId: 'site-reg',
       userId: 'user-a',
