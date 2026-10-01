@@ -57,6 +57,23 @@ export async function POST(req: NextRequest) {
       .maybeSingle()
     if (!site) return NextResponse.json({ error: 'Site not found' }, { status: 404 })
 
+    const { data: gscConn } = await supabase
+      .from('gsc_connections')
+      .select('id, status')
+      .eq('site_id', siteId)
+      .eq('user_id', user.id)
+      .maybeSingle()
+    if (gscConn && (gscConn.status === 'expired' || gscConn.status === 'revoked')) {
+      return NextResponse.json(
+        {
+          error:
+            'Search Console authorization expired. Reconnect Google Search Console before running analysis.',
+          code: 'gsc_token_expired',
+        },
+        { status: 401 },
+      )
+    }
+
     let interventionQuery = supabase
       .from('intervention_events')
       .select('*')

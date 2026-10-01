@@ -226,6 +226,10 @@ function ExperimentsPageInner() {
     const gscError = searchParams.get('gsc_error')
     if (gscError) setError(gscError)
 
+    if (searchParams.get('gsc') === 'reconnected') {
+      setMessage('Search Console reconnected. Stored metrics will refresh on the next sync.')
+    }
+
     if (searchParams.get('gsc') === 'pick_properties') {
       void loadAccountProperties()
     }
@@ -275,6 +279,14 @@ function ExperimentsPageInner() {
       setBusy(false)
     }
   }
+
+  // Deep-link from checklist: ?gsc=reconnect&siteId=… starts site OAuth immediately.
+  useEffect(() => {
+    if (searchParams.get('gsc') !== 'reconnect') return
+    if (!siteId) return
+    void startSiteConnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional one-shot when siteId is ready
+  }, [searchParams, siteId])
 
   async function registerSelectedProperties() {
     const urls = Array.from(selectedProperties)
@@ -387,9 +399,14 @@ function ExperimentsPageInner() {
     })
   }
 
-  const accountConnected = !!(account && account.status !== 'revoked')
-  const connected = !!(connection && connection.status !== 'revoked')
+  const accountConnected = !!(account && account.status === 'active')
+  const accountExpired = account?.status === 'expired' || account?.status === 'revoked'
+  const isExpired = connection?.status === 'expired' || connection?.status === 'revoked'
+  const isActive = connection?.status === 'active'
+  /** Any stored GSC row for this site (active, expired, or revoked). */
+  const hasConnectionRow = !!connection
   const hasProperty = !!(connection?.property_url)
+  const selectedSite = sites.find((s) => s.id === siteId)
   const statusLabel =
     connection?.status === 'active'
       ? 'Connected'
@@ -398,6 +415,9 @@ function ExperimentsPageInner() {
         : connection?.status === 'revoked'
           ? 'Revoked'
           : 'Not connected'
+  const lastSyncLabel = connection?.last_sync_at
+    ? new Date(connection.last_sync_at).toLocaleString()
+    : 'never'
 
   return (
     <div
@@ -427,7 +447,7 @@ function ExperimentsPageInner() {
             {accountConnected ? (
               <div className="flex flex-wrap gap-2 items-center">
                 <span className="text-sm text-[#6B6B6B]">
-                  Google account: {account?.status === 'expired' ? 'Expired' : 'Connected'}
+                  Google account: Connected
                   {account?.connected_at
                     ? ` · since ${new Date(account.connected_at).toLocaleDateString()}`
                     : ''}
@@ -447,6 +467,22 @@ function ExperimentsPageInner() {
                   className="text-sm underline text-[#6B6B6B]"
                 >
                   Reconnect Google
+                </button>
+              </div>
+            ) : accountExpired ? (
+              <div className="space-y-2">
+                <p className="text-sm text-amber-900">
+                  Google account authorization expired
+                  {account?.last_error ? `: ${account.last_error}` : ''}. Reconnect to list
+                  properties again.
+                </p>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void startAccountConnect()}
+                  className="px-4 py-2 rounded-lg bg-[#0F0F0F] text-white disabled:opacity-50"
+                >
+                  {busy ? 'Redirecting…' : 'Reconnect Google Search Console'}
                 </button>
               </div>
             ) : (
@@ -569,7 +605,7 @@ function ExperimentsPageInner() {
 
           {loading && siteId && <p className="text-sm text-[#6B6B6B]">Loading site…</p>}
 
-          {!loading && siteId && !connected && !pickingProperties && (
+          {!loading && siteId && !hasConnectionRow && !pickingProperties && (
             <div className="border border-[#E5E5E5] rounded-lg px-4 py-4 bg-white space-y-3">
               <h2 className="font-medium">This site has no Search Console mapping</h2>
               <p className="text-sm text-[#6B6B6B]">
@@ -599,7 +635,31 @@ function ExperimentsPageInner() {
             </div>
           )}
 
-          {!loading && connected && (pickingProperty || !hasProperty) && !pickingProperties && (
+          {!loading && isExpired && hasProperty && !pickingProperties && (
+            <div className="border border-amber-300 rounded-lg px-4 py-4 bg-amber-50 space-y-3">
+              <h2 className="font-medium text-amber-950">Search Console authorization expired</h2>
+              <p className="text-sm text-amber-900">
+                <span className="font-medium">{selectedSite?.domain || 'This site'}</span>
+                {connection?.property_url ? ` · ${connection.property_url}` : ''} cannot sync.
+                Last successful sync: {lastSyncLabel}. Google rejected the stored refresh token
+                {connection?.last_error ? ` (${connection.last_error})` : ''} — Sync cannot renew it.
+              </p>
+              <p className="text-sm text-amber-900">
+                Reconnect to authorize offline access again. Experiments and readiness stay hidden
+                until a live token is restored — older metrics are not shown as current.
+              </p>
+              <button
+                type="button"
+                disabled={busy || !siteId}
+                onClick={() => void startSiteConnect()}
+                className="px-4 py-2 rounded-lg bg-[#0F0F0F] text-white text-sm disabled:opacity-50"
+              >
+                {busy ? 'Redirecting…' : 'Reconnect Search Console'}
+              </button>
+            </div>
+          )}
+
+          {!loading && hasConnectionRow && !isExpired && (pickingProperty || !hasProperty) && !pickingProperties && (
             <div className="border border-[#E5E5E5] rounded-lg px-4 py-4 bg-white space-y-3">
               <h2 className="font-medium">Attach a Search Console property to this site</h2>
               <p className="text-sm text-[#6B6B6B]">
@@ -654,20 +714,29 @@ function ExperimentsPageInner() {
                   ))}
                 </ul>
               )}
-              {connection?.status === 'expired' && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void startSiteConnect()}
-                  className="text-sm underline"
-                >
-                  Reconnect Google account
-                </button>
-              )}
             </div>
           )}
 
-          {!loading && connected && hasProperty && (
+          {!loading && isExpired && !hasProperty && !pickingProperties && (
+            <div className="border border-amber-300 rounded-lg px-4 py-4 bg-amber-50 space-y-3">
+              <h2 className="font-medium text-amber-950">Search Console authorization expired</h2>
+              <p className="text-sm text-amber-900">
+                <span className="font-medium">{selectedSite?.domain || 'This site'}</span> has an
+                expired Google token and no property attached. Last successful sync: {lastSyncLabel}.
+                Reconnect, then pick a property.
+              </p>
+              <button
+                type="button"
+                disabled={busy || !siteId}
+                onClick={() => void startSiteConnect()}
+                className="px-4 py-2 rounded-lg bg-[#0F0F0F] text-white text-sm disabled:opacity-50"
+              >
+                {busy ? 'Redirecting…' : 'Reconnect Search Console'}
+              </button>
+            </div>
+          )}
+
+          {!loading && isActive && hasProperty && (
             <div className="space-y-4">
               <div className="border border-[#E5E5E5] rounded-lg px-4 py-3 bg-white">
                 <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -768,6 +837,14 @@ function ExperimentsPageInner() {
                       className="px-3 py-1.5 rounded-lg border border-[#E5E5E5] bg-white text-sm disabled:opacity-50"
                     >
                       Run analysis
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void startSiteConnect()}
+                      className="px-3 py-1.5 rounded-lg border border-[#E5E5E5] bg-white text-sm text-[#6B6B6B] disabled:opacity-50"
+                    >
+                      Reconnect
                     </button>
                   </div>
                 </div>

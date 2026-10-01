@@ -73,7 +73,9 @@ export async function GET(req: NextRequest) {
 
     let liveReadiness: ReturnType<typeof evaluateBaselineReadiness> | null = null
 
-    if (connection?.property_url) {
+    const gscUsable = connection?.status === 'active'
+    // Expired/revoked: do not surface historical metrics as a live baseline.
+    if (connection?.property_url && gscUsable) {
       const { data: metrics } = await supabase
         .from('url_metrics_daily')
         .select('url, date, impressions, clicks, avg_position, is_final')
@@ -148,56 +150,66 @@ export async function GET(req: NextRequest) {
       causalResults = cr || []
     }
 
-    const baselinePassed = liveReadiness
-      ? liveReadiness.passed
-      : readiness
-        ? !!readiness.passed
-        : false
+    const baselinePassed = gscUsable
+      ? liveReadiness
+        ? liveReadiness.passed
+        : readiness
+          ? !!readiness.passed
+          : false
+      : false
 
     const pipelineStatus = {
       baseline: baselinePassed,
-      intervention: (interventions || []).length > 0,
-      verified: (interventions || []).some(
-        (i) =>
-          i.lifecycle_state === 'verified' ||
-          i.lifecycle_state === 'measuring' ||
-          i.lifecycle_state === 'completed',
-      ),
-      measuring: (interventions || []).some(
-        (i) => i.lifecycle_state === 'measuring' || i.lifecycle_state === 'completed',
-      ),
-      result: causalResults.some((r) => r.validity_status === 'valid'),
+      intervention: gscUsable && (interventions || []).length > 0,
+      verified:
+        gscUsable &&
+        (interventions || []).some(
+          (i) =>
+            i.lifecycle_state === 'verified' ||
+            i.lifecycle_state === 'measuring' ||
+            i.lifecycle_state === 'completed',
+        ),
+      measuring:
+        gscUsable &&
+        (interventions || []).some(
+          (i) => i.lifecycle_state === 'measuring' || i.lifecycle_state === 'completed',
+        ),
+      result: gscUsable && causalResults.some((r) => r.validity_status === 'valid'),
     }
 
-    const readinessPayload = liveReadiness
-      ? {
-          passed: liveReadiness.passed,
-          reason_code: liveReadiness.reasonCode,
-          reasonLabel: reasonCodeLabel(liveReadiness.reasonCode),
-          evidence: liveReadiness.evidence,
-          checked_at: null as string | null,
-          persisted: false,
-        }
-      : readiness
-        ? {
-            passed: readiness.passed,
-            reason_code: readiness.reason_code,
-            reasonLabel: reasonCodeLabel(readiness.reason_code as BaselineReasonCode),
-            evidence: readiness.evidence,
-            checked_at: readiness.checked_at,
-            persisted: true,
-          }
-        : null
+    const readinessPayload =
+      !gscUsable
+        ? null
+        : liveReadiness
+          ? {
+              passed: liveReadiness.passed,
+              reason_code: liveReadiness.reasonCode,
+              reasonLabel: reasonCodeLabel(liveReadiness.reasonCode),
+              evidence: liveReadiness.evidence,
+              checked_at: null as string | null,
+              persisted: false,
+            }
+          : readiness
+            ? {
+                passed: readiness.passed,
+                reason_code: readiness.reason_code,
+                reasonLabel: reasonCodeLabel(readiness.reason_code as BaselineReasonCode),
+                evidence: readiness.evidence,
+                checked_at: readiness.checked_at,
+                persisted: true,
+              }
+            : null
 
     return NextResponse.json({
       ok: true,
       site,
       connection: connection || null,
       readiness: readinessPayload,
-      metricsSummary,
-      interventions: interventions || [],
-      causalResults,
+      metricsSummary: gscUsable ? metricsSummary : null,
+      interventions: gscUsable ? interventions || [] : [],
+      causalResults: gscUsable ? causalResults : [],
       pipelineStatus,
+      gscDegraded: !gscUsable && !!connection,
     })
   } catch (err) {
     console.error('[experiments GET]', err instanceof Error ? err.message : err)
@@ -219,7 +231,7 @@ export async function POST(req: NextRequest) {
     const supabase = serviceClient()
     const { data: conn } = await supabase
       .from('gsc_connections')
-      .select('id, property_url')
+      .select('id, property_url, status')
       .eq('site_id', siteId)
       .eq('user_id', user.id)
       .maybeSingle()
@@ -228,6 +240,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: 'Connect Search Console and select a property first.' },
         { status: 400 },
+      )
+    }
+
+    if (conn.status === 'expired' || conn.status === 'revoked') {
+      return NextResponse.json(
+        {
+          error:
+            'Search Console authorization expired. Use Reconnect to authorize Google again before syncing or analyzing.',
+          code: 'gsc_token_expired',
+        },
+        { status: 401 },
       )
     }
 
