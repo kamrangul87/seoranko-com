@@ -45,12 +45,13 @@ export const CRAWL_INTER_REQUEST_GAP_MS = 250
 
 /**
  * Max same-host sitemap locs enqueued for one run (product safety cap).
- * Why: startCrawlRun discovers + enqueues in one serverless invocation; an
- * unbounded sitemap can blow memory/time before the first tick. Chunks then
- * process the queue across ticks. Hitting this cap → status partial (frontier
- * not exhausted). Raise only with measured start-handler budgets.
+ * Must be ≥ the highest plan entitlement (Agency via Stripe
+ * `seoranko_crawl_pages` metadata up to 2000). Paid default remains 500
+ * (FIX_STRATEGY_PRODUCT_DECISIONS.crawlPagesPerRunPaidDefault) until
+ * Stripe metadata differentiates Starter/Pro/Agency. Hitting this cap →
+ * status partial (frontier not exhausted).
  */
-export const CRAWL_MAX_DISCOVERED = 500
+export const CRAWL_MAX_DISCOVERED = 2000
 
 /**
  * Resumable post-crawl phase ids (ordered).
