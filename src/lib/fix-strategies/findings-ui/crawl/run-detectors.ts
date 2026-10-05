@@ -17,6 +17,7 @@ import {
   hasNoindexDirective,
   extractHtmlCanonical,
   normalizeFixStrategyUrl,
+  isSitemapXmlDocument,
   type HopRecordingDeps,
   type RollupFindingInput,
 } from '@/lib/fix-strategies/shared'
@@ -369,12 +370,15 @@ export async function runDetectorsOnPages(
 ): Promise<DetectorEmit[]> {
   void origin
   const out: DetectorEmit[] = []
+  // urlset/sitemapindex bodies are sitemap detector INPUT (24–28), not HTML
+  // pages — exclude from every HTML per-page detector (2b, 30, 34, …).
   const usable = pages.filter(
     (p) =>
       p.streamComplete &&
       !p.clientOnly &&
       !p.crawlerCausedBackoff &&
       p.html &&
+      !isSitemapXmlDocument(p.html) &&
       p.status != null &&
       p.status >= 200 &&
       p.status < 400,
@@ -723,10 +727,13 @@ export async function runWholeSiteDetectorsOnCrawl(
   const out: DetectorEmit[] = []
   if (pages.length === 0) return out
 
+  // Sitemap XML documents stay out of HTML whole-site checks (27-as-page,
+  // 19/21/33/43/45/46–48, …). Topics 24–28 still run via inspectSiteSitemaps.
   const usableHtml = pages.filter(
     (p) =>
       !p.clientOnly &&
       p.html &&
+      !isSitemapXmlDocument(p.html) &&
       p.status != null &&
       p.status >= 200 &&
       p.status < 400,
@@ -856,10 +863,15 @@ export async function runWholeSiteDetectorsOnCrawl(
     )
   }
 
-  // Link graph once for 27 (internallyLinked), 43, 45
+  // Link graph once for 27 (internallyLinked), 43, 45 — never treat
+  // urlset/sitemapindex URLs as HTML graph nodes (topic 43 orphan FPs).
   const hasClientOnlyPages = pages.some((p) => p.clientOnly)
   const graphPages = pages
-    .filter((p) => p.html || p.clientOnly)
+    .filter(
+      (p) =>
+        (p.html || p.clientOnly) &&
+        !(p.html && isSitemapXmlDocument(p.html)),
+    )
     .map((p) => ({
       url: p.url,
       html: p.clientOnly ? '' : p.html,
@@ -1083,7 +1095,7 @@ export async function runWholeSiteDetectorsOnCrawl(
     '71',
     'pagination/series-misconfigured',
     detectPaginationSeriesIssues({
-      pages: pages.map((p) => ({
+      pages: usableHtml.map((p) => ({
         url: p.url,
         html: p.html,
         status: p.status,
@@ -1143,10 +1155,17 @@ export async function runWholeSiteDetectorsOnCrawl(
         normalizeCanonicalForGscMatch(p.url) ||
         normalizeFixStrategyUrl(p.url) ||
         p.url
-      if (p.status != null && p.status >= 200 && p.status < 400 && !p.clientOnly) {
+      const sitemapDoc = Boolean(p.html && isSitemapXmlDocument(p.html))
+      if (
+        p.status != null &&
+        p.status >= 200 &&
+        p.status < 400 &&
+        !p.clientOnly &&
+        !sitemapDoc
+      ) {
         crawledNormalized.add(norm)
       }
-      if (p.html) {
+      if (p.html && !sitemapDoc) {
         const canon = extractHtmlCanonical(p.html, p.url, 'text/html')
         declaredCanonicalByUrl.set(
           norm,

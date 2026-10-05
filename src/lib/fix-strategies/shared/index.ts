@@ -61,6 +61,7 @@ export {
   removeSitemapLoc,
   replaceSitemapLoc,
   parseSitemapXml,
+  isSitemapXmlDocument,
   extractSitemapHreflangLinks,
   ensureSitemapNamespace,
   stripChangefreqAndPriority,

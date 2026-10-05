@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   extractSitemapLocs,
   parseSitemapXml,
+  isSitemapXmlDocument,
   ensureSitemapNamespace,
   stripChangefreqAndPriority,
   SITEMAP_NAMESPACE,
@@ -34,6 +35,20 @@ describe('sitemap-xml', () => {
     const p = parseSitemapXml(xml)
     expect(p.kind).toBe('sitemapindex')
     expect(p.childSitemapLocs).toEqual(['https://example.com/s1.xml'])
+  })
+
+  it('isSitemapXmlDocument recognizes urlset and sitemapindex (incl. WP PI)', () => {
+    const urlset = `<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="https://example.com/wp-sitemap.xsl" ?>
+<urlset xmlns="${SITEMAP_NAMESPACE}"><url><loc>https://example.com/</loc></url></urlset>`
+    expect(isSitemapXmlDocument(urlset)).toBe(true)
+    expect(
+      isSitemapXmlDocument(
+        `<sitemapindex xmlns="${SITEMAP_NAMESPACE}"><sitemap><loc>https://example.com/s.xml</loc></sitemap></sitemapindex>`,
+      ),
+    ).toBe(true)
+    expect(isSitemapXmlDocument('<html><title>Hi</title></html>')).toBe(false)
+    expect(isSitemapXmlDocument('<rss><channel></channel></rss>')).toBe(false)
   })
 
   it('fixes namespace and strips ignored fields', () => {

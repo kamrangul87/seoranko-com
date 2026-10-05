@@ -139,6 +139,18 @@ export function extractSitemapLocs(sitemapXml: string): string[] {
 }
 
 /**
+ * True when the body is sitemap INPUT (urlset or sitemapindex), not an HTML
+ * page. WordPress often serves these as application/xml with an xml-stylesheet
+ * PI — still sitemap documents. HTML detectors must never judge these bodies;
+ * topics 24–28 (especially 25) consume them via sitemap inspect instead.
+ */
+export function isSitemapXmlDocument(body: string): boolean {
+  if (!body || !body.trim()) return false
+  const kind = parseSitemapXml(body).kind
+  return kind === 'urlset' || kind === 'sitemapindex'
+}
+
+/**
  * Full structural parse of a sitemap or sitemap index document.
  */
 export function parseSitemapXml(sitemapXml: string): ParsedSitemapXml {
