@@ -1,6 +1,7 @@
 export { extractSitemapLocs, removeSitemapLoc, replaceSitemapLoc } from './parse-sitemap'
 export {
   detectSitemapNotIndexable,
+  detectSitemapNotIndexableLocs,
 } from './detect'
 export type {
   DetectTopic26Result,

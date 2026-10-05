@@ -5,19 +5,32 @@
  * stream-complete fetch + topic-68 confirming re-fetch, then many detectors
  * (including image header probes). Five URLs ≈ safe under the soft tick
  * deadline with backoff headroom; the run resumes via /tick until the queue
- * empties. Function maxDuration is 300s (Hobby Fluid ceiling) so the tick
- * that drains the frontier can still finish whole-site + upsert.
+ * empties. Function maxDuration is 300s (Hobby Fluid ceiling). After the
+ * frontier drains, post-crawl phases resume across ticks (never a single-shot
+ * whole-site pass that can exceed the invocation budget).
  */
 
 export const CRAWL_URL_CHUNK_SIZE = 5
 
 /**
  * Soft wall-clock budget for URL claiming/processing within a tick (ms).
- * Leave headroom under maxDuration=300 so a drain tick can still run
- * whole-site detectors. URL work stops at this soft deadline and resumes;
- * whole-site runs only after the frontier is empty (not soft-deadline-bound).
+ * Leave headroom under maxDuration=300 so a drain tick can still enter
+ * post-crawl. URL work stops at this soft deadline and resumes;
+ * post-crawl phases run on their own ticks after the frontier is empty.
  */
 export const CRAWL_TICK_DEADLINE_MS = 45_000
+
+/**
+ * Soft wall-clock budget for one post-crawl tick (ms).
+ * Under maxDuration=300 with headroom for DB flush + response.
+ */
+export const CRAWL_POST_CRAWL_DEADLINE_MS = 240_000
+
+/**
+ * Topic 26 loc chunk soft floor — process at least this many locs per
+ * post-crawl tick when time remains (politeness gap still applies).
+ */
+export const CRAWL_TOPIC26_LOC_CHUNK = 40
 
 /**
  * A run still queued/running whose `updatedAt` is older than this is treated as
@@ -38,6 +51,41 @@ export const CRAWL_INTER_REQUEST_GAP_MS = 250
  * not exhausted). Raise only with measured start-handler budgets.
  */
 export const CRAWL_MAX_DISCOVERED = 500
+
+/**
+ * Resumable post-crawl phase ids (ordered).
+ * Cursor-chunkable: 22, 24, 25, 28, 26 (by loc), 15, 19, 21, 55–59, 71.
+ * Full post-drain snapshot (own tick after graph persisted): 43, 45, 8, 33, 27, 46–48.
+ * Rollup/upsert is the last phase — never mark complete with phases outstanding.
+ */
+export const POST_CRAWL_PHASE_IDS = [
+  'persist_inspection',
+  'persist_graph',
+  'topic_22',
+  'topic_24',
+  'topic_25',
+  'topic_28',
+  'topic_26',
+  'topic_15',
+  'topic_19',
+  'topic_21',
+  'topic_55_59',
+  'topic_71',
+  'full_snapshot',
+  'rollup',
+] as const
+
+export type PostCrawlPhaseId = (typeof POST_CRAWL_PHASE_IDS)[number]
+
+/** Terminal post-crawl marker stored on the run when every phase finished. */
+export type PostCrawlPhase = PostCrawlPhaseId | 'done'
+
+export type PostCrawlCursor = {
+  /** Topic 26 — next loc index into the flattened urlset loc list. */
+  locIndex?: number
+  /** Topic 15 — next usableHtml page index. */
+  pageIndex?: number
+}
 
 export type CrawlRunStatus =
   | 'queued'
@@ -178,6 +226,17 @@ export type CrawlRunRecord = {
   coverageNotes: CoverageNote[]
   isPartial: boolean
   errorDetail: string | null
+  /**
+   * Resumable post-crawl phase. Null while the URL frontier is draining.
+   * `done` only after rollup finishes — never mark the run complete earlier.
+   */
+  postCrawlPhase: PostCrawlPhase | null
+  /** Phase-local cursor (topic 26 locIndex, topic 15 pageIndex, …). */
+  postCrawlCursor: PostCrawlCursor | null
+  /** Persisted inspectSiteSitemaps (JSON). Set once; later ticks read it. */
+  sitemapInspection: unknown | null
+  /** Persisted buildInternalLinkGraph (JSON). Full post-drain snapshot only. */
+  linkGraph: unknown | null
   startedAt: string | null
   finishedAt: string | null
   createdAt: string

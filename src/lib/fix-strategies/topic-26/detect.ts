@@ -95,13 +95,25 @@ export async function detectSitemapNotIndexable(
   ctx: SitemapArtefactContext,
   deps: FetchDeps,
 ): Promise<DetectTopic26Result> {
+  const locs = extractSitemapLocs(sitemapXml)
+  return detectSitemapNotIndexableLocs(locs, ctx, deps)
+}
+
+/**
+ * Classify a pre-sliced loc list (resumable post-crawl chunks).
+ * Same verdicts as detectSitemapNotIndexable — callers own pagination.
+ */
+export async function detectSitemapNotIndexableLocs(
+  locs: string[],
+  ctx: SitemapArtefactContext,
+  deps: FetchDeps,
+): Promise<DetectTopic26Result> {
   const fixTarget = resolveFixTarget({
     artefactPath: ctx.artefactPath,
     generatorPath: ctx.generatorPath,
     isGenerated: ctx.isGenerated,
   })
 
-  const locs = extractSitemapLocs(sitemapXml)
   const findings: Topic26Finding[] = []
   const ok: string[] = []
 

@@ -1,9 +1,11 @@
 export {
   CRAWL_URL_CHUNK_SIZE,
   CRAWL_TICK_DEADLINE_MS,
+  CRAWL_POST_CRAWL_DEADLINE_MS,
   CRAWL_ABANDONED_MS,
   CRAWL_INTER_REQUEST_GAP_MS,
   CRAWL_MAX_DISCOVERED,
+  POST_CRAWL_PHASE_IDS,
 } from './constants'
 export type {
   CrawlRunStatus,
@@ -16,6 +18,9 @@ export type {
   PersistedEvidenceRow,
   CrawlRunRecord,
   CrawlUrlJob,
+  PostCrawlPhase,
+  PostCrawlPhaseId,
+  PostCrawlCursor,
 } from './constants'
 
 export { discoverSameHostUrls, extractSameHostLinks } from './discover'
@@ -64,6 +69,15 @@ export {
 } from './orchestrator'
 export type { StartCrawlInput, TickResult } from './orchestrator'
 export { normalizeAssessedPageUrl } from './store'
+
+export {
+  advancePostCrawlPhases,
+  applyPostCrawlTick,
+  isPostCrawlComplete,
+  nextPostCrawlPhase,
+  wholeSitePagesFromJobs,
+  collectAllPostCrawlEmits,
+} from './post-crawl'
 
 export { normalizePublicOrigin } from './normalize-public-origin'
 

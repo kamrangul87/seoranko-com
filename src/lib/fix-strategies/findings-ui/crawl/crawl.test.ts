@@ -371,7 +371,12 @@ describe('rollupAndClassify buckets', () => {
       finalUrl: again[0]!.url,
       html: '<html><body>ok</body></html>',
     })
-    await store.updateRun(run.id, { urlsCrawled: 1 })
+    // Reclaim test only — post-crawl already finished (or skipped) so one tick
+    // can terminalise. Resumable post-crawl is covered in post-crawl.test.ts.
+    await store.updateRun(run.id, {
+      urlsCrawled: 1,
+      postCrawlPhase: 'done',
+    })
 
     const tick = await processCrawlTick(run.id, { store })
     expect(tick.done).toBe(true)

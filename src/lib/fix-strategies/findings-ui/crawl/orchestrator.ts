@@ -23,20 +23,25 @@
 import {
   CRAWL_ABANDONED_MS,
   CRAWL_MAX_DISCOVERED,
+  CRAWL_POST_CRAWL_DEADLINE_MS,
   CRAWL_TICK_DEADLINE_MS,
   CRAWL_URL_CHUNK_SIZE,
   type CoverageNote,
+  type CrawlRunRecord,
 } from './constants'
 import { FIX_STRATEGY_PRODUCT_DECISIONS } from '@/lib/fix-strategies/product-decisions'
 import { discoverSameHostUrls, extractSameHostLinks } from './discover'
 import { crawlOneUrl, type CrawledPage } from './fetch-page'
 import {
   runDetectorsOnPages,
-  runWholeSiteDetectorsOnCrawl,
   rollupAndClassify,
   type PriorFiveXXObservation,
 } from './run-detectors'
-import { POST_CRAWL_TOPIC_IDS } from '@/lib/fix-strategies/detector-scope'
+import {
+  applyPostCrawlTick,
+  isPostCrawlComplete,
+  wholeSitePagesFromJobs,
+} from './post-crawl'
 import {
   getFindingsStore,
   normalizeAssessedPageUrl,
@@ -283,8 +288,9 @@ export async function processCrawlTick(
     Date.now() + (opts?.deadlineMs ?? CRAWL_TICK_DEADLINE_MS)
   const nowMs = opts?.nowMs ?? Date.now()
 
-  let run = await store.getRun(runId)
-  if (!run) throw new Error(`run not found: ${runId}`)
+  const initial = await store.getRun(runId)
+  if (!initial) throw new Error(`run not found: ${runId}`)
+  let run: CrawlRunRecord = initial
 
   if (run.status === 'complete' || run.status === 'failed' || run.status === 'partial') {
     const counts = await store.countJobsByStatus(runId)
@@ -664,67 +670,70 @@ export async function processCrawlTick(
 
   const counts = await store.countJobsByStatus(runId)
   const stillQueued = counts.queued
-  const done = stillQueued === 0 && counts.running === 0
+  const frontierDrained = stillQueued === 0 && counts.running === 0
+  const urlWorkThisTick = jobs.length > 0
 
-  // WHOLE-SITE detectors once the frontier is drained (avoids chunk false
-  // positives — same fix class as topic 43 orphans on a per-chunk graph).
-  // Must not leave the run stuck at running if this throws — finalize below.
-  if (done) {
+  // Resumable post-crawl after frontier drain. Never mark complete while
+  // phases remain — rollup/upsert is the last phase.
+  let postCrawlComplete = isPostCrawlComplete(run.postCrawlPhase)
+  let postCrawlFailed = false
+  if (frontierDrained && !postCrawlComplete) {
     try {
+      // Re-read run so we have latest phase/cursor/artifacts after prior ticks.
+      const fresh = (await store.getRun(runId)) ?? run
       const allJobs = await store.listJobsForRun(runId)
-      const sitemapUrls = new Set(
-        allJobs.map((j) => j.url.replace(/\/$/, '')),
-      )
-      const wholeSitePages = allJobs
-        .filter(
-          (j) =>
-            (j.status === 'crawled' || j.status === 'client_only') &&
-            (j.html != null || j.clientOnly),
-        )
-        .map((j) => ({
-          url: j.finalUrl || j.url,
-          html: j.html ?? '',
-          status: j.httpStatus,
-          clientOnly: j.clientOnly,
-          inSitemap: sitemapUrls.has((j.finalUrl || j.url).replace(/\/$/, '')),
-        }))
-      const wholeSiteEmits = await runWholeSiteDetectorsOnCrawl(
-        run.origin,
-        wholeSitePages,
-        { siteId: run.siteId },
-      )
-      for (const topicId of POST_CRAWL_TOPIC_IDS) {
-        await store.replaceRunEmitsForTopic(
-          runId,
-          topicId,
-          wholeSiteEmits.filter((e) => e.topicId === topicId),
-        )
+      const wholeSitePages = wholeSitePagesFromJobs(allJobs)
+      const adv = await applyPostCrawlTick({
+        store,
+        run: fresh,
+        pages: wholeSitePages,
+        sharedTickWithUrlWork: urlWorkThisTick,
+        deadlineAt: Date.now() + CRAWL_POST_CRAWL_DEADLINE_MS,
+      })
+      notes.push(...adv.notes)
+      postCrawlComplete = adv.complete
+      if (adv.notes.some((n) => n.code === 'fetch_failure')) {
+        postCrawlFailed = true
+        failedN++
       }
+      // Refresh local run snapshot for status patch below.
+      run = (await store.getRun(runId)) ?? fresh
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
       notes.push({
         code: 'fetch_failure',
-        detail: `whole-site detectors failed: ${detail}`,
+        detail: `post-crawl failed: ${detail}`,
       })
-      // Treat as coverage gap so we land on partial, not a silent complete.
+      postCrawlFailed = true
       failedN++
+      // Leave phase as-is so the next tick can retry; do not terminalise.
+      postCrawlComplete = false
     }
   }
 
-  const allEmits = await store.listRunEmits(runId)
-  const { findings, internalEvidence } = rollupAndClassify(allEmits)
-  await store.clearRunEvidence(runId)
-  await store.upsertFindings({
-    siteId: run.siteId,
-    detectOrigin: run.detectOrigin,
-    userId: run.userId,
-    runId,
-    findings,
-    internalEvidence,
-  })
+  const done = frontierDrained && postCrawlComplete
+
+  // Progressive upsert while URLs are still draining. Final rollup after
+  // post-crawl completes (includes whole-site topic emits).
+  const shouldUpsert =
+    !frontierDrained || postCrawlComplete || postCrawlFailed
+  if (shouldUpsert) {
+    const allEmits = await store.listRunEmits(runId)
+    const { findings, internalEvidence } = rollupAndClassify(allEmits)
+    await store.clearRunEvidence(runId)
+    await store.upsertFindings({
+      siteId: run.siteId,
+      detectOrigin: run.detectOrigin,
+      userId: run.userId,
+      runId,
+      findings,
+      internalEvidence,
+    })
+  }
 
   // Mid-tick time_limit with work left → stay running (resume on next tick).
   // Terminal partial when queue drains but coverage is incomplete.
+  // Post-crawl incomplete → stay running even if frontier is empty.
   const enduringCodes = new Set([
     'client_only',
     'fetch_failure',
@@ -739,13 +748,16 @@ export async function processCrawlTick(
     failedN > 0 ||
     pagesRenderFailedN > 0 ||
     notes.some((n) => enduringCodes.has(n.code)) ||
-    (urlsFound > 0 && urlsDiscovered < urlsFound && done) ||
+    (urlsFound > 0 && urlsDiscovered < urlsFound && frontierDrained) ||
     run.isPartial
 
   let status: CrawlRunRecordStatus = 'running'
   let isPartial = coverageIncomplete
   if (done) {
     status = coverageIncomplete ? 'partial' : 'complete'
+    isPartial = coverageIncomplete
+  } else if (frontierDrained && !postCrawlComplete) {
+    status = 'running'
     isPartial = coverageIncomplete
   } else if (stillQueued > 0 && notes.some((n) => n.code === 'time_limit')) {
     status = 'running'
@@ -755,7 +767,7 @@ export async function processCrawlTick(
   // When the frontier is drained, recompute counters from job rows. Hobby
   // FUNCTION_INVOCATION_TIMEOUT can kill a tick after updateUrlJob persisted
   // but before updateRun — leaving urlsCrawled stuck at an earlier value.
-  if (done) {
+  if (frontierDrained) {
     crawledN = counts.crawled
     failedN = counts.failed
     clientOnlyN = counts.client_only
@@ -794,6 +806,7 @@ export async function processCrawlTick(
   // Assessed = terminal fetch outcome (crawled / failed / client_only), not
   // URLs still queued or never claimed. A 404 is assessed; a never-reached
   // URL is not — never close findings for pages this run did not touch.
+  // Only after post-crawl is complete (every phase finished).
   if (status === 'complete' || status === 'partial') {
     const assessedJobs = await store.listJobsForRun(runId)
     const assessedPageUrls: string[] = []

@@ -13,7 +13,7 @@ function baseRun(
   overrides: Partial<CrawlRunRecord> & Pick<CrawlRunRecord, 'id' | 'status'>,
 ): CrawlRunRecord {
   const now = new Date().toISOString()
-  return {
+  const base: CrawlRunRecord = {
     id: overrides.id,
     siteId: 'site-a',
     detectOnly: false,
@@ -36,12 +36,28 @@ function baseRun(
     discoverySeeds: null,
     coverageNotes: [],
     isPartial: false,
-    errorDetail: overrides.errorDetail ?? null,
+    errorDetail: null,
+    postCrawlPhase: null,
+    postCrawlCursor: null,
+    sitemapInspection: null,
+    linkGraph: null,
     startedAt: null,
+    finishedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  }
+  return {
+    ...base,
+    ...overrides,
+    id: overrides.id,
+    status: overrides.status,
+    postCrawlPhase: overrides.postCrawlPhase ?? null,
+    postCrawlCursor: overrides.postCrawlCursor ?? null,
+    sitemapInspection: overrides.sitemapInspection ?? null,
+    linkGraph: overrides.linkGraph ?? null,
+    errorDetail: overrides.errorDetail ?? null,
     finishedAt: overrides.finishedAt ?? null,
     createdAt: overrides.createdAt ?? now,
-    updatedAt: now,
-    ...overrides,
   }
 }
 
