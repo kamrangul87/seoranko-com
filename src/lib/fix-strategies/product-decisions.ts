@@ -163,7 +163,9 @@ export const FIX_STRATEGY_PRODUCT_DECISIONS = {
   /**
    * Per-crawl page enqueue limit — paid default when Stripe Price/Product
    * metadata does not set `seoranko_crawl_pages` (or `crawl_pages_per_run`).
-   * Chosen 2026-09-24 (1.6 billing): 500 (matches CRAWL_MAX_DISCOVERED safety).
+   * Chosen 2026-09-24 (1.6 billing): 500. Starter stays here until Stripe
+   * metadata differentiates tiers. Agency may set metadata up to
+   * CRAWL_MAX_DISCOVERED (2000) — the hard enqueue safety cap.
    */
   crawlPagesPerRunPaidDefault: 500 as number,
 
