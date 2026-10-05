@@ -16,7 +16,8 @@ import {
 import { crawlDailyLimitForUser, crawlPageQuotaForUser } from '@/lib/stripe/entitlements'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+/** Hobby Fluid Compute ceiling is 300s; whole-site finalize needs ~2min on small sites. */
+export const maxDuration = 300
 
 function authClient() {
   const cookieStore = cookies()

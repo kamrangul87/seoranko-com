@@ -15,7 +15,8 @@ import { getFindingsStore } from '@/lib/fix-strategies/findings-ui/crawl'
 import { summarizePartialCoverage } from '@/lib/fix-strategies/findings-ui/crawl/partial-coverage'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+/** Hobby Fluid Compute ceiling is 300s — drain ticks + whole-site finalize. */
+export const maxDuration = 300
 
 function unauthorized() {
   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -93,7 +94,7 @@ export async function GET(req: NextRequest) {
   })
 
   // If any run is still non-terminal (should be rare — drain forces failed),
-  // chain a continue request so Hobby 60s does not leave status=running.
+  // chain a continue request so a soft deadline mid-drain does not leave status=running.
   const stillOpen = pass.processed.filter(
     (p) =>
       p.runId &&

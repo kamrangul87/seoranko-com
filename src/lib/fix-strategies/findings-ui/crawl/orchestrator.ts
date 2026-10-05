@@ -3,7 +3,7 @@
  *
  * Chunk size = CRAWL_URL_CHUNK_SIZE (5). Why: each URL does stream-complete
  * fetch + topic-68 re-fetch + multi-detector work (incl. image probes). Five
- * URLs fit a ~45s tick under Vercel Hobby maxDuration=60 with backoff headroom;
+ * URLs fit a ~45s soft tick under Vercel Hobby maxDuration=300 with backoff headroom;
  * remaining URLs resume on the next /tick.
  *
  * Status:

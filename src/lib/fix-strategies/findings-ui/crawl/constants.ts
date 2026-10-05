@@ -3,13 +3,20 @@
  *
  * Chunk size rationale (see CRAWL_URL_CHUNK_SIZE): each URL needs a
  * stream-complete fetch + topic-68 confirming re-fetch, then many detectors
- * (including image header probes). Five URLs ≈ safe under a 60s Hobby function
- * with backoff headroom; the run resumes via /tick until the queue empties.
+ * (including image header probes). Five URLs ≈ safe under the soft tick
+ * deadline with backoff headroom; the run resumes via /tick until the queue
+ * empties. Function maxDuration is 300s (Hobby Fluid ceiling) so the tick
+ * that drains the frontier can still finish whole-site + upsert.
  */
 
 export const CRAWL_URL_CHUNK_SIZE = 5
 
-/** Soft wall-clock budget per tick (ms). Leave headroom under maxDuration=60. */
+/**
+ * Soft wall-clock budget for URL claiming/processing within a tick (ms).
+ * Leave headroom under maxDuration=300 so a drain tick can still run
+ * whole-site detectors. URL work stops at this soft deadline and resumes;
+ * whole-site runs only after the frontier is empty (not soft-deadline-bound).
+ */
 export const CRAWL_TICK_DEADLINE_MS = 45_000
 
 /**
