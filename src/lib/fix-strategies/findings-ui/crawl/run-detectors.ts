@@ -125,7 +125,7 @@ assertChunkLoopTopics(CHUNK_LOOP_TOPIC_IDS)
 assertPostCrawlTopics(POST_CRAWL_TOPIC_IDS)
 assertAllShippedTopicsWired()
 
-function makeGapFetchDeps(): FetchDeps {
+export function makeGapFetchDeps(): FetchDeps {
   let lastAt = 0
   return {
     fetch: globalThis.fetch.bind(globalThis),
@@ -139,7 +139,7 @@ function makeGapFetchDeps(): FetchDeps {
   }
 }
 
-function hopDepsFromFetch(deps: FetchDeps): HopRecordingDeps {
+export function hopDepsFromFetch(deps: FetchDeps): HopRecordingDeps {
   return { fetch: deps.fetch }
 }
 
@@ -316,7 +316,7 @@ function ingestArray(
   }
 }
 
-function takeBuckets(
+export function takeBuckets(
   topicId: string,
   kind: string,
   result: unknown,

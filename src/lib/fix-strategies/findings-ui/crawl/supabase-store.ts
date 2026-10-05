@@ -47,6 +47,12 @@ function mapRun(row: Record<string, unknown>): CrawlRunRecord {
     coverageNotes: (row.coverage_notes as CoverageNote[]) ?? [],
     isPartial: Boolean(row.is_partial),
     errorDetail: (row.error_detail as string | null) ?? null,
+    postCrawlPhase:
+      (row.post_crawl_phase as CrawlRunRecord['postCrawlPhase']) ?? null,
+    postCrawlCursor:
+      (row.post_crawl_cursor as CrawlRunRecord['postCrawlCursor']) ?? null,
+    sitemapInspection: row.sitemap_inspection ?? null,
+    linkGraph: row.link_graph ?? null,
     startedAt: (row.started_at as string | null) ?? null,
     finishedAt: (row.finished_at as string | null) ?? null,
     createdAt: String(row.created_at),
@@ -206,6 +212,13 @@ export function createSupabaseFindingsStore(
       if (patch.coverageNotes != null) row.coverage_notes = patch.coverageNotes
       if (patch.isPartial != null) row.is_partial = patch.isPartial
       if (patch.errorDetail !== undefined) row.error_detail = patch.errorDetail
+      if (patch.postCrawlPhase !== undefined)
+        row.post_crawl_phase = patch.postCrawlPhase
+      if (patch.postCrawlCursor !== undefined)
+        row.post_crawl_cursor = patch.postCrawlCursor
+      if (patch.sitemapInspection !== undefined)
+        row.sitemap_inspection = patch.sitemapInspection
+      if (patch.linkGraph !== undefined) row.link_graph = patch.linkGraph
       if (patch.startedAt !== undefined) row.started_at = patch.startedAt
       if (patch.finishedAt !== undefined) row.finished_at = patch.finishedAt
 
