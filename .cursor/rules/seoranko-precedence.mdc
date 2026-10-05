@@ -1,0 +1,13 @@
+---
+description: SEORANKO doctrine overrides Superpowers skills
+alwaysApply: true
+---
+- Rules in this repo override any skill in .cursor/skills/.
+- "Done" = deployed URL re-fetched and asserted. Passing tests alone is not done.
+- Detectors, fixers and checks are deterministic code with thresholds. Never prompt-only.
+- Push directly to main. Never open a PR or create a worktree for this repo.
+- Use TDD for detectors and fixers only. Skip it for copy and config changes.
+- Debug with systematic-debugging, but check docs/ known pitfalls first:
+  duplicate routes, ID mismatch, data never written, pre-hydration HTML,
+  silent fallbacks, fixes that never merged.
+- Plans go in docs/plans/. Never include secrets or customer data.
