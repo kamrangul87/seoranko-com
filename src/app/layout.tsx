@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Outfit } from "next/font/google";
 import "./globals.css";
+import { ROOT_METADATA } from "@/lib/site-metadata";
 
 const outfit = Outfit({
   subsets: ["latin"],
@@ -8,17 +9,7 @@ const outfit = Outfit({
   variable: "--font-outfit",
 });
 
-export const metadata: Metadata = {
-  title: "Seoranko — AI-Powered SEO Content That Actually Ranks",
-  description:
-    "Generate EEAT-compliant, humanised SEO articles backed by real keyword data. Built for content teams who want to rank faster.",
-  keywords: ["SEO", "AI content", "keyword research", "EEAT", "content marketing"],
-  openGraph: {
-    title: "Seoranko — AI-Powered SEO Content",
-    description: "Generate EEAT-compliant SEO articles that rank",
-    type: "website",
-  },
-};
+export const metadata: Metadata = ROOT_METADATA;
 
 export default function RootLayout({
   children,

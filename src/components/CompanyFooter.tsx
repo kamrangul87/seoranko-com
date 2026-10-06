@@ -5,6 +5,7 @@ import Link from 'next/link'
  * /privacy and /terms — not here.
  */
 export function CompanyFooter() {
+  const linkStyle = { fontSize: 12, color: '#9B9B9B', textDecoration: 'none' as const }
   return (
     <footer
       style={{
@@ -24,12 +25,18 @@ export function CompanyFooter() {
           margin: '0 auto',
         }}
       >
-        <div style={{ fontSize: 15, fontWeight: 700 }}>Seoranko</div>
+        <div style={{ fontSize: 15, fontWeight: 700 }}>SEORANKO</div>
         <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-          <Link href="/privacy" style={{ fontSize: 12, color: '#9B9B9B', textDecoration: 'none' }}>
-            Legal
+          <Link href="/privacy" style={linkStyle}>
+            Privacy
           </Link>
-          <a href="mailto:hello@seoranko.com" style={{ fontSize: 12, color: '#9B9B9B', textDecoration: 'none' }}>
+          <Link href="/terms" style={linkStyle}>
+            Terms
+          </Link>
+          <Link href="/bot" style={linkStyle}>
+            Crawler info
+          </Link>
+          <a href="mailto:hello@seoranko.com" style={linkStyle}>
             Contact
           </a>
         </div>

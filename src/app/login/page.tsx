@@ -38,7 +38,7 @@ export default function LoginPage() {
             <div className="w-8 h-8 bg-[#FF6B2C] rounded-[8px] flex items-center justify-center">
               <span className="text-white font-extrabold text-sm">S</span>
             </div>
-            <span className="font-bold text-xl tracking-tight text-[#0F0F0F]">Seoranko</span>
+            <span className="font-bold text-xl tracking-tight text-[#0F0F0F]">SEORANKO</span>
           </Link>
         </div>
 
