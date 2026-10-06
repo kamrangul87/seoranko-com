@@ -202,7 +202,7 @@ export function DashboardNav() {
           <div className="w-7 h-7 bg-[#FF6B2C] rounded-[7px] flex items-center justify-center">
             <span className="text-[#0a0a0a] font-extrabold text-xs">S</span>
           </div>
-          <span className="font-bold text-base tracking-tight">Seoranko</span>
+          <span className="font-bold text-base tracking-tight">SEORANKO</span>
         </Link>
       </div>
 

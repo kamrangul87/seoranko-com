@@ -3,6 +3,12 @@ import Link from 'next/link';
 import { CompanyFooter } from '@/components/CompanyFooter';
 import { SEORANKO_PLANS, SEORANKO_FREE_PLAN } from '@/lib/stripe/plans';
 import { HOMEPAGE_COPY } from '@/lib/homepage-copy';
+import {
+  PROOF_EXAMPLES,
+  PROOF_PR_BASE_URL,
+  PROOF_SITE_HOST,
+  PROOF_VERIFIED_FIX_COUNT,
+} from '@/lib/proof-examples';
 
 export default function LandingPage() {
   const c = HOMEPAGE_COPY
@@ -13,12 +19,13 @@ export default function LandingPage() {
       <nav style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 48px', height: '64px', background: '#fff', borderBottom: '1px solid #E8E8E4', position: 'sticky', top: 0, zIndex: 50 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div style={{ width: '32px', height: '32px', background: '#FF6B2C', borderRadius: '7px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: '15px' }}>S</div>
-          <span style={{ fontWeight: 700, fontSize: '18px', letterSpacing: '-0.3px' }}>Seoranko</span>
+          <span style={{ fontWeight: 700, fontSize: '18px', letterSpacing: '-0.3px' }}>SEORANKO</span>
         </div>
-        <div style={{ display: 'flex', gap: '28px' }}>
+        <div style={{ display: 'flex', gap: '28px', alignItems: 'center' }}>
           {['Features', 'Pricing'].map(item => (
             <a key={item} href={`#${item.toLowerCase()}`} style={{ fontSize: '14px', color: '#6B6B6B', textDecoration: 'none' }}>{item}</a>
           ))}
+          <Link href="/tools/index-diagnosis" style={{ fontSize: '14px', color: '#6B6B6B', textDecoration: 'none' }}>Free index check</Link>
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
           <Link href="/login" style={{ fontSize: '13px', color: '#333', textDecoration: 'none', padding: '7px 16px', border: '1px solid #E8E8E4', borderRadius: '7px', background: '#fff' }}>Log in</Link>
@@ -38,9 +45,9 @@ export default function LandingPage() {
         <p style={{ fontSize: '18px', color: '#6B6B6B', lineHeight: 1.65, maxWidth: '580px', margin: '0 auto 40px' }}>
           {c.heroSubtitle}
         </p>
-        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginBottom: '14px' }}>
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginBottom: '14px', flexWrap: 'wrap' }}>
           <Link href="/signup" style={{ fontSize: '15px', fontWeight: 600, color: '#fff', textDecoration: 'none', padding: '14px 32px', background: '#FF6B2C', borderRadius: '8px' }}>{c.heroCtaPrimary}</Link>
-          <a href="#features" style={{ fontSize: '15px', color: '#333', textDecoration: 'none', padding: '13px 24px', background: '#fff', border: '1.5px solid #E8E8E4', borderRadius: '8px' }}>{c.heroCtaSecondary}</a>
+          <Link href="/tools/index-diagnosis" style={{ fontSize: '15px', color: '#333', textDecoration: 'none', padding: '13px 24px', background: '#fff', border: '1.5px solid #E8E8E4', borderRadius: '8px' }}>{c.heroCtaSecondary}</Link>
         </div>
         <p style={{ fontSize: '13px', color: '#9B9B9B' }}>{c.heroFootnote}</p>
       </section>
@@ -86,6 +93,34 @@ export default function LandingPage() {
           </div>
         </div>
       </div>
+
+      {/* PROOF */}
+      <section id="proof" style={{ maxWidth: '1040px', margin: '0 auto', padding: '80px 48px' }}>
+        <div style={{ fontSize: '11px', fontWeight: 700, color: '#FF6B2C', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '12px' }}>{c.proofEyebrow}</div>
+        <h2 style={{ fontSize: '34px', fontWeight: 800, letterSpacing: '-1px', marginBottom: '12px', lineHeight: 1.15 }}>{c.proofTitle}</h2>
+        <p style={{ fontSize: '15px', color: '#6B6B6B', marginBottom: '36px', maxWidth: '640px', lineHeight: 1.6 }}>
+          {PROOF_VERIFIED_FIX_COUNT} production-verified fixes on {PROOF_SITE_HOST}. Each row is a change that was re-checked on the live site — nothing more.
+        </p>
+        <div style={{ display: 'grid', gap: '14px' }}>
+          {PROOF_EXAMPLES.map((ex) => (
+            <div key={ex.prNumber} style={{ background: '#fff', border: '1px solid #E8E8E4', borderRadius: '12px', padding: '20px 22px' }}>
+              <p style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px', lineHeight: 1.45 }}>{ex.problem}</p>
+              <p style={{ fontSize: '13px', color: '#6B6B6B', lineHeight: 1.55, marginBottom: '10px' }}>{ex.whatChanged}</p>
+              <p style={{ fontSize: '12px', color: '#9B9B9B' }}>
+                <a
+                  href={`${PROOF_PR_BASE_URL}/${ex.prNumber}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: '#FF6B2C', textDecoration: 'underline' }}
+                >
+                  PR #{ex.prNumber}
+                </a>
+                {' · '}verified live {ex.verifiedLiveOn}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* PRICING */}
       <section id="pricing" style={{ maxWidth: '1000px', margin: '0 auto', padding: '80px 48px' }}>

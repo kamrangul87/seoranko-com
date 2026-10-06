@@ -139,7 +139,7 @@ export default function PublicIndexDiagnosisPage() {
             <div className="w-7 h-7 bg-[#FF6B2C] rounded-[7px] flex items-center justify-center">
               <span className="text-[#0a0a0a] font-extrabold text-xs">S</span>
             </div>
-            <span className="font-bold text-base tracking-tight">Seoranko</span>
+            <span className="font-bold text-base tracking-tight">SEORANKO</span>
           </Link>
           <Link href="/signup" className="text-sm text-[#FF6B2C] font-medium hover:underline">
             Start free →

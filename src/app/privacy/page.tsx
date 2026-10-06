@@ -9,7 +9,7 @@ import Link from 'next/link'
 import { CompanyFooter } from '@/components/CompanyFooter'
 
 export const metadata = {
-  title: 'Privacy Policy (DRAFT) — Seoranko',
+  title: 'Privacy Policy (DRAFT) — SEORANKO',
   robots: { index: false, follow: false },
 }
 

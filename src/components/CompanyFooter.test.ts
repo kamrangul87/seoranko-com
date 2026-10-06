@@ -16,10 +16,17 @@ vi.mock('next/link', () => ({
 }))
 
 describe('CompanyFooter', () => {
-  it('shows a Legal link and omits company disclosure', () => {
+  it('shows Privacy, Terms, Crawler info, Contact and omits company disclosure', () => {
     const html = renderToStaticMarkup(createElement(CompanyFooter))
-    expect(html).toContain('Legal')
+    expect(html).toContain('SEORANKO')
+    expect(html).toContain('Privacy')
     expect(html).toContain('href="/privacy"')
+    expect(html).toContain('Terms')
+    expect(html).toContain('href="/terms"')
+    expect(html).toContain('Crawler info')
+    expect(html).toContain('href="/bot"')
+    expect(html).toContain('Contact')
+    expect(html).toContain('mailto:hello@seoranko.com')
     expect(html).not.toContain('MINSO')
     expect(html).not.toContain('17098778')
     expect(html).not.toContain('PLACEHOLDER')

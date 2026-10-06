@@ -7,6 +7,9 @@
  *
  * Swap price IDs / add tiers later without touching checkout or webhook
  * code: set the env var named by priceEnvVar to the real Stripe Price id.
+ *
+ * pagesPerCrawlDisplay is marketing copy only — crawl page caps are still
+ * enforced via entitlements + Stripe Price metadata (see entitlements.ts).
  */
 
 import { FIX_STRATEGY_PRODUCT_DECISIONS } from '@/lib/fix-strategies/product-decisions'
@@ -24,6 +27,8 @@ export type SeorankoPlan = {
   priceDisplay: string
   tagline: string
   description: string
+  /** Display-only pages-per-crawl figure for pricing UI. Not entitlement logic. */
+  pagesPerCrawlDisplay: number
   features: string[]
   /** Env var that holds the Stripe Price ID for this plan. */
   priceEnvVar: 'STRIPE_STARTER_PRICE_ID' | 'STRIPE_PRO_PRICE_ID' | 'STRIPE_AGENCY_PRICE_ID'
@@ -42,12 +47,16 @@ export type SeorankoPlan = {
  * copy here implying a hard difference (e.g. a site-count cap) that nothing
  * in the code enforces.
  */
-const SHARED_FEATURES = [
+const SHARED_FEATURES_TAIL = [
   'Full site crawl and audit',
   'Findings with a plain-English explanation, a why-not-fixed reason, and a source link',
   'Agentic fixes committed to your connected repo via pull request',
-  'Weekly change monitoring with an email digest of what changed',
+  'Weekly re-crawl with an in-product report of what changed',
 ]
+
+function paidFeatures(pagesPerCrawlDisplay: number): string[] {
+  return [`Up to ${pagesPerCrawlDisplay} pages per crawl`, ...SHARED_FEATURES_TAIL]
+}
 
 export const SEORANKO_PLANS: Record<SeorankoPlanId, SeorankoPlan> = {
   seoranko_starter: {
@@ -56,7 +65,8 @@ export const SEORANKO_PLANS: Record<SeorankoPlanId, SeorankoPlan> = {
     priceDisplay: '£29/mo',
     tagline: 'One site, done properly',
     description: 'Site audit and agentic fix for a single site.',
-    features: SHARED_FEATURES,
+    pagesPerCrawlDisplay: 100,
+    features: paidFeatures(100),
     priceEnvVar: 'STRIPE_STARTER_PRICE_ID',
   },
   seoranko_pro: {
@@ -65,7 +75,8 @@ export const SEORANKO_PLANS: Record<SeorankoPlanId, SeorankoPlan> = {
     priceDisplay: '£79/mo',
     tagline: 'For a growing site or a small team',
     description: 'Everything in Starter, sized for a larger site.',
-    features: SHARED_FEATURES,
+    pagesPerCrawlDisplay: 500,
+    features: paidFeatures(500),
     priceEnvVar: 'STRIPE_PRO_PRICE_ID',
   },
   seoranko_agency: {
@@ -74,7 +85,8 @@ export const SEORANKO_PLANS: Record<SeorankoPlanId, SeorankoPlan> = {
     priceDisplay: '£149/mo',
     tagline: 'For agencies managing client sites',
     description: 'Everything in Pro, for teams managing more than one site.',
-    features: SHARED_FEATURES,
+    pagesPerCrawlDisplay: 2000,
+    features: paidFeatures(2000),
     priceEnvVar: 'STRIPE_AGENCY_PRICE_ID',
   },
 }
@@ -103,6 +115,7 @@ export function getSeorankoPlan(planId: string = DEFAULT_SEORANKO_PLAN_ID): Seor
       priceDisplay: '',
       tagline: '',
       description: 'SEORANKO plan',
+      pagesPerCrawlDisplay: 100,
       features: [],
       priceEnvVar: 'STRIPE_STARTER_PRICE_ID',
     }

@@ -9,7 +9,7 @@ import Link from 'next/link'
 import { CompanyFooter } from '@/components/CompanyFooter'
 
 export const metadata = {
-  title: 'Terms of Service (DRAFT) — Seoranko',
+  title: 'Terms of Service (DRAFT) — SEORANKO',
   robots: { index: false, follow: false },
 }
 

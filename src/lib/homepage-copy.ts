@@ -10,8 +10,10 @@ export const HOMEPAGE_COPY = {
   heroSubtitle:
     'SEORANKO crawls your site, explains each technical or indexing problem in plain English, fixes what it can directly in your code, and re-checks the live page to confirm the fix actually shipped.',
   heroCtaPrimary: 'Start for free →',
-  heroCtaSecondary: 'See how it works',
+  heroCtaSecondary: 'Free index check',
   heroFootnote: 'No credit card required · Free detect-only audits',
+  proofEyebrow: 'Proof',
+  proofTitle: 'Real fixes, verified on a live site',
   trustBar: [
     'Fixes commit via pull request',
     'Every fix re-verified on the live site',
