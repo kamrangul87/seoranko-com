@@ -25,7 +25,7 @@ export const DASHBOARD_OVERVIEW_COPY = {
     {
       id: 'crawl',
       label: 'Run your first crawl',
-      href: '/dashboard/audit',
+      href: '/dashboard/findings',
       actionLabel: 'Start crawl',
       detail: 'Crawl your site to find problems.',
     },

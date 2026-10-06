@@ -260,7 +260,7 @@ export function LinkGraphPanel({
       : auditBlockedHost
         ? fixRequiresConnectingMessage(auditBlockedHost)
         : fixConnectionHint?.prompt ||
-          'Connect this site in Settings before Fix Agent can apply changes.'
+          'Connect this site in Settings before fixes can be applied.'
 
   // Restore latest saved Link Graph for this domain when parent didn't pass one.
   useEffect(() => {
@@ -401,7 +401,8 @@ export function LinkGraphPanel({
               </div>
               <p className="text-xs text-[#6B6B6B]">
                 Updates each source page&apos;s &lt;a href&gt; to the suggested final URL in one
-                action. Preview the before/after list first — Fix Agent keeps a full revert snapshot.
+                action. Preview the before/after list first
+                {onRunFixAgent ? ' — applied changes keep a full revert snapshot.' : '.'}
               </p>
               <div className="flex flex-wrap gap-2">
                 <button
@@ -411,7 +412,7 @@ export function LinkGraphPanel({
                 >
                   Preview before/after
                 </button>
-                {canBulkRedirectFix ? (
+                {onRunFixAgent && canBulkRedirectFix ? (
                   <button
                     type="button"
                     onClick={() => {
@@ -423,9 +424,9 @@ export function LinkGraphPanel({
                   >
                     {fixRunning ? 'Applying…' : 'Fix all redirect-hop links'}
                   </button>
-                ) : (
+                ) : onRunFixAgent ? (
                   <div className="text-xs text-amber-950 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 max-w-xl space-y-1">
-                    <p className="font-medium">Fix Agent cannot write here yet</p>
+                    <p className="font-medium">Cannot write here yet</p>
                     <p>{bulkBlockedMessage}</p>
                     {fixConnectionHint?.parentDomain ? (
                       <p>
@@ -437,6 +438,14 @@ export function LinkGraphPanel({
                       Open Settings → Your Sites
                     </a>
                   </div>
+                ) : (
+                  <p className="text-xs text-[#6B6B6B]">
+                    Apply these link updates from{' '}
+                    <a href="/dashboard/findings" className="underline text-[#FF6B2C]">
+                      Audit
+                    </a>
+                    .
+                  </p>
                 )}
                 {canBulkRedirectFix && nonCanonicalBulk && (
                   <button
@@ -555,7 +564,7 @@ export function LinkGraphPanel({
                               ) : null}
                               {ruleId === 'L01' && (
                                 <p className="text-[11px] font-sans text-[#6B6B6B] mt-1">
-                                  Dead link — Fix Agent can remove the outbound link from the source
+                                  Dead link — remove or update the outbound link from the source
                                   page. Destination content is never invented; restoring the page is a
                                   human task (companion finding).
                                 </p>

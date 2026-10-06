@@ -150,7 +150,7 @@ export async function GET() {
       {
         id: 'crawl',
         label: 'First crawl complete',
-        href: '/dashboard/audit',
+        href: '/dashboard/findings',
         done: crawlDone,
         detail: crawlDone ? undefined : 'Run Audit on a live URL.',
       },
@@ -159,12 +159,12 @@ export async function GET() {
         label: 'First finding reviewed',
         href: '/dashboard/findings',
         done: findingDone,
-        detail: findingDone ? undefined : 'Open findings from Audit or Findings.',
+        detail: findingDone ? undefined : 'Open findings from Audit.',
       },
       {
         id: 'verified',
         label: 'First fix verified',
-        href: '/dashboard/audit',
+        href: '/dashboard/findings',
         done: verifiedDone,
         detail: verifiedDone
           ? undefined

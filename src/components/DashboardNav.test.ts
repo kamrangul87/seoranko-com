@@ -5,11 +5,21 @@ import { LEGACY_DASHBOARD_ROUTES, isLegacyDashboardPath } from '@/lib/legacy-das
 const EXPECTED_HREFS = [
   '/dashboard',
   '/dashboard/settings',
-  '/dashboard/audit',
   '/dashboard/findings',
   '/dashboard/experiments',
+  '/dashboard/audit',
   '/dashboard/install',
   '/dashboard/billing',
+] as const
+
+const EXPECTED_LABELS = [
+  'Overview',
+  'Sites',
+  'Audit',
+  'Google status',
+  'Diagnostics',
+  'History',
+  'Billing',
 ] as const
 
 describe('NAV_ITEMS (dashboard-focus)', () => {
@@ -19,6 +29,16 @@ describe('NAV_ITEMS (dashboard-focus)', () => {
     for (const legacy of LEGACY_DASHBOARD_ROUTES) {
       expect(hrefs).not.toContain(legacy)
     }
+  })
+
+  it('labels Audit→findings and Diagnostics→audit with no separate Findings item', () => {
+    expect(NAV_ITEMS.map((i) => i.label)).toEqual([...EXPECTED_LABELS])
+    expect(NAV_ITEMS.find((i) => i.href === '/dashboard/findings')?.description).toBe(
+      "Crawl your site and fix what's found",
+    )
+    expect(NAV_ITEMS.find((i) => i.href === '/dashboard/audit')?.description).toBe(
+      'Indexing and link detail',
+    )
   })
 
   it('has no Experimental section markers on items', () => {

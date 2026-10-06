@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ManualFixPayload, ManualFixSnippet } from '@/lib/index-diagnosis/types'
@@ -175,8 +175,37 @@ function PasteAndFixSection({
   )
 }
 
-function PlatformStepsSection({ fix }: { fix: ManualFixPayload }) {
-  const [platform, setPlatform] = useState<ManualFixPlatform>('wordpress')
+function resolveDefaultPlatform(connectedPlatform?: string | null): ManualFixPlatform {
+  const raw = (connectedPlatform || '').trim().toLowerCase()
+  if (raw === 'github') return 'developer'
+  if (raw === 'wordpress' || raw === 'shopify' || raw === 'wix' || raw === 'squarespace') {
+    return raw
+  }
+  return 'wordpress'
+}
+
+function visiblePlatforms(connectedPlatform?: string | null): ManualFixPlatform[] {
+  const raw = (connectedPlatform || '').trim().toLowerCase()
+  if (raw === 'github') return ['developer']
+  return Object.keys(PLATFORM_LABELS) as ManualFixPlatform[]
+}
+
+function PlatformStepsSection({
+  fix,
+  connectedPlatform,
+}: {
+  fix: ManualFixPayload
+  connectedPlatform?: string | null
+}) {
+  const [platform, setPlatform] = useState<ManualFixPlatform>(() =>
+    resolveDefaultPlatform(connectedPlatform),
+  )
+
+  useEffect(() => {
+    setPlatform(resolveDefaultPlatform(connectedPlatform))
+  }, [connectedPlatform])
+
+  const tabs = visiblePlatforms(connectedPlatform)
 
   const platformSteps = useMemo(() => {
     if (!fix.redirectTargets?.length) return []
@@ -203,7 +232,7 @@ function PlatformStepsSection({ fix }: { fix: ManualFixPayload }) {
     <div className="space-y-2">
       <div className="text-xs font-medium text-[#0F0F0F]">How to fix on your platform</div>
       <div className="flex flex-wrap gap-1">
-        {(Object.keys(PLATFORM_LABELS) as ManualFixPlatform[]).map((p) => (
+        {tabs.map((p) => (
           <button
             key={p}
             type="button"
@@ -251,9 +280,11 @@ function PlatformStepsSection({ fix }: { fix: ManualFixPayload }) {
 export function ManualFixPanel({
   fix,
   siteId,
+  connectedPlatform,
 }: {
   fix: ManualFixPayload
   siteId?: string
+  connectedPlatform?: string | null
 }) {
   const router = useRouter()
   const [briefLoading, setBriefLoading] = useState(false)
@@ -397,7 +428,7 @@ export function ManualFixPanel({
                 Prefer sending {fix.redirectTargets[0]?.fromUrl} to {fix.redirectTargets[0]?.toUrl} with a 301
                 redirect? Use your platform below, or hand the developer snippets to someone with file access.
               </p>
-              <PlatformStepsSection fix={fix} />
+              <PlatformStepsSection fix={fix} connectedPlatform={connectedPlatform} />
             </div>
           )}
         </div>
@@ -408,7 +439,7 @@ export function ManualFixPanel({
           )}
 
           {(fix.fixMode === 'infrastructure' || fix.fixMode === 'hybrid') && fix.redirectTargets && (
-            <PlatformStepsSection fix={fix} />
+            <PlatformStepsSection fix={fix} connectedPlatform={connectedPlatform} />
           )}
         </>
       )}
