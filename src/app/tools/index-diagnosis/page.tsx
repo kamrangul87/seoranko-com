@@ -1,7 +1,9 @@
 'use client'
 
-import { FormEvent, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState, Suspense } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
+import { SeorankoWordmark } from '@/components/SeorankoLogo'
 
 type TopCause = {
   reason: string
@@ -53,6 +55,15 @@ type ScanErr = {
 }
 
 export default function PublicIndexDiagnosisPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#FAFAF8]" />}>
+      <PublicIndexDiagnosisInner />
+    </Suspense>
+  )
+}
+
+function PublicIndexDiagnosisInner() {
+  const searchParams = useSearchParams()
   const [domain, setDomain] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -61,6 +72,11 @@ export default function PublicIndexDiagnosisPage() {
   const [email, setEmail] = useState('')
   const [unlocking, setUnlocking] = useState(false)
   const [tableOpen, setTableOpen] = useState(false)
+
+  useEffect(() => {
+    const q = searchParams.get('domain')?.trim()
+    if (q) setDomain(q)
+  }, [searchParams])
 
   const urlCountLabel = useMemo(() => {
     if (!result) return ''
@@ -136,10 +152,7 @@ export default function PublicIndexDiagnosisPage() {
       <header className="border-b border-[#E8E8E4] bg-white">
         <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
-            <div className="w-7 h-7 bg-[#FF6B2C] rounded-[7px] flex items-center justify-center">
-              <span className="text-[#0a0a0a] font-extrabold text-xs">S</span>
-            </div>
-            <span className="font-bold text-base tracking-tight">SEORANKO</span>
+            <SeorankoWordmark size={28} textStyle={{ fontSize: 16 }} />
           </Link>
           <Link href="/signup" className="text-sm text-[#FF6B2C] font-medium hover:underline">
             Start free →

@@ -54,6 +54,12 @@ const SHARED_FEATURES_TAIL = [
   'Weekly re-crawl with an in-product report of what changed',
 ]
 
+/** Lines paid tiers have that Free does not — for “Everything in Free, plus:” UI. */
+export const PAID_ONLY_FEATURES = [
+  'Agentic fixes committed to your connected repo via pull request',
+  'Weekly re-crawl with an in-product report of what changed',
+] as const
+
 function paidFeatures(pagesPerCrawlDisplay: number): string[] {
   return [`Up to ${pagesPerCrawlDisplay} pages per crawl`, ...SHARED_FEATURES_TAIL]
 }
