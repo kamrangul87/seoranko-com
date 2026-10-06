@@ -1,182 +1,89 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
-import type { User } from '@supabase/supabase-js'
 import { DashboardNav } from '@/components/DashboardNav'
-import { STAGE_NAME } from '@/lib/pages'
-import { MARKETS, DEFAULT_MARKET, WRITE_MARKET_STORAGE_KEY } from '@/lib/markets'
+import { DASHBOARD_OVERVIEW_COPY } from '@/lib/dashboard-overview-copy'
 
-interface RecentArticle {
-  id: string
-  title: string
-  keyword: string
-  article_url?: string
-  current_position?: number | null
-  created_at?: string
-  // §10 item 13 — this screen is now "Pipeline" (§2/§5): the station a page
-  // sits at, sourced from the pages shadow record (item 7/8) keyed by article_id.
-  stage?: number | null
+type StepId = 'site' | 'github' | 'gsc' | 'crawl' | 'finding' | 'verified'
+
+type OnboardingStep = {
+  id: StepId
+  label: string
+  href: string
+  done: boolean
+  detail?: string
+  actionLabel?: string
 }
 
-function OnboardingSteps() {
-  return (
-    <div className="mt-8 border border-[#E8E8E4] rounded-[12px] p-6 bg-white">
-      <p className="text-xs font-semibold uppercase tracking-wider text-[#9B9B9B] mb-5">How it works</p>
-      <div className="grid grid-cols-3 gap-6">
-        {[
-          {
-            icon: '🔍',
-            step: '1',
-            title: 'Research',
-            desc: "Enter a keyword above — RANKO checks if it's worth targeting before you spend time writing.",
-          },
-          {
-            icon: '✍️',
-            step: '2',
-            title: 'Write',
-            desc: 'Generate a fully optimised article that matches search intent and targets AI citation.',
-          },
-          {
-            icon: '📈',
-            step: '3',
-            title: 'Track',
-            desc: 'RANKO monitors your ranking every week and tells you when to refresh or improve.',
-          },
-        ].map(item => (
-          <div key={item.step} className="text-center">
-            <div className="text-3xl mb-2">{item.icon}</div>
-            <p className="text-[10px] font-semibold text-[#9B9B9B] uppercase tracking-wide mb-1">Step {item.step}</p>
-            <p className="text-sm font-semibold text-[#0F0F0F] mb-1">{item.title}</p>
-            <p className="text-xs text-[#6B6B6B] leading-relaxed">{item.desc}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function RecentArticles({ articles, loading }: { articles: RecentArticle[]; loading: boolean }) {
-  if (loading) {
-    return (
-      <div className="space-y-2">
-        {[1, 2, 3].map(i => (
-          <div key={i} className="h-14 bg-[#F5F4F1] rounded-[10px] animate-pulse" />
-        ))}
-      </div>
-    )
+type CrawlSummary = {
+  lastCrawlAt: string | null
+  openFindings: {
+    actionable: number
+    informational: number
+    internal: number
   }
-  if (articles.length === 0) return null
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-sm font-semibold text-[#0F0F0F]">
-          {articles.length === 1 ? '1 article written' : `${articles.length} articles written`}
-        </p>
-        <Link href="/dashboard/rankings" className="text-xs text-[#FF6B2C] hover:underline">
-          Track rankings →
-        </Link>
-      </div>
-      <div className="bg-white border border-[#E8E8E4] rounded-[10px] overflow-hidden">
-        {articles.map((art, i) => (
-          <div
-            key={art.id}
-            className={`flex items-center gap-4 px-5 py-3.5 hover:bg-[#FAFAF8] transition-colors ${
-              i < articles.length - 1 ? 'border-b border-[#F5F4F1]' : ''
-            }`}
-          >
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-[#0F0F0F] truncate">{art.title || art.keyword}</p>
-              <p className="text-xs text-[#9B9B9B] truncate">{art.keyword}</p>
-            </div>
-            {art.stage != null && (
-              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-[#F5F4F1] text-[#6B6B6B] flex-shrink-0">
-                {STAGE_NAME[art.stage] ?? art.stage}
-              </span>
-            )}
-            {art.current_position != null && (
-              <span
-                className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
-                  art.current_position <= 3
-                    ? 'bg-green-100 text-green-700'
-                    : art.current_position <= 10
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'bg-[#F5F4F1] text-[#6B6B6B]'
-                }`}
-              >
-                #{art.current_position}
-              </span>
-            )}
-            {art.article_url && (
-              <a
-                href={art.article_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[#9B9B9B] hover:text-[#FF6B2C] flex-shrink-0 transition-colors"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
-              </a>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
+}
+
+type OnboardingPayload = {
+  ok?: boolean
+  steps?: OnboardingStep[]
+  crawlSummary?: CrawlSummary | null
+}
+
+function formatCrawlDate(iso: string | null): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
 }
 
 export default function DashboardPage() {
-  const [keyword, setKeyword] = useState('')
-  const [market, setMarket] = useState(DEFAULT_MARKET)
-  const [articles, setArticles] = useState<RecentArticle[]>([])
   const [loading, setLoading] = useState(true)
-  const router = useRouter()
+  const [stepsKnown, setStepsKnown] = useState(false)
+  const [doneById, setDoneById] = useState<Partial<Record<StepId, boolean>>>({})
+  const [crawlSummary, setCrawlSummary] = useState<CrawlSummary | null>(null)
 
   useEffect(() => {
-    const stored = localStorage.getItem(WRITE_MARKET_STORAGE_KEY)
-    if (stored && MARKETS.some(m => m.value === stored)) setMarket(stored)
-  }, [])
-
-  useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getUser().then(async ({ data: { user } }: { data: { user: User | null } }) => {
-      if (!user) { setLoading(false); return }
-      const { data } = await supabase
-        .from('articles')
-        .select('id, title, keyword, article_url, current_position, created_at')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(10)
-
-      const articleIds = (data || []).map((a: RecentArticle) => a.id)
-      const stageByArticle: Record<string, number> = {}
-      if (articleIds.length > 0) {
-        const { data: pageRows } = await supabase
-          .from('pages')
-          .select('article_id, stage')
-          .in('article_id', articleIds)
-        for (const p of pageRows || []) {
-          if (p.article_id) stageByArticle[p.article_id] = p.stage
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/beta/onboarding-status')
+        if (!res.ok) {
+          // Cannot determine state — show steps without status rather than guessing
+          if (!cancelled) {
+            setStepsKnown(false)
+            setCrawlSummary(null)
+          }
+          return
         }
+        const json = (await res.json()) as OnboardingPayload
+        if (cancelled) return
+        const map: Partial<Record<StepId, boolean>> = {}
+        for (const s of json.steps || []) {
+          map[s.id] = s.done
+        }
+        setDoneById(map)
+        setStepsKnown(true)
+        setCrawlSummary(json.crawlSummary ?? null)
+      } catch {
+        if (!cancelled) {
+          setStepsKnown(false)
+          setCrawlSummary(null)
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-
-      setArticles((data || []).map((a: RecentArticle) => ({
-        ...a,
-        stage: stageByArticle[a.id] ?? null
-      })))
-      setLoading(false)
-    })
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
-  function handleAnalyse() {
-    if (!keyword.trim()) return
-    localStorage.setItem(WRITE_MARKET_STORAGE_KEY, market)
-    router.push(
-      `/dashboard/keywords?q=${encodeURIComponent(keyword.trim())}&country=${encodeURIComponent(market)}`
-    )
-  }
+  const copy = DASHBOARD_OVERVIEW_COPY
 
   return (
     <div
@@ -186,52 +93,103 @@ export default function DashboardPage() {
       <DashboardNav />
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 py-12">
-          {/* Main CTA */}
-          <div className="text-center mb-10">
-            <div className="w-12 h-12 bg-[#FF6B2C] rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <span className="text-white font-bold text-lg">R</span>
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold text-[#0F0F0F] mb-2">{copy.title}</h1>
+            <p className="text-[#6B6B6B] text-sm">{copy.lead}</p>
+          </div>
+
+          <div className="bg-white border border-[#E8E8E4] rounded-[12px] overflow-hidden mb-8">
+            {copy.steps.map((step, i) => {
+              const done = stepsKnown ? doneById[step.id as StepId] : undefined
+              const statusKnown = typeof done === 'boolean'
+              return (
+                <div
+                  key={step.id}
+                  className={`flex items-center gap-4 px-5 py-4 ${
+                    i < copy.steps.length - 1 ? 'border-b border-[#F5F4F1]' : ''
+                  }`}
+                >
+                  <div
+                    className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-semibold ${
+                      statusKnown && done
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-[#F5F4F1] text-[#6B6B6B]'
+                    }`}
+                    aria-hidden
+                  >
+                    {statusKnown && done ? '✓' : i + 1}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-[#0F0F0F]">
+                      {step.label}
+                      {'optional' in step && step.optional ? (
+                        <span className="ml-2 text-[10px] font-medium uppercase tracking-wide text-[#9B9B9B]">
+                          {copy.optionalSuffix}
+                        </span>
+                      ) : null}
+                    </p>
+                    <p className="text-xs text-[#6B6B6B] mt-0.5">{step.detail}</p>
+                    {loading ? (
+                      <p className="text-[10px] text-[#9B9B9B] mt-1">…</p>
+                    ) : statusKnown ? (
+                      <p
+                        className={`text-[10px] font-medium mt-1 ${
+                          done ? 'text-green-700' : 'text-[#9B9B9B]'
+                        }`}
+                      >
+                        {done ? copy.doneLabel : copy.notDoneLabel}
+                      </p>
+                    ) : null}
+                  </div>
+                  <Link
+                    href={step.href}
+                    className="flex-shrink-0 px-3 py-2 text-xs font-medium rounded-[8px] bg-[#FF6B2C] hover:bg-[#E85A1E] text-white transition-colors"
+                  >
+                    {step.actionLabel}
+                  </Link>
+                </div>
+              )
+            })}
+          </div>
+
+          {crawlSummary ? (
+            <div className="bg-white border border-[#E8E8E4] rounded-[12px] p-5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[#9B9B9B] mb-4">
+                {copy.crawlSummaryTitle}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                {(
+                  [
+                    'actionable',
+                    'informational',
+                    'internal',
+                  ] as const
+                ).map((bucket) => (
+                  <Link
+                    key={bucket}
+                    href="/dashboard/findings"
+                    className="flex items-center justify-between px-3 py-2.5 rounded-[8px] border border-[#F5F4F1] hover:border-[#E8E8E4] hover:bg-[#FAFAF8] transition-colors"
+                  >
+                    <span className="text-xs text-[#6B6B6B]">
+                      {copy.bucketLabels[bucket]}
+                    </span>
+                    <span className="text-sm font-semibold text-[#0F0F0F]">
+                      {crawlSummary.openFindings[bucket]}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+              {formatCrawlDate(crawlSummary.lastCrawlAt) ? (
+                <Link
+                  href="/dashboard/findings"
+                  className="text-xs text-[#6B6B6B] hover:text-[#FF6B2C] transition-colors"
+                >
+                  {copy.lastCrawlLabel}: {formatCrawlDate(crawlSummary.lastCrawlAt)} →
+                </Link>
+              ) : null}
+              <p className="text-[10px] text-[#9B9B9B] mt-2">{copy.openFindingsLabel}</p>
             </div>
-            <h1 className="text-2xl font-bold text-[#0F0F0F] mb-2">What do you want to rank for?</h1>
-            <p className="text-[#6B6B6B] text-sm">
-              RANKO checks if it is worth targeting, then helps you write content that reaches Page 1.
-            </p>
-          </div>
-
-          {/* Keyword input + market (before analyse) */}
-          <div className="flex flex-col sm:flex-row gap-2 mb-12">
-            <input
-              type="text"
-              value={keyword}
-              onChange={e => setKeyword(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleAnalyse()}
-              placeholder="e.g. best ev charger uk 2026"
-              autoFocus
-              className="flex-1 px-4 py-3 text-base border-2 border-[#E8E8E4] rounded-xl focus:outline-none focus:border-[#FF6B2C] transition-colors bg-white"
-            />
-            <select
-              value={market}
-              onChange={e => setMarket(e.target.value)}
-              className="px-3 py-3 text-base border-2 border-[#E8E8E4] rounded-xl focus:outline-none focus:border-[#FF6B2C] bg-white min-w-[180px]"
-            >
-              {MARKETS.map(m => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
-            <button
-              onClick={handleAnalyse}
-              disabled={!keyword.trim()}
-              className="px-6 py-3 bg-[#FF6B2C] hover:bg-[#E85A1E] disabled:opacity-50 text-white font-medium rounded-xl transition-colors whitespace-nowrap"
-            >
-              Analyse →
-            </button>
-          </div>
-
-          {/* Recent articles or onboarding */}
-          {!loading && articles.length === 0 ? (
-            <OnboardingSteps />
-          ) : (
-            <RecentArticles articles={articles} loading={loading} />
-          )}
+          ) : null}
         </div>
       </main>
     </div>

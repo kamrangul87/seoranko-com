@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { isLegacyDashboardPath } from '@/lib/legacy-dashboard-routes'
 
 // Public routes — never require auth
 const PUBLIC_PATHS = ['/', '/pricing', '/login', '/signup', '/blog', '/tools']
@@ -30,6 +31,12 @@ export async function middleware(request: NextRequest) {
   // Protect dashboard — redirect unauthenticated users to login
   if (!isAuthenticated && pathname.startsWith('/dashboard')) {
     return NextResponse.redirect(new URL('/login', request.url))
+  }
+
+  // Legacy content/keyword/ranking surfaces → Overview (temporary 307).
+  // Page files stay in the tree; only the URL becomes unreachable.
+  if (isAuthenticated && isLegacyDashboardPath(pathname)) {
+    return NextResponse.redirect(new URL('/dashboard', request.url), 307)
   }
 
   return NextResponse.next()

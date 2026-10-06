@@ -15,6 +15,8 @@ import { buildDemoFindings } from './demo-run'
 import type { PersistedFindingRow } from './crawl/constants'
 import { BANNED_CLAIM_WORDS_RE } from '@/lib/copy-rules'
 import { HOMEPAGE_COPY } from '@/lib/homepage-copy'
+import { DASHBOARD_OVERVIEW_COPY } from '@/lib/dashboard-overview-copy'
+import { NAV_ITEMS } from '@/lib/dashboard-nav-items'
 
 describe('owner-copy plain English', () => {
   it('covers user tone examples without ranking claims', () => {
@@ -169,5 +171,35 @@ describe('homepage claim discipline (docs/POSITIONING.md)', () => {
   it('"proves the fix is live" differentiator is present and distinct from a build/merge claim', () => {
     const strings = collectStrings(HOMEPAGE_COPY).join(' ')
     expect(strings).toMatch(/re-fetch|actually (shipped|live)|confirms? the (fix|change)/i)
+  })
+})
+
+describe('dashboard-focus claim discipline', () => {
+  it('NAV_ITEMS labels and descriptions avoid banned claim words and legacy content labels', () => {
+    const strings = NAV_ITEMS.flatMap((i) => [i.label, i.description])
+    expect(strings.length).toBe(14)
+    for (const s of strings) {
+      expect(s).not.toMatch(BANNED_CLAIM_WORDS_RE)
+    }
+    const joined = strings.join(' ')
+    expect(joined).not.toMatch(/\b(Write|Keywords|Rankings|Briefs|AI Visibility|Sitemap|Home|Articles)\b/)
+    expect(joined).toMatch(/Overview/)
+    expect(joined).toMatch(/Sites/)
+    expect(joined).toMatch(/Findings/)
+    expect(joined).toMatch(/Billing/)
+  })
+
+  it('Overview checklist copy avoids ranking / RANKO / legacy content language', () => {
+    const strings = collectStrings(DASHBOARD_OVERVIEW_COPY)
+    expect(strings.length).toBeGreaterThan(8)
+    for (const s of strings) {
+      expect(s).not.toMatch(BANNED_CLAIM_WORDS_RE)
+      expect(s).not.toMatch(/RANKO|Page 1|What do you want to rank/i)
+    }
+    const joined = strings.join(' ')
+    expect(joined).toMatch(/Add your site/)
+    expect(joined).toMatch(/Connect GitHub/)
+    expect(joined).toMatch(/first crawl/)
+    expect(joined).toMatch(/Review findings/)
   })
 })
