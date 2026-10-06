@@ -93,7 +93,7 @@ describe('Causal Experiment Engine PR1 wiring', () => {
   })
 
   it('Google status nav entry points at Experiments (GSC) surface', () => {
-    const nav = readFileSync(join(root, 'src/components/DashboardNav.tsx'), 'utf8')
+    const nav = readFileSync(join(root, 'src/lib/dashboard-nav-items.ts'), 'utf8')
     expect(nav).toMatch(/\/dashboard\/experiments/)
     expect(nav).toMatch(/Google status/)
   })
