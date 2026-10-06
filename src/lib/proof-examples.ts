@@ -22,9 +22,6 @@ export const PROOF_VERIFIED_FIX_COUNT = 14
 
 export const PROOF_SITE_HOST = 'autodun.com'
 
-/** Repo is public (unauthenticated GET returned 200) — safe to link PRs. */
-export const PROOF_PR_BASE_URL = 'https://github.com/kamrangul87/autodun-ai/pull'
-
 /**
  * Homepage proof section — indexing-related fixes first, image-dimension fixes last.
  * Fields taken only from FIX_VERIFY_OUTCOME_RECORD.md.
@@ -97,6 +94,7 @@ export const PROOF_UI_COPY = {
   tableProblem: 'Problem found',
   tableChange: 'Change made',
   tableVerified: 'Verified live',
+  viewLivePage: 'View live page',
   proofNothingMore:
     'Each row is a change that was re-checked on the live site — nothing more.',
 } as const
