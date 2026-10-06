@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NAV_ITEMS } from '@/components/DashboardNav'
+import { NAV_ITEMS } from '@/lib/dashboard-nav-items'
 import { LEGACY_DASHBOARD_ROUTES, isLegacyDashboardPath } from '@/lib/legacy-dashboard-routes'
 
 const EXPECTED_HREFS = [

@@ -16,7 +16,7 @@ import type { PersistedFindingRow } from './crawl/constants'
 import { BANNED_CLAIM_WORDS_RE } from '@/lib/copy-rules'
 import { HOMEPAGE_COPY } from '@/lib/homepage-copy'
 import { DASHBOARD_OVERVIEW_COPY } from '@/lib/dashboard-overview-copy'
-import { NAV_ITEMS } from '@/components/DashboardNav'
+import { NAV_ITEMS } from '@/lib/dashboard-nav-items'
 
 describe('owner-copy plain English', () => {
   it('covers user tone examples without ranking claims', () => {
