@@ -1,8 +1,12 @@
 import type { CSSProperties } from 'react'
 
-/** Orange “S” tile — matches existing brand mark (#FF6B2C). */
-export const SEORANKO_LOGO_MARK_PATH =
-  'M18 8.2c0-2.4-1.7-3.7-4.6-3.7H8.2v4.1h4.8c1.1 0 1.7.5 1.7 1.3 0 .9-.6 1.4-1.7 1.4H8.2V24h5.6c3.2 0 5.2-1.5 5.2-4.1 0-1.7-.9-2.8-2.5-3.4 1.8-.6 2.7-2 2.7-4.1z'
+/**
+ * Bold geometric capital S — white stroke on #FF6B2C rounded tile.
+ * Stroke (no left stem) so it reads as S, not B, down to 16px.
+ * Keep path in sync with src/app/icon.svg.
+ */
+export const SEORANKO_LOGO_S_STROKE =
+  'M21.5 9.8c0-1.9-1.85-3.2-5.5-3.2S10.5 8.2 10.5 10.1c0 4.7 11 3.35 11 9.55 0 2.65-2.25 4.45-5.5 4.45s-5.5-1.75-5.5-4.15'
 
 type LogoProps = {
   size?: number
@@ -23,7 +27,14 @@ export function SeorankoLogoMark({ size = 32, className, title = 'SEORANKO' }: L
       aria-label={title}
     >
       <rect width="32" height="32" rx="7" fill="#FF6B2C" />
-      <path d={SEORANKO_LOGO_MARK_PATH} fill="#FFFFFF" />
+      <path
+        d={SEORANKO_LOGO_S_STROKE}
+        stroke="#FFFFFF"
+        strokeWidth="3.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
     </svg>
   )
 }

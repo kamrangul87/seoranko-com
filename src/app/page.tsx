@@ -137,10 +137,11 @@ export default function LandingPage() {
           <p style={{ fontSize: 17, color: '#6B6B6B', lineHeight: 1.65, maxWidth: 480, marginBottom: 28 }}>
             {c.heroSubtitle}
           </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12, alignItems: 'center' }}>
+          <div style={{ marginBottom: 12 }}>
             <Link
               href="/signup"
               style={{
+                display: 'inline-block',
                 fontSize: 15,
                 fontWeight: 600,
                 color: '#fff',
@@ -152,43 +153,59 @@ export default function LandingPage() {
             >
               {c.heroCtaPrimary}
             </Link>
-            <form onSubmit={onCheckSite} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', flex: 1, minWidth: 220 }}>
-              <input
-                type="text"
-                value={checkDomain}
-                onChange={(e) => setCheckDomain(e.target.value)}
-                placeholder={c.heroCheckPlaceholder}
-                aria-label={c.heroCheckPlaceholder}
-                style={{
-                  flex: 1,
-                  minWidth: 160,
-                  fontSize: 14,
-                  padding: '13px 14px',
-                  border: '1.5px solid #E8E8E4',
-                  borderRadius: 8,
-                  background: '#fff',
-                  color: '#0F0F0F',
-                  fontFamily: 'inherit',
-                }}
-              />
-              <button
-                type="submit"
-                style={{
-                  fontSize: 14,
-                  fontWeight: 600,
-                  color: '#333',
-                  padding: '13px 18px',
-                  background: '#fff',
-                  border: '1.5px solid #E8E8E4',
-                  borderRadius: 8,
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                }}
-              >
-                {c.heroCheckButton}
-              </button>
-            </form>
           </div>
+          <p style={{ fontSize: 12, fontWeight: 500, color: '#9B9B9B', marginBottom: 8 }}>
+            {c.heroCheckLabel}
+          </p>
+          <form
+            onSubmit={onCheckSite}
+            style={{
+              display: 'flex',
+              flexWrap: 'nowrap',
+              alignItems: 'stretch',
+              width: '100%',
+              maxWidth: 420,
+              marginBottom: 12,
+            }}
+          >
+            <input
+              type="text"
+              value={checkDomain}
+              onChange={(e) => setCheckDomain(e.target.value)}
+              placeholder={c.heroCheckPlaceholder}
+              aria-label={c.heroCheckPlaceholder}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                fontSize: 14,
+                padding: '13px 14px',
+                border: '1.5px solid #E8E8E4',
+                borderRight: 'none',
+                borderRadius: '8px 0 0 8px',
+                background: '#fff',
+                color: '#0F0F0F',
+                fontFamily: 'inherit',
+              }}
+            />
+            <button
+              type="submit"
+              style={{
+                flexShrink: 0,
+                fontSize: 14,
+                fontWeight: 600,
+                color: '#333',
+                padding: '13px 16px',
+                background: '#fff',
+                border: '1.5px solid #E8E8E4',
+                borderRadius: '0 8px 8px 0',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {c.heroCheckButton}
+            </button>
+          </form>
           <p style={{ fontSize: 13, color: '#9B9B9B' }}>{c.heroFootnote}</p>
         </div>
 

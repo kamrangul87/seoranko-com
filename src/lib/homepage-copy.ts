@@ -20,6 +20,7 @@ export const HOMEPAGE_COPY = {
     'SEORANKO crawls your site, explains each technical or indexing problem in plain English, fixes what it can directly in your code, and re-checks the live page to confirm the fix actually shipped.',
   heroCtaPrimary: 'Start for free →',
   heroCtaSecondary: 'Free index check',
+  heroCheckLabel: 'Or check any site, no signup:',
   heroCheckPlaceholder: 'yourdomain.com',
   heroCheckButton: 'Check my site',
   heroFootnote: 'No credit card required · Free detect-only audits',
