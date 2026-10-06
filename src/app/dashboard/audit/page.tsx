@@ -1177,8 +1177,8 @@ export default function AuditPage() {
                         <div className="text-sm text-[#6B6B6B]">{t.reason}</div>
                         <div className="text-sm mt-1">{t.suggestedAction}</div>
                         {t.kind === 'thin-content' && (
-                          <Link href="/dashboard/briefs" className="text-sm text-[#FF6B2C] underline mt-1 inline-block">
-                            Open Keyword Briefs
+                          <Link href="/dashboard/findings" className="text-sm text-[#FF6B2C] underline mt-1 inline-block">
+                            Open findings
                           </Link>
                         )}
                       </li>

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
+import { getFindingsStore } from '@/lib/fix-strategies/findings-ui/crawl'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,6 +10,8 @@ type StepId = 'site' | 'github' | 'gsc' | 'crawl' | 'finding' | 'verified'
 
 /**
  * GET — honest beta onboarding checklist from stored evidence (no fabricated progress).
+ * Also returns crawlSummary (open findings buckets + last crawl date) when a
+ * findings crawl exists for the user's first connected site — used by Overview.
  */
 export async function GET() {
   try {
@@ -154,9 +157,9 @@ export async function GET() {
       {
         id: 'finding',
         label: 'First finding reviewed',
-        href: '/dashboard/audit',
+        href: '/dashboard/findings',
         done: findingDone,
-        detail: findingDone ? undefined : 'Open findings from Audit or Link Graph.',
+        detail: findingDone ? undefined : 'Open findings from Audit or Findings.',
       },
       {
         id: 'verified',
@@ -169,10 +172,44 @@ export async function GET() {
       },
     ]
 
+    // Optional Overview summary — only when a findings crawl exists (no guessing).
+    let crawlSummary: {
+      lastCrawlAt: string | null
+      openFindings: { actionable: number; informational: number; internal: number }
+    } | null = null
+
+    if (siteDone) {
+      try {
+        const { data: siteRows } = await supabase
+          .from('connected_sites')
+          .select('id')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: true })
+          .limit(1)
+        const siteId = siteRows?.[0]?.id as string | undefined
+        if (siteId) {
+          const store = getFindingsStore()
+          const runs = await store.listRunsForSite(siteId)
+          const latest = runs[0] ?? null
+          if (latest) {
+            const openFindings = await store.counts({ siteId })
+            crawlSummary = {
+              lastCrawlAt: latest.finishedAt ?? latest.startedAt ?? null,
+              openFindings,
+            }
+          }
+        }
+      } catch (summaryErr) {
+        console.warn('[beta/onboarding-status] crawlSummary skipped', summaryErr)
+        crawlSummary = null
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       steps,
       complete: steps.every((s) => s.done),
+      crawlSummary,
     })
   } catch (err) {
     console.error('[beta/onboarding-status]', err)
