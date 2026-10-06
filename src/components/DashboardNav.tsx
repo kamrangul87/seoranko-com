@@ -4,13 +4,10 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
-<<<<<<< HEAD
 import { SeorankoWordmark } from '@/components/SeorankoLogo'
-=======
 import { NAV_ITEMS } from '@/lib/dashboard-nav-items'
 
 export { NAV_ITEMS } from '@/lib/dashboard-nav-items'
->>>>>>> d4fa409 (fix: keep NAV_ITEMS data out of DashboardNav for CI without Supabase)
 
 interface UserProfile {
   name?: string
@@ -86,14 +83,14 @@ export function DashboardNav() {
 
   return (
     <aside className="w-56 flex-shrink-0 border-r border-[#E8E8E4] flex flex-col bg-[#FAFAF8]" style={{ fontFamily: "'Outfit', sans-serif" }}>
-      {/* Logo */}
+      {/* Logo — SEORANKO wordmark from SeorankoLogo (main / homepage-design) */}
       <div className="px-5 py-5 border-b border-[#E8E8E4]">
         <Link href="/" className="flex items-center gap-2.5">
           <SeorankoWordmark size={28} textStyle={{ fontSize: 16 }} />
         </Link>
       </div>
 
-      {/* Flat product nav */}
+      {/* Flat product nav (dashboard-focus) */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
         {NAV_ITEMS.map(({ href, label, description, ...rest }) => {
           const exact = 'exact' in rest ? rest.exact : false
@@ -145,7 +142,7 @@ export function DashboardNav() {
           className="w-full flex items-center gap-2 px-3 py-2 rounded-[8px] text-xs font-medium text-[#6B6B6B] hover:text-[#0F0F0F] hover:bg-white transition-colors"
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 013-3h4a3 3 0 013 3v1" />
           </svg>
           Sign Out
         </button>
