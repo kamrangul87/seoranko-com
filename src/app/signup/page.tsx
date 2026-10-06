@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { SEORANKO_PLANS, SEORANKO_FREE_PLAN } from "@/lib/stripe/plans";
+import { SeorankoWordmark } from "@/components/SeorankoLogo";
 
 // Email confirmation is ON (Supabase Dashboard → Authentication → Settings →
 // Email). signUp() below returns session: null until the user clicks the
@@ -100,10 +101,7 @@ export default function SignupPage() {
       <div className="w-full max-w-md">
         <div className="flex justify-center mb-8">
           <Link href="/" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-[#FF6B2C] rounded-[8px] flex items-center justify-center">
-              <span className="text-white font-extrabold text-sm">S</span>
-            </div>
-            <span className="font-bold text-xl tracking-tight text-[#0F0F0F]">SEORANKO</span>
+            <SeorankoWordmark size={32} textStyle={{ fontSize: 20 }} />
           </Link>
         </div>
 

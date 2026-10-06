@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
+import { SeorankoWordmark } from '@/components/SeorankoLogo'
 
 interface UserProfile {
   name?: string
@@ -199,10 +200,7 @@ export function DashboardNav() {
       {/* Logo */}
       <div className="px-5 py-5 border-b border-[#E8E8E4]">
         <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-7 h-7 bg-[#FF6B2C] rounded-[7px] flex items-center justify-center">
-            <span className="text-[#0a0a0a] font-extrabold text-xs">S</span>
-          </div>
-          <span className="font-bold text-base tracking-tight">SEORANKO</span>
+          <SeorankoWordmark size={28} textStyle={{ fontSize: 16 }} />
         </Link>
       </div>
 

@@ -4,6 +4,15 @@
 // there), so owner-copy.test.ts can scan it for banned claim words
 // (src/lib/copy-rules.ts) without also scanning that file's CSS (which
 // legitimately uses words like "position").
+
+export type FeatureIconKey =
+  | 'crawl'
+  | 'findings'
+  | 'fix'
+  | 'verify'
+  | 'monitor'
+  | 'refuse'
+
 export const HOMEPAGE_COPY = {
   badge: 'Proving every fix is actually live',
   heroTitle: "Google can't index what's broken. We find it, fix it, and prove it's live.",
@@ -11,6 +20,9 @@ export const HOMEPAGE_COPY = {
     'SEORANKO crawls your site, explains each technical or indexing problem in plain English, fixes what it can directly in your code, and re-checks the live page to confirm the fix actually shipped.',
   heroCtaPrimary: 'Start for free →',
   heroCtaSecondary: 'Free index check',
+  heroCheckLabel: 'Or check any site, no signup:',
+  heroCheckPlaceholder: 'yourdomain.com',
+  heroCheckButton: 'Check my site',
   heroFootnote: 'No credit card required · Free detect-only audits',
   proofEyebrow: 'Proof',
   proofTitle: 'Real fixes, verified on a live site',
@@ -25,32 +37,32 @@ export const HOMEPAGE_COPY = {
   featuresSubtitle: 'No spreadsheet, no manual re-checking. SEORANKO runs the whole loop.',
   features: [
     {
-      icon: '🔍',
+      icon: 'crawl' as FeatureIconKey,
       title: 'Site crawl & audit',
       desc: 'Crawls your site and checks it against sourced technical and indexing criteria — not guesses.',
     },
     {
-      icon: '📋',
+      icon: 'findings' as FeatureIconKey,
       title: 'Plain-English findings',
       desc: "Each finding gets one sentence anyone can read, a reason if it wasn't auto-fixed, and a link to the source.",
     },
     {
-      icon: '🛠️',
+      icon: 'fix' as FeatureIconKey,
       title: 'Agentic fix, in your code',
       desc: 'For GitHub-connected sites, SEORANKO commits a deterministic fix and opens a pull request.',
     },
     {
-      icon: '✅',
+      icon: 'verify' as FeatureIconKey,
       title: 'Live verification',
       desc: 'After a fix deploys, SEORANKO re-fetches the real page and confirms the change actually shipped.',
     },
     {
-      icon: '🔁',
+      icon: 'monitor' as FeatureIconKey,
       title: 'Weekly change monitoring',
       desc: 'A weekly re-crawl reports exactly what changed since last time — new findings, resolved ones, and any regressions.',
     },
     {
-      icon: '🚫',
+      icon: 'refuse' as FeatureIconKey,
       title: "What we won't guess at",
       desc: "No invented E-E-A-T score, no keyword-cannibalisation verdicts. Where Google says a check isn't machine-checkable, we say so instead of pretending.",
     },
@@ -78,8 +90,11 @@ export const HOMEPAGE_COPY = {
   pricingEyebrow: 'Pricing',
   pricingTitle: 'Simple, honest pricing',
   pricingSubtitle: 'Site audit and agentic fix. Cancel anytime.',
+  pricingEverythingInFree: 'Everything in Free, plus:',
+  pricingPagesLine: (n: number) => `${n} pages per crawl`,
   ctaTitle: "Stop guessing what's broken.",
   ctaSubtitle:
     "Free detect-only audits. See exactly what's stopping Google from indexing your site properly — then fix it in your code, or just look.",
   ctaButton: 'Get started free →',
+  navFreeIndexCheck: 'Free index check',
 }

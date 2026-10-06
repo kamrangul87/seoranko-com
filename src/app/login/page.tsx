@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { SeorankoWordmark } from "@/components/SeorankoLogo";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -35,10 +36,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <div className="flex justify-center mb-8">
           <Link href="/" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-[#FF6B2C] rounded-[8px] flex items-center justify-center">
-              <span className="text-white font-extrabold text-sm">S</span>
-            </div>
-            <span className="font-bold text-xl tracking-tight text-[#0F0F0F]">SEORANKO</span>
+            <SeorankoWordmark size={32} textStyle={{ fontSize: 20 }} />
           </Link>
         </div>
 
