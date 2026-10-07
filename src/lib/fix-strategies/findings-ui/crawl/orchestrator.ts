@@ -24,11 +24,16 @@ import {
   CRAWL_ABANDONED_MS,
   CRAWL_MAX_DISCOVERED,
   CRAWL_POST_CRAWL_DEADLINE_MS,
+  CRAWL_STEP_TIMEOUT_MS,
   CRAWL_TICK_DEADLINE_MS,
   CRAWL_URL_CHUNK_SIZE,
   type CoverageNote,
   type CrawlRunRecord,
 } from './constants'
+import {
+  isStepTimeoutError,
+  withStepTimeout,
+} from './step-timeout'
 import { FIX_STRATEGY_PRODUCT_DECISIONS } from '@/lib/fix-strategies/product-decisions'
 import { discoverSameHostUrls, extractSameHostLinks } from './discover'
 import { crawlOneUrl, type CrawledPage } from './fetch-page'
@@ -280,10 +285,13 @@ export async function processCrawlTick(
     deadlineMs?: number
     /** Test seam: override "now" for abandon timeout. */
     nowMs?: number
+    /** Test seam: override per-step hard timeout (fetch/render/detectors). */
+    stepTimeoutMs?: number
   },
 ): Promise<TickResult> {
   const store = opts?.store ?? getFindingsStore()
   const chunkSize = opts?.chunkSize ?? CRAWL_URL_CHUNK_SIZE
+  const stepTimeoutMs = opts?.stepTimeoutMs ?? CRAWL_STEP_TIMEOUT_MS
   const deadline =
     Date.now() + (opts?.deadlineMs ?? CRAWL_TICK_DEADLINE_MS)
   const nowMs = opts?.nowMs ?? Date.now()
@@ -370,6 +378,32 @@ export async function processCrawlTick(
 
   const robotsRules = await robotsForRun(runId, run.origin)
 
+  /** Persist counters after every terminal job — not only at tick end. */
+  const flushCounters = async () => {
+    await store.updateRun(runId, {
+      status: 'running',
+      urlsCrawled: crawledN,
+      urlsFailed: failedN,
+      urlsClientOnly: clientOnlyN,
+      pagesRendered: pagesRenderedN,
+      pagesRenderFailed: pagesRenderFailedN,
+      totalRenderTimeMs: totalRenderTimeMsN,
+      urlsDiscovered,
+      urlsFound,
+      chunkSize: adaptiveChunk,
+      discoverySeeds: {
+        ...seedsBase,
+        fromLinkGraph: linkGraphAdded,
+      },
+      coverageNotes: dedupeNotes(notes),
+      isPartial:
+        clientOnlyN > 0 ||
+        failedN > 0 ||
+        pagesRenderFailedN > 0 ||
+        run.isPartial,
+    })
+  }
+
   try {
   for (const job of jobs) {
     if (Date.now() > deadline) {
@@ -386,10 +420,12 @@ export async function processCrawlTick(
     try {
       const allowRender = rendersThisTick < renderMaxPerTick
       const fetchStarted = Date.now()
-      const page = await crawlOneUrl(job.url, {
-        robotsRules,
-        skipRender: !allowRender,
-      })
+      const page = await withStepTimeout('fetch', stepTimeoutMs, () =>
+        crawlOneUrl(job.url, {
+          robotsRules,
+          skipRender: !allowRender,
+        }),
+      )
       const fetchDurationMs = Date.now() - fetchStarted
 
       // Render needed but tick budget exhausted → re-queue (not render_failed).
@@ -440,6 +476,7 @@ export async function processCrawlTick(
           url: job.url,
         })
         await recordObservation()
+        await flushCounters()
         continue
       }
       if (page.crawlerCausedBackoff) {
@@ -459,6 +496,7 @@ export async function processCrawlTick(
           url: job.url,
         })
         await recordObservation()
+        await flushCounters()
         continue
       }
 
@@ -477,6 +515,7 @@ export async function processCrawlTick(
           url: job.url,
         })
         await recordObservation()
+        await flushCounters()
         continue
       }
 
@@ -509,6 +548,7 @@ export async function processCrawlTick(
           totalRenderTimeMsN += page.renderEvidence?.renderTookMs ?? 0
         }
         await recordObservation()
+        await flushCounters()
         continue
       }
 
@@ -527,6 +567,7 @@ export async function processCrawlTick(
           url: job.url,
         })
         await recordObservation()
+        await flushCounters()
         continue
       }
 
@@ -590,9 +631,14 @@ export async function processCrawlTick(
           })
         }
       }
+      await flushCounters()
     } catch (err) {
       failedN++
-      const detail = err instanceof Error ? err.message : String(err)
+      const detail = isStepTimeoutError(err)
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : String(err)
       await store.updateUrlJob(job.id, {
         status: 'failed',
         errorDetail: detail,
@@ -610,6 +656,7 @@ export async function processCrawlTick(
         retryAfter: null,
         durationMs: null,
       })
+      await flushCounters()
     }
   }
 
@@ -617,54 +664,76 @@ export async function processCrawlTick(
     // PER-PAGE detectors only — WHOLE-SITE runs after frontier drain.
     // Prefer rendered HTML already on CrawledPage.html; skip headline
     // detectors for pages that needed render but failed (handled as client_only).
-    const priorFiveXXByUrl = await buildPriorFiveXXByUrl(store, run)
-    const emits = await runDetectorsOnPages(run.origin, crawled, priorFiveXXByUrl)
-    const mismatchEmits = crawled.flatMap((p) => {
-      if (!p.renderEvidence || p.renderMode !== 'rendered') return []
-      const host = (() => {
-        try {
-          return new URL(run.origin).hostname
-        } catch {
-          return 'localhost'
-        }
-      })()
-      const m = buildRawRenderMismatch({
-        pageUrl: p.finalUrl,
-        evidence: p.renderEvidence,
-        originHost: host,
-      })
-      if (!m) return []
-      return [
-        {
-          topicId: '67',
-          kind: 'crawl/raw-render-mismatch',
-          bucket: 'informational' as const,
-          verdict: m.verdict,
-          severity: 'informational',
-          pageUrl: p.finalUrl,
-          declarationSite: p.finalUrl,
-          detail: m.detail,
-          autoFixable: false,
-          proposedDiff: null,
-          evidenceValues: m.evidence,
-        },
-      ]
-    })
-    await store.appendRunEmits(runId, [...emits, ...mismatchEmits])
-
-    // Persist render evidence rows (best-effort; ignore when table absent in tests).
+    // Detector/peer-probe failures must not abort the tick (counters already
+    // flushed per job); continue so the run can resume on the next tick.
     try {
-      const { persistPageRenderEvidenceBatch } = await import(
-        '@/lib/crawl-render/persist-evidence'
+      const priorFiveXXByUrl = await buildPriorFiveXXByUrl(store, run)
+      const emits = await withStepTimeout(
+        'detectors',
+        stepTimeoutMs * Math.max(1, crawled.length),
+        () => runDetectorsOnPages(run.origin, crawled, priorFiveXXByUrl),
       )
-      await persistPageRenderEvidenceBatch({
-        runId,
-        userId: run.userId,
-        pages: crawled,
-        jobs: await store.listJobsForRun(runId),
+      const mismatchEmits = crawled.flatMap((p) => {
+        if (!p.renderEvidence || p.renderMode !== 'rendered') return []
+        const host = (() => {
+          try {
+            return new URL(run.origin).hostname
+          } catch {
+            return 'localhost'
+          }
+        })()
+        const m = buildRawRenderMismatch({
+          pageUrl: p.finalUrl,
+          evidence: p.renderEvidence,
+          originHost: host,
+        })
+        if (!m) return []
+        return [
+          {
+            topicId: '67',
+            kind: 'crawl/raw-render-mismatch',
+            bucket: 'informational' as const,
+            verdict: m.verdict,
+            severity: 'informational',
+            pageUrl: p.finalUrl,
+            declarationSite: p.finalUrl,
+            detail: m.detail,
+            autoFixable: false,
+            proposedDiff: null,
+            evidenceValues: m.evidence,
+          },
+        ]
       })
-    } catch {
-      /* memory store / missing table */
+      await store.appendRunEmits(runId, [...emits, ...mismatchEmits])
+
+      // Persist render evidence rows (best-effort; ignore when table absent in tests).
+      try {
+        const { persistPageRenderEvidenceBatch } = await import(
+          '@/lib/crawl-render/persist-evidence'
+        )
+        await persistPageRenderEvidenceBatch({
+          runId,
+          userId: run.userId,
+          pages: crawled,
+          jobs: await store.listJobsForRun(runId),
+        })
+      } catch {
+        /* memory store / missing table */
+      }
+    } catch (err) {
+      const detail = isStepTimeoutError(err)
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : String(err)
+      console.warn('[orchestrator] per-page detectors failed (non-fatal):', {
+        runId,
+        detail,
+      })
+      notes.push({
+        code: 'fetch_failure',
+        detail: `detectors: ${detail}`,
+      })
     }
   }
 
