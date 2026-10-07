@@ -34,6 +34,12 @@ import {
   type DuplicateUrlVerdict,
 } from './classify'
 import { allParamsArePagination } from '@/lib/fix-strategies/shared/pagination'
+import {
+  classifyTransportError,
+  transportFailureFromResponse,
+  type TransportFailure,
+} from '@/lib/fix-strategies/shared/safe-secondary-fetch'
+import { shouldSkipWwwVariantProbe } from '@/lib/fix-strategies/shared/platform-public-suffix'
 import { resolveDuplicateUrlArtefactPath } from './resolve-artefact'
 
 export type VariantDiscoverability = 'discovered' | 'generated-only'
@@ -132,26 +138,47 @@ function urlInDiscovered(url: string, discovered?: Set<string>): boolean {
 
 const PEER_PROBE_TIMEOUT_MS = 8_000
 
+type ManualFetchResult = {
+  status: number
+  body: string
+  location: string | null
+  transport: TransportFailure | null
+}
+
 async function fetchManual(
   url: string,
   deps: HopRecordingDeps,
-): Promise<{ status: number; body: string; location: string | null }> {
-  // Network / TLS failures (e.g. www.<sub>.vercel.app not covered by
-  // *.vercel.app) must not throw — a peer probe must never kill the crawl tick.
+): Promise<ManualFetchResult> {
+  // Network / TLS / DNS failures must not throw — a peer probe must never
+  // kill the crawl tick. Record error class + message as probe evidence.
   try {
     const res = await deps.fetch(url, {
       method: 'GET',
       redirect: 'manual',
       signal: AbortSignal.timeout(PEER_PROBE_TIMEOUT_MS),
     })
+    const fromHeaders = transportFailureFromResponse(res)
+    if (fromHeaders) {
+      return {
+        status: 0,
+        body: '',
+        location: null,
+        transport: fromHeaders,
+      }
+    }
     const location = res.headers.get('location')
     let body = ''
     if (res.status >= 200 && res.status < 300) {
       body = await res.text()
     }
-    return { status: res.status, body, location }
-  } catch {
-    return { status: 0, body: '', location: null }
+    return { status: res.status, body, location, transport: null }
+  } catch (err) {
+    return {
+      status: 0,
+      body: '',
+      location: null,
+      transport: classifyTransportError(err),
+    }
   }
 }
 
@@ -213,6 +240,24 @@ export async function detectDuplicateUrls(
         detail: 'Site root excluded',
       })
       continue
+    }
+
+    if (options.strategy === 'www-non-www') {
+      try {
+        const host = new URL(page.url).hostname
+        if (shouldSkipWwwVariantProbe(host)) {
+          suppressed.push({
+            url: page.url,
+            strategy: options.strategy,
+            verdict: 'suppress-platform-www-skip',
+            detail:
+              'www variant not probed — host is under a platform public-suffix domain',
+          })
+          continue
+        }
+      } catch {
+        /* fall through to generateVariant */
+      }
     }
 
     const pair = generateVariant(page.url, options.strategy, {
@@ -285,6 +330,20 @@ async function assessPair(
   const statusB = fb.status
   const bodyB = fb.body
   const locB = fb.location
+
+  // Transport failure on either side → "variant not reachable", never a finding.
+  const transportHit = fa.transport ?? fb.transport
+  if (transportHit) {
+    return {
+      kind: 'suppressed',
+      entry: {
+        url: page.url,
+        strategy,
+        verdict: 'variant-not-reachable',
+        detail: `Variant not reachable (${transportHit.errorClass}: ${transportHit.message})`,
+      },
+    }
+  }
 
   if (
     statusA === 200 &&

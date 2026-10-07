@@ -10,6 +10,7 @@
  */
 
 import { normalizeFixStrategyUrl } from './url-normalize'
+import { shouldSkipWwwVariantProbe } from './platform-public-suffix'
 
 export type DuplicateUrlStrategy =
   | 'trailing-slash' // topic 8
@@ -162,6 +163,11 @@ function httpHttpsVariant(parsed: URL): VariantPair | null {
 
 function wwwVariant(parsed: URL): VariantPair | null {
   const host = parsed.hostname
+  // Platform public-suffix hosts (*.vercel.app, …): inventing www.<host>
+  // is usually TLS-unreachable (single-label wildcard). Skip the probe.
+  if (shouldSkipWwwVariantProbe(host)) {
+    return null
+  }
   const opposite = new URL(parsed.href)
   if (host.startsWith('www.')) {
     opposite.hostname = host.slice(4)

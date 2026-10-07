@@ -172,25 +172,41 @@ export async function fetchAndInspectRobotsTxt(
 
   const robotsUrl = `${origin.origin}/robots.txt`
 
-  const first = await deps.fetch(robotsUrl, {
-    method: 'GET',
-    redirect: 'follow',
-  })
+  let first: Response
+  try {
+    first = await deps.fetch(robotsUrl, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: AbortSignal.timeout(8_000),
+    })
+  } catch {
+    return inspectRobotsTxtBody('', {
+      url: robotsUrl,
+      status: null,
+      contentType: null,
+      fetchStatus: 'server-error',
+    })
+  }
 
   if (first.status >= 500) {
     if (opts?.confirm5xx !== false) {
-      const second = await deps.fetch(robotsUrl, {
-        method: 'GET',
-        redirect: 'follow',
-      })
-      if (second.status < 500) {
-        // Recovered — treat as transient
-        return inspectRobotsTxtBody('', {
-          url: robotsUrl,
-          status: first.status,
-          contentType: first.headers.get('content-type'),
-          fetchStatus: 'transient-5xx',
+      try {
+        const second = await deps.fetch(robotsUrl, {
+          method: 'GET',
+          redirect: 'follow',
+          signal: AbortSignal.timeout(8_000),
         })
+        if (second.status < 500) {
+          // Recovered — treat as transient
+          return inspectRobotsTxtBody('', {
+            url: robotsUrl,
+            status: first.status,
+            contentType: first.headers.get('content-type'),
+            fetchStatus: 'transient-5xx',
+          })
+        }
+      } catch {
+        /* treat as persistent server-error below */
       }
     }
     return inspectRobotsTxtBody('', {

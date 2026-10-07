@@ -259,6 +259,8 @@ export const WHY_NOT_FIXED: Record<string, string> = {
   "suppress-non-primary-entity-url": "A non-primary entity url is accepted here — left alone.",
   "suppress-not-200": "The URL is not HTTP 200, so this check does not apply.",
   "suppress-not-applicable": "This check does not apply to this page.",
+  "variant-not-reachable": "The alternate URL form was not reachable (TLS, DNS, or network) — not raised as a site issue.",
+  "suppress-platform-www-skip": "www alternate not checked — this host is on a platform preview domain.",
   "suppress-not-identical": "The variants are not identical — not treated as duplicates.",
   "suppress-not-indexable": "The page is not indexable (noindex or non-200), so this check does not apply.",
   "suppress-not-internally-linked": "The page is not internally linked — this check does not apply.",
