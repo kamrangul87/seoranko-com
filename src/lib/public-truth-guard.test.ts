@@ -1,7 +1,10 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import { HOMEPAGE_COPY } from '@/lib/homepage-copy'
+import { DIAGNOSTICS_COPY } from '@/lib/diagnostics-copy'
 import {
   PAID_ONLY_FEATURES,
   SEORANKO_FREE_PLAN,
@@ -54,7 +57,6 @@ function collectStrings(value: unknown, out: string[] = []): string[] {
     return out
   }
   if (typeof value === 'function') {
-    // Skip function values (e.g. pricingPagesLine) — call them separately below.
     return out
   }
   if (Array.isArray(value)) {
@@ -70,7 +72,7 @@ function collectStrings(value: unknown, out: string[] = []): string[] {
 }
 
 describe('public-site truth guard', () => {
-  it('rejects banned claim words in homepage, plans, proof, and root metadata', () => {
+  it('rejects banned claim words in homepage, plans, proof, diagnostics, and root metadata', () => {
     const strings = [
       ...collectStrings(HOMEPAGE_COPY),
       HOMEPAGE_COPY.pricingPagesLine(100),
@@ -90,6 +92,7 @@ describe('public-site truth guard', () => {
       ...collectStrings(LOGIN_METADATA),
       ...collectStrings(SIGNUP_METADATA),
       ...collectStrings(REPORT_METADATA),
+      ...collectStrings(DIAGNOSTICS_COPY),
     ]
 
     const offenders: string[] = []
@@ -99,6 +102,21 @@ describe('public-site truth guard', () => {
     }
 
     expect(offenders).toEqual([])
+  })
+
+  it('keeps Diagnostics page free of legacy Fix Agent / Quality Gate strings', () => {
+    const root = join(__dirname, '../..')
+    const pageSrc = readFileSync(join(root, 'src/app/dashboard/audit/page.tsx'), 'utf8')
+    expect(pageSrc).toContain("from '@/lib/diagnostics-copy'")
+    expect(pageSrc).toContain('DIAGNOSTICS_COPY.title')
+    expect(pageSrc).toContain('DIAGNOSTICS_COPY.intro')
+    expect(pageSrc).not.toMatch(/Run Fix Agent/)
+    expect(pageSrc).not.toMatch(/Quality score/)
+    expect(pageSrc).not.toMatch(/LEGACY_CUSTOMER_WRITES_ENABLED/)
+    expect(pageSrc).not.toMatch(/Quality Gate/)
+    expect(pageSrc).not.toMatch(/Fix Agent log/)
+    expect(DIAGNOSTICS_COPY.title).toBe('Diagnostics')
+    expect(DIAGNOSTICS_COPY.intro).toMatch(/Indexing and internal-link detail/)
   })
 
   it('keeps the E-E-A-T refusal line on the allowlist and on the homepage', () => {

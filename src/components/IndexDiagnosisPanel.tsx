@@ -92,12 +92,15 @@ export function IndexDiagnosisPanel({
   data,
   siteId,
   cmsConnected,
+  connectedPlatform,
   onRegenerateSitemap,
   fixRunning,
 }: {
   data: IndexDiagnosisResult
   siteId?: string
   cmsConnected?: boolean
+  /** CMS/platform from site-connection (e.g. github, wordpress) — drives ManualFixPanel tabs. */
+  connectedPlatform?: string | null
   onRegenerateSitemap?: () => void
   fixRunning?: boolean
 }) {
@@ -342,7 +345,7 @@ export function IndexDiagnosisPanel({
                 disabled={fixRunning}
                 className="text-xs px-3 py-1.5 rounded-lg bg-[#0F0F0F] text-white disabled:opacity-50"
               >
-                {fixRunning ? 'Applying…' : 'Regenerate & apply (Fix Agent)'}
+                {fixRunning ? 'Applying…' : 'Regenerate & apply'}
               </button>
             )}
             <Link
@@ -462,7 +465,13 @@ export function IndexDiagnosisPanel({
               </button>
             </div>
             {lookupMessage && <p className="text-xs text-[#6B6B6B] mt-2">{lookupMessage}</p>}
-            {lookupFix && <ManualFixPanel fix={lookupFix} siteId={siteId} />}
+            {lookupFix && (
+              <ManualFixPanel
+                fix={lookupFix}
+                siteId={siteId}
+                connectedPlatform={connectedPlatform}
+              />
+            )}
           </div>
 
           <ul className="space-y-3 text-sm">
@@ -503,7 +512,13 @@ export function IndexDiagnosisPanel({
                       >
                         {isOpen ? 'Hide manual fix' : 'Get manual fix'}
                       </button>
-                      {isOpen && <ManualFixPanel fix={fix} siteId={siteId} />}
+                      {isOpen && (
+                        <ManualFixPanel
+                          fix={fix}
+                          siteId={siteId}
+                          connectedPlatform={connectedPlatform}
+                        />
+                      )}
                     </>
                   )}
                 </li>

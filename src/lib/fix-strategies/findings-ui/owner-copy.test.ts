@@ -185,8 +185,10 @@ describe('dashboard-focus claim discipline', () => {
     expect(joined).not.toMatch(/\b(Write|Keywords|Rankings|Briefs|AI Visibility|Sitemap|Home|Articles)\b/)
     expect(joined).toMatch(/Overview/)
     expect(joined).toMatch(/Sites/)
-    expect(joined).toMatch(/Findings/)
+    expect(joined).toMatch(/Audit/)
+    expect(joined).toMatch(/Diagnostics/)
     expect(joined).toMatch(/Billing/)
+    expect(joined).not.toMatch(/\bFindings\b/)
   })
 
   it('Overview checklist copy avoids ranking / RANKO / legacy content language', () => {

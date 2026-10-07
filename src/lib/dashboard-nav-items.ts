@@ -15,19 +15,19 @@ export const NAV_ITEMS = [
     description: 'Domains and connections',
   },
   {
-    href: '/dashboard/audit',
-    label: 'Audit',
-    description: 'Crawl your site',
-  },
-  {
     href: '/dashboard/findings',
-    label: 'Findings',
-    description: 'Problems found and their fixes',
+    label: 'Audit',
+    description: "Crawl your site and fix what's found",
   },
   {
     href: '/dashboard/experiments',
     label: 'Google status',
     description: 'What Google sees',
+  },
+  {
+    href: '/dashboard/audit',
+    label: 'Diagnostics',
+    description: 'Indexing and link detail',
   },
   {
     href: '/dashboard/install',
