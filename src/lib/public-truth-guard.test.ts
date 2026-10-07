@@ -1,8 +1,6 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'fs'
-import { join } from 'path'
 import { HOMEPAGE_COPY } from '@/lib/homepage-copy'
 import { DIAGNOSTICS_COPY } from '@/lib/diagnostics-copy'
 import {
@@ -142,6 +140,21 @@ describe('public-site truth guard', () => {
     expect(HERO_LOOP_EXAMPLE.prNumber).toBe(37)
     expect(formatProofDate('2026-09-22')).toBe('22 Sep 2026')
     expect(PROOF_UI_COPY.verifiedLivePill).toBe('Verified live')
+  })
+
+  it('requires appliedBy on every proof entry (fix-agent vs approved-pr)', () => {
+    for (const ex of PROOF_EXAMPLES) {
+      expect(ex.appliedBy === 'fix-agent' || ex.appliedBy === 'approved-pr').toBe(true)
+    }
+    expect(PROOF_EXAMPLES.find((e) => e.prNumber === 34)?.appliedBy).toBe('fix-agent')
+    expect(PROOF_EXAMPLES.filter((e) => e.prNumber !== 34).every((e) => e.appliedBy === 'approved-pr')).toBe(
+      true,
+    )
+    expect(PROOF_UI_COPY.appliedByFixAgent).toBe('Applied by Fix Agent')
+    expect(PROOF_UI_COPY.appliedByApprovedPr).toBe('Applied by approved pull request')
+    expect(PROOF_UI_COPY.proofNothingMore).toBe(
+      'Problems SEORANKO found on autodun.com, each fixed by pull request and re-checked on the live site.',
+    )
   })
 
   it('uses line-icon keys instead of emoji for features', () => {

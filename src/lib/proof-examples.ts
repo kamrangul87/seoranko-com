@@ -4,6 +4,8 @@
  * No ranking, traffic, visibility, or impact claims.
  */
 
+export type ProofAppliedBy = 'fix-agent' | 'approved-pr'
+
 export type ProofExample = {
   /** One plain sentence: the problem found. */
   problem: string
@@ -15,6 +17,12 @@ export type ProofExample = {
   verifiedLiveOn: string
   /** Live URL that was re-fetched for verification (when known from the ledger). */
   verifiedUrl?: string
+  /**
+   * How the fix landed on the customer site (from FIX_VERIFY_OUTCOME_RECORD.md).
+   * `fix-agent` = product commit path (topic 49, autodun-ai PR #34);
+   * `approved-pr` = owner-approved customer PR.
+   */
+  appliedBy: ProofAppliedBy
 }
 
 /** autodun.com closed production-verified outcomes in the ledger. */
@@ -34,6 +42,7 @@ export const PROOF_EXAMPLES: ProofExample[] = [
     prNumber: 37,
     verifiedLiveOn: '2026-09-22',
     verifiedUrl: 'https://autodun.com/blog',
+    appliedBy: 'approved-pr',
   },
   {
     problem: 'autodun.com’s sitemap listed a URL on a different host (mot.autodun.com).',
@@ -41,6 +50,7 @@ export const PROOF_EXAMPLES: ProofExample[] = [
     prNumber: 38,
     verifiedLiveOn: '2026-09-22',
     verifiedUrl: 'https://autodun.com/sitemap.xml',
+    appliedBy: 'approved-pr',
   },
   {
     problem: 'The /about page linked to /charging-map, which returned 404.',
@@ -48,6 +58,7 @@ export const PROOF_EXAMPLES: ProofExample[] = [
     prNumber: 46,
     verifiedLiveOn: '2026-09-24',
     verifiedUrl: 'https://autodun.com/about',
+    appliedBy: 'approved-pr',
   },
   {
     problem: 'The indexable /about page was missing from the site sitemap.',
@@ -55,6 +66,7 @@ export const PROOF_EXAMPLES: ProofExample[] = [
     prNumber: 47,
     verifiedLiveOn: '2026-09-24',
     verifiedUrl: 'https://autodun.com/sitemap.xml',
+    appliedBy: 'approved-pr',
   },
   {
     problem: 'Content images on a blog page were missing width and height attributes.',
@@ -63,6 +75,7 @@ export const PROOF_EXAMPLES: ProofExample[] = [
     prNumber: 34,
     verifiedLiveOn: '2026-09-22',
     verifiedUrl: 'https://autodun.com/blog/mot-advisories-explained-uk.html',
+    appliedBy: 'fix-agent',
   },
   {
     problem: 'Declared image dimensions on a blog page did not match the files’ aspect ratio.',
@@ -71,6 +84,7 @@ export const PROOF_EXAMPLES: ProofExample[] = [
     prNumber: 36,
     verifiedLiveOn: '2026-09-22',
     verifiedUrl: 'https://autodun.com/blog/mot-changes-2026-dvsa-updates.html',
+    appliedBy: 'approved-pr',
   },
 ]
 
@@ -96,5 +110,13 @@ export const PROOF_UI_COPY = {
   tableVerified: 'Verified live',
   viewLivePage: 'View live page',
   proofNothingMore:
-    'Each row is a change that was re-checked on the live site — nothing more.',
+    'Problems SEORANKO found on autodun.com, each fixed by pull request and re-checked on the live site.',
+  appliedByFixAgent: 'Applied by Fix Agent',
+  appliedByApprovedPr: 'Applied by approved pull request',
 } as const
+
+export function proofAppliedByLabel(appliedBy: ProofAppliedBy): string {
+  return appliedBy === 'fix-agent'
+    ? PROOF_UI_COPY.appliedByFixAgent
+    : PROOF_UI_COPY.appliedByApprovedPr
+}

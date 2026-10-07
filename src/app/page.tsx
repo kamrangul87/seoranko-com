@@ -18,6 +18,7 @@ import {
   PROOF_VERIFIED_FIX_COUNT,
   HERO_LOOP_EXAMPLE,
   formatProofDate,
+  proofAppliedByLabel,
 } from '@/lib/proof-examples'
 
 function VerifiedPill() {
@@ -389,7 +390,23 @@ export default function LandingPage() {
           </div>
           {PROOF_EXAMPLES.map((ex) => (
             <div key={ex.prNumber} className="hp-proof-row">
-              <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.45 }}>{ex.problem}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.45 }}>
+                {ex.problem}
+                <div
+                  style={{
+                    marginTop: 8,
+                    display: 'inline-block',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: '#6B6B6B',
+                    background: '#F4F4F4',
+                    padding: '3px 8px',
+                    letterSpacing: '0.02em',
+                  }}
+                >
+                  {proofAppliedByLabel(ex.appliedBy)}
+                </div>
+              </div>
               <div style={{ fontSize: 13, color: '#6B6B6B', lineHeight: 1.5 }}>{ex.whatChanged}</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
                 <VerifiedPill />
