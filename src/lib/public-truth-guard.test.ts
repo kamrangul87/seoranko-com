@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import { HOMEPAGE_COPY } from '@/lib/homepage-copy'
 import {
@@ -19,6 +21,24 @@ import {
   ROOT_METADATA,
   SIGNUP_METADATA,
 } from '@/lib/site-metadata'
+
+/** Public marketing / copy surfaces — must not link to the product owner's GitHub. */
+const PUBLIC_COPY_FILES = [
+  'src/lib/homepage-copy.ts',
+  'src/lib/proof-examples.ts',
+  'src/lib/site-metadata.ts',
+  'src/lib/stripe/plans.ts',
+  'src/app/page.tsx',
+  'src/app/login/page.tsx',
+  'src/app/signup/page.tsx',
+  'src/app/privacy/page.tsx',
+  'src/app/terms/page.tsx',
+  'src/app/bot/page.tsx',
+  'src/app/report/[token]/page.tsx',
+  'src/components/CompanyFooter.tsx',
+] as const
+
+const GITHUB_OWNER_LINK_RE = /github\.com\/kamrangul87/i
 
 /** Explicit allowlist — POSITIONING.md refusal copy that mentions E-E-A-T. */
 const ALLOWLISTED_STRINGS = new Set([
@@ -111,5 +131,23 @@ describe('public-site truth guard', () => {
       expect(f.icon).toMatch(/^(crawl|findings|fix|verify|monitor|refuse)$/)
       expect(f.icon).not.toMatch(/[\u{1F300}-\u{1FAFF}]/u)
     }
+  })
+
+  it('rejects github.com/kamrangul87 links in public copy files', () => {
+    const root = join(__dirname, '../..')
+    const offenders: string[] = []
+    for (const rel of PUBLIC_COPY_FILES) {
+      const text = readFileSync(join(root, rel), 'utf8')
+      if (GITHUB_OWNER_LINK_RE.test(text)) offenders.push(rel)
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('keeps proof PR numbers as plain text and links live verified URLs', () => {
+    expect(PROOF_UI_COPY.viewLivePage).toBe('View live page')
+    for (const ex of PROOF_EXAMPLES) {
+      expect(ex.verifiedUrl).toMatch(/^https:\/\//)
+    }
+    expect(HERO_LOOP_EXAMPLE.verifiedUrl).toBe('https://autodun.com/blog')
   })
 })

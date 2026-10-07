@@ -13,7 +13,6 @@ import {
 import { HOMEPAGE_COPY } from '@/lib/homepage-copy'
 import {
   PROOF_EXAMPLES,
-  PROOF_PR_BASE_URL,
   PROOF_SITE_HOST,
   PROOF_UI_COPY,
   PROOF_VERIFIED_FIX_COUNT,
@@ -242,6 +241,16 @@ export default function LandingPage() {
                   <span style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                     <VerifiedPill />
                     <span style={{ fontSize: 12, color: '#9B9B9B' }}>{formatProofDate(loop.verifiedLiveOn)}</span>
+                    {loop.verifiedUrl ? (
+                      <a
+                        href={loop.verifiedUrl}
+                        target="_blank"
+                        rel="noopener"
+                        style={{ fontSize: 12, color: '#FF6B2C', textDecoration: 'underline' }}
+                      >
+                        {PROOF_UI_COPY.viewLivePage}
+                      </a>
+                    ) : null}
                   </span>
                 </span>
               ),
@@ -385,14 +394,17 @@ export default function LandingPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
                 <VerifiedPill />
                 <span style={{ fontSize: 12, color: '#9B9B9B' }}>{formatProofDate(ex.verifiedLiveOn)}</span>
-                <a
-                  href={`${PROOF_PR_BASE_URL}/${ex.prNumber}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ fontSize: 12, color: '#FF6B2C', textDecoration: 'underline' }}
-                >
-                  PR #{ex.prNumber}
-                </a>
+                <span style={{ fontSize: 12, color: '#6B6B6B' }}>PR #{ex.prNumber}</span>
+                {ex.verifiedUrl ? (
+                  <a
+                    href={ex.verifiedUrl}
+                    target="_blank"
+                    rel="noopener"
+                    style={{ fontSize: 12, color: '#FF6B2C', textDecoration: 'underline' }}
+                  >
+                    {PROOF_UI_COPY.viewLivePage}
+                  </a>
+                ) : null}
               </div>
             </div>
           ))}
