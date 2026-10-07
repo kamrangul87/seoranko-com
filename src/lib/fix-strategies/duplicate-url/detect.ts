@@ -130,17 +130,29 @@ function urlInDiscovered(url: string, discovered?: Set<string>): boolean {
   return n != null && discovered.has(n)
 }
 
+const PEER_PROBE_TIMEOUT_MS = 8_000
+
 async function fetchManual(
   url: string,
   deps: HopRecordingDeps,
 ): Promise<{ status: number; body: string; location: string | null }> {
-  const res = await deps.fetch(url, { method: 'GET', redirect: 'manual' })
-  const location = res.headers.get('location')
-  let body = ''
-  if (res.status >= 200 && res.status < 300) {
-    body = await res.text()
+  // Network / TLS failures (e.g. www.<sub>.vercel.app not covered by
+  // *.vercel.app) must not throw — a peer probe must never kill the crawl tick.
+  try {
+    const res = await deps.fetch(url, {
+      method: 'GET',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(PEER_PROBE_TIMEOUT_MS),
+    })
+    const location = res.headers.get('location')
+    let body = ''
+    if (res.status >= 200 && res.status < 300) {
+      body = await res.text()
+    }
+    return { status: res.status, body, location }
+  } catch {
+    return { status: 0, body: '', location: null }
   }
-  return { status: res.status, body, location }
 }
 
 function redirectsToPeer(

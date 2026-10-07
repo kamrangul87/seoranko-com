@@ -3,10 +3,18 @@ export {
   CRAWL_TICK_DEADLINE_MS,
   CRAWL_POST_CRAWL_DEADLINE_MS,
   CRAWL_ABANDONED_MS,
+  CRAWL_STALL_UI_MS,
+  CRAWL_STEP_TIMEOUT_MS,
+  CRAWL_PROBE_FETCH_TIMEOUT_MS,
   CRAWL_INTER_REQUEST_GAP_MS,
   CRAWL_MAX_DISCOVERED,
   POST_CRAWL_PHASE_IDS,
 } from './constants'
+export {
+  withStepTimeout,
+  isStepTimeoutError,
+  StepTimeoutError,
+} from './step-timeout'
 export type {
   CrawlRunStatus,
   CrawlUrlJobStatus,

@@ -128,8 +128,18 @@ assertAllShippedTopicsWired()
 
 export function makeGapFetchDeps(): FetchDeps {
   let lastAt = 0
+  const baseFetch = globalThis.fetch.bind(globalThis)
   return {
-    fetch: globalThis.fetch.bind(globalThis),
+    fetch: async (input, init) => {
+      // Bound every detector/peer probe so TLS hangs / slow origins cannot
+      // stall the tick. Callers may pass a tighter signal; we race both.
+      const timeout = AbortSignal.timeout(8_000)
+      const signal =
+        init?.signal != null
+          ? AbortSignal.any([init.signal, timeout])
+          : timeout
+      return baseFetch(input, { ...init, signal })
+    },
     now: () => Date.now(),
     sleep: async (ms: number) => {
       const since = Date.now() - lastAt

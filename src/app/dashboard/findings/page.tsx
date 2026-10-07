@@ -84,6 +84,21 @@ function crawlStatusLabel(status: string | null | undefined): string {
   return status
 }
 
+/** 5 minutes — matches CRAWL_STALL_UI_MS (kept inline so the client bundle
+ *  does not import the crawl server module). */
+const CRAWL_STALL_UI_MS = 5 * 60 * 1000
+
+function isCrawlStalled(crawl: {
+  status: string | null
+  updatedAt?: string | null
+}): boolean {
+  if (crawl.status !== 'running' && crawl.status !== 'queued') return false
+  if (!crawl.updatedAt) return false
+  const updated = Date.parse(crawl.updatedAt)
+  if (!Number.isFinite(updated)) return false
+  return Date.now() - updated > CRAWL_STALL_UI_MS
+}
+
 export default function FindingsListPage() {
   const [sites, setSites] = useState<Site[]>([])
   const [siteId, setSiteId] = useState('')
@@ -98,6 +113,8 @@ export default function FindingsListPage() {
   const [loading, setLoading] = useState(false)
   const [crawling, setCrawling] = useState(false)
   const tickAbort = useRef(false)
+  /** Prevents double auto-resume for the same runId. */
+  const resumedRunId = useRef<string | null>(null)
   const [fixRun, setFixRun] = useState<FixRunView | null>(null)
   const [fixRunning, setFixRunning] = useState(false)
   const [fixError, setFixError] = useState<string | null>(null)
@@ -185,6 +202,22 @@ export default function FindingsListPage() {
       setData(null)
     }
   }, [mode, siteId, detectOrigin, includeInformational, loadConnected, loadDetect])
+
+  // Resume ticking on load when the selected site has a run still in flight
+  // (unless it is already past the stall threshold — that needs Retry).
+  useEffect(() => {
+    const crawl = data?.crawl
+    if (!crawl?.runId || crawling) return
+    if (crawl.status !== 'running' && crawl.status !== 'queued') return
+    if (resumedRunId.current === crawl.runId) return
+    if (isCrawlStalled(crawl)) {
+      console.info('[crawl] stalled', { runId: crawl.runId })
+      return
+    }
+    void drainCrawlTicks(crawl.runId, { detectOnly: mode === 'detect' })
+    // Intentionally omit drainCrawlTicks from deps — stable enough for resume-once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.crawl?.runId, data?.crawl?.status, data?.crawl?.updatedAt, mode, crawling])
 
   useEffect(() => {
     if (mode !== 'connected' || !siteId) {
@@ -340,6 +373,53 @@ export default function FindingsListPage() {
   const infoFindings =
     data?.findings.filter((f) => f.surfaceClass === 'informational') ?? []
 
+  async function drainCrawlTicks(runId: string, opts?: { detectOnly?: boolean }) {
+    setCrawling(true)
+    setError(null)
+    tickAbort.current = false
+    resumedRunId.current = runId
+    try {
+      let guard = 0
+      while (guard++ < 500 && !tickAbort.current) {
+        const tickRes = await fetch('/api/fix-strategies/findings/crawl', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(
+            opts?.detectOnly
+              ? { mode: 'detect', action: 'tick', runId }
+              : { siteId, action: 'tick', runId },
+          ),
+        })
+        const tickBody = (await tickRes.json()) as {
+          error?: string
+          done?: boolean
+          origin?: string
+        }
+        if (!tickRes.ok) {
+          throw new Error(tickBody.error || 'Crawl tick failed')
+        }
+        if (opts?.detectOnly) {
+          if (tickBody.origin) setDetectOrigin(tickBody.origin)
+          const origin = tickBody.origin ?? detectOrigin
+          if (origin) await loadDetect(origin, includeInformational)
+        } else if (siteId) {
+          await loadConnected(siteId, includeInformational)
+        }
+        if (tickBody.done) break
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Crawl failed')
+    } finally {
+      setCrawling(false)
+      if (opts?.detectOnly) {
+        const origin = detectOrigin
+        if (origin) await loadDetect(origin, includeInformational)
+      } else if (siteId) {
+        await loadConnected(siteId, includeInformational)
+      }
+    }
+  }
+
   async function runConnectedCrawl() {
     if (!siteId || crawling) return
     setCrawling(true)
@@ -358,31 +438,9 @@ export default function FindingsListPage() {
       if (!startRes.ok || !startBody.runId) {
         throw new Error(startBody.error || 'Failed to start crawl')
       }
-
-      let guard = 0
-      while (guard++ < 500 && !tickAbort.current) {
-        const tickRes = await fetch('/api/fix-strategies/findings/crawl', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            siteId,
-            action: 'tick',
-            runId: startBody.runId,
-          }),
-        })
-        const tickBody = (await tickRes.json()) as {
-          error?: string
-          done?: boolean
-        }
-        if (!tickRes.ok) {
-          throw new Error(tickBody.error || 'Crawl tick failed')
-        }
-        await loadConnected(siteId, includeInformational)
-        if (tickBody.done) break
-      }
+      await drainCrawlTicks(startBody.runId)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Crawl failed')
-    } finally {
       setCrawling(false)
       await loadConnected(siteId, includeInformational)
     }
@@ -394,7 +452,6 @@ export default function FindingsListPage() {
     setCrawling(true)
     setError(null)
     tickAbort.current = false
-    let scopeOrigin: string | null = null
     try {
       const startRes = await fetch('/api/fix-strategies/findings/crawl', {
         method: 'POST',
@@ -409,41 +466,20 @@ export default function FindingsListPage() {
       if (!startRes.ok || !startBody.runId) {
         throw new Error(startBody.error || 'Failed to start detect crawl')
       }
-      scopeOrigin = startBody.origin ?? null
-      if (scopeOrigin) setDetectOrigin(scopeOrigin)
-
-      let guard = 0
-      while (guard++ < 500 && !tickAbort.current) {
-        const tickRes = await fetch('/api/fix-strategies/findings/crawl', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            mode: 'detect',
-            action: 'tick',
-            runId: startBody.runId,
-          }),
-        })
-        const tickBody = (await tickRes.json()) as {
-          error?: string
-          done?: boolean
-          origin?: string
-        }
-        if (!tickRes.ok) {
-          throw new Error(tickBody.error || 'Crawl tick failed')
-        }
-        if (tickBody.origin) {
-          scopeOrigin = tickBody.origin
-          setDetectOrigin(tickBody.origin)
-        }
-        if (scopeOrigin) await loadDetect(scopeOrigin, includeInformational)
-        if (tickBody.done) break
-      }
+      if (startBody.origin) setDetectOrigin(startBody.origin)
+      await drainCrawlTicks(startBody.runId, { detectOnly: true })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Detect crawl failed')
-    } finally {
       setCrawling(false)
-      if (scopeOrigin) await loadDetect(scopeOrigin, includeInformational)
+      if (detectOrigin) await loadDetect(detectOrigin, includeInformational)
     }
+  }
+
+  async function retryStalledCrawl() {
+    const runId = data?.crawl?.runId
+    if (!runId || crawling) return
+    console.info('[crawl] retry stalled run', { runId })
+    await drainCrawlTicks(runId, { detectOnly: mode === 'detect' })
   }
 
   const crawl = data?.crawl ?? null
@@ -454,6 +490,7 @@ export default function FindingsListPage() {
     crawl && crawl.urlsFound > crawl.urlsCrawled
       ? crawl.urlsFound - crawl.urlsCrawled
       : 0
+  const crawlStalled = Boolean(crawl && isCrawlStalled(crawl))
 
   const canRun =
     mode === 'connected'
@@ -565,10 +602,25 @@ export default function FindingsListPage() {
             </button>
           </div>
 
+          {crawlStalled && crawl?.runId && (
+            <div className="mb-4 rounded-md border border-[#E8C4B8] bg-[#FFF6F2] px-3 py-2 text-sm text-[#0F0F0F] flex flex-wrap items-center gap-3">
+              <span>Crawl stalled — no tick for 5+ minutes.</span>
+              <button
+                type="button"
+                onClick={() => void retryStalledCrawl()}
+                disabled={crawling}
+                className="rounded-md bg-[#0F0F0F] text-white text-sm px-3 py-1 disabled:opacity-50"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
           {crawl && (
             <div className="mb-4 text-sm text-[#6B6B6B] flex flex-wrap gap-2 items-center">
               <span className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]">
-                Status: {crawlStatusLabel(crawl.status)}
+                Status:{' '}
+                {crawlStalled ? 'Crawl stalled' : crawlStatusLabel(crawl.status)}
               </span>
               <span className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]">
                 {crawl.urlsCrawled} crawled · {crawl.urlsFound} found

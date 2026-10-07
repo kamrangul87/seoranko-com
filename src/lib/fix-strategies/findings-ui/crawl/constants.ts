@@ -40,6 +40,23 @@ export const CRAWL_TOPIC26_LOC_CHUNK = 40
  */
 export const CRAWL_ABANDONED_MS = 30 * 60 * 1000
 
+/**
+ * UI stall threshold — Findings shows "Crawl stalled" + Retry when a
+ * queued/running run's `updatedAt` is older than this. Shorter than
+ * CRAWL_ABANDONED_MS so owners can resume before the hard abandon.
+ */
+export const CRAWL_STALL_UI_MS = 5 * 60 * 1000
+
+/**
+ * Hard per-step budget (ms) for fetch / render / image probe / detector
+ * batches. Must sit well inside CRAWL_TICK_DEADLINE_MS so one hung URL
+ * cannot consume the whole tick.
+ */
+export const CRAWL_STEP_TIMEOUT_MS = 15_000
+
+/** Peer-probe / image-header fetch AbortSignal budget (ms). */
+export const CRAWL_PROBE_FETCH_TIMEOUT_MS = 8_000
+
 /** Min delay between SEORANKO requests to a customer origin (ms). */
 export const CRAWL_INTER_REQUEST_GAP_MS = 250
 

@@ -198,6 +198,7 @@ export async function fetchImageHeaderBytes(
       method: 'GET',
       redirect: 'follow',
       headers: { Range: `bytes=0-${maxBytes - 1}` },
+      signal: AbortSignal.timeout(8_000),
     })
     const contentType = response.headers.get('content-type')
     if (response.status === 404 || response.status === 410) {

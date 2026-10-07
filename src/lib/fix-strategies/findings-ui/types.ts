@@ -185,6 +185,8 @@ export type FindingsListResponse = {
     pagesRenderFailed?: number
     /** Cumulative headless render wall-clock ms. */
     totalRenderTimeMs?: number
+    /** Last tick/progress write — used for stall detection. */
+    updatedAt?: string | null
   } | null
   /** Present when the latest run is terminal — CM Stage 4. */
   whatChanged?: WhatChangedDigestUi | null
