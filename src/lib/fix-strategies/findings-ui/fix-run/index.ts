@@ -39,6 +39,10 @@ export {
 
 export { startFixRun, selectAutoFixableFindings, makeRunBranchName } from './start'
 export {
+  canRunFixAgent,
+  shouldShowFixMySiteButton,
+} from './master-gate'
+export {
   tickFixRun,
   approveFixRun,
   defaultTickDeps,

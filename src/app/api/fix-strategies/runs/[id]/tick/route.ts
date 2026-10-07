@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 import { createClient } from '@supabase/supabase-js'
 import { findOwnedSiteConnection } from '@/lib/site-connection-lookup'
 import {
@@ -13,22 +11,10 @@ import {
 } from '@/lib/fix-strategies/findings-ui/fix-run'
 import { resolveGithubAppRepoCreds } from '@/lib/github-app/resolve-repo-creds'
 import { startCrawlRun } from '@/lib/fix-strategies/findings-ui/crawl/orchestrator'
+import { requireMasterUser } from '@/lib/github-app/require-master'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
-
-async function authUser() {
-  const cookieStore = cookies()
-  const authClient = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { get: (name: string) => cookieStore.get(name)?.value } },
-  )
-  const {
-    data: { user },
-  } = await authClient.auth.getUser()
-  return user
-}
 
 async function resolveCredsForRun(
   userId: string,
@@ -85,13 +71,17 @@ async function resolveCredsForRun(
   return { owner, repo, baseBranch, accessToken: token }
 }
 
+/** POST — tick/approve a fix run. Master account only. */
 export async function POST(
   req: NextRequest,
   ctx: { params: { id: string } },
 ) {
   try {
-    const user = await authUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const master = await requireMasterUser()
+    if (!master.ok) {
+      return NextResponse.json({ error: master.error }, { status: master.status })
+    }
+    const user = master.user
 
     const runId = ctx.params.id
     const body = (await req.json().catch(() => ({}))) as {

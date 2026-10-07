@@ -10,6 +10,7 @@ import type {
 } from '@/lib/fix-strategies/findings-ui/client'
 import { summarizePartialCoverage } from '@/lib/fix-strategies/findings-ui/crawl/partial-coverage'
 import { itemUiStep } from '@/lib/fix-strategies/findings-ui/fix-run/phases'
+import { shouldShowFixMySiteButton } from '@/lib/fix-strategies/findings-ui/fix-run/master-gate'
 import { whyNotFixedOrFallback } from '@/lib/fix-strategies/findings-ui/owner-copy'
 import { readParamFromUrl, writeParamToUrl } from '@/lib/site-selection-url'
 import type { User } from '@supabase/supabase-js'
@@ -847,8 +848,12 @@ export default function FindingsListPage() {
 
           {!loading && data && data.findings.length > 0 && (
             <div className="space-y-8">
-              {mode === 'connected' && (
-                <div className="rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-4">
+              {mode === 'connected' &&
+                shouldShowFixMySiteButton(data.canRunFixAgent === true) && (
+                <div
+                  data-testid="fix-my-site"
+                  className="rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-4"
+                >
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-medium text-[#0F0F0F]">Fix my site</p>

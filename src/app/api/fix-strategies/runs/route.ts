@@ -9,6 +9,7 @@ import {
   getFixRunStore,
 } from '@/lib/fix-strategies/findings-ui/fix-run'
 import { resolveGithubAppRepoCreds } from '@/lib/github-app/resolve-repo-creds'
+import { requireMasterUser } from '@/lib/github-app/require-master'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -61,11 +62,14 @@ async function isGithubConnected(userId: string, siteDomain: string): Promise<bo
   return Boolean(token)
 }
 
-/** POST — start a fix run for a site. */
+/** POST — start a fix run for a site. Master account only. */
 export async function POST(req: NextRequest) {
   try {
-    const user = await authUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const master = await requireMasterUser()
+    if (!master.ok) {
+      return NextResponse.json({ error: master.error }, { status: master.status })
+    }
+    const user = master.user
 
     const body = (await req.json()) as { siteId?: string }
     if (!body.siteId) {

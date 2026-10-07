@@ -16,6 +16,7 @@ import {
   persistedToUiFinding,
 } from '@/lib/fix-strategies/findings-ui/map-persisted'
 import type { FindingsListResponse } from '@/lib/fix-strategies/findings-ui/types'
+import { canRunFixAgent } from '@/lib/fix-strategies/findings-ui/fix-run/master-gate'
 
 export const dynamic = 'force-dynamic'
 
@@ -99,6 +100,7 @@ export async function GET(request: Request) {
       crawledAt: latest?.finishedAt ?? latest?.startedAt ?? null,
       demo: false,
       siteId: null,
+      canRunFixAgent: canRunFixAgent(user.email),
       crawl: latest
         ? {
             runId: latest.id,
@@ -174,6 +176,7 @@ export async function GET(request: Request) {
     crawledAt: latest?.finishedAt ?? latest?.startedAt ?? null,
     demo: false,
     siteId,
+    canRunFixAgent: canRunFixAgent(user.email),
     crawl: latest
       ? {
           runId: latest.id,
