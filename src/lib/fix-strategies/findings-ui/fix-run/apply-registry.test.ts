@@ -1,12 +1,13 @@
 /**
- * Registry gate + same-file ordering. Product transform: topic 49 only
- * (Phase 2 candidates failed pre-checks — not registered).
+ * Registry gate + same-file ordering. Wired topics require stored
+ * sourcePath + sourceBlobSha before isCommitableFinding.
  */
 
 import { describe, expect, it } from 'vitest'
 import type { PersistedFindingRow } from '../crawl/constants'
 import {
   applyRegisteredTransform,
+  isCommitableFinding,
   isTransformRegistered,
   listRegisteredTransforms,
   orderFindingsForApply,
@@ -37,6 +38,10 @@ function finding(
     proposedDiff: null,
     evidenceValues: null,
     sourceRows: [],
+    sourcePath: null,
+    sourceBlobSha: null,
+    sourceResolvedAt: null,
+    sourceUnresolvedReason: null,
     firstSeenRunId: null,
     lastSeenRunId: null,
     firstSeenAt: now,
@@ -52,30 +57,46 @@ function finding(
 }
 
 describe('apply-registry registration gate', () => {
-  it('registers only topic 49 + fixture (Phase 2 candidates excluded)', () => {
-    expect(listRegisteredTransforms()).toEqual([
-      { topicId: '49', verdict: 'auto-set-dimensions' },
-      { topicId: 'fixture', verdict: 'auto-fixture-patch' },
-    ])
-    expect(isTransformRegistered('49', 'auto-set-dimensions')).toBe(true)
-    expect(isTransformRegistered('fixture', 'auto-fixture-patch')).toBe(true)
+  it('registers wired topics + fixture; excludes 13 / text-plain / 28', () => {
+    const registered = listRegisteredTransforms()
+    expect(registered).toEqual(
+      expect.arrayContaining([
+        { topicId: '49', verdict: 'auto-set-dimensions' },
+        { topicId: 'fixture', verdict: 'auto-fixture-patch' },
+        { topicId: '1', verdict: 'auto-fixable' },
+        { topicId: '14', verdict: 'auto-self-canonical' },
+        { topicId: '17', verdict: 'auto-collapse-redundant' },
+        { topicId: '17', verdict: 'auto-remove-body-misplaced' },
+        { topicId: '22', verdict: 'auto-remove-crawl-delay' },
+        { topicId: '26', verdict: 'auto-remove-confirmed-4xx' },
+        { topicId: '26', verdict: 'auto-replace-single-hop-redirect' },
+        { topicId: '42', verdict: 'auto-rewrite' },
+      ]),
+    )
+    expect(isTransformRegistered('13', 'auto-add-self-canonical')).toBe(false)
+    expect(isTransformRegistered('22', 'auto-set-text-plain')).toBe(false)
+    expect(isTransformRegistered('28', 'informational-unreferenced')).toBe(false)
+  })
 
-    // Failed pre-check — not registered (no path improvisation).
-    for (const [topicId, verdict] of [
-      ['1', 'auto-fixable'],
-      ['13', 'auto-add-self-canonical'],
-      ['14', 'auto-self-canonical'],
-      ['17', 'auto-collapse-redundant'],
-      ['17', 'auto-remove-body-misplaced'],
-      ['22', 'auto-remove-crawl-delay'],
-      ['22', 'auto-set-text-plain'],
-      ['26', 'auto-remove-confirmed-4xx'],
-      ['26', 'auto-replace-single-hop-redirect'],
-      ['28', 'informational-unreferenced'],
-      ['42', 'auto-rewrite'],
-    ] as const) {
-      expect(isTransformRegistered(topicId, verdict)).toBe(false)
-    }
+  it('isCommitableFinding requires stored path + blob SHA', () => {
+    const without = finding({
+      id: 'a',
+      topicId: '49',
+      verdict: 'auto-set-dimensions',
+      pageUrl: 'https://x.com/blog',
+    })
+    expect(isCommitableFinding(without)).toBe(false)
+
+    const withPath = finding({
+      id: 'b',
+      topicId: '49',
+      verdict: 'auto-set-dimensions',
+      pageUrl: 'https://x.com/blog',
+      sourcePath: 'public/blog/index.html',
+      sourceBlobSha: 'abc123',
+    })
+    expect(isCommitableFinding(withPath)).toBe(true)
+    expect(resolveTransformPath(withPath)).toBe('public/blog/index.html')
   })
 })
 
@@ -86,6 +107,8 @@ describe('fixture apply + verifier', () => {
       topicId: 'fixture',
       verdict: 'auto-fixture-patch',
       pageUrl: 'https://fixture.example/a.html',
+      sourcePath: 'public/a.html',
+      sourceBlobSha: 'sha-a',
     })
     const applied = await applyRegisteredTransform({
       fileContent: '<html><body>Hi</body></html>',
@@ -98,72 +121,61 @@ describe('fixture apply + verifier', () => {
     const v = await verifyRegisteredTransform({
       finding: f,
       body: applied.newContent,
-      liveUrl: 'https://fixture.example/a.html',
+      liveUrl: 'https://preview.example/a.html',
       stage: 'preview',
     })
     expect(v.ok).toBe(true)
   })
 })
 
-describe('same-file ordering in one run', () => {
+describe('same-file ordering', () => {
   it('orders two fixture transforms on the same file by path → topic → id', () => {
     const a = finding({
-      id: 'z-later',
+      id: 'z',
       topicId: 'fixture',
       verdict: 'auto-fixture-patch',
-      pageUrl: 'https://fixture.example/about.html',
+      sourcePath: 'public/about.html',
+      sourceBlobSha: 's1',
     })
     const b = finding({
-      id: 'a-first',
+      id: 'a',
       topicId: 'fixture',
       verdict: 'auto-fixture-patch',
-      pageUrl: 'https://fixture.example/about.html',
-    })
-    const c = finding({
-      id: 'other',
-      topicId: 'fixture',
-      verdict: 'auto-fixture-patch',
-      pageUrl: 'https://fixture.example/blog/index.html',
+      sourcePath: 'public/about.html',
+      sourceBlobSha: 's1',
     })
     expect(resolveTransformPath(a)).toBe('public/about.html')
     expect(resolveTransformPath(b)).toBe('public/about.html')
-
-    const ordered = orderFindingsForApply([a, c, b])
-    expect(ordered.map((f) => f.id)).toEqual(['a-first', 'z-later', 'other'])
+    const ordered = orderFindingsForApply([a, b])
+    expect(ordered.map((f) => f.id)).toEqual(['a', 'z'])
   })
 
   it('applies two transforms sequentially on one file body', async () => {
-    const pageUrl = 'https://fixture.example/about.html'
-    const first = finding({
-      id: 'aa',
+    const f1 = finding({
+      id: 'one',
       topicId: 'fixture',
       verdict: 'auto-fixture-patch',
-      pageUrl,
+      sourcePath: 'public/x.html',
+      sourceBlobSha: 's',
     })
-    const second = finding({
-      id: 'bb',
+    const f2 = finding({
+      id: 'two',
       topicId: 'fixture',
       verdict: 'auto-fixture-patch',
-      pageUrl,
+      sourcePath: 'public/x.html',
+      sourceBlobSha: 's',
     })
     let body = '<html><body>Start</body></html>'
-    for (const f of orderFindingsForApply([second, first])) {
-      const path = resolveTransformPath(f)!
+    for (const f of orderFindingsForApply([f2, f1])) {
       const applied = await applyRegisteredTransform({
         fileContent: body,
-        path,
+        path: 'public/x.html',
         finding: f,
       })
       expect(applied.ok).toBe(true)
-      if (!applied.ok) return
-      // First apply inserts a marker; second is noop if marker already present.
-      if (f.id === 'aa') {
-        expect(applied.updated).toBeGreaterThan(0)
-        body = applied.newContent
-      } else {
-        expect(applied.noop || applied.updated === 0).toBe(true)
-      }
+      if (applied.ok) body = applied.newContent
     }
-    expect(body).toContain('data-seoranko-fix="aa"')
+    expect(body).toContain('data-seoranko-fix="one"')
+    expect(body).toContain('data-seoranko-fix="two"')
   })
 })

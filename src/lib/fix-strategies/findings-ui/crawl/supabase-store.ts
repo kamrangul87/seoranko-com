@@ -104,6 +104,11 @@ function mapFinding(row: Record<string, unknown>): PersistedFindingRow {
     evidenceValues:
       (row.evidence_values as Record<string, unknown> | null) ?? null,
     sourceRows: (row.source_rows as unknown[]) ?? [],
+    sourcePath: (row.source_path as string | null) ?? null,
+    sourceBlobSha: (row.source_blob_sha as string | null) ?? null,
+    sourceResolvedAt: (row.source_resolved_at as string | null) ?? null,
+    sourceUnresolvedReason:
+      (row.source_unresolved_reason as string | null) ?? null,
     firstSeenRunId: (row.first_seen_run_id as string | null) ?? null,
     lastSeenRunId: (row.last_seen_run_id as string | null) ?? null,
     firstSeenAt: String(row.first_seen_at),
@@ -397,6 +402,11 @@ export function createSupabaseFindingsStore(
             proposed_diff: f.proposedDiff,
             evidence_values: f.evidenceValues,
             source_rows: f.sourceRows,
+            // Clear stale resolution — resolve_sources re-fills after upsert.
+            source_path: null,
+            source_blob_sha: null,
+            source_resolved_at: null,
+            source_unresolved_reason: null,
             detect_origin: originNorm,
             last_seen_run_id: runId,
             last_seen_at: now,
@@ -692,6 +702,26 @@ export function createSupabaseFindingsStore(
         .maybeSingle()
       if (error) throw new Error(error.message)
       return data ? mapFinding(data as Record<string, unknown>) : null
+    },
+
+    async updateFindingSourceResolution(input) {
+      const patch: Record<string, unknown> = {
+        source_path: input.sourcePath,
+        source_blob_sha: input.sourceBlobSha,
+        source_resolved_at: input.sourceResolvedAt,
+        source_unresolved_reason: input.sourceUnresolvedReason,
+        updated_at: new Date().toISOString(),
+      }
+      if (input.autoFixable !== undefined) patch.auto_fixable = input.autoFixable
+      if (input.surfaceClass !== undefined) patch.surface_class = input.surfaceClass
+      if (input.evidenceValues !== undefined) {
+        patch.evidence_values = input.evidenceValues
+      }
+      const { error } = await db()
+        .from('fix_strategies_findings')
+        .update(patch)
+        .eq('id', input.findingId)
+      if (error) throw new Error(error.message)
     },
 
     async listEvidenceForFinding(findingId) {

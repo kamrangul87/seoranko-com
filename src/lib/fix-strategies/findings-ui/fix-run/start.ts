@@ -63,6 +63,21 @@ export async function startFixRun(input: {
     return { ok: true, run: active }
   }
 
+  // Re-resolve when tip blob SHA changed before selecting apply targets.
+  try {
+    const { resolveSourcesAtRunStart } = await import('./resolve-sources-hook')
+    await resolveSourcesAtRunStart({
+      siteId: input.siteId,
+      userId: input.userId,
+      creds: input.creds ?? null,
+    })
+  } catch (err) {
+    console.info('[fix-run] source re-resolve at start failed', {
+      siteId: input.siteId,
+      detail: err instanceof Error ? err.message : String(err),
+    })
+  }
+
   const findings = await selectAutoFixableFindings(input.siteId)
   if (findings.length === 0) {
     return {

@@ -65,7 +65,7 @@ function fixtureFinding(
     reportOnly: false,
     surfaceClass: 'auto-fixable',
     proposedDiff: null,
-    evidenceValues: null,
+    evidenceValues: { resolveNeedle: '<body' },
     sourceRows: [],
   }
 }
@@ -179,7 +179,23 @@ describe('fix-run fixture acceptance (3 defects → 1 PR)', () => {
       includeInformational: false,
     })
     expect(rows.length).toBe(3)
-    return rows
+    // Gate 2: stored path + blob SHA required before Fix Agent select.
+    for (const row of rows) {
+      const page = row.pageUrl?.split('/').pop() || 'a.html'
+      await store.updateFindingSourceResolution({
+        findingId: row.id,
+        sourcePath: `public/${page}`,
+        sourceBlobSha: `sha-${page}`,
+        sourceResolvedAt: new Date().toISOString(),
+        sourceUnresolvedReason: null,
+        autoFixable: true,
+        surfaceClass: 'auto-fixable',
+      })
+    }
+    return store.listFindings({
+      siteId: 'site-fix',
+      includeInformational: false,
+    })
   }
 
   function buildDeps(repo: ReturnType<typeof createFixtureGithubRepo>): TickDeps {

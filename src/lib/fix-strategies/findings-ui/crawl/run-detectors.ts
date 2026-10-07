@@ -292,6 +292,35 @@ function ingestArray(
       if (typeof item.preferredForm === 'string') applyEv.preferredForm = item.preferredForm
       if (typeof item.collapseTo === 'string') applyEv.collapseTo = item.collapseTo
       if (typeof item.selfCanonical === 'string') applyEv.selfCanonical = item.selfCanonical
+      // Topic 14 — broken canonical href currently in the file (resolution needle).
+      if (typeof item.canonicalUrl === 'string') applyEv.canonicalUrl = item.canonicalUrl
+      // Topic 22 — crawl-delay raw lines for resolveSourceFile.
+      const inspection = item.inspection as
+        | { crawlDelayLines?: Array<{ raw?: string } | string> }
+        | undefined
+      if (inspection?.crawlDelayLines && Array.isArray(inspection.crawlDelayLines)) {
+        applyEv.crawlDelayLines = inspection.crawlDelayLines.map((line) =>
+          typeof line === 'string' ? line : String(line?.raw ?? ''),
+        ).filter(Boolean)
+      }
+      // Topic 17 — body canonical href when collapseTo is absent.
+      const extraction = item.extraction as
+        | { body?: Array<{ href?: string; normalized?: string }> }
+        | undefined
+      if (
+        !applyEv.collapseTo &&
+        extraction?.body &&
+        Array.isArray(extraction.body) &&
+        extraction.body[0]
+      ) {
+        const bodyHref =
+          extraction.body[0].href ?? extraction.body[0].normalized
+        if (typeof bodyHref === 'string' && bodyHref) {
+          applyEv.bodyCanonicalHref = bodyHref
+        }
+      }
+      // Topic 49 — img src for resolution needle.
+      if (typeof item.srcAttr === 'string') applyEv.srcAttr = item.srcAttr
       if (
         topicId === '14' &&
         !applyEv.selfCanonical &&
@@ -1354,14 +1383,18 @@ export function rollupAndClassify(emits: DetectorEmit[]): {
       autoFixable,
       reportOnly,
     })
-    // Only registered transforms surface as auto-fixable (Fix Agent commit path).
+    // Auto-fixable only after resolveSourceFile stores path + blob SHA.
+    // Rollup always demotes; resolve_sources promotes registered+resolved rows.
     let effectiveAutoFixable = autoFixable
-    if (
-      surfaceClass === 'auto-fixable' &&
-      !isTransformRegistered(r.topicId, r.verdict)
-    ) {
-      surfaceClass = 'finding'
-      effectiveAutoFixable = false
+    if (surfaceClass === 'auto-fixable') {
+      if (!isTransformRegistered(r.topicId, r.verdict)) {
+        surfaceClass = 'finding'
+        effectiveAutoFixable = false
+      } else {
+        // Registered but not yet resolved — hold as finding until path+SHA exist.
+        surfaceClass = 'finding'
+        effectiveAutoFixable = false
+      }
     }
     const declarationSite = r.declarationSite
     const rollupKey = [

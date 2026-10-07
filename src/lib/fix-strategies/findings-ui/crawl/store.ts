@@ -140,6 +140,20 @@ export type FindingsStore = {
   }): Promise<PersistedFindingRow[]>
   getFinding(id: string): Promise<PersistedFindingRow | null>
   listEvidenceForFinding(findingId: string): Promise<PersistedEvidenceRow[]>
+  /**
+   * Persist resolveSourceFile result (path + blob SHA or unresolved reason).
+   * Also updates autoFixable / surfaceClass when provided.
+   */
+  updateFindingSourceResolution(input: {
+    findingId: string
+    sourcePath: string | null
+    sourceBlobSha: string | null
+    sourceResolvedAt: string | null
+    sourceUnresolvedReason: string | null
+    autoFixable?: boolean
+    surfaceClass?: string
+    evidenceValues?: Record<string, unknown> | null
+  }): Promise<void>
   counts(input: {
     siteId?: string | null
     detectOrigin?: string | null
@@ -448,6 +462,11 @@ export function createMemoryFindingsStore(): FindingsStore {
             proposedDiff: f.proposedDiff,
             evidenceValues: f.evidenceValues,
             sourceRows: f.sourceRows,
+            // Clear stale resolution — resolve_sources re-fills after upsert.
+            sourcePath: null,
+            sourceBlobSha: null,
+            sourceResolvedAt: null,
+            sourceUnresolvedReason: null,
             detectOrigin: originNorm,
             lastSeenRunId: runId,
             lastSeenAt: now,
@@ -486,6 +505,10 @@ export function createMemoryFindingsStore(): FindingsStore {
             proposedDiff: f.proposedDiff,
             evidenceValues: f.evidenceValues,
             sourceRows: f.sourceRows,
+            sourcePath: null,
+            sourceBlobSha: null,
+            sourceResolvedAt: null,
+            sourceUnresolvedReason: null,
             firstSeenRunId: runId,
             lastSeenRunId: runId,
             firstSeenAt: now,
@@ -675,6 +698,28 @@ export function createMemoryFindingsStore(): FindingsStore {
         if (f.id === id) return f
       }
       return null
+    },
+
+    async updateFindingSourceResolution(input) {
+      for (const [key, f] of state().findings.entries()) {
+        if (f.id !== input.findingId) continue
+        state().findings.set(key, {
+          ...f,
+          sourcePath: input.sourcePath,
+          sourceBlobSha: input.sourceBlobSha,
+          sourceResolvedAt: input.sourceResolvedAt,
+          sourceUnresolvedReason: input.sourceUnresolvedReason,
+          autoFixable:
+            input.autoFixable !== undefined ? input.autoFixable : f.autoFixable,
+          surfaceClass:
+            input.surfaceClass !== undefined ? input.surfaceClass : f.surfaceClass,
+          evidenceValues:
+            input.evidenceValues !== undefined
+              ? input.evidenceValues
+              : f.evidenceValues,
+        })
+        return
+      }
     },
 
     async listEvidenceForFinding(findingId) {

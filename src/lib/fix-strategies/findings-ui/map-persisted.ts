@@ -112,6 +112,11 @@ export function persistedToUiFinding(
       autoFixable: row.autoFixable,
       reportOnly: row.reportOnly,
       surfaceClass,
+      sourceUnresolvedReason: row.sourceUnresolvedReason,
+      sourceUnresolvedWhy:
+        typeof row.evidenceValues?.sourceUnresolvedWhy === 'string'
+          ? row.evidenceValues.sourceUnresolvedWhy
+          : null,
     }),
     status: row.status,
     resolvedAt: row.resolvedAt,
