@@ -1,28 +1,29 @@
 # seoranko-fixture-site
 
-Minimal **static** site used to exercise Fix Agent deterministic transforms
-end-to-end (detect → apply → verify). Host name in loc/canonical strings is
-`https://fixture.example` — rewrite to the deployed origin when hosting.
+Minimal **static** site for Fix Agent exercises. Host name in loc/canonical
+strings is `https://fixture.example` — rewrite to the deployed origin when hosting.
 
-## Seeded defects (one per wired topic)
+## Wired today (passes Phase 2 pre-checks)
 
 | Topic | Seeded defect | Expected finding (verdict) | File |
 |------:|---------------|----------------------------|------|
-| 1 | `<a href="/gone.html">` on home — target 404 | `auto-fixable` (remove-anchor) | `index.html` |
-| 13 | (optional) about page without preferred canonical when duplicates proven | `auto-add-self-canonical` | `about.html` |
-| 14 | About page canonical points at `/dead-canonical.html` (404) | `auto-self-canonical` | `about.html` |
-| 17 | Home has two identical `<link rel="canonical">` tags | `auto-collapse-redundant` | `index.html` |
-| 22 | `Crawl-delay: 10` in robots.txt | `auto-remove-crawl-delay` | `robots.txt` |
-| 26 | Sitemap lists `/gone.html` (4xx) | `auto-remove-confirmed-4xx` | `sitemap.xml` |
-| 26 | Sitemap lists `/old-blog` (301 → `/blog/`) | `auto-replace-single-hop-redirect` | `sitemap.xml` |
-| 42 | Home links to `/old-blog` which 301s to `/blog/` | `auto-rewrite` | `index.html` |
 | 49 | Blog img `/images/hero.jpg` has no width/height | `auto-set-dimensions` | `blog/index.html` |
 
-## Deliberately not seeded
+## Seeded but NOT wired (failed Phase 2 pre-check — exact repo file target not on emit)
 
-- **Topic 28** (`informational-unreferenced`) — informational by design; not Fix Agent auto-fixable.
-- **Topic 22 `auto-set-text-plain`** — config/header edit; not registered in this wire-up.
-- **Topic 17 `human-review-conflicting`**, **topic 42 `human-review-shared-nav`**, and other human-review verdicts.
+These defects remain in the tree for a future wire-up once detectors persist
+an exact editable path (no guessing). They must **not** surface as Fix Agent
+auto-fixable until registered.
+
+| Topic | Seeded defect | Would-be verdict | File | Pre-check failure |
+|------:|---------------|------------------|------|-------------------|
+| 1 | `<a href="/gone.html">` on home | `auto-fixable` | `index.html` | No exact file target on emit |
+| 13/14 | About canonical → dead URL / absent preferred | `auto-self-canonical` / `auto-add-self-canonical` | `about.html` | No exact file; crawl hardcodes `duplicatesProven: false` for 13 |
+| 17 | Duplicate identical canonicals on home | `auto-collapse-redundant` | `index.html` | No exact file target on emit |
+| 22 | `Crawl-delay: 10` | `auto-remove-crawl-delay` | `robots.txt` | No exact file target on emit |
+| 26 | Sitemap lists `/gone.html` and `/old-blog` | remove / replace | `sitemap.xml` | Live crawl forces generated+unknown generator; no repo path |
+| 28 | (informational) | `informational-unreferenced` | — | Informational by design; no verifier |
+| 42 | Link to `/old-blog` (301 → `/blog/`) | `auto-rewrite` | `index.html` | Crawl omits `repoRoot`; declaration file null |
 
 ## Layout
 
@@ -35,9 +36,3 @@ sitemap.xml
 robots.txt
 vercel.json   # permanent redirect /old-blog → /blog/
 ```
-
-## Expected Fix Agent path
-
-Static HTML + `public/`-style paths when imported into a customer repo
-(`public/index.html`, `public/sitemap.xml`, `public/robots.txt`, …).
-JSX/TSX and generated `app/sitemap.ts` are out of scope for these transforms.
