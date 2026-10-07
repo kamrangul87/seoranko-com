@@ -12,7 +12,9 @@ export function classifyVerdictBucket(verdict: string): FindingBucket {
     verdict === 'ok' ||
     verdict.startsWith('ok-') ||
     verdict.startsWith('ok/') ||
-    verdict.startsWith('route-')
+    verdict.startsWith('route-') ||
+    // Transport-unreachable peer (TLS/DNS) — evidence only, not a finding.
+    verdict === 'variant-not-reachable'
   ) {
     return 'internal'
   }

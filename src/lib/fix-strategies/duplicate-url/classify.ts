@@ -10,6 +10,10 @@ export type DuplicateUrlVerdict =
   | 'suppress-different-content'
   | 'suppress-site-root'
   | 'suppress-not-applicable'
+  /** Variant host/protocol unreachable (TLS/DNS/timeout) — not a site finding. */
+  | 'variant-not-reachable'
+  /** www probe skipped — host is under a platform public suffix. */
+  | 'suppress-platform-www-skip'
   | 'suppress-paginated'
   | 'finding-duplicate'
   | 'auto-redirect'

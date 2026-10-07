@@ -186,7 +186,7 @@ describe('crawl stall guards', () => {
     expect(after?.urlsCrawled).toBe(3)
   })
 
-  it('topic-10 www peer TLS/network failure does not throw', async () => {
+  it('topic-10 www peer TLS failure records variant-not-reachable (not a finding)', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const u = new URL(String(input))
       if (u.hostname.startsWith('www.')) {
@@ -200,6 +200,20 @@ describe('crawl stall guards', () => {
       })
     })
     const result = await detectWwwNonWwwDuplicates(
+      [{ url: 'https://example.com/blog/', body: '<html><body>ok</body></html>' }],
+      { deps: { fetch: fetchMock as unknown as typeof fetch } },
+    )
+    expect(
+      result.suppressed.some((s) => s.verdict === 'variant-not-reachable'),
+    ).toBe(true)
+    expect(result.findings).toHaveLength(0)
+  })
+
+  it('skips www probe on platform public-suffix hosts (vercel.app)', async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error('should not fetch www on platform host')
+    })
+    const result = await detectWwwNonWwwDuplicates(
       [
         {
           url: 'https://seoranko-fixture.vercel.app/blog/',
@@ -209,8 +223,111 @@ describe('crawl stall guards', () => {
       { deps: { fetch: fetchMock as unknown as typeof fetch } },
     )
     expect(
-      result.suppressed.some((s) => s.verdict === 'suppress-not-applicable'),
+      result.suppressed.some((s) => s.verdict === 'suppress-platform-www-skip'),
     ).toBe(true)
-    expect(result.findings).toHaveLength(0)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('crawl completes all pages when www variant throws TLS', async () => {
+    const { processCrawlTick } = await import('./orchestrator')
+    const store = createMemoryFindingsStore()
+    const run = await store.createRun({
+      siteId: 'site-www-tls',
+      userId: 'u',
+      origin: 'https://example.com',
+    })
+    const urls = [
+      'https://example.com/',
+      'https://example.com/about.html',
+      'https://example.com/blog/',
+      'https://example.com/gone.html',
+      'https://example.com/old-blog',
+    ]
+    await store.enqueueUrls(run.id, urls)
+
+    // Restore real runDetectors for this test — mock throws TLS on www.
+    vi.doUnmock('./run-detectors')
+    crawlOneUrlMock.mockImplementation(async (url: string) => {
+      const u = String(url)
+      if (u.endsWith('/gone.html')) {
+        return {
+          ...okPage(u),
+          status: 404,
+          errorDetail: 'http_404',
+        }
+      }
+      if (u.endsWith('/old-blog')) {
+        return {
+          ...okPage(u),
+          status: 308,
+          finalUrl: u,
+        }
+      }
+      return okPage(u)
+    })
+
+    // Inject a fetch that throws TLS on www into makeGapFetchDeps path by
+    // stubbing global fetch for detector peer probes only.
+    const prevFetch = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u = new URL(String(input))
+      if (u.hostname.startsWith('www.')) {
+        throw Object.assign(new TypeError('fetch failed'), {
+          cause: { code: 'ERR_TLS_CERT_ALTNAME_INVALID' },
+        })
+      }
+      // Detectors may re-fetch page URLs — serve minimal HTML.
+      return new Response('<html><body><h1>ok</h1></body></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+        ...init,
+      })
+    }) as typeof fetch
+
+    try {
+      // run-detectors is mocked at module level — call processCrawlTick with
+      // mocked crawlOneUrl; detectors mock returns []. Simulate the production
+      // path by also invoking detectWwwNonWwwDuplicates mid-tick style:
+      const { detectWwwNonWwwDuplicates: detectWww } = await import(
+        '@/lib/fix-strategies/topic-10'
+      )
+      const www = await detectWww(
+        urls
+          .filter((u) => !u.endsWith('/gone.html'))
+          .map((u) => ({
+            url: u,
+            body: '<html><body><h1>ok</h1></body></html>',
+          })),
+        {
+          deps: {
+            fetch: globalThis.fetch,
+          },
+        },
+      )
+      expect(www.findings).toHaveLength(0)
+      expect(
+        www.suppressed.every(
+          (s) =>
+            s.verdict === 'variant-not-reachable' ||
+            s.verdict === 'suppress-not-applicable' ||
+            s.verdict === 'ok-already-normalises',
+        ),
+      ).toBe(true)
+
+      await processCrawlTick(run.id, {
+        store,
+        chunkSize: 5,
+        deadlineMs: 10_000,
+        stepTimeoutMs: 2_000,
+      })
+      const jobs = await store.listJobsForRun(run.id)
+      expect(jobs).toHaveLength(5)
+      expect(jobs.every((j) => j.status !== 'queued')).toBe(true)
+      expect(jobs.every((j) => j.status !== 'running')).toBe(true)
+      const after = await store.getRun(run.id)
+      expect((after?.urlsCrawled ?? 0) + (after?.urlsFailed ?? 0)).toBe(5)
+    } finally {
+      globalThis.fetch = prevFetch
+    }
   })
 })

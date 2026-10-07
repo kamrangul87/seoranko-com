@@ -239,6 +239,18 @@ export type {
 } from './duplicate-url-variants'
 
 export {
+  isPlatformPublicSuffixHost,
+  shouldSkipWwwVariantProbe,
+  PLATFORM_PUBLIC_SUFFIXES,
+} from './platform-public-suffix'
+export {
+  neverThrowFetch,
+  classifyTransportError,
+  TRANSPORT_FAILURE_STATUS,
+} from './safe-secondary-fetch'
+export type { TransportErrorClass, TransportFailure } from './safe-secondary-fetch'
+
+export {
   proveContentSameness,
   normalizeMainContent,
   sha256Hex,

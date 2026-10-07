@@ -9,11 +9,18 @@
  */
 
 import { normalizeFixStrategyUrl } from './url-normalize'
+import {
+  classifyTransportError,
+  transportFailureFromResponse,
+  type TransportFailure,
+} from './safe-secondary-fetch'
 
 export type RedirectHop = {
   url: string
   status: number
   location: string | null
+  /** Set when this hop failed at the transport layer (TLS/DNS/…). */
+  transport?: TransportFailure | null
 }
 
 export type HopStoppedReason =
@@ -21,6 +28,7 @@ export type HopStoppedReason =
   | 'repeat-url'
   | 'max-hops'
   | 'missing-location'
+  | 'transport-error'
 
 export type HopRecordingResult = {
   hops: RedirectHop[]
@@ -36,6 +44,8 @@ export type HopRecordingResult = {
    * Uses the same key the visited-set comparison uses.
    */
   visitedNormalized: string[]
+  /** Present when stoppedReason is transport-error. */
+  transportError?: TransportFailure | null
 }
 
 export type HopRecordingDeps = {
@@ -99,10 +109,58 @@ export async function recordRedirectHops(
     visited.add(currentKey)
     visitedNormalized.push(currentKey)
 
-    const response = await deps.fetch(currentUrl, {
-      method: 'GET',
-      redirect: 'manual',
-    })
+    let response: Response
+    try {
+      response = await deps.fetch(currentUrl, {
+        method: 'GET',
+        redirect: 'manual',
+        signal: AbortSignal.timeout(8_000),
+      })
+    } catch (err) {
+      const transport = classifyTransportError(err)
+      hops.push({
+        url: currentUrl,
+        status: 0,
+        location: null,
+        transport,
+      })
+      finalUrl = currentUrl
+      finalStatus = 0
+      stoppedReason = 'transport-error'
+      return {
+        hops,
+        finalUrl,
+        finalStatus,
+        stoppedReason,
+        finalBody: '',
+        finalHeaders,
+        visitedNormalized,
+        transportError: transport,
+      }
+    }
+
+    const transportHdr = transportFailureFromResponse(response)
+    if (transportHdr) {
+      hops.push({
+        url: currentUrl,
+        status: 0,
+        location: null,
+        transport: transportHdr,
+      })
+      finalUrl = currentUrl
+      finalStatus = 0
+      stoppedReason = 'transport-error'
+      return {
+        hops,
+        finalUrl,
+        finalStatus,
+        stoppedReason,
+        finalBody: '',
+        finalHeaders,
+        visitedNormalized,
+        transportError: transportHdr,
+      }
+    }
 
     const rawLocation = response.headers.get('location')
     const location =
