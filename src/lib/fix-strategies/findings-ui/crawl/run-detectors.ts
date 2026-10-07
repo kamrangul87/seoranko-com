@@ -89,6 +89,7 @@ import {
   POST_CRAWL_TOPIC_IDS,
 } from '@/lib/fix-strategies/detector-scope'
 import { classifyVerdictBucket, classifySurfaceClass } from '../buckets'
+import { isTransformRegistered } from '../fix-run/apply-registry'
 import { sourcesForDossier } from '../sources'
 import { dossierSlugForTopic } from '../topic-registry'
 import type { CrawledPage } from './fetch-page'
@@ -281,6 +282,40 @@ function ingestArray(
                 renderRequired: item.renderRequired ?? false,
               }
             : null
+
+      // Persist deterministic apply parameters for Fix Agent transforms.
+      const applyEv: Record<string, unknown> = { ...(evidenceValues ?? {}) }
+      if (typeof item.href === 'string') applyEv.href = item.href
+      if (typeof item.rewriteHref === 'string') applyEv.rewriteHref = item.rewriteHref
+      if (typeof item.loc === 'string') applyEv.loc = item.loc
+      if (typeof item.replaceWith === 'string') applyEv.replaceWith = item.replaceWith
+      if (typeof item.preferredForm === 'string') applyEv.preferredForm = item.preferredForm
+      if (typeof item.collapseTo === 'string') applyEv.collapseTo = item.collapseTo
+      if (typeof item.selfCanonical === 'string') applyEv.selfCanonical = item.selfCanonical
+      if (
+        topicId === '14' &&
+        !applyEv.selfCanonical &&
+        typeof pageUrl === 'string' &&
+        pageUrl
+      ) {
+        applyEv.selfCanonical = pageUrl
+      }
+      if (
+        topicId === '26' &&
+        !applyEv.loc &&
+        typeof pageUrl === 'string' &&
+        pageUrl
+      ) {
+        applyEv.loc = pageUrl
+      }
+      if (
+        topicId === '1' &&
+        !applyEv.href &&
+        typeof item.targetUrl === 'string'
+      ) {
+        applyEv.href = item.targetUrl
+      }
+      if (Object.keys(applyEv).length > 0) evidenceValues = applyEv
 
       // Human-review / finding rows: always surface a decision summary even
       // when there is no mechanical patch.
@@ -1315,10 +1350,19 @@ export function rollupAndClassify(emits: DetectorEmit[]): {
     const reportOnly =
       bucket === 'informational' ||
       (!autoFixable && !r.verdict.startsWith('auto-'))
-    const surfaceClass = classifySurfaceClass(r.verdict, {
+    let surfaceClass = classifySurfaceClass(r.verdict, {
       autoFixable,
       reportOnly,
     })
+    // Only registered transforms surface as auto-fixable (Fix Agent commit path).
+    let effectiveAutoFixable = autoFixable
+    if (
+      surfaceClass === 'auto-fixable' &&
+      !isTransformRegistered(r.topicId, r.verdict)
+    ) {
+      surfaceClass = 'finding'
+      effectiveAutoFixable = false
+    }
     const declarationSite = r.declarationSite
     const rollupKey = [
       r.topicId,
@@ -1350,7 +1394,7 @@ export function rollupAndClassify(emits: DetectorEmit[]): {
       affectedUrlCount: r.affectedUrlCount,
       rolledUp: r.rolledUp,
       bucket,
-      autoFixable,
+      autoFixable: effectiveAutoFixable,
       reportOnly,
       surfaceClass,
       proposedDiff:

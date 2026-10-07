@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>SEORANKO fixture site</title>
+    <!-- Topic 17: redundant duplicate canonical (same target twice) -->
+    <link rel="canonical" href="https://fixture.example/" />
+    <link rel="canonical" href="https://fixture.example/" />
+  </head>
+  <body>
+    <h1>Fixture home</h1>
+    <p>
+      <a href="/about.html">About</a>
+      <!-- Topic 42: link through a redirect hop (/old-blog → /blog/) -->
+      <a href="/old-blog">Old blog path</a>
+      <!-- Topic 1: dead internal anchor (target returns 404) -->
+      <a href="/gone.html">Missing page</a>
+    </p>
+  </body>
+</html>

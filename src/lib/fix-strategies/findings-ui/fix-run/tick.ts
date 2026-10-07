@@ -7,6 +7,8 @@ import type { PersistedFindingRow } from '../crawl/constants'
 import {
   applyRegisteredTransform,
   resolveTransformPath,
+  resolveVerifyUrl,
+  verifyRegisteredTransform,
 } from './apply-registry'
 import {
   allRemainingPreviewVerified,
@@ -97,31 +99,23 @@ function productionPageUrl(origin: string, pageUrl: string | null): string {
 }
 
 /**
- * Topic-49 / fixture live check: body must include evidence of the fix.
+ * Registry preview/production check against a re-fetched body.
  * Never mark verified without a successful re-fetch (caller must fetch first).
  */
-function verifyBodyForFinding(
+async function verifyBodyForFinding(
   finding: PersistedFindingRow,
   body: string,
-): { ok: boolean; detail: string } {
-  if (finding.topicId === 'fixture' && finding.verdict === 'auto-fixture-patch') {
-    const needle = `data-seoranko-fix="${finding.id}"`
-    if (body.includes(needle) || body.includes('data-seoranko-fix')) {
-      return { ok: true, detail: 'Fixture marker present in fetched body' }
-    }
-    return { ok: false, detail: 'Fixture marker missing in fetched body' }
-  }
-  if (finding.topicId === '49' && finding.verdict === 'auto-set-dimensions') {
-    // Deterministic: require at least one img with both width and height attrs
-    if (/<img\b[^>]*\bwidth\s*=\s*["']?\d+[^>]*\bheight\s*=\s*["']?\d+/i.test(body)) {
-      return { ok: true, detail: 'img width+height present in fetched body' }
-    }
-    if (/<img\b[^>]*\bheight\s*=\s*["']?\d+[^>]*\bwidth\s*=\s*["']?\d+/i.test(body)) {
-      return { ok: true, detail: 'img height+width present in fetched body' }
-    }
-    return { ok: false, detail: 'Fetched body missing img dimensions' }
-  }
-  return { ok: false, detail: `No verifier for ${finding.topicId}/${finding.verdict}` }
+  liveUrl: string,
+  stage: 'preview' | 'production',
+  fetchImpl?: typeof fetch,
+): Promise<{ ok: boolean; detail: string }> {
+  return verifyRegisteredTransform({
+    finding,
+    body,
+    liveUrl,
+    stage,
+    fetchImpl,
+  })
 }
 
 export async function tickFixRun(input: {
@@ -440,8 +434,9 @@ export async function tickFixRun(input: {
       return { run: toPublic(run), advanced, detail }
     }
 
-    const url = previewPageUrl(run.previewUrl, finding.pageUrl)
-    // Prefer fixture path content when preview maps by path
+    const url =
+      resolveVerifyUrl(finding, run.previewUrl) ||
+      previewPageUrl(run.previewUrl, finding.pageUrl)
     let body = ''
     let fetchOk = false
     if (next.path && input.deps.fetchPage) {
@@ -469,7 +464,18 @@ export async function tickFixRun(input: {
       return { run: toPublic(run), advanced, detail }
     }
 
-    const verified = verifyBodyForFinding(finding, body)
+    const verified = await verifyBodyForFinding(
+      finding,
+      body,
+      url,
+      'preview',
+      input.deps.fetchPage
+        ? (async (u: RequestInfo | URL) => {
+            const r = await input.deps.fetchPage(String(u))
+            return new Response(r.body, { status: r.status })
+          }) as typeof fetch
+        : undefined,
+    )
     const idx = run.items.findIndex((i) => i.id === next.id)
     if (!verified.ok) {
       run.items[idx] = markItemFailed(next, verified.detail, now)
@@ -618,7 +624,9 @@ export async function tickFixRun(input: {
       return { run: toPublic(run), advanced, detail: 'finding missing' }
     }
 
-    const url = productionPageUrl(input.deps.siteOrigin, finding.pageUrl)
+    const url =
+      resolveVerifyUrl(finding, input.deps.siteOrigin) ||
+      productionPageUrl(input.deps.siteOrigin, finding.pageUrl)
     const fetched = await input.deps.fetchPage(url)
     if (!fetched.ok) {
       const idx = run.items.findIndex((i) => i.id === next.id)
@@ -633,7 +641,16 @@ export async function tickFixRun(input: {
       return { run: toPublic(run), advanced, detail }
     }
 
-    const verified = verifyBodyForFinding(finding, fetched.body)
+    const verified = await verifyBodyForFinding(
+      finding,
+      fetched.body,
+      url,
+      'production',
+      (async (u: RequestInfo | URL) => {
+        const r = await input.deps.fetchPage(String(u))
+        return new Response(r.body, { status: r.status })
+      }) as typeof fetch,
+    )
     const idx = run.items.findIndex((i) => i.id === next.id)
     if (!verified.ok) {
       run.items[idx] = markItemFailed(next, verified.detail, now)

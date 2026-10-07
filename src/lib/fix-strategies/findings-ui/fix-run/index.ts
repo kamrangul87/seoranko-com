@@ -22,9 +22,13 @@ export {
 
 export {
   isCommitableFinding,
+  isTransformRegistered,
+  listRegisteredTransforms,
   orderFindingsForApply,
   applyRegisteredTransform,
   resolveTransformPath,
+  resolveVerifyUrl,
+  verifyRegisteredTransform,
 } from './apply-registry'
 
 export {
