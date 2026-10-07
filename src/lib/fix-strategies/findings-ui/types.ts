@@ -161,6 +161,11 @@ export type FindingsListResponse = {
   crawledAt: string | null
   demo: boolean
   siteId: string | null
+  /**
+   * Master account only — one-run "Fix my site" batch. Non-masters keep
+   * per-finding fix flow; run routes return 403.
+   */
+  canRunFixAgent?: boolean
   crawl: {
     runId: string | null
     status: string | null

@@ -289,10 +289,16 @@ export async function advancePostCrawlPhases(
       }
 
       if (phase === 'rollup') {
-        // Caller performs list+rollup+upsert; we only signal.
+        // Caller performs list+rollup+upsert; then resolve_sources.
         didRollup = true
-        phase = 'done'
+        phase = 'resolve_sources'
         cursor = {}
+        didWork = true
+        break
+      }
+
+      if (phase === 'resolve_sources') {
+        // Caller runs resolveFindingSourcesForSite after upsert, then marks done.
         didWork = true
         break
       }
@@ -1006,9 +1012,15 @@ export async function collectAllPostCrawlEmits(
     cursor = adv.cursor
     sitemapInspection = adv.sitemapInspection
     linkGraph = adv.linkGraph
-    if (adv.complete || adv.didRollup || phase === 'done' || phase === 'rollup') {
-      // Drain rollup signal without needing a store — just finish detector phases.
-      if (phase === 'rollup') {
+    if (
+      adv.complete ||
+      adv.didRollup ||
+      phase === 'done' ||
+      phase === 'rollup' ||
+      phase === 'resolve_sources'
+    ) {
+      // Drain rollup/resolve signal without needing a store — detector phases done.
+      if (phase === 'rollup' || phase === 'resolve_sources') {
         phase = 'done'
       }
       break

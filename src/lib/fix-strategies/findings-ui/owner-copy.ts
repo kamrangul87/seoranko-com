@@ -442,9 +442,30 @@ export function whyFindingNotAutoFixed(opts: {
   autoFixable: boolean
   reportOnly: boolean
   surfaceClass: string
+  /** From resolveSourceFile when path+SHA could not be stored. */
+  sourceUnresolvedReason?: string | null
+  /** Plain-English sentence stored on evidenceValues.sourceUnresolvedWhy. */
+  sourceUnresolvedWhy?: string | null
 }): string | null {
   if (opts.autoFixable && !opts.reportOnly && opts.surfaceClass === 'auto-fixable') {
     return null
+  }
+  if (opts.sourceUnresolvedWhy) {
+    return opts.sourceUnresolvedWhy
+  }
+  if (opts.sourceUnresolvedReason) {
+    switch (opts.sourceUnresolvedReason) {
+      case 'no-static-file':
+        return 'No matching static file in the connected repo — this page is likely framework-rendered or generated, so SEORANKO will not edit it automatically.'
+      case 'multiple-candidates':
+        return 'More than one static file could match this URL, so SEORANKO will not guess which file to edit.'
+      case 'evidence-not-found':
+        return 'The expected evidence string was not found in the candidate file, so SEORANKO will not apply a fix automatically.'
+      case 'evidence-ambiguous':
+        return 'The evidence string appears an unexpected number of times in the file, so SEORANKO will not apply a fix automatically.'
+      default:
+        break
+    }
   }
   if (opts.surfaceClass === 'human-review') {
     return 'SEORANKO will not apply this automatically — it needs your judgment.'

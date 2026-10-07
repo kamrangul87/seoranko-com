@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+# Topic 22: crawl-delay is ignored by Google and safe to remove
+Crawl-delay: 10
+Disallow:

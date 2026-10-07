@@ -1,9 +1,10 @@
 /**
- * Live verify after deploy — calls each topic's verify-live module against
- * the served HTML. Never stub-passes.
+ * Live verify after deploy — calls each topic's registry verifier against
+ * the served response. Never stub-passes.
  */
 
-import { verifyLiveImgDimensions } from '@/lib/fix-strategies/topic-49/verify-live-dimensions'
+import type { PersistedFindingRow } from '../crawl/constants'
+import { verifyRegisteredTransform } from '../fix-run/apply-registry'
 
 export type LiveVerifyResult = {
   ok: boolean
@@ -16,6 +17,12 @@ export async function verifyFindingLive(input: {
   /** URL to fetch (preview or production). */
   liveUrl: string
   fetchImpl?: typeof fetch
+  /** Optional finding row for registry verifiers that need evidence. */
+  finding?: Pick<
+    PersistedFindingRow,
+    'id' | 'topicId' | 'verdict' | 'pageUrl' | 'evidenceValues' | 'kind'
+  >
+  verdict?: string
 }): Promise<LiveVerifyResult> {
   const fetchImpl = input.fetchImpl ?? fetch
   const liveUrl = input.liveUrl
@@ -62,23 +69,47 @@ export async function verifyFindingLive(input: {
     }
   }
 
-  if (input.topicId === '49') {
-    const v = await verifyLiveImgDimensions(html, liveUrl, fetchImpl)
+  const verdict = input.finding?.verdict ?? input.verdict ?? ''
+  const finding = (input.finding ?? {
+    id: 'live-verify',
+    topicId: input.topicId,
+    verdict,
+    pageUrl: liveUrl,
+    evidenceValues: null,
+    kind: `topic/${input.topicId}`,
+  }) as PersistedFindingRow
+
+  if (!verdict && !input.finding) {
+    // Backward-compatible topic-49-only path used by commitFix tests.
+    if (input.topicId === '49') {
+      const stub = {
+        ...finding,
+        verdict: 'auto-set-dimensions',
+      } as PersistedFindingRow
+      const v = await verifyRegisteredTransform({
+        finding: stub,
+        body: html,
+        liveUrl,
+        stage: 'production',
+        fetchImpl,
+        responseHeaders: res.headers,
+      })
+      return { ok: v.ok, verifiedUrl: liveUrl, detail: v.detail }
+    }
     return {
-      ok: v.ok,
+      ok: false,
       verifiedUrl: liveUrl,
-      detail: v.ok
-        ? `Topic 49 live verify OK: ${v.detail}`
-        : `Topic 49 live verify FAILED: ${v.detail}; ${v.failures
-            .slice(0, 5)
-            .map((f) => `${f.src}: ${f.reason}`)
-            .join('; ')}`,
+      detail: `No live verifier wired for topic ${input.topicId}`,
     }
   }
 
-  return {
-    ok: false,
-    verifiedUrl: liveUrl,
-    detail: `No live verifier wired for topic ${input.topicId}`,
-  }
+  const v = await verifyRegisteredTransform({
+    finding,
+    body: html,
+    liveUrl,
+    stage: 'production',
+    fetchImpl,
+    responseHeaders: res.headers,
+  })
+  return { ok: v.ok, verifiedUrl: liveUrl, detail: v.detail }
 }

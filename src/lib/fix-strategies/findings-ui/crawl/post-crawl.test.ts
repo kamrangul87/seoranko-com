@@ -81,10 +81,13 @@ function page(url: string, html = '<html><head><title>T</title></head><body><a h
 }
 
 describe('post-crawl phase machine', () => {
-  it('orders phases with rollup last and done terminal', () => {
+  it('orders phases with resolve_sources after rollup and done terminal', () => {
     expect(POST_CRAWL_PHASE_IDS[0]).toBe('persist_inspection')
-    expect(POST_CRAWL_PHASE_IDS[POST_CRAWL_PHASE_IDS.length - 1]).toBe('rollup')
-    expect(nextPostCrawlPhase('rollup')).toBe('done')
+    expect(POST_CRAWL_PHASE_IDS[POST_CRAWL_PHASE_IDS.length - 1]).toBe(
+      'resolve_sources',
+    )
+    expect(nextPostCrawlPhase('rollup')).toBe('resolve_sources')
+    expect(nextPostCrawlPhase('resolve_sources')).toBe('done')
     expect(isPostCrawlComplete('done')).toBe(true)
     expect(isPostCrawlComplete('full_snapshot')).toBe(false)
     expect(isPostCrawlComplete(null)).toBe(false)
@@ -169,7 +172,7 @@ describe('post-crawl phase machine', () => {
     expect(blocked.phase).toBe('full_snapshot')
     expect(blocked.complete).toBe(false)
 
-    // Fresh tick → full_snapshot + rollup can finish
+    // Fresh tick → full_snapshot + rollup → resolve_sources (caller finishes)
     const finished = await advancePostCrawlPhases({
       origin: 'https://example.com',
       pages,
@@ -180,8 +183,8 @@ describe('post-crawl phase machine', () => {
       sharedTickWithUrlWork: false,
       deadlineAt: Date.now() + 120_000,
     })
-    expect(finished.complete).toBe(true)
-    expect(finished.phase).toBe('done')
+    expect(finished.complete).toBe(false)
+    expect(finished.phase).toBe('resolve_sources')
     expect(finished.didRollup).toBe(true)
   })
 

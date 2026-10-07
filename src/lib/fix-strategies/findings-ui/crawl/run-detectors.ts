@@ -89,6 +89,7 @@ import {
   POST_CRAWL_TOPIC_IDS,
 } from '@/lib/fix-strategies/detector-scope'
 import { classifyVerdictBucket, classifySurfaceClass } from '../buckets'
+import { isTransformRegistered } from '../fix-run/apply-registry'
 import { sourcesForDossier } from '../sources'
 import { dossierSlugForTopic } from '../topic-registry'
 import type { CrawledPage } from './fetch-page'
@@ -281,6 +282,69 @@ function ingestArray(
                 renderRequired: item.renderRequired ?? false,
               }
             : null
+
+      // Persist deterministic apply parameters for Fix Agent transforms.
+      const applyEv: Record<string, unknown> = { ...(evidenceValues ?? {}) }
+      if (typeof item.href === 'string') applyEv.href = item.href
+      if (typeof item.rewriteHref === 'string') applyEv.rewriteHref = item.rewriteHref
+      if (typeof item.loc === 'string') applyEv.loc = item.loc
+      if (typeof item.replaceWith === 'string') applyEv.replaceWith = item.replaceWith
+      if (typeof item.preferredForm === 'string') applyEv.preferredForm = item.preferredForm
+      if (typeof item.collapseTo === 'string') applyEv.collapseTo = item.collapseTo
+      if (typeof item.selfCanonical === 'string') applyEv.selfCanonical = item.selfCanonical
+      // Topic 14 — broken canonical href currently in the file (resolution needle).
+      if (typeof item.canonicalUrl === 'string') applyEv.canonicalUrl = item.canonicalUrl
+      // Topic 22 — crawl-delay raw lines for resolveSourceFile.
+      const inspection = item.inspection as
+        | { crawlDelayLines?: Array<{ raw?: string } | string> }
+        | undefined
+      if (inspection?.crawlDelayLines && Array.isArray(inspection.crawlDelayLines)) {
+        applyEv.crawlDelayLines = inspection.crawlDelayLines.map((line) =>
+          typeof line === 'string' ? line : String(line?.raw ?? ''),
+        ).filter(Boolean)
+      }
+      // Topic 17 — body canonical href when collapseTo is absent.
+      const extraction = item.extraction as
+        | { body?: Array<{ href?: string; normalized?: string }> }
+        | undefined
+      if (
+        !applyEv.collapseTo &&
+        extraction?.body &&
+        Array.isArray(extraction.body) &&
+        extraction.body[0]
+      ) {
+        const bodyHref =
+          extraction.body[0].href ?? extraction.body[0].normalized
+        if (typeof bodyHref === 'string' && bodyHref) {
+          applyEv.bodyCanonicalHref = bodyHref
+        }
+      }
+      // Topic 49 — img src for resolution needle.
+      if (typeof item.srcAttr === 'string') applyEv.srcAttr = item.srcAttr
+      if (
+        topicId === '14' &&
+        !applyEv.selfCanonical &&
+        typeof pageUrl === 'string' &&
+        pageUrl
+      ) {
+        applyEv.selfCanonical = pageUrl
+      }
+      if (
+        topicId === '26' &&
+        !applyEv.loc &&
+        typeof pageUrl === 'string' &&
+        pageUrl
+      ) {
+        applyEv.loc = pageUrl
+      }
+      if (
+        topicId === '1' &&
+        !applyEv.href &&
+        typeof item.targetUrl === 'string'
+      ) {
+        applyEv.href = item.targetUrl
+      }
+      if (Object.keys(applyEv).length > 0) evidenceValues = applyEv
 
       // Human-review / finding rows: always surface a decision summary even
       // when there is no mechanical patch.
@@ -1315,10 +1379,23 @@ export function rollupAndClassify(emits: DetectorEmit[]): {
     const reportOnly =
       bucket === 'informational' ||
       (!autoFixable && !r.verdict.startsWith('auto-'))
-    const surfaceClass = classifySurfaceClass(r.verdict, {
+    let surfaceClass = classifySurfaceClass(r.verdict, {
       autoFixable,
       reportOnly,
     })
+    // Auto-fixable only after resolveSourceFile stores path + blob SHA.
+    // Rollup always demotes; resolve_sources promotes registered+resolved rows.
+    let effectiveAutoFixable = autoFixable
+    if (surfaceClass === 'auto-fixable') {
+      if (!isTransformRegistered(r.topicId, r.verdict)) {
+        surfaceClass = 'finding'
+        effectiveAutoFixable = false
+      } else {
+        // Registered but not yet resolved — hold as finding until path+SHA exist.
+        surfaceClass = 'finding'
+        effectiveAutoFixable = false
+      }
+    }
     const declarationSite = r.declarationSite
     const rollupKey = [
       r.topicId,
@@ -1350,7 +1427,7 @@ export function rollupAndClassify(emits: DetectorEmit[]): {
       affectedUrlCount: r.affectedUrlCount,
       rolledUp: r.rolledUp,
       bucket,
-      autoFixable,
+      autoFixable: effectiveAutoFixable,
       reportOnly,
       surfaceClass,
       proposedDiff:

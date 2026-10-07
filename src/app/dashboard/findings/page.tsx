@@ -6,48 +6,48 @@ import { getSupabaseClient } from '@/lib/supabase-client'
 import { DashboardNav } from '@/components/DashboardNav'
 import type {
   FindingsListResponse,
-  SourceTier,
   UiFinding,
 } from '@/lib/fix-strategies/findings-ui/client'
-import { affectedUrlsForFinding } from '@/lib/fix-strategies/findings-ui/affected-urls'
 import { summarizePartialCoverage } from '@/lib/fix-strategies/findings-ui/crawl/partial-coverage'
+import { itemUiStep } from '@/lib/fix-strategies/findings-ui/fix-run/phases'
+import { shouldShowFixMySiteButton } from '@/lib/fix-strategies/findings-ui/fix-run/master-gate'
+import { whyNotFixedOrFallback } from '@/lib/fix-strategies/findings-ui/owner-copy'
 import { readParamFromUrl, writeParamToUrl } from '@/lib/site-selection-url'
 import type { User } from '@supabase/supabase-js'
 
 type Site = { id: string; domain: string; brand: string | null }
 type CrawlMode = 'connected' | 'detect'
 
+type FixRunItemView = {
+  id: string
+  findingId: string
+  status: string
+  failureReason: string | null
+  commitSha: string | null
+  path: string | null
+}
+
+type FixRunView = {
+  id: string
+  status: string
+  phase: string
+  branchName: string | null
+  prNumber: number | null
+  prUrl: string | null
+  progressLabel?: string
+  canApproveMerge?: boolean
+  summary?: {
+    total: number
+    verifiedLive: number
+    failed: number
+    previewVerified: number
+  } | null
+  items: FixRunItemView[]
+}
+
 const SITE_QUERY_PARAM = 'site'
 const readSiteIdFromUrl = () => readParamFromUrl(SITE_QUERY_PARAM)
 const writeSiteIdToUrl = (id: string) => writeParamToUrl(SITE_QUERY_PARAM, id || null)
-
-function sourceTierTone(tier: SourceTier): string {
-  if (tier === 'STANDARD') return 'text-emerald-800 bg-emerald-50 border-emerald-100'
-  if (tier === 'VENDOR-DOCUMENTED')
-    return 'text-sky-800 bg-sky-50 border-sky-100'
-  if (tier === 'OBSERVED') return 'text-amber-800 bg-amber-50 border-amber-100'
-  return 'text-[#6B6B6B] bg-[#F4F4F2] border-[#E8E8E4]'
-}
-
-function primarySourceLabel(f: UiFinding): {
-  text: string
-  href: string | null
-} {
-  const id = f.primarySourceId
-  const row =
-    (id != null ? f.sources.find((s) => s.sourceId === id) : null) ??
-    f.sources[0] ??
-    null
-  if (!row && id == null) {
-    return { text: f.sourceTier, href: null }
-  }
-  const sid = row?.sourceId ?? id
-  const verified = row?.verifiedOn ? ` · verified ${row.verifiedOn}` : ''
-  return {
-    text: `${f.sourceTier} · #${sid}${verified}`,
-    href: row?.url ?? null,
-  }
-}
 
 function severityTone(severity: string | null): string {
   if (severity === 'high' || severity === 'critical') return 'text-red-700 bg-red-50 border-red-100'
@@ -98,6 +98,11 @@ export default function FindingsListPage() {
   const [loading, setLoading] = useState(false)
   const [crawling, setCrawling] = useState(false)
   const tickAbort = useRef(false)
+  const [fixRun, setFixRun] = useState<FixRunView | null>(null)
+  const [fixRunning, setFixRunning] = useState(false)
+  const [fixError, setFixError] = useState<string | null>(null)
+  const [githubConnected, setGithubConnected] = useState<boolean | null>(null)
+  const fixTickAbort = useRef(false)
 
   useEffect(() => {
     const supabase = getSupabaseClient()
@@ -180,6 +185,160 @@ export default function FindingsListPage() {
       setData(null)
     }
   }, [mode, siteId, detectOrigin, includeInformational, loadConnected, loadDetect])
+
+  useEffect(() => {
+    if (mode !== 'connected' || !siteId) {
+      setGithubConnected(null)
+      return
+    }
+    const site = sites.find((s) => s.id === siteId)
+    if (!site) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(
+          `/api/copilot/site-connection?url=${encodeURIComponent(`https://${site.domain}`)}`,
+        )
+        if (!res.ok) {
+          if (!cancelled) setGithubConnected(false)
+          return
+        }
+        const json = (await res.json()) as {
+          connected?: boolean
+          cmsType?: string
+        }
+        if (!cancelled) {
+          setGithubConnected(
+            !!json.connected && json.cmsType === 'github',
+          )
+        }
+      } catch {
+        if (!cancelled) setGithubConnected(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [mode, siteId, sites])
+
+  useEffect(() => {
+    if (mode !== 'connected' || !siteId) {
+      setFixRun(null)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(
+          `/api/fix-strategies/runs?siteId=${encodeURIComponent(siteId)}`,
+        )
+        if (!res.ok) return
+        const json = (await res.json()) as { run?: FixRunView | null }
+        if (!cancelled && json.run) setFixRun(json.run)
+      } catch {
+        /* ignore */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [mode, siteId])
+
+  async function pollFixRun(runId: string) {
+    fixTickAbort.current = false
+    setFixRunning(true)
+    setFixError(null)
+    try {
+      for (let i = 0; i < 80; i++) {
+        if (fixTickAbort.current) break
+        const res = await fetch(`/api/fix-strategies/runs/${runId}/tick`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'tick' }),
+        })
+        const json = (await res.json()) as {
+          error?: string
+          run?: FixRunView
+        }
+        if (!res.ok || !json.run) {
+          throw new Error(json.error || 'Fix run tick failed')
+        }
+        setFixRun(json.run)
+        if (
+          json.run.phase === 'await_approval' ||
+          json.run.phase === 'done' ||
+          json.run.status === 'awaiting_approval' ||
+          json.run.status === 'complete' ||
+          json.run.status === 'failed'
+        ) {
+          break
+        }
+        await new Promise((r) => setTimeout(r, 400))
+      }
+    } catch (e) {
+      setFixError(e instanceof Error ? e.message : 'Fix run failed')
+    } finally {
+      setFixRunning(false)
+    }
+  }
+
+  async function startFixMySite() {
+    if (!siteId || fixRunning) return
+    setFixError(null)
+    setFixRunning(true)
+    try {
+      const res = await fetch('/api/fix-strategies/runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteId }),
+      })
+      const json = (await res.json()) as {
+        error?: string
+        run?: FixRunView
+      }
+      if (!res.ok || !json.run) {
+        throw new Error(json.error || 'Could not start fix run')
+      }
+      setFixRun(json.run)
+      setFixRunning(false)
+      await pollFixRun(json.run.id)
+    } catch (e) {
+      setFixError(e instanceof Error ? e.message : 'Could not start fix run')
+      setFixRunning(false)
+    }
+  }
+
+  async function approveAndMerge() {
+    if (!fixRun?.id) return
+    setFixError(null)
+    try {
+      const res = await fetch(`/api/fix-strategies/runs/${fixRun.id}/tick`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve' }),
+      })
+      const json = (await res.json()) as { error?: string; run?: FixRunView }
+      if (!res.ok || !json.run) {
+        throw new Error(json.error || 'Approve failed')
+      }
+      setFixRun(json.run)
+      await pollFixRun(json.run.id)
+    } catch (e) {
+      setFixError(e instanceof Error ? e.message : 'Approve failed')
+    }
+  }
+
+  const readyFindings =
+    data?.findings.filter((f) => f.surfaceClass === 'auto-fixable') ?? []
+  const needsYouFindings =
+    data?.findings.filter(
+      (f) =>
+        f.surfaceClass === 'human-review' ||
+        f.surfaceClass === 'finding' ||
+        f.surfaceClass === 'report-only',
+    ) ?? []
+  const infoFindings =
+    data?.findings.filter((f) => f.surfaceClass === 'informational') ?? []
 
   async function runConnectedCrawl() {
     if (!siteId || crawling) return
@@ -688,93 +847,162 @@ export default function FindingsListPage() {
           )}
 
           {!loading && data && data.findings.length > 0 && (
-            <ul className="space-y-3">
-              {data.findings.map((f) => (
-                <li key={f.id}>
-                  <Link
-                    href={`/dashboard/findings/${f.id}`}
-                    className="block rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-4 hover:border-[#FF6B2C]/40 transition-colors"
-                  >
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded border ${severityTone(f.severity)}`}
-                      >
-                        {f.severity ?? '—'}
-                      </span>
-                      <span className="text-xs px-2 py-0.5 rounded border border-[#E8E8E4] text-[#6B6B6B]">
-                        {surfaceLabel(f)}
-                      </span>
-                      <span className="text-xs text-[#9B9B9B]">
-                        Topic {f.topicId}
-                      </span>
-                      {f.sourceTier &&
-                        (() => {
-                          const src = primarySourceLabel(f)
-                          return (
-                            <span
-                              className={`text-xs px-2 py-0.5 rounded border ${sourceTierTone(f.sourceTier)}`}
-                              title={
-                                src.href
-                                  ? `${src.href} (_sources.md)`
-                                  : '_sources.md row'
-                              }
-                            >
-                              {src.text}
-                            </span>
-                          )
-                        })()}
-                    </div>
-                    {f.ownerPlainEnglish && (
-                      <p className="text-[#0F0F0F] leading-snug mb-1">
-                        {f.ownerPlainEnglish}
+            <div className="space-y-8">
+              {mode === 'connected' &&
+                shouldShowFixMySiteButton(data.canRunFixAgent === true) && (
+                <div
+                  data-testid="fix-my-site"
+                  className="rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-[#0F0F0F]">Fix my site</p>
+                      <p className="text-xs text-[#6B6B6B] mt-0.5">
+                        One pull request with a commit per auto-fixable finding.
+                        Deterministic transforms only — no model-generated edits.
                       </p>
-                    )}
-                    <p className="font-mono text-sm text-[#6B6B6B] leading-snug">
-                      {f.verdict}
-                    </p>
-                    {(() => {
-                      const urls = affectedUrlsForFinding(f)
-                      const multi = f.rolledUp || urls.length > 1
-                      if (multi) {
-                        return (
-                          <div className="mt-1">
-                            <p className="text-sm text-[#6B6B6B]">
-                              {f.declarationSite ? (
-                                <>
-                                  Component{' '}
-                                  <span className="font-mono text-[#0F0F0F]">
-                                    {f.declarationSite}
-                                  </span>
-                                  {' · '}
-                                </>
-                              ) : null}
-                              {f.affectedUrlCount} URLs affected
-                            </p>
-                            <ul className="mt-1.5 space-y-0.5 text-xs font-mono text-[#6B6B6B]">
-                              {urls.map((url) => (
-                                <li key={url} className="break-all">
-                                  {url}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void startFixMySite()}
+                      disabled={
+                        fixRunning ||
+                        readyFindings.length === 0 ||
+                        githubConnected === false
                       }
-                      return (
-                        f.pageUrl && (
-                          <p className="text-sm text-[#6B6B6B] mt-1 truncate">
-                            {f.pageUrl}
-                          </p>
-                        )
-                      )
-                    })()}
-                    <p className="text-sm text-[#6B6B6B] mt-2 line-clamp-2">
-                      {f.detail}
+                      className="px-4 py-2 rounded-lg bg-[#FF6B2C] text-white text-sm font-medium disabled:opacity-50"
+                    >
+                      {fixRunning
+                        ? 'Fixing…'
+                        : `Fix my site (${readyFindings.length} fix${readyFindings.length === 1 ? '' : 'es'})`}
+                    </button>
+                  </div>
+                  {githubConnected === false && (
+                    <p className="text-xs text-amber-800 mt-2">
+                      Connect GitHub for this site in Settings before Fix my site can open a PR.
                     </p>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+                  )}
+                  {readyFindings.length === 0 && githubConnected !== false && (
+                    <p className="text-xs text-[#9B9B9B] mt-2">
+                      No auto-fixable findings ready — nothing to batch.
+                    </p>
+                  )}
+                  {fixError && (
+                    <p className="text-xs text-red-700 mt-2">{fixError}</p>
+                  )}
+                  {fixRun && (
+                    <div className="mt-4 border-t border-[#F5F4F1] pt-3 space-y-2">
+                      <p className="text-xs font-medium text-[#0F0F0F]">
+                        {fixRun.progressLabel || fixRun.phase}
+                      </p>
+                      <ul className="space-y-1">
+                        {fixRun.items.map((item) => (
+                          <li
+                            key={item.id}
+                            className="text-xs text-[#6B6B6B] flex flex-wrap gap-2"
+                          >
+                            <span className="font-mono">{item.findingId.slice(0, 8)}</span>
+                            <span>
+                              {itemUiStep(
+                                item.status as Parameters<typeof itemUiStep>[0],
+                              )}
+                            </span>
+                            {item.failureReason && (
+                              <span className="text-red-700">— {item.failureReason}</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                      {fixRun.canApproveMerge && (
+                        <button
+                          type="button"
+                          onClick={() => void approveAndMerge()}
+                          className="mt-2 px-3 py-1.5 rounded-lg bg-[#0F0F0F] text-white text-xs"
+                        >
+                          Approve and merge
+                        </button>
+                      )}
+                      {fixRun.phase === 'done' && fixRun.summary && (
+                        <p className="text-xs text-[#6B6B6B] mt-2">
+                          Done — {fixRun.summary.verifiedLive} verified live
+                          {fixRun.summary.failed ? `, ${fixRun.summary.failed} failed` : ''}
+                          {fixRun.prUrl ? (
+                            <>
+                              {' · '}
+                              <a
+                                href={fixRun.prUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[#FF6B2C] underline"
+                              >
+                                PR #{fixRun.prNumber}
+                              </a>
+                            </>
+                          ) : null}
+                        </p>
+                      )}
+                      {fixRun.prUrl && fixRun.phase !== 'done' && (
+                        <a
+                          href={fixRun.prUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-[#FF6B2C] underline"
+                        >
+                          Open PR #{fixRun.prNumber}
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {(
+                [
+                  { key: 'ready', title: `Ready to fix (${readyFindings.length})`, rows: readyFindings },
+                  { key: 'needs', title: `Needs you (${needsYouFindings.length})`, rows: needsYouFindings },
+                  { key: 'info', title: `For information (${infoFindings.length})`, rows: infoFindings },
+                ] as const
+              ).map((group) =>
+                group.rows.length === 0 ? null : (
+                  <section key={group.key}>
+                    <h2 className="text-sm font-medium text-[#0F0F0F] mb-3">{group.title}</h2>
+                    <ul className="space-y-3">
+                      {group.rows.map((f) => (
+                        <li key={f.id}>
+                          <Link
+                            href={`/dashboard/findings/${f.id}`}
+                            className="block rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-4 hover:border-[#FF6B2C]/40 transition-colors"
+                          >
+                            <div className="flex flex-wrap items-center gap-2 mb-2">
+                              <span className={`text-xs px-2 py-0.5 rounded border ${severityTone(f.severity)}`}>
+                                {f.severity ?? '—'}
+                              </span>
+                              <span className="text-xs px-2 py-0.5 rounded border border-[#E8E8E4] text-[#6B6B6B]">
+                                {surfaceLabel(f)}
+                              </span>
+                              <span className="text-xs text-[#9B9B9B]">Topic {f.topicId}</span>
+                            </div>
+                            {f.ownerPlainEnglish && (
+                              <p className="text-[#0F0F0F] leading-snug mb-1">{f.ownerPlainEnglish}</p>
+                            )}
+                            <p className="font-mono text-sm text-[#6B6B6B] leading-snug">{f.verdict}</p>
+                            {group.key === 'needs' && (
+                              <p className="text-xs text-amber-900 mt-2 bg-amber-50 border border-amber-100 rounded-md px-2 py-1.5">
+                                {whyNotFixedOrFallback(f.verdict)}
+                              </p>
+                            )}
+                            {f.pageUrl && (
+                              <p className="text-sm text-[#6B6B6B] mt-1 truncate">{f.pageUrl}</p>
+                            )}
+                            <p className="text-sm text-[#6B6B6B] mt-2 line-clamp-2">{f.detail}</p>
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ),
+              )}
+            </div>
           )}
         </div>
       </main>

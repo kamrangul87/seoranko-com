@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Sitemap protocol requires absolute <loc> URLs. Replace ORIGIN with the
+     deployed origin (e.g. https://fixture.example) before hosting. Defect
+     paths (/gone.html, /old-blog) are otherwise host-independent. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://fixture.example/</loc>
+  </url>
+  <url>
+    <loc>https://fixture.example/about.html</loc>
+  </url>
+  <url>
+    <loc>https://fixture.example/blog/</loc>
+  </url>
+  <!-- Topic 26: confirmed-4xx loc — page does not exist -->
+  <url>
+    <loc>https://fixture.example/gone.html</loc>
+  </url>
+  <!-- Topic 26: single-hop redirect loc — /old-blog redirects to /blog/ -->
+  <url>
+    <loc>https://fixture.example/old-blog</loc>
+  </url>
+</urlset>

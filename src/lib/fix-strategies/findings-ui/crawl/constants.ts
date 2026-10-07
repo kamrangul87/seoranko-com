@@ -74,6 +74,8 @@ export const POST_CRAWL_PHASE_IDS = [
   'topic_71',
   'full_snapshot',
   'rollup',
+  /** After upsert: resolveSourceFile for GitHub-connected sites. */
+  'resolve_sources',
 ] as const
 
 export type PostCrawlPhaseId = (typeof POST_CRAWL_PHASE_IDS)[number]
@@ -161,6 +163,19 @@ export type PersistedFindingRow = {
   proposedDiff: Record<string, unknown> | null
   evidenceValues: Record<string, unknown> | null
   sourceRows: unknown[]
+  /**
+   * Repo-relative static file from resolveSourceFile.
+   * Required (with sourceBlobSha) before auto-fixable / Fix Agent apply.
+   */
+  sourcePath: string | null
+  /** Git blob SHA of sourcePath at resolution time. */
+  sourceBlobSha: string | null
+  /** When sourcePath + sourceBlobSha were last confirmed. */
+  sourceResolvedAt: string | null
+  /**
+   * no-static-file | multiple-candidates | evidence-not-found | evidence-ambiguous
+   */
+  sourceUnresolvedReason: string | null
   firstSeenRunId: string | null
   lastSeenRunId: string | null
   firstSeenAt: string

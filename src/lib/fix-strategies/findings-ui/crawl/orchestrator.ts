@@ -674,9 +674,11 @@ export async function processCrawlTick(
   const urlWorkThisTick = jobs.length > 0
 
   // Resumable post-crawl after frontier drain. Never mark complete while
-  // phases remain — rollup/upsert is the last phase.
+  // phases remain — rollup/upsert then resolve_sources are the last phases.
   let postCrawlComplete = isPostCrawlComplete(run.postCrawlPhase)
   let postCrawlFailed = false
+  let didRollup = false
+  let needsSourceResolve = run.postCrawlPhase === 'resolve_sources'
   if (frontierDrained && !postCrawlComplete) {
     try {
       // Re-read run so we have latest phase/cursor/artifacts after prior ticks.
@@ -691,6 +693,9 @@ export async function processCrawlTick(
         deadlineAt: Date.now() + CRAWL_POST_CRAWL_DEADLINE_MS,
       })
       notes.push(...adv.notes)
+      didRollup = adv.didRollup
+      needsSourceResolve =
+        adv.phase === 'resolve_sources' || didRollup || needsSourceResolve
       postCrawlComplete = adv.complete
       if (adv.notes.some((n) => n.code === 'fetch_failure')) {
         postCrawlFailed = true
@@ -711,12 +716,10 @@ export async function processCrawlTick(
     }
   }
 
-  const done = frontierDrained && postCrawlComplete
-
   // Progressive upsert while URLs are still draining. Final rollup after
-  // post-crawl completes (includes whole-site topic emits).
+  // detectors finish (before resolve_sources).
   const shouldUpsert =
-    !frontierDrained || postCrawlComplete || postCrawlFailed
+    !frontierDrained || postCrawlComplete || postCrawlFailed || didRollup
   if (shouldUpsert) {
     const allEmits = await store.listRunEmits(runId)
     const { findings, internalEvidence } = rollupAndClassify(allEmits)
@@ -730,6 +733,40 @@ export async function processCrawlTick(
       internalEvidence,
     })
   }
+
+  // GitHub-connected sites: resolveSourceFile for each finding (resumable).
+  if (frontierDrained && needsSourceResolve && !postCrawlFailed) {
+    try {
+      const { resolveSourcesAfterCrawl } = await import(
+        '../fix-run/resolve-sources-hook'
+      )
+      await resolveSourcesAfterCrawl({
+        siteId: run.siteId,
+        userId: run.userId,
+        runId,
+      })
+      await store.updateRun(runId, { postCrawlPhase: 'done' })
+      run = (await store.getRun(runId)) ?? run
+      postCrawlComplete = true
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      console.info('[resolve-source] post-crawl failed', {
+        siteId: run.siteId,
+        runId,
+        detail,
+      })
+      notes.push({
+        code: 'fetch_failure',
+        detail: `resolve_sources failed: ${detail}`,
+      })
+      // Still mark done so the crawl can terminalise; findings stay unresolved.
+      await store.updateRun(runId, { postCrawlPhase: 'done' })
+      run = (await store.getRun(runId)) ?? run
+      postCrawlComplete = true
+    }
+  }
+
+  const done = frontierDrained && postCrawlComplete
 
   // Mid-tick time_limit with work left → stay running (resume on next tick).
   // Terminal partial when queue drains but coverage is incomplete.
