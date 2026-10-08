@@ -141,9 +141,10 @@ export function createFixtureGithubRepo(
     async waitForPreview({ prNumber }) {
       const pr = state.prs.get(prNumber)
       if (!pr) return { ok: false, error: 'PR not found' }
+      // Non-example host so production placeholder guards stay meaningful.
       return {
         ok: true,
-        previewUrl: `https://preview.example.com/pr-${prNumber}`,
+        previewUrl: `https://fix-run-preview.test/pr-${prNumber}`,
       }
     },
   }

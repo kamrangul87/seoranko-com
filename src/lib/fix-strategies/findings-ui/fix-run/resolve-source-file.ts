@@ -180,45 +180,106 @@ export function countExactOccurrences(content: string, needle: string): number {
   return count
 }
 
+/** Strip HTML comments, scripts, and styles so evidence ignores non-markup text. */
+export function stripNonMarkupNoise(html: string): string {
+  return html
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+}
+
+export type RelevantAttrKind = 'a-href' | 'link-canonical' | 'img-src'
+
 /**
- * Count attribute values (href/src/content) that resolve to the same URL as
- * `targetUrl` against `pageUrl`. Accepts absolute, root-relative, and
- * relative forms as written in the source — the detector often stores an
- * absolute canonical while the file still has href="/path".
+ * Parsed attribute values from the relevant elements only:
+ * `a[href]`, `link[rel=canonical]`, `img[src]`. Comments/scripts/text ignored.
+ */
+export function extractRelevantAttributeValues(html: string): Array<{
+  kind: RelevantAttrKind
+  value: string
+}> {
+  const cleaned = stripNonMarkupNoise(html)
+  const out: Array<{ kind: RelevantAttrKind; value: string }> = []
+
+  const aRe = /<a\b[^>]*\bhref\s*=\s*(["'])([^"']*)\1[^>]*>/gi
+  let m: RegExpExecArray | null
+  while ((m = aRe.exec(cleaned)) !== null) {
+    if (m[2]) out.push({ kind: 'a-href', value: m[2] })
+  }
+
+  const linkRe = /<link\b[^>]*>/gi
+  while ((m = linkRe.exec(cleaned)) !== null) {
+    const tag = m[0]!
+    if (!/\brel\s*=\s*(["'])canonical\1/i.test(tag)) continue
+    const href = tag.match(/\bhref\s*=\s*(["'])([^"']*)\1/i)
+    if (href?.[2]) out.push({ kind: 'link-canonical', value: href[2] })
+  }
+
+  const imgRe = /<img\b[^>]*\bsrc\s*=\s*(["'])([^"']*)\1[^>]*>/gi
+  while ((m = imgRe.exec(cleaned)) !== null) {
+    if (m[2]) out.push({ kind: 'img-src', value: m[2] })
+  }
+
+  return out
+}
+
+function attrValueMatchesNeedle(
+  attrValue: string,
+  needle: string,
+  pageUrl: string,
+): boolean {
+  if (attrValue === needle) return true
+  const needleNorm = normalizeFixStrategyUrl(needle, pageUrl)
+  const attrNorm = normalizeFixStrategyUrl(attrValue, pageUrl)
+  if (needleNorm && attrNorm && needleNorm === attrNorm) return true
+  return false
+}
+
+/**
+ * Count attribute values (a[href], link[rel=canonical], img[src]) that match
+ * the needle as written or as a URL-equivalent form against `pageUrl`.
  */
 export function countUrlEquivalentAttributeMatches(
   content: string,
   targetUrl: string,
   pageUrl: string,
 ): number {
-  const targetNorm = normalizeFixStrategyUrl(targetUrl, pageUrl)
-  if (!targetNorm) return 0
+  return extractRelevantAttributeValues(content).filter((a) =>
+    attrValueMatchesNeedle(a.value, targetUrl, pageUrl),
+  ).length
+}
 
-  const attrRe = /\b(?:href|src|content)\s*=\s*(["'])([^"']+)\1/gi
-  let count = 0
-  let m: RegExpExecArray | null
-  while ((m = attrRe.exec(content)) !== null) {
-    const raw = m[2] ?? ''
-    if (!raw) continue
-    const resolved = normalizeFixStrategyUrl(raw, pageUrl)
-    if (resolved === targetNorm) count++
-  }
-  return count
+function looksLikeUrlOrPathNeedle(needle: string): boolean {
+  return (
+    /^https?:\/\//i.test(needle) ||
+    needle.startsWith('/') ||
+    /^[\w.-]+\.[a-z]{2,}([/?#]|$)/i.test(needle)
+  )
 }
 
 /**
- * Evidence match count: exact substring first; if zero and the needle looks
- * like a URL, also accept equivalent attribute forms on the page.
+ * Evidence match count for resolveSourceFile.
+ * URL/path needles prefer real markup attributes (a[href], link[canonical],
+ * img[src]) so HTML comments/text never inflate the count. When no such
+ * attribute matches (e.g. sitemap `<loc>`), fall back to exact substring on
+ * comment-stripped content.
  */
 export function countEvidenceOccurrences(
   content: string,
   needle: string,
   pageUrl: string,
 ): number {
-  const exact = countExactOccurrences(content, needle)
-  if (exact > 0) return exact
-  if (!/^https?:\/\//i.test(needle) && !needle.startsWith('/')) return 0
-  return countUrlEquivalentAttributeMatches(content, needle, pageUrl)
+  const cleaned = stripNonMarkupNoise(content)
+  if (looksLikeUrlOrPathNeedle(needle)) {
+    const attrCount = countUrlEquivalentAttributeMatches(
+      content,
+      needle,
+      pageUrl,
+    )
+    if (attrCount > 0) return attrCount
+    return countExactOccurrences(cleaned, needle)
+  }
+  return countExactOccurrences(cleaned, needle)
 }
 
 /**

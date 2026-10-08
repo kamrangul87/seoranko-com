@@ -314,20 +314,41 @@ function ingestArray(
           typeof line === 'string' ? line : String(line?.raw ?? ''),
         ).filter(Boolean)
       }
-      // Topic 17 — body canonical href when collapseTo is absent.
+      // Topic 17 — body canonical href when collapseTo is absent; declaration
+      // count for collapse evidence (expected match count ≠ 1).
       const extraction = item.extraction as
-        | { body?: Array<{ href?: string; normalized?: string }> }
+        | {
+            head?: Array<{ href?: string; normalized?: string }>
+            body?: Array<{ href?: string; normalized?: string }>
+          }
         | undefined
-      if (
-        !applyEv.collapseTo &&
-        extraction?.body &&
-        Array.isArray(extraction.body) &&
-        extraction.body[0]
-      ) {
-        const bodyHref =
-          extraction.body[0].href ?? extraction.body[0].normalized
-        if (typeof bodyHref === 'string' && bodyHref) {
-          applyEv.bodyCanonicalHref = bodyHref
+      if (extraction) {
+        const head = Array.isArray(extraction.head) ? extraction.head : []
+        const body = Array.isArray(extraction.body) ? extraction.body : []
+        const decls = [...head, ...body]
+        if (decls.length > 0) {
+          applyEv.declarationCount = decls.length
+        }
+        if (
+          typeof applyEv.collapseTo === 'string' &&
+          applyEv.collapseTo &&
+          decls.length >= 2
+        ) {
+          const target = applyEv.collapseTo
+          const matching = decls.filter(
+            (d) => d.normalized === target || d.href === target,
+          ).length
+          applyEv.evidenceExpectedCount =
+            matching >= 2 ? matching : decls.length
+        }
+        if (
+          !applyEv.collapseTo &&
+          body[0]
+        ) {
+          const bodyHref = body[0].href ?? body[0].normalized
+          if (typeof bodyHref === 'string' && bodyHref) {
+            applyEv.bodyCanonicalHref = bodyHref
+          }
         }
       }
       // Topic 49 — img src for resolution needle.

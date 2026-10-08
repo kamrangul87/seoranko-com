@@ -78,11 +78,14 @@ export async function startFixRun(input: {
     })
   }
 
-  const findings = await selectAutoFixableFindings(input.siteId)
+  // Select AFTER re-resolve so findings that lost source_path/sha are excluded.
+  const findings = (await selectAutoFixableFindings(input.siteId)).filter(
+    (f) => Boolean(f.sourcePath && f.sourceBlobSha),
+  )
   if (findings.length === 0) {
     return {
       ok: false,
-      error: 'No auto-fixable findings ready for this site.',
+      error: 'No auto-fixable findings with a resolved source file ready for this site.',
       code: 'no_fixes',
     }
   }
@@ -100,6 +103,11 @@ export async function startFixRun(input: {
     siteId: input.siteId,
     findingIds: findings.map((f) => f.id),
     branchName,
+    sources: findings.map((f) => ({
+      id: f.id,
+      path: f.sourcePath,
+      sha: f.sourceBlobSha,
+    })),
   })
 
   return { ok: true, run }
