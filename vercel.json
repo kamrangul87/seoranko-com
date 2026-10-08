@@ -12,9 +12,19 @@
     },
     "src/app/api/cron/scheduled-recrawl/route.ts": {
       "maxDuration": 300
+    },
+    "src/app/api/cron/fix-agent-e2e/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/admin/fix-agent-e2e/route.ts": {
+      "maxDuration": 300
     }
   },
   "crons": [
+    {
+      "path": "/api/cron/fix-agent-e2e",
+      "schedule": "0 6 * * *"
+    },
     {
       "path": "/api/cron/scheduled-recrawl",
       "schedule": "0 7 * * 1"

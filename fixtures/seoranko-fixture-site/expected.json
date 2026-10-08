@@ -1,0 +1,203 @@
+{
+  "origin": "https://seoranko-fixture.vercel.app",
+  "seedBranch": "seed",
+  "seedCommitSha": "4e4bbf9",
+  "generatedAt": "2026-10-08T09:45:00.000Z",
+  "notes": "Post-crawl + source-resolve surface classes. autoFixable requires registered transform + stored path/SHA. Diff vs README: topic 1 is report-only/human-review (not auto); topic 26 also emits human-review-canonical-elsewhere on about.html; topic 49 may also emit human-review-no-height-auto alongside auto-set-dimensions; topic 27/28/31/34/45/8 are detector side-findings not listed as planted defects in README.",
+  "readmeDiff": [
+    {
+      "readme": "Topic 1 expected human-review / no-action",
+      "observed": "verdict human-review, surfaceClass report-only — matches README (not auto-fixable)"
+    },
+    {
+      "readme": "Topics 14/17/22/26/42/49 planted as auto-*",
+      "observed": "All present; after source resolve they are auto-fixable when registered"
+    },
+    {
+      "readme": "No mention of topic 26 human-review-canonical-elsewhere",
+      "observed": "Detector also emits human-review-canonical-elsewhere on about.html (side finding)"
+    },
+    {
+      "readme": "No mention of 27/28/31/34/45/8",
+      "observed": "Whole-site/informational detectors emit these on seed — included for exact match"
+    }
+  ],
+  "findings": [
+    {
+      "topicId": "1",
+      "verdict": "human-review",
+      "pageUrl": "https://seoranko-fixture.vercel.app/",
+      "surfaceClass": "report-only",
+      "autoFixable": false,
+      "bucket": "actionable"
+    },
+    {
+      "topicId": "14",
+      "verdict": "auto-self-canonical",
+      "pageUrl": "https://seoranko-fixture.vercel.app/about.html",
+      "surfaceClass": "auto-fixable",
+      "autoFixable": true,
+      "bucket": "actionable"
+    },
+    {
+      "topicId": "17",
+      "verdict": "auto-collapse-redundant",
+      "pageUrl": "https://seoranko-fixture.vercel.app/",
+      "surfaceClass": "auto-fixable",
+      "autoFixable": true,
+      "bucket": "actionable"
+    },
+    {
+      "topicId": "22",
+      "verdict": "auto-remove-crawl-delay",
+      "pageUrl": "https://seoranko-fixture.vercel.app/robots.txt",
+      "surfaceClass": "auto-fixable",
+      "autoFixable": true,
+      "bucket": "actionable"
+    },
+    {
+      "topicId": "26",
+      "verdict": "auto-remove-confirmed-4xx",
+      "pageUrl": "https://seoranko-fixture.vercel.app/gone.html",
+      "surfaceClass": "auto-fixable",
+      "autoFixable": true,
+      "bucket": "actionable"
+    },
+    {
+      "topicId": "26",
+      "verdict": "auto-replace-single-hop-redirect",
+      "pageUrl": "https://seoranko-fixture.vercel.app/old-blog",
+      "surfaceClass": "auto-fixable",
+      "autoFixable": true,
+      "bucket": "actionable"
+    },
+    {
+      "topicId": "26",
+      "verdict": "human-review-canonical-elsewhere",
+      "pageUrl": "https://seoranko-fixture.vercel.app/about.html",
+      "surfaceClass": "human-review",
+      "autoFixable": false,
+      "bucket": "actionable"
+    },
+    {
+      "topicId": "27",
+      "verdict": "report-omission",
+      "pageUrl": "https://seoranko-fixture.vercel.app/",
+      "surfaceClass": "report-only",
+      "autoFixable": false,
+      "bucket": "actionable"
+    },
+    {
+      "topicId": "27",
+      "verdict": "report-omission",
+      "pageUrl": "https://seoranko-fixture.vercel.app/blog/",
+      "surfaceClass": "report-only",
+      "autoFixable": false,
+      "bucket": "actionable"
+    },
+    {
+      "topicId": "28",
+      "verdict": "informational-unreferenced",
+      "pageUrl": "https://seoranko-fixture.vercel.app/robots.txt",
+      "surfaceClass": "informational",
+      "autoFixable": false,
+      "bucket": "informational"
+    },
+    {
+      "topicId": "31",
+      "verdict": "informational-missing",
+      "pageUrl": "https://seoranko-fixture.vercel.app/",
+      "surfaceClass": "informational",
+      "autoFixable": false,
+      "bucket": "informational"
+    },
+    {
+      "topicId": "31",
+      "verdict": "informational-missing",
+      "pageUrl": "https://seoranko-fixture.vercel.app/about.html",
+      "surfaceClass": "informational",
+      "autoFixable": false,
+      "bucket": "informational"
+    },
+    {
+      "topicId": "31",
+      "verdict": "informational-missing",
+      "pageUrl": "https://seoranko-fixture.vercel.app/blog/",
+      "surfaceClass": "informational",
+      "autoFixable": false,
+      "bucket": "informational"
+    },
+    {
+      "topicId": "34",
+      "verdict": "human-review-missing-lang",
+      "pageUrl": "https://seoranko-fixture.vercel.app/old-blog",
+      "surfaceClass": "human-review",
+      "autoFixable": false,
+      "bucket": "actionable"
+    },
+    {
+      "topicId": "42",
+      "verdict": "auto-rewrite",
+      "pageUrl": "https://seoranko-fixture.vercel.app/",
+      "surfaceClass": "auto-fixable",
+      "autoFixable": true,
+      "bucket": "actionable"
+    },
+    {
+      "topicId": "45",
+      "verdict": "metric-click-depth",
+      "pageUrl": "https://seoranko-fixture.vercel.app/about.html",
+      "surfaceClass": "informational",
+      "autoFixable": false,
+      "bucket": "informational"
+    },
+    {
+      "topicId": "45",
+      "verdict": "metric-click-depth",
+      "pageUrl": "https://seoranko-fixture.vercel.app/blog/",
+      "surfaceClass": "informational",
+      "autoFixable": false,
+      "bucket": "informational"
+    },
+    {
+      "topicId": "45",
+      "verdict": "metric-click-depth",
+      "pageUrl": "https://seoranko-fixture.vercel.app/gone.html",
+      "surfaceClass": "informational",
+      "autoFixable": false,
+      "bucket": "informational"
+    },
+    {
+      "topicId": "45",
+      "verdict": "metric-click-depth",
+      "pageUrl": "https://seoranko-fixture.vercel.app/old-blog",
+      "surfaceClass": "informational",
+      "autoFixable": false,
+      "bucket": "informational"
+    },
+    {
+      "topicId": "49",
+      "verdict": "auto-set-dimensions",
+      "pageUrl": "https://seoranko-fixture.vercel.app/blog/",
+      "surfaceClass": "auto-fixable",
+      "autoFixable": true,
+      "bucket": "actionable"
+    },
+    {
+      "topicId": "49",
+      "verdict": "human-review-no-height-auto",
+      "pageUrl": "https://seoranko-fixture.vercel.app/blog/",
+      "surfaceClass": "human-review",
+      "autoFixable": false,
+      "bucket": "actionable"
+    },
+    {
+      "topicId": "8",
+      "verdict": "informational-generated-only",
+      "pageUrl": "https://seoranko-fixture.vercel.app/blog/",
+      "surfaceClass": "informational",
+      "autoFixable": false,
+      "bucket": "informational"
+    }
+  ]
+}

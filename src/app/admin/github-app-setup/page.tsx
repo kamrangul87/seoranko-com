@@ -111,9 +111,15 @@ export default async function GithubAppSetupPage({
             Private key, client secret, and webhook secret are encrypted at rest
             (service-role only) and are never shown here.
           </p>
-          <p className="mt-10 text-sm">
+          <p className="mt-10 text-sm flex flex-wrap gap-4">
             <Link href="/dashboard" className="text-[#FF6B2C] hover:underline">
               ← Dashboard
+            </Link>
+            <Link
+              href="/admin/fix-agent-e2e"
+              className="text-[#FF6B2C] hover:underline"
+            >
+              Fix Agent e2e →
             </Link>
           </p>
         </div>
