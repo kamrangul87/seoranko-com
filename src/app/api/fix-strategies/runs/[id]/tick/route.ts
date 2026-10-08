@@ -15,6 +15,8 @@ import {
 } from '@/lib/fix-strategies/findings-ui/fix-run'
 import { resolveGithubAppRepoCreds } from '@/lib/github-app/resolve-repo-creds'
 import { startCrawlRun } from '@/lib/fix-strategies/findings-ui/crawl/orchestrator'
+import { drainCrawlRunToTerminal } from '@/lib/fix-strategies/findings-ui/crawl/scheduled-recrawl'
+import { getFindingsStore } from '@/lib/fix-strategies/findings-ui/crawl'
 import { requireMasterUser } from '@/lib/github-app/require-master'
 
 export const dynamic = 'force-dynamic'
@@ -132,10 +134,21 @@ export async function POST(
         creds,
         siteOrigin: `https://${site.domain}`,
         startRecrawl: async (siteId) => {
-          await startCrawlRun({
+          // Must drain — startCrawlRun alone leaves status=queued and findings stay open.
+          const started = await startCrawlRun({
             siteId,
             userId: user.id,
             origin: `https://${site.domain}`,
+          })
+          const drained = await drainCrawlRunToTerminal(
+            started.runId,
+            getFindingsStore(),
+          )
+          console.info('[fix-strategies/runs/tick] post-run recrawl drained', {
+            runId: started.runId,
+            status: drained.status,
+            done: drained.done,
+            finishedAt: drained.finishedAt,
           })
         },
       }),

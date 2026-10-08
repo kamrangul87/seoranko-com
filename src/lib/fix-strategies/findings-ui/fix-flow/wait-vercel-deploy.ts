@@ -747,6 +747,122 @@ export function previewPageUrl(previewOrigin: string, productionPageUrl: string)
   return `${previewOrigin.replace(/\/$/, '')}${path}`
 }
 
+export type ProductionDeployWaitResult =
+  | { ok: true; detail: string; source: 'github_deployment' | 'commit_status' }
+  | { ok: false; error: string; pending?: boolean }
+
+function isProductionEnvironment(d: GhDeployment): boolean {
+  if (d.production_environment) return true
+  return /^production$/i.test(String(d.environment || ''))
+}
+
+/**
+ * One poll: is the production deployment for `mergeSha` READY?
+ * Prefer GitHub Deployments (environment Production); fall back to a successful
+ * Vercel commit status for that exact SHA when Deployments are inaccessible.
+ */
+export async function checkProductionDeployOnce(input: {
+  owner: string
+  repo: string
+  mergeSha: string
+  accessToken: string
+  fetchImpl?: typeof fetch
+}): Promise<ProductionDeployWaitResult> {
+  const fetchImpl = input.fetchImpl ?? fetch
+  const { owner, repo, mergeSha, accessToken } = input
+  const sha = mergeSha.trim()
+  if (!sha) {
+    return { ok: false, pending: false, error: 'Missing merge SHA for production deploy wait' }
+  }
+
+  const depBySha = await readJson(
+    fetchImpl,
+    `${GH}/repos/${owner}/${repo}/deployments?sha=${encodeURIComponent(sha)}&per_page=20`,
+    accessToken,
+  )
+  console.info('[prod-deploy-wait] deployments_by_sha', {
+    owner,
+    repo,
+    sha,
+    status: depBySha.status,
+    count: Array.isArray(depBySha.data) ? depBySha.data.length : null,
+  })
+
+  if (depBySha.ok && Array.isArray(depBySha.data)) {
+    const prodDeps = (depBySha.data as GhDeployment[]).filter(isProductionEnvironment)
+    let sawInProgress = false
+    for (const d of prodDeps) {
+      if (!d.statuses_url) continue
+      const st = await readJson(fetchImpl, d.statuses_url, accessToken)
+      if (!st.ok) continue
+      const statuses = (Array.isArray(st.data) ? st.data : []) as GhStatus[]
+      if (statuses.some((s) => s.state === 'success')) {
+        return {
+          ok: true,
+          detail: `Production deployment ${d.id} ready for ${sha.slice(0, 7)}`,
+          source: 'github_deployment',
+        }
+      }
+      if (
+        statuses.some((s) =>
+          ['pending', 'in_progress', 'queued'].includes(String(s.state)),
+        )
+      ) {
+        sawInProgress = true
+      }
+    }
+    if (sawInProgress) {
+      return {
+        ok: false,
+        pending: true,
+        error: 'Production GitHub deployment still in progress for merge SHA',
+      }
+    }
+    if (prodDeps.length === 0 && (depBySha.data as GhDeployment[]).length > 0) {
+      // Deployments exist but none marked Production — fall through to status.
+    } else if ((depBySha.data as GhDeployment[]).length === 0) {
+      // empty — fall through
+    }
+  } else if (!depBySha.ok) {
+    // 403 common on private repos without deployments permission — fall through
+  }
+
+  const vercelReady = await vercelCommitStatusReady(
+    fetchImpl,
+    owner,
+    repo,
+    sha,
+    accessToken,
+  )
+  if (vercelReady === 'success') {
+    return {
+      ok: true,
+      detail: `Vercel commit status success for merge ${sha.slice(0, 7)}`,
+      source: 'commit_status',
+    }
+  }
+  if (vercelReady === 'pending') {
+    return {
+      ok: false,
+      pending: true,
+      error: 'Vercel commit status still pending for merge SHA',
+    }
+  }
+
+  if (!depBySha.ok) {
+    return {
+      ok: false,
+      pending: true,
+      error: `deployments_by_sha HTTP ${depBySha.status}; no Vercel commit status for merge SHA`,
+    }
+  }
+  return {
+    ok: false,
+    pending: true,
+    error: 'No production deployment READY for merge SHA yet',
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }
