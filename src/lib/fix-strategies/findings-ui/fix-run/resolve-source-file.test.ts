@@ -78,6 +78,31 @@ describe('detectStaticRoots + candidates', () => {
     expect(detectStaticRoots(AUTODUN_TREE)).toContain('public')
   })
 
+  it('fixture-like tree: "/" resolves to index.html, not blog/index.html', async () => {
+    const tree = [
+      'index.html',
+      'about.html',
+      'blog/index.html',
+      'robots.txt',
+      'sitemap.xml',
+    ]
+    const roots = detectStaticRoots(tree)
+    expect(roots).toEqual([''])
+    const existing = candidatePathsForUrl('https://seoranko-fixture.vercel.app/', roots).filter(
+      (p) => tree.includes(p),
+    )
+    // Pre-fix bug: candidates were [index.html, blog/index.html]
+    expect(existing).toEqual(['index.html'])
+    const result = await resolveSourceFile({
+      url: 'https://seoranko-fixture.vercel.app/',
+      evidence: { needle: 'Fixture home', expectedCount: 1 },
+      treePaths: tree,
+      treeShas: { 'index.html': 'sha-root' },
+      readFile: async () => '<html><body><h1>Fixture home</h1></body></html>',
+    })
+    expect(result).toMatchObject({ status: 'resolved', path: 'index.html' })
+  })
+
   it('maps /about → public/about/index.html candidate only when present', () => {
     const roots = detectStaticRoots(AUTODUN_TREE)
     const cands = candidatePathsForUrl('https://autodun.com/about', roots)

@@ -465,9 +465,14 @@ describe('topic 27 — indexable URLs absent', () => {
       ),
     ).toBe(true)
 
+    // Slash/root equivalents count as listed (topic 8 handles true duplicates).
     expect(
-      result.findings.find((f) => f.pageUrl === `${ORIGIN}/page/`)?.verdict,
-    ).toBe('route-topic-8-slash-mismatch')
+      result.suppressed.some(
+        (s) =>
+          s.pageUrl === `${ORIGIN}/page/` &&
+          s.verdict === 'suppress-listed-in-index-child',
+      ),
+    ).toBe(true)
 
     expect(
       result.suppressed.some(

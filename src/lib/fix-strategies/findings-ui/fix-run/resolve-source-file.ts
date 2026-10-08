@@ -8,6 +8,8 @@
  * `expectedCount` times. No fallback, no best guess.
  */
 
+import { normalizeFixStrategyUrl } from '@/lib/fix-strategies/shared/url-normalize'
+
 export type SourceUnresolvedReason =
   | 'no-static-file'
   | 'multiple-candidates'
@@ -85,9 +87,12 @@ export function detectStaticRoots(treePaths: string[]): string[] {
     roots.add('')
   }
 
-  // First-level dirs that directly contain index.html / robots / sitemap.
+  // First-level dirs that hold site-level artefacts (robots / sitemap).
+  // Do NOT promote content dirs that only have index.html (e.g. blog/) —
+  // those are pages under the static root, not alternate roots. Promoting
+  // them made URL "/" resolve to both index.html and blog/index.html.
   for (const p of treePaths) {
-    const m = p.match(/^([^/]+)\/(index\.html?|robots\.txt|sitemap\.xml)$/i)
+    const m = p.match(/^([^/]+)\/(robots\.txt|sitemap\.xml)$/i)
     if (m) roots.add(m[1]!)
   }
 
@@ -176,6 +181,47 @@ export function countExactOccurrences(content: string, needle: string): number {
 }
 
 /**
+ * Count attribute values (href/src/content) that resolve to the same URL as
+ * `targetUrl` against `pageUrl`. Accepts absolute, root-relative, and
+ * relative forms as written in the source — the detector often stores an
+ * absolute canonical while the file still has href="/path".
+ */
+export function countUrlEquivalentAttributeMatches(
+  content: string,
+  targetUrl: string,
+  pageUrl: string,
+): number {
+  const targetNorm = normalizeFixStrategyUrl(targetUrl, pageUrl)
+  if (!targetNorm) return 0
+
+  const attrRe = /\b(?:href|src|content)\s*=\s*(["'])([^"']+)\1/gi
+  let count = 0
+  let m: RegExpExecArray | null
+  while ((m = attrRe.exec(content)) !== null) {
+    const raw = m[2] ?? ''
+    if (!raw) continue
+    const resolved = normalizeFixStrategyUrl(raw, pageUrl)
+    if (resolved === targetNorm) count++
+  }
+  return count
+}
+
+/**
+ * Evidence match count: exact substring first; if zero and the needle looks
+ * like a URL, also accept equivalent attribute forms on the page.
+ */
+export function countEvidenceOccurrences(
+  content: string,
+  needle: string,
+  pageUrl: string,
+): number {
+  const exact = countExactOccurrences(content, needle)
+  if (exact > 0) return exact
+  if (!/^https?:\/\//i.test(needle) && !needle.startsWith('/')) return 0
+  return countUrlEquivalentAttributeMatches(content, needle, pageUrl)
+}
+
+/**
  * Plain-English why-not-fixed sentence per unresolved reason.
  */
 export function whySourceUnresolved(reason: SourceUnresolvedReason): string {
@@ -251,7 +297,7 @@ export async function resolveSourceFile(
     }
   }
 
-  const count = countExactOccurrences(content, evidence.needle)
+  const count = countEvidenceOccurrences(content, evidence.needle, url)
   if (count === 0) {
     return {
       status: 'unresolved',

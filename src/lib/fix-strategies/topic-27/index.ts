@@ -1,6 +1,7 @@
 export {
   detectIndexableUrlsAbsent,
   isSlashOrCaseMismatch,
+  isSitemapMember,
   classifySitemapDuplicateVariant,
   pathDuplicateForms,
 } from './detect'

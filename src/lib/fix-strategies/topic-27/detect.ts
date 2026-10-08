@@ -191,6 +191,19 @@ export function isSlashOrCaseMismatch(
   return classifySitemapDuplicateVariant(pageNorm, sitemapLocs) === 'slash-or-case'
 }
 
+/**
+ * True when the page is listed in the sitemap under an equivalent form —
+ * exact match, trailing-slash / root variant, or directory-index form.
+ * Topic 27 must not raise omission for these; topic 8 handles true duplicates.
+ */
+export function isSitemapMember(
+  pageNorm: string,
+  sitemapLocs: Set<string>,
+): boolean {
+  if (sitemapLocs.has(pageNorm)) return true
+  return classifySitemapDuplicateVariant(pageNorm, sitemapLocs) != null
+}
+
 export function detectIndexableUrlsAbsent(
   options: DetectTopic27Options,
 ): DetectTopic27Result {
@@ -211,40 +224,13 @@ export function detectIndexableUrlsAbsent(
       normalizeFixStrategyUrl(page.url, options.inspection.originUrl) ??
       page.url
 
-    if (locs.has(pageNorm)) {
+    // Exact or slash/root/index.html equivalent → listed, not an omission.
+    if (isSitemapMember(pageNorm, locs)) {
       suppressed.push({
         pageUrl: page.url,
         verdict: 'suppress-listed-in-index-child',
-        detail: 'Present in sitemap (possibly via index child)',
-      })
-      continue
-    }
-
-    // Slash / case / index.html mismatch vs a listed loc → topics 8–12
-    const variantKind = classifySitemapDuplicateVariant(pageNorm, locs)
-    if (variantKind === 'slash-or-case') {
-      findings.push({
-        kind: 'sitemap/indexable-urls-absent',
-        verdict: 'route-topic-8-slash-mismatch',
-        severity: null,
-        pageUrl: page.url,
         detail:
-          'Sitemap has a slash/case variant of this URL — topic 8/11, not an omission',
-        autoFixable: false,
-        fixTarget,
-      })
-      continue
-    }
-    if (variantKind === 'index-html') {
-      findings.push({
-        kind: 'sitemap/indexable-urls-absent',
-        verdict: 'route-topic-8-12-url-variants',
-        severity: null,
-        pageUrl: page.url,
-        detail:
-          'Sitemap lists a directory-index variant of this URL (e.g. /blog vs /blog/index.html) — topic 8 duplicate URL form, not an omission',
-        autoFixable: false,
-        fixTarget,
+          'Present in sitemap (exact or slash/root/index equivalent form)',
       })
       continue
     }

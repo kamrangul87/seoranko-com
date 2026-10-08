@@ -512,14 +512,9 @@ export default function FindingsListPage() {
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-8 py-8">
           <div className="mb-6">
-            <p className="text-xs uppercase tracking-wide text-[#9B9B9B] mb-1">
-              Fix strategies
-            </p>
-            <h1 className="text-2xl font-semibold tracking-tight">Findings</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Audit</h1>
             <p className="text-[#6B6B6B] mt-1">
-              Live crawl → detectors → persisted findings. Detect-only accepts a
-              public URL with no site connection. Internal evidence is stored but
-              never listed here.
+              Issues found on your site, and which ones SEORANKO can fix safely.
             </p>
           </div>
 
@@ -1043,16 +1038,28 @@ export default function FindingsListPage() {
                             {f.ownerPlainEnglish && (
                               <p className="text-[#0F0F0F] leading-snug mb-1">{f.ownerPlainEnglish}</p>
                             )}
-                            <p className="font-mono text-sm text-[#6B6B6B] leading-snug">{f.verdict}</p>
-                            {group.key === 'needs' && (
+                            {(f.whyNotAutoFixed ||
+                              group.key === 'needs') && (
                               <p className="text-xs text-amber-900 mt-2 bg-amber-50 border border-amber-100 rounded-md px-2 py-1.5">
-                                {whyNotFixedOrFallback(f.verdict)}
+                                {f.whyNotAutoFixed ??
+                                  whyNotFixedOrFallback(f.verdict)}
                               </p>
                             )}
                             {f.pageUrl && (
                               <p className="text-sm text-[#6B6B6B] mt-1 truncate">{f.pageUrl}</p>
                             )}
                             <p className="text-sm text-[#6B6B6B] mt-2 line-clamp-2">{f.detail}</p>
+                            <details
+                              className="mt-2"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <summary className="text-xs text-[#9B9B9B] cursor-pointer select-none">
+                                Details
+                              </summary>
+                              <p className="font-mono text-xs text-[#6B6B6B] leading-snug mt-1">
+                                {f.verdict}
+                              </p>
+                            </details>
                           </Link>
                         </li>
                       ))}
