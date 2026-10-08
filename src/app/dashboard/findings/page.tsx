@@ -11,7 +11,6 @@ import type {
 import { summarizePartialCoverage } from '@/lib/fix-strategies/findings-ui/crawl/partial-coverage'
 import { itemUiStep } from '@/lib/fix-strategies/findings-ui/fix-run/phases'
 import { shouldShowFixMySiteButton } from '@/lib/fix-strategies/findings-ui/fix-run/master-gate'
-import { whyNotFixedOrFallback } from '@/lib/fix-strategies/findings-ui/owner-copy'
 import { readParamFromUrl, writeParamToUrl } from '@/lib/site-selection-url'
 import type { User } from '@supabase/supabase-js'
 
@@ -43,6 +42,31 @@ type FixRunView = {
     previewVerified: number
   } | null
   items: FixRunItemView[]
+}
+
+type MissionEligibility = 'safe' | 'review' | 'blocked'
+
+type MissionItemView = {
+  id: string
+  findingId: string
+  findingCode: string
+  eligibility: MissionEligibility
+  blockReason: string
+  pageUrl?: string | null
+  verdict?: string | null
+  detail?: string | null
+  affectedUrlCount?: number | null
+}
+
+type MissionView = {
+  id: string
+  counts: {
+    totalActionable: number
+    safe: number
+    review: number
+    blocked: number
+  }
+  items: MissionItemView[]
 }
 
 const SITE_QUERY_PARAM = 'site'
@@ -120,6 +144,14 @@ export default function FindingsListPage() {
   const [fixError, setFixError] = useState<string | null>(null)
   const [githubConnected, setGithubConnected] = useState<boolean | null>(null)
   const fixTickAbort = useRef(false)
+  const [mission, setMission] = useState<MissionView | null>(null)
+  const [missionLoading, setMissionLoading] = useState(false)
+  const [missionError, setMissionError] = useState<string | null>(null)
+  const [missionCreating, setMissionCreating] = useState(false)
+  const [openEligibility, setOpenEligibility] = useState<
+    Record<MissionEligibility, boolean>
+  >({ safe: true, review: false, blocked: false })
+  const [infoOpen, setInfoOpen] = useState(false)
 
   useEffect(() => {
     const supabase = getSupabaseClient()
@@ -146,6 +178,64 @@ export default function FindingsListPage() {
     )
   }, [])
 
+  const loadMission = useCallback(async (id: string) => {
+    if (!id) {
+      setMission(null)
+      return
+    }
+    setMissionLoading(true)
+    setMissionError(null)
+    try {
+      const res = await fetch(
+        `/api/fix-missions?siteId=${encodeURIComponent(id)}`,
+      )
+      const json = (await res.json()) as {
+        error?: string
+        mission?: MissionView | null
+      }
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`)
+      setMission(json.mission ?? null)
+    } catch (e) {
+      setMissionError(
+        e instanceof Error ? e.message : 'Failed to load fix mission',
+      )
+      setMission(null)
+    } finally {
+      setMissionLoading(false)
+    }
+  }, [])
+
+  const createMission = useCallback(async (id: string) => {
+    if (!id || missionCreating) return
+    setMissionCreating(true)
+    setMissionError(null)
+    try {
+      const res = await fetch('/api/fix-missions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteId: id }),
+      })
+      const json = (await res.json()) as {
+        error?: string
+        mission?: MissionView
+        wroteToCustomerRepo?: boolean
+      }
+      if (!res.ok || !json.mission) {
+        throw new Error(json.error || 'Could not create fix mission')
+      }
+      if (json.wroteToCustomerRepo) {
+        throw new Error('Unexpected customer write from mission create')
+      }
+      setMission(json.mission)
+    } catch (e) {
+      setMissionError(
+        e instanceof Error ? e.message : 'Could not create fix mission',
+      )
+    } finally {
+      setMissionCreating(false)
+    }
+  }, [missionCreating])
+
   const loadConnected = useCallback(async (id: string, informational: boolean) => {
     if (!id) return
     setLoading(true)
@@ -159,13 +249,14 @@ export default function FindingsListPage() {
         throw new Error(body.error || `HTTP ${res.status}`)
       }
       setData((await res.json()) as FindingsListResponse)
+      await loadMission(id)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load findings')
       setData(null)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [loadMission])
 
   const loadDetect = useCallback(
     async (origin: string, informational: boolean) => {
@@ -363,15 +454,17 @@ export default function FindingsListPage() {
 
   const readyFindings =
     data?.findings.filter((f) => f.surfaceClass === 'auto-fixable') ?? []
-  const needsYouFindings =
+  const infoFindings =
     data?.findings.filter(
       (f) =>
-        f.surfaceClass === 'human-review' ||
-        f.surfaceClass === 'finding' ||
-        f.surfaceClass === 'report-only',
+        f.surfaceClass === 'informational' ||
+        f.bucket === 'informational',
     ) ?? []
-  const infoFindings =
-    data?.findings.filter((f) => f.surfaceClass === 'informational') ?? []
+  const missionSafe = mission?.items.filter((i) => i.eligibility === 'safe') ?? []
+  const missionReview =
+    mission?.items.filter((i) => i.eligibility === 'review') ?? []
+  const missionBlocked =
+    mission?.items.filter((i) => i.eligibility === 'blocked') ?? []
 
   async function drainCrawlTicks(runId: string, opts?: { detectOnly?: boolean }) {
     setCrawling(true)
@@ -881,13 +974,11 @@ export default function FindingsListPage() {
             </div>
           )}
 
-          {!loading && !error && data && data.findings.length === 0 && (
+          {!loading && !error && data && data.findings.length === 0 && mode === 'detect' && (
             <div className="rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-8 text-center text-[#6B6B6B]">
               {crawl
                 ? 'No findings in this view.'
-                : mode === 'detect'
-                  ? 'No crawl yet. Enter a public URL and run Detect.'
-                  : 'No crawl yet. Connect a site and run a crawl, or switch to Public URL.'}
+                : 'No crawl yet. Enter a public URL and run Detect.'}
             </div>
           )}
 
@@ -898,10 +989,11 @@ export default function FindingsListPage() {
             </div>
           )}
 
-          {!loading && data && data.findings.length > 0 && (
+          {!loading && data && (
             <div className="space-y-8">
               {mode === 'connected' &&
-                shouldShowFixMySiteButton(data.canRunFixAgent === true) && (
+                shouldShowFixMySiteButton(data.canRunFixAgent === true) &&
+                readyFindings.length > 0 && (
                 <div
                   data-testid="fix-my-site"
                   className="rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-4"
@@ -1008,51 +1100,189 @@ export default function FindingsListPage() {
                 </div>
               )}
 
-              {(
-                [
-                  { key: 'ready', title: `Ready to fix (${readyFindings.length})`, rows: readyFindings },
-                  { key: 'needs', title: `Needs you (${needsYouFindings.length})`, rows: needsYouFindings },
-                  { key: 'info', title: `For information (${infoFindings.length})`, rows: infoFindings },
-                ] as const
-              ).map((group) =>
-                group.rows.length === 0 ? null : (
-                  <section key={group.key}>
-                    <h2 className="text-sm font-medium text-[#0F0F0F] mb-3">{group.title}</h2>
+              {mode === 'connected' && (
+                <section
+                  data-testid="fix-mission-overview"
+                  className="rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-4 space-y-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h2 className="text-sm font-medium text-[#0F0F0F]">
+                        Fix overview
+                      </h2>
+                      <p className="text-xs text-[#6B6B6B] mt-0.5">
+                        Classifies problems from the latest crawl. Creating an
+                        overview never writes to your repository.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void createMission(siteId)}
+                      disabled={!siteId || missionCreating || missionLoading}
+                      className="px-3 py-1.5 rounded-lg border border-[#E8E8E4] text-sm text-[#0F0F0F] disabled:opacity-50"
+                    >
+                      {missionCreating
+                        ? 'Preparing…'
+                        : mission
+                          ? 'Refresh overview'
+                          : 'Prepare fix overview'}
+                    </button>
+                  </div>
+
+                  {missionError && (
+                    <p className="text-xs text-red-700">{missionError}</p>
+                  )}
+
+                  {missionLoading && !mission && (
+                    <p className="text-sm text-[#9B9B9B]">Loading overview…</p>
+                  )}
+
+                  {!mission && !missionLoading && (
+                    <p className="text-sm text-[#6B6B6B]">
+                      No overview yet. Prepare one to see what can be fixed
+                      automatically, what needs review, and what cannot be
+                      fixed automatically.
+                    </p>
+                  )}
+
+                  {mission && (
+                    <>
+                      <p className="text-2xl font-medium text-[#0F0F0F] tracking-tight">
+                        {mission.counts.totalActionable}{' '}
+                        <span className="text-base font-normal text-[#6B6B6B]">
+                          problem{mission.counts.totalActionable === 1 ? '' : 's'}
+                        </span>
+                      </p>
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        {(
+                          [
+                            {
+                              key: 'safe' as const,
+                              label: 'Safe to fix automatically',
+                              count: mission.counts.safe,
+                              rows: missionSafe,
+                            },
+                            {
+                              key: 'review' as const,
+                              label: 'Need review',
+                              count: mission.counts.review,
+                              rows: missionReview,
+                            },
+                            {
+                              key: 'blocked' as const,
+                              label: 'Cannot fix automatically',
+                              count: mission.counts.blocked,
+                              rows: missionBlocked,
+                            },
+                          ] as const
+                        ).map((bucket) => (
+                          <div
+                            key={bucket.key}
+                            className="rounded-lg border border-[#E8E8E4] bg-[#F4F4F2] px-3 py-3"
+                          >
+                            <button
+                              type="button"
+                              className="w-full text-left"
+                              onClick={() =>
+                                setOpenEligibility((prev) => ({
+                                  ...prev,
+                                  [bucket.key]: !prev[bucket.key],
+                                }))
+                              }
+                              aria-expanded={openEligibility[bucket.key]}
+                            >
+                              <p className="text-xs text-[#6B6B6B]">{bucket.label}</p>
+                              <p className="text-xl font-medium text-[#0F0F0F] mt-1">
+                                {bucket.count}
+                              </p>
+                            </button>
+                            {openEligibility[bucket.key] && (
+                              <ul className="mt-3 space-y-2 border-t border-[#E8E8E4] pt-3">
+                                {bucket.rows.length === 0 ? (
+                                  <li className="text-xs text-[#9B9B9B]">None</li>
+                                ) : (
+                                  bucket.rows.map((item) => (
+                                    <li key={item.id} className="text-xs">
+                                      <Link
+                                        href={`/dashboard/findings/${item.findingId}`}
+                                        className="font-mono text-[#FF6B2C] hover:underline"
+                                      >
+                                        {item.findingCode}
+                                      </Link>
+                                      <p className="text-[#0F0F0F] mt-0.5 leading-snug">
+                                        {item.blockReason}
+                                      </p>
+                                      {item.pageUrl && (
+                                        <p className="text-[#6B6B6B] mt-0.5 truncate">
+                                          {item.pageUrl}
+                                        </p>
+                                      )}
+                                    </li>
+                                  ))
+                                )}
+                              </ul>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </section>
+              )}
+
+              {infoFindings.length > 0 && (
+                <section>
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 text-sm font-medium text-[#0F0F0F] mb-3"
+                    onClick={() => setInfoOpen((v) => !v)}
+                    aria-expanded={infoOpen}
+                  >
+                    For information ({infoFindings.length})
+                    <span className="text-xs font-normal text-[#9B9B9B]">
+                      {infoOpen ? 'Hide' : 'Show'}
+                    </span>
+                  </button>
+                  {infoOpen && (
                     <ul className="space-y-3">
-                      {group.rows.map((f) => (
+                      {infoFindings.map((f) => (
                         <li key={f.id}>
                           <Link
                             href={`/dashboard/findings/${f.id}`}
                             className="block rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-4 hover:border-[#FF6B2C]/40 transition-colors"
                           >
                             <div className="flex flex-wrap items-center gap-2 mb-2">
-                              <span className={`text-xs px-2 py-0.5 rounded border ${severityTone(f.severity)}`}>
+                              <span
+                                className={`text-xs px-2 py-0.5 rounded border ${severityTone(f.severity)}`}
+                              >
                                 {f.severity ?? '—'}
                               </span>
                               <span className="text-xs px-2 py-0.5 rounded border border-[#E8E8E4] text-[#6B6B6B]">
                                 {surfaceLabel(f)}
                               </span>
-                              <span className="text-xs text-[#9B9B9B]">Topic {f.topicId}</span>
+                              <span className="text-xs text-[#9B9B9B]">
+                                Topic {f.topicId}
+                              </span>
                             </div>
                             {f.ownerPlainEnglish && (
-                              <p className="text-[#0F0F0F] leading-snug mb-1">{f.ownerPlainEnglish}</p>
-                            )}
-                            <p className="font-mono text-sm text-[#6B6B6B] leading-snug">{f.verdict}</p>
-                            {group.key === 'needs' && (
-                              <p className="text-xs text-amber-900 mt-2 bg-amber-50 border border-amber-100 rounded-md px-2 py-1.5">
-                                {whyNotFixedOrFallback(f.verdict)}
+                              <p className="text-[#0F0F0F] leading-snug mb-1">
+                                {f.ownerPlainEnglish}
                               </p>
                             )}
+                            <p className="font-mono text-sm text-[#6B6B6B] leading-snug">
+                              {f.verdict}
+                            </p>
                             {f.pageUrl && (
-                              <p className="text-sm text-[#6B6B6B] mt-1 truncate">{f.pageUrl}</p>
+                              <p className="text-sm text-[#6B6B6B] mt-1 truncate">
+                                {f.pageUrl}
+                              </p>
                             )}
-                            <p className="text-sm text-[#6B6B6B] mt-2 line-clamp-2">{f.detail}</p>
                           </Link>
                         </li>
                       ))}
                     </ul>
-                  </section>
-                ),
+                  )}
+                </section>
               )}
             </div>
           )}
