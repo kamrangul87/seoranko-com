@@ -510,7 +510,12 @@ async function stepFixRunPreview(
   }
 
   const expectedAuto = loadExpectedAutoFixable()
-  while (Date.now() < deadline - 3_000) {
+  // One/few fix-run micro-ticks per e2e invocation — avoids 240s holds that
+  // race with chained cron continues and thrash wait_preview/verify.
+  const maxMicro = 5
+  let lastDetail = 'fix run still progressing'
+  let anyAdvanced = false
+  for (let i = 0; i < maxMicro && Date.now() < deadline - 3_000; i++) {
     const tick = await tickFixRun({
       runId: fixRunId!,
       userId,
@@ -521,6 +526,8 @@ async function stepFixRunPreview(
         autoMergeEnabledOverride: false,
       }),
     })
+    anyAdvanced = anyAdvanced || tick.advanced
+    lastDetail = tick.detail || lastDetail
     const fr = tick.run
     if (fr.status === 'failed' || fr.phase === 'done') {
       return {
@@ -579,7 +586,12 @@ async function stepFixRunPreview(
     }
     if (!tick.advanced) break
   }
-  return { run, advanced: false, done: false, detail: 'fix run still progressing' }
+  return {
+    run,
+    advanced: anyAdvanced,
+    done: false,
+    detail: lastDetail,
+  }
 }
 
 async function stepApproveMergeVerify(
@@ -626,7 +638,10 @@ async function stepApproveMergeVerify(
     await approveFixRun({ runId: fr.id, userId })
   }
 
-  while (Date.now() < deadline - 3_000) {
+  const maxMicro = 5
+  let anyAdvanced = false
+  let lastDetail = 'merge/verify still progressing'
+  for (let i = 0; i < maxMicro && Date.now() < deadline - 3_000; i++) {
     const tick = await tickFixRun({
       runId: fr.id,
       userId,
@@ -645,6 +660,8 @@ async function stepApproveMergeVerify(
         },
       }),
     })
+    anyAdvanced = anyAdvanced || tick.advanced
+    lastDetail = tick.detail || lastDetail
     fr = (await store.getRun(fr.id, userId))!
     if (tick.run.mergeSha && !run.merge_sha) {
       run = await updateE2eRun(run.id, { merge_sha: tick.run.mergeSha })
@@ -690,9 +707,9 @@ async function stepApproveMergeVerify(
   }
   return {
     run,
-    advanced: false,
+    advanced: anyAdvanced,
     done: false,
-    detail: 'merge/verify still progressing',
+    detail: lastDetail,
   }
 }
 
