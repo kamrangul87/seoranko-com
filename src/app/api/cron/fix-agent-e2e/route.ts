@@ -10,6 +10,7 @@ import {
   tickE2eRun,
   getE2eRun,
 } from '@/lib/fix-agent-e2e'
+import { scheduleE2eContinue } from '@/lib/fix-agent-e2e/schedule-continue'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -39,25 +40,12 @@ export async function GET(req: NextRequest) {
 
     const result = await tickE2eRun({ runId })
 
-    // Chain continue while still running. When we only waited (no advance),
-    // delay the next tick to avoid overlapping reset/wait races.
+    // Chain continue while still running (waitUntil keeps the delayed fetch alive).
     if (result.run.status === 'running') {
-      const host =
-        process.env.VERCEL_URL != null
-          ? `https://${process.env.VERCEL_URL}`
-          : process.env.NEXT_PUBLIC_SITE_URL || null
-      if (host && process.env.CRON_SECRET) {
-        const cont = `${host}/api/cron/fix-agent-e2e?continue=${result.run.id}`
-        // Always delay so the current invocation finishes before the next
-        // continue — overlapping ticks thrash wait_preview/verify state.
-        const delayMs = result.advanced ? 8_000 : 20_000
-        void (async () => {
-          await new Promise((r) => setTimeout(r, delayMs))
-          await fetch(cont, {
-            headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` },
-          }).catch(() => undefined)
-        })()
-      }
+      scheduleE2eContinue({
+        runId: result.run.id,
+        advanced: result.advanced,
+      })
     }
 
     return NextResponse.json({
