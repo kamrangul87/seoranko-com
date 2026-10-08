@@ -447,6 +447,8 @@ export async function runDetectorsOnPages(
   const out: DetectorEmit[] = []
   // urlset/sitemapindex bodies are sitemap detector INPUT (24–28), not HTML
   // pages — exclude from every HTML per-page detector (2b, 30, 34, …).
+  // Content detectors inspect document HTML — only confirmed 200 responses.
+  // 3xx pages (e.g. /old-blog → 308) must not raise missing-lang / head / etc.
   const usable = pages.filter(
     (p) =>
       p.streamComplete &&
@@ -454,9 +456,18 @@ export async function runDetectorsOnPages(
       !p.crawlerCausedBackoff &&
       p.html &&
       !isSitemapXmlDocument(p.html) &&
+      p.status === 200,
+  )
+  // Redirect topics need 3xx seeds as well as 200 pages.
+  const redirectSeeds = pages.filter(
+    (p) =>
+      p.streamComplete &&
+      !p.clientOnly &&
+      !p.crawlerCausedBackoff &&
       p.status != null &&
       p.status >= 200 &&
-      p.status < 400,
+      p.status < 400 &&
+      !isSitemapXmlDocument(p.html || ''),
   )
 
   // Do NOT invent shared generator:site-* declaration sites. Hand-authored
@@ -469,11 +480,11 @@ export async function runDetectorsOnPages(
 
   // Batch-style PER-PAGE detectors — each page is independent;
   // running on a chunk does not invent cross-URL false positives.
-  if (usable.length > 0) {
+  if (redirectSeeds.length > 0) {
     // Topics 4–7: one redirect walk, four topic emits
     {
       const { findings } = await detectRedirectTopics(
-        usable.map((p) => ({ url: p.finalUrl })),
+        redirectSeeds.map((p) => ({ url: p.finalUrl || p.requestedUrl })),
         { deps: hopDeps },
       )
       for (const f of findings) {
@@ -492,7 +503,9 @@ export async function runDetectorsOnPages(
         }
       }
     }
+  }
 
+  if (usable.length > 0) {
     // Topics 9–12: duplicate URL forms (per-page; peer probe). Topic 8
     // (trailing-slash + index-html) runs post-crawl with a full discovery set.
     takeBuckets(
@@ -804,14 +817,13 @@ export async function runWholeSiteDetectorsOnCrawl(
 
   // Sitemap XML documents stay out of HTML whole-site checks (27-as-page,
   // 19/21/33/43/45/46–48, …). Topics 24–28 still run via inspectSiteSitemaps.
+  // Whole-site HTML detectors also require status 200 (skip 3xx redirect bodies).
   const usableHtml = pages.filter(
     (p) =>
       !p.clientOnly &&
       p.html &&
       !isSitemapXmlDocument(p.html) &&
-      p.status != null &&
-      p.status >= 200 &&
-      p.status < 400,
+      p.status === 200,
   )
 
   const fetchDeps = makeGapFetchDeps()
@@ -828,9 +840,13 @@ export async function runWholeSiteDetectorsOnCrawl(
   // --- Sitemap / robots site artefacts (22, 24, 25, 26, 27, 28) ---
   let inspection: Awaited<ReturnType<typeof inspectSiteSitemaps>> | null = null
   try {
+    // Always probe the conventional /sitemap.xml path. Many sites (including
+    // the SEORANKO fixture) omit Sitemap: from robots.txt; without this,
+    // topics 26–28 never see locs and emit nothing / false omissions.
     inspection = await inspectSiteSitemaps({
       originUrl: origin,
       deps: fetchDeps,
+      discoveredSitemapUrls: [`${origin.replace(/\/$/, '')}/sitemap.xml`],
     })
     takeBuckets(
       '24',

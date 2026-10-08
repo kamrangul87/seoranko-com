@@ -253,6 +253,9 @@ export async function advancePostCrawlPhases(
         inspection = await inspectSiteSitemaps({
           originUrl: input.origin,
           deps: fetchDeps,
+          discoveredSitemapUrls: [
+            `${input.origin.replace(/\/$/, '')}/sitemap.xml`,
+          ],
         })
         serializedInspection = serializeSitemapInspection(inspection)
         phase = nextPostCrawlPhase(phase)

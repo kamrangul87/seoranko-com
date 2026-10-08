@@ -2,15 +2,15 @@
 
 Minimal **static** site for Fix Agent one-run exercises. Defects that can use
 root-relative URLs do so (anchors, img src, canonicals) so the HTML works on
-any host. Sitemap `<loc>` values must be absolute per the XML sitemap protocol
-— replace `https://fixture.example` with the deployed origin when hosting.
+any host. Sitemap `<loc>` values are absolute and point at the live fixture
+host `https://seoranko-fixture.vercel.app`.
 
 ## Seeded defects (wired topics)
 
 | Topic | Seeded defect | Expected finding (verdict) | File |
 |------:|---------------|----------------------------|------|
-| **49** | `<img src="/images/hero.jpg">` has no width/height | `auto-set-dimensions` | `blog/index.html` |
-| **1** | `<a href="/gone.html">` — target 404 | `auto-fixable` | `index.html` |
+| **49** | `<img src="/images/hero.jpg">` missing width/height + CSS `height: auto` | `auto-set-dimensions` | `blog/index.html` |
+| **1** | `<a href="/gone.html">` — target 404 | `human-review` / `no-action` (dossier: auto-remove only with git deletion or 410) | `index.html` |
 | **14** | `<link rel="canonical" href="/dead-canonical.html">` — target not 200 | `auto-self-canonical` | `about.html` |
 | **17** | Two identical `<link rel="canonical" href="/">` in head | `auto-collapse-redundant` | `index.html` |
 | **22** | `Crawl-delay: 10` in robots.txt | `auto-remove-crawl-delay` | `robots.txt` |
