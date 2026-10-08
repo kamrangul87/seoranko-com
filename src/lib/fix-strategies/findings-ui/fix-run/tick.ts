@@ -173,12 +173,13 @@ export async function tickFixRun(input: {
     if (!run.branchName) {
       run.branchName = `seoranko/fix-run-${Date.now().toString(36)}`
     }
+    const branchName = run.branchName
     let created: Awaited<ReturnType<GithubOps['createBranch']>>
     try {
       created = await withFixRunPrGate(() =>
         ops.createBranch({
           creds,
-          branchName: run.branchName!,
+          branchName,
         }),
       )
     } catch (err) {
@@ -318,6 +319,7 @@ export async function tickFixRun(input: {
       return { run: toPublic(run), advanced, detail }
     }
 
+    const commitBranch = run.branchName!
     let committed: Awaited<ReturnType<GithubOps['commitFile']>>
     try {
       committed = await withFixRunPrGate(() =>
@@ -325,7 +327,7 @@ export async function tickFixRun(input: {
           creds,
           path: applied.path,
           content: applied.newContent,
-          branchName: run.branchName!,
+          branchName: commitBranch,
           message: `fix(seo): ${finding.topicId} ${finding.verdict} (${finding.id.slice(0, 8)})`,
         }),
       )
@@ -398,22 +400,25 @@ export async function tickFixRun(input: {
       await save()
       return { run: toPublic(run), advanced: true, detail }
     }
+    const prBranch = run.branchName!
+    const prRunId = run.id
+    const prItems = run.items
     let pr: Awaited<ReturnType<GithubOps['ensurePullRequest']>>
     try {
       pr = await withFixRunPrGate(() =>
         ops.ensurePullRequest({
           creds,
-          branchName: run.branchName!,
-          title: `SEORANKO fix run: ${run.items.length} auto-fixable finding(s)`,
+          branchName: prBranch,
+          title: `SEORANKO fix run: ${prItems.length} auto-fixable finding(s)`,
           body: [
             '## SEORANKO one-run Fix Agent',
             '',
-            `Run \`${run.id}\` — one branch, one PR, one commit per fix.`,
+            `Run \`${prRunId}\` — one branch, one PR, one commit per fix.`,
             '',
             'All edits are deterministic transforms. No model-generated code.',
             '',
             '### Items',
-            ...run.items.map(
+            ...prItems.map(
               (i) =>
                 `- \`${i.findingId}\` — ${i.status}${i.commitSha ? ` (\`${i.commitSha.slice(0, 7)}\`)` : ''}${i.failureReason ? ` — ${i.failureReason}` : ''}`,
             ),
@@ -661,12 +666,13 @@ export async function tickFixRun(input: {
       return { run: toPublic(run), advanced: true, detail }
     }
 
+    const mergePrNumber = run.prNumber!
     let merged: Awaited<ReturnType<GithubOps['mergePullRequest']>>
     try {
       merged = await withFixRunMergeGate(() =>
         ops.mergePullRequest({
           creds,
-          prNumber: run.prNumber!,
+          prNumber: mergePrNumber,
         }),
       )
     } catch (err) {
@@ -838,13 +844,15 @@ async function revertItemCommit(
     })
     return
   }
+  const revertPath = item.path
+  const revertBranch = run.branchName
   let reverted: Awaited<ReturnType<GithubOps['revertFileCommit']>>
   try {
     reverted = await withFixRunPrGate(() =>
       ops.revertFileCommit({
         creds,
-        path: item.path!,
-        branchName: run.branchName!,
+        path: revertPath,
+        branchName: revertBranch,
         previousContent,
         message: `revert: undo failed fix for ${item.findingId.slice(0, 8)}`,
       }),
