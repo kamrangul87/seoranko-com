@@ -13,7 +13,11 @@ import {
   candidatePathsForUrl,
   resolveSourceFile,
   countUrlEquivalentAttributeMatches,
+  countEvidenceOccurrences,
+  countExactOccurrences,
 } from '@/lib/fix-strategies/findings-ui/fix-run/resolve-source-file'
+import { evidenceNeedleForResolution } from '@/lib/fix-strategies/findings-ui/fix-run/apply-evidence'
+import type { PersistedFindingRow } from '@/lib/fix-strategies/findings-ui/crawl/constants'
 import { detectSitemapNotIndexable } from '@/lib/fix-strategies/topic-26'
 import {
   detectIndexableUrlsAbsent,
@@ -302,5 +306,58 @@ describe('seoranko-fixture-site — item 6 topic 1 dossier gate', () => {
     const indexHtml = readFileSync(join(FIXTURE_ROOT, 'index.html'), 'utf8')
     expect(indexHtml).toContain('href="/gone.html"')
     expect(true).toBe(true)
+  })
+})
+
+describe('seoranko-fixture-site — item 5 topic 17 collapse expectedCount', () => {
+  it('resolves two identical canonicals with expectedCount=2 (not evidence-ambiguous)', async () => {
+    const indexHtml = readFileSync(join(FIXTURE_ROOT, 'index.html'), 'utf8')
+    const pageUrl = `${ORIGIN}/`
+    const collapseTo = `${ORIGIN}/`
+
+    // Two real link[rel=canonical] attrs; substring "/" would match far more.
+    expect(countEvidenceOccurrences(indexHtml, collapseTo, pageUrl)).toBe(2)
+    expect(countUrlEquivalentAttributeMatches(indexHtml, collapseTo, pageUrl)).toBe(
+      2,
+    )
+
+    const finding = {
+      id: 't17',
+      topicId: '17',
+      verdict: 'auto-collapse-redundant',
+      evidenceValues: { collapseTo },
+    } as unknown as PersistedFindingRow
+    const needle = evidenceNeedleForResolution(finding)
+    expect(needle).toEqual({ needle: collapseTo, expectedCount: 2 })
+
+    const result = await resolveSourceFile({
+      url: pageUrl,
+      evidence: needle!,
+      treePaths: FIXTURE_TREE,
+      treeShas: { 'index.html': 'sha-index' },
+      readFile: async () => indexHtml,
+    })
+    expect(result).toMatchObject({ status: 'resolved', path: 'index.html' })
+  })
+})
+
+describe('seoranko-fixture-site — item 6 topic 42 ignore comment text', () => {
+  it('matches only a[href]=/old-blog, not the HTML comment mentioning it', async () => {
+    const indexHtml = readFileSync(join(FIXTURE_ROOT, 'index.html'), 'utf8')
+    const pageUrl = `${ORIGIN}/`
+    const href = '/old-blog'
+
+    // Substring (incl. comment) is ambiguous; attribute-only is exactly one.
+    expect(countExactOccurrences(indexHtml, href)).toBeGreaterThan(1)
+    expect(countEvidenceOccurrences(indexHtml, href, pageUrl)).toBe(1)
+
+    const result = await resolveSourceFile({
+      url: pageUrl,
+      evidence: { needle: href, expectedCount: 1 },
+      treePaths: FIXTURE_TREE,
+      treeShas: { 'index.html': 'sha-index' },
+      readFile: async () => indexHtml,
+    })
+    expect(result).toMatchObject({ status: 'resolved', path: 'index.html' })
   })
 })

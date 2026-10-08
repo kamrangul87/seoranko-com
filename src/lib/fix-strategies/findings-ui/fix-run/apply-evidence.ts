@@ -119,9 +119,23 @@ export function evidenceNeedleForResolution(
     }
     case '17': {
       const collapse = str(ev(finding).collapseTo)
-      if (collapse) return { needle: collapse, expectedCount }
       const bodyHref = str(ev(finding).bodyCanonicalHref)
-      return bodyHref ? { needle: bodyHref, expectedCount } : null
+      const needle = collapse ?? bodyHref
+      if (!needle) return null
+      // Collapse-type: evidence legitimately appears once per duplicate
+      // declaration — expected count is that declaration count, not 1.
+      let count = expectedCount
+      if (
+        typeof expectedFromEv !== 'number' &&
+        /collapse/i.test(finding.verdict)
+      ) {
+        const decl = ev(finding).declarationCount
+        count =
+          typeof decl === 'number' && Number.isFinite(decl) && decl >= 2
+            ? Math.floor(decl)
+            : 2
+      }
+      return { needle, expectedCount: count }
     }
     case '22': {
       const raw = evidenceCrawlDelayRaw(finding)
