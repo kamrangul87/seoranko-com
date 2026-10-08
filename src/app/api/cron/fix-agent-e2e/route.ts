@@ -39,7 +39,8 @@ export async function GET(req: NextRequest) {
 
     const result = await tickE2eRun({ runId })
 
-    // Chain continue while still running (soft deadline mid-flight).
+    // Chain continue while still running. When we only waited (no advance),
+    // delay the next tick to avoid overlapping reset/wait races.
     if (result.run.status === 'running') {
       const host =
         process.env.VERCEL_URL != null
@@ -47,9 +48,13 @@ export async function GET(req: NextRequest) {
           : process.env.NEXT_PUBLIC_SITE_URL || null
       if (host && process.env.CRON_SECRET) {
         const cont = `${host}/api/cron/fix-agent-e2e?continue=${result.run.id}`
-        void fetch(cont, {
-          headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` },
-        }).catch(() => undefined)
+        const delayMs = result.advanced ? 500 : 20_000
+        void (async () => {
+          if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs))
+          await fetch(cont, {
+            headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` },
+          }).catch(() => undefined)
+        })()
       }
     }
 

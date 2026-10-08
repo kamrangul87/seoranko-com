@@ -257,6 +257,24 @@ async function advanceTo(
 }
 
 async function stepResetSeed(run: E2eRunRow, userId: string) {
+  // Idempotent: concurrent ticks must not create repeated reset commits.
+  const prior = run.steps.find((s) => s.name === 'reset_seed')
+  if (run.seed_sha && (prior?.status === 'passed' || prior?.status === 'running')) {
+    const next = await advanceTo(
+      run,
+      'reset_seed',
+      'wait_seed_production',
+      prior.detail || `reuse seed_sha ${run.seed_sha.slice(0, 7)}`,
+      { seed_sha: run.seed_sha },
+    )
+    return {
+      run: next,
+      advanced: true,
+      done: false,
+      detail: 'skipped duplicate reset',
+    }
+  }
+
   const creds = await fixtureCreds(userId)
   const reset = await resetFixtureMainToSeed({ accessToken: creds.accessToken })
   if (!reset.ok) {
@@ -271,6 +289,22 @@ async function stepResetSeed(run: E2eRunRow, userId: string) {
     seed_sha: reset.mainSha,
   })
   return { run: next, advanced: true, done: false, detail: reset.detail }
+}
+
+/** Seed tree fingerprint on the live production origin (same tree as seed tip). */
+async function fixtureOriginLooksLikeSeed(): Promise<boolean> {
+  try {
+    const res = await fetch(`${E2E_FIXTURE_ORIGIN}/robots.txt`, {
+      signal: AbortSignal.timeout(15_000),
+      headers: { 'User-Agent': 'SEORANKO-E2E/1.0' },
+      cache: 'no-store',
+    })
+    if (!res.ok) return false
+    const body = await res.text()
+    return /Crawl-delay:\s*10/i.test(body)
+  } catch {
+    return false
+  }
 }
 
 async function stepWaitSeedProduction(run: E2eRunRow, userId: string) {
@@ -290,29 +324,47 @@ async function stepWaitSeedProduction(run: E2eRunRow, userId: string) {
     mergeSha: sha,
     accessToken: creds.accessToken,
   })
-  if (!once.ok) {
-    if (once.pending === false) {
-      return {
-        run: await failRun(run, 'wait_seed_production', once.error),
-        advanced: true,
-        done: true,
-        detail: once.error,
-      }
-    }
-    return {
+  if (once.ok) {
+    const next = await advanceTo(
       run,
-      advanced: false,
-      done: false,
+      'wait_seed_production',
+      'crawl_compare',
+      once.detail,
+    )
+    return { run: next, advanced: true, done: false, detail: once.detail }
+  }
+  if (once.pending === false) {
+    return {
+      run: await failRun(run, 'wait_seed_production', once.error),
+      advanced: true,
+      done: true,
       detail: once.error,
     }
   }
-  const next = await advanceTo(
+
+  // Private fixture often has Deployments 403 / no commit statuses. After the
+  // reset commit (seed tree), accept production when the live origin serves
+  // the seed fingerprint and the wait step has been running ≥45s.
+  const waitStep = run.steps.find((s) => s.name === 'wait_seed_production')
+  const startedMs = waitStep?.startedAt ? Date.parse(waitStep.startedAt) : 0
+  const waitedMs = startedMs ? Date.now() - startedMs : 0
+  if (waitedMs >= 45_000 && (await fixtureOriginLooksLikeSeed())) {
+    const detail = `seed fingerprint live on ${E2E_FIXTURE_ORIGIN} after ${Math.round(waitedMs / 1000)}s (GitHub deploy signals unavailable: ${once.error})`
+    const next = await advanceTo(
+      run,
+      'wait_seed_production',
+      'crawl_compare',
+      detail,
+    )
+    return { run: next, advanced: true, done: false, detail }
+  }
+
+  return {
     run,
-    'wait_seed_production',
-    'crawl_compare',
-    once.detail,
-  )
-  return { run: next, advanced: true, done: false, detail: once.detail }
+    advanced: false,
+    done: false,
+    detail: once.error,
+  }
 }
 
 async function stepCrawlCompare(
