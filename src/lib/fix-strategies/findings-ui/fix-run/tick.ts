@@ -32,7 +32,7 @@ import {
 import { getFixRunStore } from './store'
 import type { FixRun, FixRunPublicState } from './types'
 import type { GithubOps, GithubPrCreds } from './github-ops'
-import { createLiveGithubOps } from './github-ops'
+import { createLiveGithubOps, isPlaceholderPreviewUrl } from './github-ops'
 import { appendOutcomeRecordLocal } from '../fix-flow/outcome-record'
 import {
   evaluateAutoMergeVerdictGate,
@@ -105,6 +105,18 @@ function previewPageUrl(previewBase: string, pageUrl: string | null): string {
   } catch {
     return previewBase
   }
+}
+
+/** Stored on prevContents when wait_preview begins — drives tick timeout. */
+const PREVIEW_WAIT_STARTED_KEY = '__previewWaitStartedAt'
+/** Same ceiling as per-finding waitForPrPreviewDeploy default. */
+const PREVIEW_WAIT_TIMEOUT_MS = 8 * 60 * 1000
+
+function previewWaitStartedAt(run: FixRun): number | null {
+  const raw = run.prevContents[PREVIEW_WAIT_STARTED_KEY]
+  if (!raw) return null
+  const ms = Date.parse(raw)
+  return Number.isFinite(ms) ? ms : null
 }
 
 function productionPageUrl(origin: string, pageUrl: string | null): string {
@@ -237,14 +249,43 @@ export async function tickFixRun(input: {
     const finding = findings.get(next.findingId)
     if (!finding) {
       const idx = run.items.findIndex((i) => i.id === next.id)
-      run.items[idx] = markItemFailed(next, 'Finding row missing', now)
-      console.info('[fix-run] apply noop/fail', {
+      // Leave out of the run (noop) — not a failed apply.
+      run.items[idx] = {
+        ...next,
+        status: 'noop',
+        failureReason: 'Finding row missing — left out of run',
+        updatedAt: now,
+      }
+      console.info('[fix-run] apply skip', {
         runId: run.id,
         findingId: next.findingId,
         reason: 'finding missing',
       })
       advanced = true
-      detail = `item ${next.findingId} failed: finding missing`
+      detail = `item ${next.findingId} left out: finding missing`
+      await save()
+      return { run: toPublic(run), advanced, detail }
+    }
+
+    // Re-check stored source before apply — never fail an item for missing path.
+    if (!finding.sourcePath || !finding.sourceBlobSha) {
+      const idx = run.items.findIndex((i) => i.id === next.id)
+      const reason =
+        finding.sourceUnresolvedReason ||
+        'No stored source_path/source_blob_sha — left out of run'
+      run.items[idx] = {
+        ...next,
+        status: 'noop',
+        failureReason: reason,
+        updatedAt: now,
+      }
+      console.info('[fix-run] apply skip', {
+        runId: run.id,
+        findingId: next.findingId,
+        reason,
+      })
+      advanced = true
+      detail = `item ${next.findingId} left out: unresolved source`
       await save()
       return { run: toPublic(run), advanced, detail }
     }
@@ -252,13 +293,17 @@ export async function tickFixRun(input: {
     const path = resolveTransformPath(finding)
     if (!path || !run.branchName) {
       const idx = run.items.findIndex((i) => i.id === next.id)
-      run.items[idx] = markItemFailed(
-        next,
-        path ? 'Branch missing' : 'Cannot resolve repo path for finding',
-        now,
-      )
+      const reason = path
+        ? 'Branch missing — left out of run'
+        : 'Cannot resolve repo path for finding — left out of run'
+      run.items[idx] = {
+        ...next,
+        status: 'noop',
+        failureReason: reason,
+        updatedAt: now,
+      }
       advanced = true
-      detail = `item ${next.findingId} failed: path`
+      detail = `item ${next.findingId} left out: path`
       await save()
       return { run: toPublic(run), advanced, detail }
     }
@@ -467,23 +512,80 @@ export async function tickFixRun(input: {
       await save()
       return { run: toPublic(run), advanced: true, detail: 'missing pr' }
     }
-    if (ops.waitForPreview) {
-      const preview = await ops.waitForPreview({
-        creds,
-        prNumber: run.prNumber,
+
+    // Never keep a fixture/placeholder preview URL from a prior bad tick.
+    if (isPlaceholderPreviewUrl(run.previewUrl)) {
+      console.info('[fix-run] clearing placeholder preview_url', {
+        runId: run.id,
+        previewUrl: run.previewUrl,
       })
-      if (!preview.ok) {
-        // Stay on wait_preview for next tick (resumable)
-        detail = `preview wait: ${preview.error}`
-        await save()
-        return { run: toPublic(run), advanced: false, detail }
-      }
-      run.previewUrl = preview.previewUrl
-    } else {
-      run.previewUrl =
-        run.previewUrl ||
-        `https://preview.example.com/pr-${run.prNumber}`
+      run.previewUrl = null
     }
+
+    if (!run.prevContents[PREVIEW_WAIT_STARTED_KEY]) {
+      run.prevContents = {
+        ...run.prevContents,
+        [PREVIEW_WAIT_STARTED_KEY]: now,
+      }
+    }
+
+    if (!ops.waitForPreview) {
+      run.phase = 'done'
+      run.status = 'failed'
+      run.errorDetail =
+        'Preview resolution is not configured — cannot verify without a real deployment URL'
+      await save()
+      return {
+        run: toPublic(run),
+        advanced: true,
+        detail: 'preview resolver missing',
+      }
+    }
+
+    const preview = await ops.waitForPreview({
+      creds,
+      prNumber: run.prNumber,
+      branchName: run.branchName,
+    })
+    if (!preview.ok) {
+      const started = previewWaitStartedAt(run) ?? Date.parse(now)
+      const elapsed = Date.now() - started
+      console.info('[fix-run] preview wait pending', {
+        runId: run.id,
+        prNumber: run.prNumber,
+        branchName: run.branchName,
+        error: preview.error,
+        elapsedMs: elapsed,
+      })
+      if (elapsed >= PREVIEW_WAIT_TIMEOUT_MS) {
+        run.phase = 'done'
+        run.status = 'failed'
+        run.errorDetail = `No preview deployment URL for PR #${run.prNumber} after ${Math.round(elapsed / 1000)}s — ${preview.error}`
+        await save()
+        return {
+          run: toPublic(run),
+          advanced: true,
+          detail: 'preview wait timed out',
+        }
+      }
+      // Stay on wait_preview for next tick (resumable)
+      detail = `preview wait: ${preview.error}`
+      await save()
+      return { run: toPublic(run), advanced: false, detail }
+    }
+    if (isPlaceholderPreviewUrl(preview.previewUrl)) {
+      run.phase = 'done'
+      run.status = 'failed'
+      run.errorDetail =
+        'Preview resolver returned a placeholder host — refusing to verify'
+      await save()
+      return {
+        run: toPublic(run),
+        advanced: true,
+        detail: 'placeholder preview refused',
+      }
+    }
+    run.previewUrl = preview.previewUrl
     run.phase = 'verify_preview_next'
     advanced = true
     detail = 'preview ready'
@@ -493,6 +595,24 @@ export async function tickFixRun(input: {
 
   // ── verify_preview_next ─────────────────────────────────────────
   if (run.phase === 'verify_preview_next') {
+    // Resume path: placeholder stored by older builds → re-enter wait_preview.
+    if (isPlaceholderPreviewUrl(run.previewUrl)) {
+      console.info('[fix-run] placeholder preview on verify — back to wait', {
+        runId: run.id,
+        previewUrl: run.previewUrl,
+      })
+      run.previewUrl = null
+      run.prevContents = {
+        ...run.prevContents,
+        [PREVIEW_WAIT_STARTED_KEY]: now,
+      }
+      run.phase = 'wait_preview'
+      advanced = true
+      detail = 'cleared placeholder preview; waiting for real deploy'
+      await save()
+      return { run: toPublic(run), advanced, detail }
+    }
+
     const next = itemsNeedingPreviewVerify(run.items)[0]
     if (!next) {
       run.phase = nextPhaseAfterPreviewVerify(run.items)

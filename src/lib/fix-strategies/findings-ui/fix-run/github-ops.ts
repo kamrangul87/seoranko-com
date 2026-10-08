@@ -58,12 +58,38 @@ export type GithubOps = {
     prNumber: number
   }): Promise<{ ok: true; mergeSha: string } | { ok: false; error: string }>
 
-  /** Optional: wait for preview URL. Tests return immediately. */
+  /**
+   * Resolve the preview deployment URL for the PR head (one poll).
+   * Production must implement this via checkPreviewOnce — never a placeholder.
+   * Return pending errors so the tick can stay on wait_preview.
+   */
   waitForPreview?(input: {
     creds: GithubPrCreds
     prNumber: number
+    /** Fix-run branch name (PR head). Required for live preview resolution. */
+    branchName?: string | null
     pagePath?: string
-  }): Promise<{ ok: true; previewUrl: string } | { ok: false; error: string }>
+  }): Promise<
+    | { ok: true; previewUrl: string }
+    | { ok: false; error: string; pending?: boolean }
+  >
+}
+
+/** True when a stored preview URL is a fixture/placeholder host — never verify against it. */
+export function isPlaceholderPreviewUrl(url: string | null | undefined): boolean {
+  if (!url) return false
+  try {
+    const host = new URL(url).hostname.toLowerCase()
+    return (
+      host === 'preview.example.com' ||
+      host === 'example.com' ||
+      host.endsWith('.example.com') ||
+      host === 'fixture.example' ||
+      host.endsWith('.fixture.example')
+    )
+  } catch {
+    return /preview\.example\.com|fixture\.example/i.test(url)
+  }
 }
 
 const GH = 'https://api.github.com'
@@ -273,6 +299,53 @@ export function createLiveGithubOps(): GithubOps {
         return { ok: false, error: `Merge failed: ${res.text.slice(0, 400)}` }
       }
       return { ok: true, mergeSha: res.data.sha || 'merged' }
+    },
+
+    /**
+     * Same mechanism as per-finding verify (wait-vercel-deploy.checkPreviewOnce):
+     * GitHub Deployments API for the PR branch tip → success environment_url.
+     * One poll per tick — caller stays on wait_preview while pending.
+     */
+    async waitForPreview({ creds, prNumber, branchName }) {
+      const { checkPreviewOnce } = await import(
+        '../fix-flow/wait-vercel-deploy'
+      )
+      let branch = branchName?.trim() || ''
+      if (!branch) {
+        const pr = await ghJson<{ head?: { ref?: string } }>(
+          creds.accessToken,
+          `${GH}/repos/${creds.owner}/${creds.repo}/pulls/${prNumber}`,
+        )
+        branch = pr.data.head?.ref?.trim() || ''
+      }
+      if (!branch) {
+        return {
+          ok: false,
+          pending: true,
+          error: `Cannot resolve PR #${prNumber} head branch for preview`,
+        }
+      }
+      const once = await checkPreviewOnce({
+        owner: creds.owner,
+        repo: creds.repo,
+        branchName: branch,
+        accessToken: creds.accessToken,
+        fetchImpl: fetch,
+      })
+      if (once.ok) {
+        if (isPlaceholderPreviewUrl(once.previewUrl)) {
+          return {
+            ok: false,
+            error: 'Preview resolver returned a placeholder host — refusing',
+          }
+        }
+        return { ok: true, previewUrl: once.previewUrl }
+      }
+      return {
+        ok: false,
+        pending: once.pending !== false,
+        error: once.error,
+      }
     },
   }
 }

@@ -52,4 +52,9 @@ export {
   createFixtureGithubRepo,
   FIXTURE_CREDS,
 } from './fixture-github'
-export { createLiveGithubOps, type GithubOps, type GithubPrCreds } from './github-ops'
+export {
+  createLiveGithubOps,
+  isPlaceholderPreviewUrl,
+  type GithubOps,
+  type GithubPrCreds,
+} from './github-ops'

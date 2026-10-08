@@ -395,7 +395,7 @@ describe('fix-run fixture acceptance (3 defects → 1 PR)', () => {
         if (!file) {
           return { ok: false, body: '', status: 404 }
         }
-        if (url.includes('preview.example.com')) {
+        if (url.includes('fix-run-preview.test')) {
           const body = repo.previewContent.get(file) || repo.branches.get(
             [...repo.branches.keys()][0] || '',
           )?.get(file) || ''
