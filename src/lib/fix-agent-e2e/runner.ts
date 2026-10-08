@@ -451,6 +451,30 @@ async function abandonStaleFixtureFixRuns(userId: string, keepId?: string | null
   }
 }
 
+/**
+ * Prior e2e/fix runs can leave auto-fixables as post_fix_status=verified even
+ * after seed reset if the crawl did not flip them to regressed. Clear verified
+ * on the fixture site only so startFixRun selects the full expected auto set.
+ */
+async function clearFixtureStaleVerified(): Promise<number> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) return 0
+  const sb = createClient(url, key)
+  const { data, error } = await sb
+    .from('fix_strategies_findings')
+    .update({ post_fix_status: null, updated_at: new Date().toISOString() })
+    .eq('site_id', E2E_FIXTURE_SITE_ID)
+    .eq('surface_class', 'auto-fixable')
+    .eq('post_fix_status', 'verified')
+    .select('id')
+  if (error) {
+    console.info('[e2e] clearFixtureStaleVerified', error.message)
+    return 0
+  }
+  return data?.length ?? 0
+}
+
 async function stepFixRunPreview(
   run: E2eRunRow,
   userId: string,
@@ -461,6 +485,10 @@ async function stepFixRunPreview(
   let fixRunId = run.fix_run_id
   if (!fixRunId) {
     await abandonStaleFixtureFixRuns(userId, null)
+    const cleared = await clearFixtureStaleVerified()
+    if (cleared > 0) {
+      console.info('[e2e] cleared stale verified autos', { cleared })
+    }
     const started = await startFixRun({
       userId,
       siteId: E2E_FIXTURE_SITE_ID,
