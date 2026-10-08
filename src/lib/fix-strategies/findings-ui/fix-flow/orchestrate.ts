@@ -455,6 +455,7 @@ export async function verifyFix(input: {
       repo: creds.repo,
       branchName: cur.branchName,
       accessToken: creds.accessToken,
+      prNumber: cur.prNumber ?? undefined,
       timeoutMs: input.timeoutMs,
     })
 

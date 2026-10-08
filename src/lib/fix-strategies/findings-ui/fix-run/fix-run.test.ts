@@ -522,6 +522,38 @@ describe('fix-run fixture acceptance (3 defects → 1 PR)', () => {
     )
   })
 
+  it('starting Fix my site while a run is active returns already_in_progress with the run', async () => {
+    await seedThreeFindings()
+    const first = await startFixRun({
+      userId: 'user-fix',
+      siteId: 'site-fix',
+      siteDomain: 'fixture.example',
+      githubConnected: true,
+    })
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+
+    const second = await startFixRun({
+      userId: 'user-fix',
+      siteId: 'site-fix',
+      siteDomain: 'fixture.example',
+      githubConnected: true,
+    })
+    expect(second.ok).toBe(false)
+    if (second.ok) return
+    expect(second.code).toBe('already_in_progress')
+    expect(second.error).toBe('A fix run is already in progress')
+    expect(second.run?.id).toBe(first.run.id)
+  })
+
+  it('wait_preview timeout copy names the missing signal after 15 minutes', async () => {
+    const tickSrc = readFileSync(join(__dirname, 'tick.ts'), 'utf8')
+    expect(tickSrc).toMatch(/PREVIEW_WAIT_TIMEOUT_MS = 15 \* 60 \* 1000/)
+    expect(tickSrc).toMatch(
+      /No preview URL within 15 minutes — missing signal:/,
+    )
+  })
+
   it('partial failure: one transform fails, others complete, PR lacks failed change', async () => {
     await seedThreeFindings()
     const repo = createFixtureGithubRepo({

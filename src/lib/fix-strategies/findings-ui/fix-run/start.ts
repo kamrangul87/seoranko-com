@@ -14,7 +14,13 @@ import type { GithubOps, GithubPrCreds } from './github-ops'
 
 export type StartFixRunResult =
   | { ok: true; run: FixRun }
-  | { ok: false; error: string; code?: string }
+  | {
+      ok: false
+      error: string
+      code?: string
+      /** Present when code === already_in_progress so the UI can link to it. */
+      run?: FixRun
+    }
 
 export async function selectAutoFixableFindings(
   siteId: string,
@@ -60,7 +66,12 @@ export async function startFixRun(input: {
   const runStore = getFixRunStore()
   const active = await runStore.listActiveForSite(input.siteId, input.userId)
   if (active) {
-    return { ok: true, run: active }
+    return {
+      ok: false,
+      error: 'A fix run is already in progress',
+      code: 'already_in_progress',
+      run: active,
+    }
   }
 
   // Re-resolve when tip blob SHA changed before selecting apply targets.

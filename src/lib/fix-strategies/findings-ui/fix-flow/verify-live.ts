@@ -46,6 +46,14 @@ export async function verifyFindingLive(input: {
   }
 
   if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      return {
+        ok: false,
+        verifiedUrl: liveUrl,
+        detail:
+          'Your preview is protected by a login; turn off Vercel Authentication for previews',
+      }
+    }
     return {
       ok: false,
       verifiedUrl: liveUrl,

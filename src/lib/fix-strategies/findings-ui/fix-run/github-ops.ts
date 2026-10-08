@@ -303,7 +303,7 @@ export function createLiveGithubOps(): GithubOps {
 
     /**
      * Same mechanism as per-finding verify (wait-vercel-deploy.checkPreviewOnce):
-     * GitHub Deployments API for the PR branch tip → success environment_url.
+     * GitHub Deployments → commit status / check-run → vercel[bot] PR comment.
      * One poll per tick — caller stays on wait_preview while pending.
      */
     async waitForPreview({ creds, prNumber, branchName }) {
@@ -330,6 +330,7 @@ export function createLiveGithubOps(): GithubOps {
         repo: creds.repo,
         branchName: branch,
         accessToken: creds.accessToken,
+        prNumber,
         fetchImpl: fetch,
       })
       if (once.ok) {

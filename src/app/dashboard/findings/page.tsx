@@ -333,7 +333,15 @@ export default function FindingsListPage() {
       })
       const json = (await res.json()) as {
         error?: string
+        code?: string
         run?: FixRunView
+      }
+      if (res.status === 409 && json.code === 'already_in_progress' && json.run) {
+        setFixRun(json.run)
+        setFixError('A fix run is already in progress')
+        setFixRunning(false)
+        await pollFixRun(json.run.id)
+        return
       }
       if (!res.ok || !json.run) {
         throw new Error(json.error || 'Could not start fix run')
@@ -941,10 +949,28 @@ export default function FindingsListPage() {
                     </p>
                   )}
                   {fixError && (
-                    <p className="text-xs text-red-700 mt-2">{fixError}</p>
+                    <p className="text-xs text-red-700 mt-2" data-testid="fix-run-error">
+                      {fixError}
+                      {fixError === 'A fix run is already in progress' &&
+                        fixRun?.id && (
+                          <>
+                            {' — '}
+                            <a
+                              href={`#fix-run-${fixRun.id}`}
+                              className="underline text-red-800"
+                              data-testid="fix-run-already-link"
+                            >
+                              View run
+                            </a>
+                          </>
+                        )}
+                    </p>
                   )}
                   {fixRun && (
-                    <div className="mt-4 border-t border-[#F5F4F1] pt-3 space-y-2">
+                    <div
+                      id={`fix-run-${fixRun.id}`}
+                      className="mt-4 border-t border-[#F5F4F1] pt-3 space-y-2"
+                    >
                       <p className="text-xs font-medium text-[#0F0F0F]">
                         {fixRun.progressLabel || fixRun.phase}
                       </p>

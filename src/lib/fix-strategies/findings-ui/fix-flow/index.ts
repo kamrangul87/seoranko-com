@@ -11,7 +11,11 @@ export {
   waitForPrPreviewDeploy,
   previewPageUrl,
   checkPreviewOnce,
+  previewUrlFromVercelBotComment,
+  probePreviewAuth,
+  PREVIEW_AUTH_BLOCKED_MESSAGE,
 } from './wait-vercel-deploy'
+export type { PreviewUrlSource, DeployWaitResult } from './wait-vercel-deploy'
 export { verifyFindingLive } from './verify-live'
 export {
   getFixFlow,
