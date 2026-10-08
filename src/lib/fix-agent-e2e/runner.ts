@@ -435,6 +435,22 @@ async function stepCrawlCompare(
   return { run: next, advanced: true, done: false, detail: 'findings match' }
 }
 
+async function abandonStaleFixtureFixRuns(userId: string, keepId?: string | null) {
+  const store = getFixRunStore()
+  // Drain any active runs for the fixture site so e2e always starts clean.
+  for (let i = 0; i < 5; i++) {
+    const active = await store.listActiveForSite(E2E_FIXTURE_SITE_ID, userId)
+    if (!active) break
+    if (keepId && active.id === keepId) break
+    active.phase = 'done'
+    active.status = 'failed'
+    active.errorDetail =
+      active.errorDetail ||
+      'Abandoned by Fix Agent e2e so a fresh seed run can start'
+    await store.saveRun(active)
+  }
+}
+
 async function stepFixRunPreview(
   run: E2eRunRow,
   userId: string,
@@ -444,6 +460,7 @@ async function stepFixRunPreview(
   const ops = createLiveGithubOps()
   let fixRunId = run.fix_run_id
   if (!fixRunId) {
+    await abandonStaleFixtureFixRuns(userId, null)
     const started = await startFixRun({
       userId,
       siteId: E2E_FIXTURE_SITE_ID,
@@ -453,22 +470,15 @@ async function stepFixRunPreview(
       ops,
     })
     if (!started.ok) {
-      // Adopt an in-progress run for this fixture site (resume after crash).
-      if (started.code === 'already_in_progress' && started.run) {
-        fixRunId = started.run.id
-        run = await updateE2eRun(run.id, { fix_run_id: fixRunId })
-      } else {
-        return {
-          run: await failRun(run, 'fix_run_preview', started.error),
-          advanced: true,
-          done: true,
-          detail: started.error,
-        }
+      return {
+        run: await failRun(run, 'fix_run_preview', started.error),
+        advanced: true,
+        done: true,
+        detail: started.error,
       }
-    } else {
-      fixRunId = started.run.id
-      run = await updateE2eRun(run.id, { fix_run_id: fixRunId })
     }
+    fixRunId = started.run.id
+    run = await updateE2eRun(run.id, { fix_run_id: fixRunId })
   }
 
   const expectedAuto = loadExpectedAutoFixable()
