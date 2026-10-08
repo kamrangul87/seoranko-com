@@ -34,6 +34,7 @@ type FixRunView = {
   branchName: string | null
   prNumber: number | null
   prUrl: string | null
+  errorDetail?: string | null
   progressLabel?: string
   canApproveMerge?: boolean
   summary?: {
@@ -297,12 +298,17 @@ export default function FindingsListPage() {
           throw new Error(json.error || 'Fix run tick failed')
         }
         setFixRun(json.run)
+        if (json.run.status === 'failed') {
+          setFixError(
+            json.run.errorDetail || 'Fix run failed. Please try again.',
+          )
+          break
+        }
         if (
           json.run.phase === 'await_approval' ||
           json.run.phase === 'done' ||
           json.run.status === 'awaiting_approval' ||
-          json.run.status === 'complete' ||
-          json.run.status === 'failed'
+          json.run.status === 'complete'
         ) {
           break
         }
