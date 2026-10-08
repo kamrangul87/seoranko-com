@@ -15,6 +15,7 @@ import {
   expectedReadmeDiff,
   E2E_FIXTURE_SITE_ID,
 } from '@/lib/fix-agent-e2e'
+import { scheduleE2eContinue } from '@/lib/fix-agent-e2e/schedule-continue'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -62,19 +63,11 @@ export async function POST(req: NextRequest) {
     if (action === 'run_now') {
       const run = await startOrGetE2eRun()
       const result = await tickE2eRun({ runId: run.id })
-      // Chain continue like cron when still running
-      if (result.run.status === 'running' && process.env.CRON_SECRET) {
-        const host =
-          process.env.VERCEL_URL != null
-            ? `https://${process.env.VERCEL_URL}`
-            : process.env.NEXT_PUBLIC_SITE_URL || 'https://www.seoranko.com'
-        void (async () => {
-          await new Promise((r) => setTimeout(r, 8_000))
-          await fetch(
-            `${host}/api/cron/fix-agent-e2e?continue=${result.run.id}`,
-            { headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` } },
-          ).catch(() => undefined)
-        })()
+      if (result.run.status === 'running') {
+        scheduleE2eContinue({
+          runId: result.run.id,
+          advanced: result.advanced,
+        })
       }
       return NextResponse.json({
         ok: true,
@@ -90,6 +83,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'runId required' }, { status: 400 })
       }
       const result = await tickE2eRun({ runId: body.runId })
+      if (result.run.status === 'running') {
+        scheduleE2eContinue({
+          runId: result.run.id,
+          advanced: result.advanced,
+        })
+      }
       return NextResponse.json({
         ok: true,
         run: result.run,

@@ -528,11 +528,23 @@ export async function tickFixRun(input: {
       run.previewUrl = null
     }
 
+    // Already resolved (e.g. prior tick or concurrent discover) — do not
+    // re-poll GitHub Deployments; that races with verify and clobbers items.
+    if (run.previewUrl && !isPlaceholderPreviewUrl(run.previewUrl)) {
+      run.phase = 'verify_preview_next'
+      advanced = true
+      detail = 'preview already resolved'
+      await save()
+      return { run: toPublic(run), advanced, detail }
+    }
+
     if (!run.prevContents[PREVIEW_WAIT_STARTED_KEY]) {
       run.prevContents = {
         ...run.prevContents,
         [PREVIEW_WAIT_STARTED_KEY]: now,
       }
+      // Persist timer only — avoid full item rewrite on every pending poll.
+      await save()
     }
 
     if (!ops.waitForPreview) {
@@ -586,9 +598,10 @@ export async function tickFixRun(input: {
           detail: 'preview wait timed out',
         }
       }
-      // Stay on wait_preview for next tick (resumable)
+      // Stay on wait_preview for next tick (resumable). Do NOT save here —
+      // a full saveRun rewrites every item from stale memory and can clobber
+      // preview_verified written by a concurrent verify tick.
       detail = `preview wait: ${preview.error}`
-      await save()
       return { run: toPublic(run), advanced: false, detail }
     }
     if (isPlaceholderPreviewUrl(preview.previewUrl)) {

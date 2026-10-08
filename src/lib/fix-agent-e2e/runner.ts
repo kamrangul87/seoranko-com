@@ -193,6 +193,13 @@ export async function tickE2eRun(input?: {
     advanced = advanced || result.advanced
     if (result.done || run.status !== 'running') break
     if (!result.advanced) break // pending external wait — continue next tick
+    // Fix-run phases do one micro-step per invocation so continues never overlap.
+    if (
+      stepName === 'fix_run_preview' ||
+      stepName === 'approve_merge_verify'
+    ) {
+      break
+    }
   }
 
   return {
@@ -510,87 +517,82 @@ async function stepFixRunPreview(
   }
 
   const expectedAuto = loadExpectedAutoFixable()
-  // One/few fix-run micro-ticks per e2e invocation — avoids 240s holds that
-  // race with chained cron continues and thrash wait_preview/verify.
-  const maxMicro = 5
-  let lastDetail = 'fix run still progressing'
-  let anyAdvanced = false
-  for (let i = 0; i < maxMicro && Date.now() < deadline - 3_000; i++) {
-    const tick = await tickFixRun({
-      runId: fixRunId!,
-      userId,
-      deps: defaultTickDeps({
-        ops,
-        creds,
-        siteOrigin: E2E_FIXTURE_ORIGIN,
-        autoMergeEnabledOverride: false,
-      }),
-    })
-    anyAdvanced = anyAdvanced || tick.advanced
-    lastDetail = tick.detail || lastDetail
-    const fr = tick.run
-    if (fr.status === 'failed' || fr.phase === 'done') {
+  // Exactly one fix-run micro-tick per e2e invocation — overlapping continues
+  // must not thrash wait_preview/verify against each other.
+  if (Date.now() >= deadline - 3_000) {
+    return { run, advanced: false, done: false, detail: 'deadline' }
+  }
+  const tick = await tickFixRun({
+    runId: fixRunId!,
+    userId,
+    deps: defaultTickDeps({
+      ops,
+      creds,
+      siteOrigin: E2E_FIXTURE_ORIGIN,
+      autoMergeEnabledOverride: false,
+    }),
+  })
+  const fr = tick.run
+  if (fr.status === 'failed' || fr.phase === 'done') {
+    return {
+      run: await failRun(
+        run,
+        'fix_run_preview',
+        fr.errorDetail || `fix run ended in ${fr.phase}/${fr.status}`,
+      ),
+      advanced: true,
+      done: true,
+      detail: 'fix run failed early',
+    }
+  }
+  if (fr.phase === 'await_approval' || fr.status === 'awaiting_approval') {
+    const previewed = fr.items.filter((i) => i.status === 'preview_verified')
+    const failed = fr.items.filter((i) => i.status === 'failed')
+    if (failed.length > 0) {
       return {
         run: await failRun(
           run,
           'fix_run_preview',
-          fr.errorDetail || `fix run ended in ${fr.phase}/${fr.status}`,
+          `Items failed before approval: ${failed.map((f) => f.failureReason).join('; ')}`,
         ),
         advanced: true,
         done: true,
-        detail: 'fix run failed early',
+        detail: 'item failed',
       }
     }
-    if (fr.phase === 'await_approval' || fr.status === 'awaiting_approval') {
-      const previewed = fr.items.filter((i) => i.status === 'preview_verified')
-      const failed = fr.items.filter((i) => i.status === 'failed')
-      if (failed.length > 0) {
-        return {
-          run: await failRun(
-            run,
-            'fix_run_preview',
-            `Items failed before approval: ${failed.map((f) => f.failureReason).join('; ')}`,
-          ),
-          advanced: true,
-          done: true,
-          detail: 'item failed',
-        }
+    if (previewed.length !== expectedAuto.length) {
+      return {
+        run: await failRun(
+          run,
+          'fix_run_preview',
+          `Expected ${expectedAuto.length} preview-verified items, got ${previewed.length}`,
+        ),
+        advanced: true,
+        done: true,
+        detail: 'count mismatch',
       }
-      if (previewed.length !== expectedAuto.length) {
-        return {
-          run: await failRun(
-            run,
-            'fix_run_preview',
-            `Expected ${expectedAuto.length} preview-verified items, got ${previewed.length}`,
-          ),
-          advanced: true,
-          done: true,
-          detail: 'count mismatch',
-        }
-      }
-      if (fr.prNumber == null) {
-        return {
-          run: await failRun(run, 'fix_run_preview', 'Missing PR number'),
-          advanced: true,
-          done: true,
-          detail: 'no pr',
-        }
-      }
-      const next = await advanceTo(
-        run,
-        'fix_run_preview',
-        'approve_merge_verify',
-        `PR #${fr.prNumber}; ${previewed.length} preview-verified`,
-      )
-      return { run: next, advanced: true, done: false, detail: 'awaiting approval' }
     }
-    if (!tick.advanced) break
+    if (fr.prNumber == null) {
+      return {
+        run: await failRun(run, 'fix_run_preview', 'Missing PR number'),
+        advanced: true,
+        done: true,
+        detail: 'no pr',
+      }
+    }
+    const next = await advanceTo(
+      run,
+      'fix_run_preview',
+      'approve_merge_verify',
+      `PR #${fr.prNumber}; ${previewed.length} preview-verified`,
+    )
+    return { run: next, advanced: true, done: false, detail: 'awaiting approval' }
   }
   return {
     run,
-    advanced: anyAdvanced,
+    advanced: tick.advanced,
     done: false,
-    detail: lastDetail,
+    detail: tick.detail || 'fix run still progressing',
   }
 }
 
@@ -638,78 +640,73 @@ async function stepApproveMergeVerify(
     await approveFixRun({ runId: fr.id, userId })
   }
 
-  const maxMicro = 5
-  let anyAdvanced = false
-  let lastDetail = 'merge/verify still progressing'
-  for (let i = 0; i < maxMicro && Date.now() < deadline - 3_000; i++) {
-    const tick = await tickFixRun({
-      runId: fr.id,
-      userId,
-      deps: defaultTickDeps({
-        ops,
-        creds,
-        siteOrigin: E2E_FIXTURE_ORIGIN,
-        autoMergeEnabledOverride: false,
-        startRecrawl: async (siteId) => {
-          const started = await startCrawlRun({
-            siteId,
-            userId,
-            origin: E2E_FIXTURE_ORIGIN,
-          })
-          await drainCrawlRunToTerminal(started.runId, getFindingsStore())
-        },
-      }),
-    })
-    anyAdvanced = anyAdvanced || tick.advanced
-    lastDetail = tick.detail || lastDetail
-    fr = (await store.getRun(fr.id, userId))!
-    if (tick.run.mergeSha && !run.merge_sha) {
-      run = await updateE2eRun(run.id, { merge_sha: tick.run.mergeSha })
-    }
-    if (fr.status === 'complete' || fr.phase === 'done') {
-      const live = fr.items.filter((i) => i.status === 'verified_live')
-      const expectedN = loadExpectedAutoFixable().length
-      if (live.length < expectedN) {
-        const failed = fr.items.filter((i) => i.status === 'failed')
-        return {
-          run: await failRun(
-            run,
-            'approve_merge_verify',
-            `Only ${live.length}/${expectedN} verified live. Failed: ${failed.map((f) => f.failureReason).join('; ')}`,
-          ),
-          advanced: true,
-          done: true,
-          detail: 'verify incomplete',
-        }
-      }
-      const next = await advanceTo(
-        run,
-        'approve_merge_verify',
-        'recrawl_assert_closed',
-        `merge ${fr.mergeSha}; ${live.length} verified live`,
-        { merge_sha: fr.mergeSha },
-      )
-      return { run: next, advanced: true, done: false, detail: 'verified live' }
-    }
-    if (fr.status === 'failed') {
+  if (Date.now() >= deadline - 3_000) {
+    return { run, advanced: false, done: false, detail: 'deadline' }
+  }
+  const tick = await tickFixRun({
+    runId: fr.id,
+    userId,
+    deps: defaultTickDeps({
+      ops,
+      creds,
+      siteOrigin: E2E_FIXTURE_ORIGIN,
+      autoMergeEnabledOverride: false,
+      startRecrawl: async (siteId) => {
+        const started = await startCrawlRun({
+          siteId,
+          userId,
+          origin: E2E_FIXTURE_ORIGIN,
+        })
+        await drainCrawlRunToTerminal(started.runId, getFindingsStore())
+      },
+    }),
+  })
+  fr = (await store.getRun(fr.id, userId))!
+  if (tick.run.mergeSha && !run.merge_sha) {
+    run = await updateE2eRun(run.id, { merge_sha: tick.run.mergeSha })
+  }
+  if (fr.status === 'complete' || fr.phase === 'done') {
+    const live = fr.items.filter((i) => i.status === 'verified_live')
+    const expectedN = loadExpectedAutoFixable().length
+    if (live.length < expectedN) {
+      const failed = fr.items.filter((i) => i.status === 'failed')
       return {
         run: await failRun(
           run,
           'approve_merge_verify',
-          fr.errorDetail || 'fix run failed',
+          `Only ${live.length}/${expectedN} verified live. Failed: ${failed.map((f) => f.failureReason).join('; ')}`,
         ),
         advanced: true,
         done: true,
-        detail: 'failed',
+        detail: 'verify incomplete',
       }
     }
-    if (!tick.advanced) break
+    const next = await advanceTo(
+      run,
+      'approve_merge_verify',
+      'recrawl_assert_closed',
+      `merge ${fr.mergeSha}; ${live.length} verified live`,
+      { merge_sha: fr.mergeSha },
+    )
+    return { run: next, advanced: true, done: false, detail: 'verified live' }
+  }
+  if (fr.status === 'failed') {
+    return {
+      run: await failRun(
+        run,
+        'approve_merge_verify',
+        fr.errorDetail || 'fix run failed',
+      ),
+      advanced: true,
+      done: true,
+      detail: 'failed',
+    }
   }
   return {
     run,
-    advanced: anyAdvanced,
+    advanced: tick.advanced,
     done: false,
-    detail: lastDetail,
+    detail: tick.detail || 'merge/verify still progressing',
   }
 }
 

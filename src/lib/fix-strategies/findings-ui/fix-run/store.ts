@@ -21,6 +21,86 @@ function newId() {
   return crypto.randomUUID()
 }
 
+/** Higher = further along; used so stale ticks cannot regress progress. */
+const ITEM_STATUS_RANK: Record<FixRunItemStatus, number> = {
+  pending: 0,
+  applying: 1,
+  committed: 2,
+  preview_verified: 3,
+  production_verified: 4,
+  verified_live: 5,
+  noop: 6,
+  failed: 6,
+}
+
+const PHASE_RANK: Record<FixRunPhase, number> = {
+  create_branch: 0,
+  apply_next: 1,
+  ensure_pr: 2,
+  wait_preview: 3,
+  verify_preview_next: 4,
+  await_approval: 5,
+  merge: 6,
+  verify_production_next: 7,
+  recrawl: 8,
+  done: 9,
+}
+
+export function pickForwardItemStatus(
+  dbStatus: FixRunItemStatus | null | undefined,
+  incoming: FixRunItemStatus,
+): FixRunItemStatus {
+  if (!dbStatus) return incoming
+  // Allow explicit failure / noop transitions from any non-terminal verify state.
+  if (incoming === 'failed' || incoming === 'noop') return incoming
+  if (dbStatus === 'failed' || dbStatus === 'noop') return dbStatus
+  return ITEM_STATUS_RANK[incoming] >= ITEM_STATUS_RANK[dbStatus]
+    ? incoming
+    : dbStatus
+}
+
+export function mergeRunForSave(
+  incoming: FixRun,
+  fresh: Record<string, unknown> | null,
+): FixRun {
+  if (!fresh) return incoming
+  const dbPhase = fresh.phase as FixRunPhase | undefined
+  const dbPreview = (fresh.preview_url as string | null) ?? null
+  const dbStatus = fresh.status as FixRunStatus | undefined
+
+  let phase = incoming.phase
+  if (
+    dbPhase &&
+    PHASE_RANK[dbPhase] > PHASE_RANK[incoming.phase] &&
+    // Allow intentional terminal failure from any phase.
+    incoming.status !== 'failed'
+  ) {
+    phase = dbPhase
+  }
+
+  // Keep a real preview URL if a stale wait_preview tick tries to clear it.
+  const previewUrl =
+    incoming.previewUrl ||
+    (dbPreview && !/^https?:\/\/(preview\.)?example\.com/i.test(dbPreview)
+      ? dbPreview
+      : null) ||
+    null
+
+  const status =
+    incoming.status === 'failed'
+      ? 'failed'
+      : dbStatus === 'complete' || dbStatus === 'failed'
+        ? dbStatus
+        : incoming.status
+
+  return {
+    ...incoming,
+    phase,
+    previewUrl: previewUrl ?? incoming.previewUrl,
+    status,
+  }
+}
+
 export type FixRunStore = {
   createRun(input: {
     userId: string
@@ -235,50 +315,91 @@ export function createSupabaseFixRunStore(): FixRunStore {
 
     async saveRun(run) {
       const supabase = createServiceRoleClient()
+
+      // Reload DB row so a stale in-memory tick cannot regress phase/items
+      // (classic race: wait_preview pending save clobbering preview_verified).
+      const { data: freshRow } = await supabase
+        .from('fix_strategies_runs')
+        .select('phase, preview_url, status')
+        .eq('id', run.id)
+        .eq('user_id', run.userId)
+        .maybeSingle()
+      const merged = mergeRunForSave(run, freshRow as Record<string, unknown> | null)
+
       const summary = {
-        ...computeSummary(run.items),
-        _prevContents: run.prevContents || {},
+        ...computeSummary(merged.items),
+        _prevContents: merged.prevContents || {},
       }
       const { error } = await supabase
         .from('fix_strategies_runs')
         .update({
-          status: run.status,
-          phase: run.phase,
-          branch_name: run.branchName,
-          pr_number: run.prNumber,
-          pr_url: run.prUrl,
-          preview_url: run.previewUrl,
-          merge_sha: run.mergeSha,
-          approved_at: run.approvedAt,
-          auto_merge_attempted: run.autoMergeAttempted,
-          auto_merge_blocked_reason: run.autoMergeBlockedReason,
-          item_cursor: run.itemCursor,
-          error_detail: run.errorDetail,
+          status: merged.status,
+          phase: merged.phase,
+          branch_name: merged.branchName,
+          pr_number: merged.prNumber,
+          pr_url: merged.prUrl,
+          preview_url: merged.previewUrl,
+          merge_sha: merged.mergeSha,
+          approved_at: merged.approvedAt,
+          auto_merge_attempted: merged.autoMergeAttempted,
+          auto_merge_blocked_reason: merged.autoMergeBlockedReason,
+          item_cursor: merged.itemCursor,
+          error_detail: merged.errorDetail,
           summary,
           updated_at: nowIso(),
         })
-        .eq('id', run.id)
-        .eq('user_id', run.userId)
+        .eq('id', merged.id)
+        .eq('user_id', merged.userId)
       if (error) throw new Error(error.message)
 
-      for (const item of run.items) {
+      const { data: dbItems } = await supabase
+        .from('fix_strategies_run_items')
+        .select('id, status, commit_sha, path, preview_verified_at, production_verified_at, failure_reason')
+        .eq('run_id', merged.id)
+
+      const dbById = new Map(
+        (dbItems || []).map((r) => [String((r as { id: string }).id), r as Record<string, unknown>]),
+      )
+
+      for (const item of merged.items) {
+        const prev = dbById.get(item.id)
+        const nextStatus = pickForwardItemStatus(
+          (prev?.status as FixRunItemStatus | undefined) ?? null,
+          item.status,
+        )
+        const nextPreviewAt =
+          item.previewVerifiedAt ||
+          (prev?.preview_verified_at as string | null) ||
+          null
+        const nextProdAt =
+          item.productionVerifiedAt ||
+          (prev?.production_verified_at as string | null) ||
+          null
         const { error: ie } = await supabase
           .from('fix_strategies_run_items')
           .update({
-            status: item.status,
-            commit_sha: item.commitSha,
-            path: item.path,
-            preview_verified_at: item.previewVerifiedAt,
-            production_verified_at: item.productionVerifiedAt,
-            failure_reason: item.failureReason,
+            status: nextStatus,
+            commit_sha: item.commitSha ?? (prev?.commit_sha as string | null) ?? null,
+            path: item.path ?? (prev?.path as string | null) ?? null,
+            preview_verified_at: nextPreviewAt,
+            production_verified_at: nextProdAt,
+            failure_reason:
+              nextStatus === 'failed'
+                ? item.failureReason
+                : nextStatus === (prev?.status as string)
+                  ? ((prev?.failure_reason as string | null) ?? item.failureReason)
+                  : item.failureReason,
             updated_at: nowIso(),
           })
           .eq('id', item.id)
         if (ie) throw new Error(ie.message)
+        item.status = nextStatus
+        item.previewVerifiedAt = nextPreviewAt
+        item.productionVerifiedAt = nextProdAt
       }
       return {
-        ...run,
-        summary: computeSummary(run.items),
+        ...merged,
+        summary: computeSummary(merged.items),
         updatedAt: nowIso(),
       }
     },
