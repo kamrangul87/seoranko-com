@@ -147,6 +147,14 @@ export function createFixtureGithubRepo(
         previewUrl: `https://fix-run-preview.test/pr-${prNumber}`,
       }
     },
+
+    async waitForProductionDeploy({ mergeSha }) {
+      if (!mergeSha) {
+        return { ok: false, pending: true, error: 'Missing merge SHA' }
+      }
+      // Fixture merges are instantly "live" on the in-memory production map.
+      return { ok: true, detail: `fixture production ready for ${mergeSha}` }
+    },
   }
 
   state.ops = ops

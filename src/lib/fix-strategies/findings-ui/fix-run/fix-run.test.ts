@@ -522,6 +522,114 @@ describe('fix-run fixture acceptance (3 defects → 1 PR)', () => {
     )
   })
 
+  it('waits for production deploy READY before verifying any production item', async () => {
+    await seedThreeFindings()
+    const repo = createFixtureGithubRepo({
+      'public/a.html': '<html><body>A</body></html>',
+      'public/b.html': '<html><body>B</body></html>',
+      'public/c.html': '<html><body>C</body></html>',
+    })
+
+    let prodPolls = 0
+    const productionFetches: string[] = []
+    const ops: GithubOps = {
+      ...repo.ops,
+      async waitForProductionDeploy() {
+        prodPolls += 1
+        // First poll stays pending — this is when a race would have verified
+        // items 0/2 against stale production content.
+        if (prodPolls < 2) {
+          return {
+            ok: false,
+            pending: true,
+            error: 'Production GitHub deployment still in progress for merge SHA',
+          }
+        }
+        return { ok: true, detail: 'Production deployment ready (test)' }
+      },
+    }
+
+    const started = await startFixRun({
+      userId: 'user-fix',
+      siteId: 'site-fix',
+      siteDomain: 'fixture.example',
+      githubConnected: true,
+    })
+    expect(started.ok).toBe(true)
+    if (!started.ok) return
+
+    const deps: TickDeps = {
+      ...buildDeps(repo),
+      ops,
+      fetchPage: async (url) => {
+        if (!url.includes('fix-run-preview.test')) {
+          productionFetches.push(url)
+        }
+        return buildDeps(repo).fetchPage(url)
+      },
+    }
+
+    let state = await drain(started.run.id, deps)
+    expect(state.run.phase).toBe('await_approval')
+    expect(productionFetches.length).toBe(0)
+
+    await approveFixRun({ runId: started.run.id, userId: 'user-fix' })
+
+    // Merge tick lands on verify_production_next without fetching production yet.
+    state = await tickFixRun({
+      runId: started.run.id,
+      userId: 'user-fix',
+      deps,
+    })
+    for (let i = 0; i < 5 && state.run.phase !== 'verify_production_next'; i++) {
+      state = await tickFixRun({
+        runId: started.run.id,
+        userId: 'user-fix',
+        deps,
+      })
+    }
+    expect(state.run.phase).toBe('verify_production_next')
+    expect(state.run.mergeSha).toBeTruthy()
+
+    // First production tick: deploy still pending → no item verified against stale HTML.
+    state = await tickFixRun({
+      runId: started.run.id,
+      userId: 'user-fix',
+      deps,
+    })
+    expect(state.run.phase).toBe('verify_production_next')
+    expect(state.advanced).toBe(false)
+    expect(productionFetches.length).toBe(0)
+    expect(prodPolls).toBe(1)
+    expect(state.run.items.every((i) => i.status !== 'verified_live')).toBe(true)
+
+    // Second production tick: deploy READY, then first item may verify.
+    state = await tickFixRun({
+      runId: started.run.id,
+      userId: 'user-fix',
+      deps,
+    })
+    expect(prodPolls).toBe(2)
+    expect(productionFetches.length).toBeGreaterThanOrEqual(1)
+    expect(
+      state.run.items.some((i) => i.status === 'verified_live') ||
+        state.run.phase === 'verify_production_next',
+    ).toBe(true)
+
+    for (let i = 0; i < 20; i++) {
+      state = await tickFixRun({
+        runId: started.run.id,
+        userId: 'user-fix',
+        deps,
+      })
+      if (state.run.phase === 'done') break
+    }
+    expect(state.run.phase).toBe('done')
+    expect(
+      state.run.items.every((i) => i.status === 'verified_live'),
+    ).toBe(true)
+  })
+
   it('starting Fix my site while a run is active returns already_in_progress with the run', async () => {
     await seedThreeFindings()
     const first = await startFixRun({

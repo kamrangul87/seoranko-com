@@ -291,3 +291,66 @@ describe('probePreviewAuth', () => {
     expect(p.blocked).toBe(true)
   })
 })
+
+describe('checkProductionDeployOnce', () => {
+  it('returns ok when Production deployment status is success', async () => {
+    const { checkProductionDeployOnce } = await import('./wait-vercel-deploy')
+    const mergeSha = SHA
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/deployments?sha=')) {
+        return jsonResponse([
+          {
+            id: 42,
+            sha: mergeSha,
+            environment: 'Production',
+            production_environment: true,
+            statuses_url: `https://api.github.com/repos/${OWNER}/${REPO}/deployments/42/statuses`,
+          },
+        ])
+      }
+      if (url.includes('/deployments/42/statuses')) {
+        return jsonResponse([{ state: 'success', environment_url: PREVIEW }])
+      }
+      return jsonResponse({}, 404)
+    }) as unknown as typeof fetch
+
+    const once = await checkProductionDeployOnce({
+      owner: OWNER,
+      repo: REPO,
+      mergeSha,
+      accessToken: 't',
+      fetchImpl,
+    })
+    expect(once.ok).toBe(true)
+    if (!once.ok) return
+    expect(once.source).toBe('github_deployment')
+  })
+
+  it('falls back to Vercel commit status when deployments return 403', async () => {
+    const { checkProductionDeployOnce } = await import('./wait-vercel-deploy')
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/deployments?sha=')) {
+        return jsonResponse({ message: 'Resource not accessible by integration' }, 403)
+      }
+      if (url.includes('/statuses?per_page=100')) {
+        return jsonResponse([
+          { context: 'Vercel', state: 'success', target_url: 'https://vercel.com/x/y' },
+        ])
+      }
+      return jsonResponse({}, 404)
+    }) as unknown as typeof fetch
+
+    const once = await checkProductionDeployOnce({
+      owner: OWNER,
+      repo: REPO,
+      mergeSha: SHA,
+      accessToken: 't',
+      fetchImpl,
+    })
+    expect(once.ok).toBe(true)
+    if (!once.ok) return
+    expect(once.source).toBe('commit_status')
+  })
+})

@@ -111,6 +111,12 @@ function previewPageUrl(previewBase: string, pageUrl: string | null): string {
 const PREVIEW_WAIT_STARTED_KEY = '__previewWaitStartedAt'
 /** Bounded wait for a real preview URL signal (deployments / status / comment). */
 const PREVIEW_WAIT_TIMEOUT_MS = 15 * 60 * 1000
+/** Stored when production deploy wait begins after merge. */
+const PROD_DEPLOY_WAIT_STARTED_KEY = '__productionDeployWaitStartedAt'
+/** Set once production deploy for mergeSha is READY — then items may verify. */
+const PROD_DEPLOY_READY_KEY = '__productionDeployReady'
+/** Same bound as preview wait — fail remaining prod verifies if exceeded. */
+const PROD_DEPLOY_WAIT_TIMEOUT_MS = 15 * 60 * 1000
 
 function previewWaitStartedAt(run: FixRun): number | null {
   const raw = run.prevContents[PREVIEW_WAIT_STARTED_KEY]
@@ -847,6 +853,89 @@ export async function tickFixRun(input: {
       detail = 'production queue empty'
       await save()
       return { run: toPublic(run), advanced, detail }
+    }
+
+    // Gate: do not verify any item until production deploy for mergeSha is READY.
+    if (run.prevContents[PROD_DEPLOY_READY_KEY] !== '1') {
+      if (!run.mergeSha) {
+        run.phase = 'done'
+        run.status = 'failed'
+        run.errorDetail = 'Missing merge SHA — cannot wait for production deploy'
+        await save()
+        return { run: toPublic(run), advanced: true, detail: 'missing merge sha' }
+      }
+      if (!run.prevContents[PROD_DEPLOY_WAIT_STARTED_KEY]) {
+        run.prevContents = {
+          ...run.prevContents,
+          [PROD_DEPLOY_WAIT_STARTED_KEY]: now,
+        }
+      }
+      if (!ops.waitForProductionDeploy) {
+        run.phase = 'done'
+        run.status = 'failed'
+        run.errorDetail =
+          'Production deploy wait is not configured — refusing to verify against a possibly stale host'
+        await save()
+        return {
+          run: toPublic(run),
+          advanced: true,
+          detail: 'production deploy wait missing',
+        }
+      }
+      const prod = await ops.waitForProductionDeploy({
+        creds,
+        mergeSha: run.mergeSha,
+      })
+      const startedRaw = run.prevContents[PROD_DEPLOY_WAIT_STARTED_KEY]
+      const startedMs = startedRaw ? Date.parse(startedRaw) : Date.parse(now)
+      const elapsed = Date.now() - (Number.isFinite(startedMs) ? startedMs : Date.parse(now))
+      if (!prod.ok) {
+        console.info('[fix-run] production deploy wait pending', {
+          runId: run.id,
+          mergeSha: run.mergeSha,
+          error: prod.error,
+          elapsedMs: elapsed,
+        })
+        if (prod.pending === false) {
+          run.phase = 'done'
+          run.status = 'failed'
+          run.errorDetail = prod.error
+          await save()
+          return {
+            run: toPublic(run),
+            advanced: true,
+            detail: 'production deploy wait failed',
+          }
+        }
+        if (elapsed >= PROD_DEPLOY_WAIT_TIMEOUT_MS) {
+          run.phase = 'done'
+          run.status = 'failed'
+          run.errorDetail = `No production deployment READY for merge ${run.mergeSha.slice(0, 7)} within 15 minutes — missing signal: ${prod.error}`
+          await save()
+          return {
+            run: toPublic(run),
+            advanced: true,
+            detail: 'production deploy wait timed out',
+          }
+        }
+        await save()
+        return {
+          run: toPublic(run),
+          advanced: false,
+          detail: `production deploy wait: ${prod.error}`,
+        }
+      }
+      run.prevContents = {
+        ...run.prevContents,
+        [PROD_DEPLOY_READY_KEY]: '1',
+      }
+      console.info('[fix-run] production deploy ready', {
+        runId: run.id,
+        mergeSha: run.mergeSha,
+        detail: prod.detail,
+      })
+      await save()
+      // Fall through and verify the first item in this same tick.
     }
 
     const finding = findings.get(next.findingId)

@@ -73,6 +73,18 @@ export type GithubOps = {
     | { ok: true; previewUrl: string }
     | { ok: false; error: string; pending?: boolean }
   >
+
+  /**
+   * One poll: production deployment for mergeSha is READY.
+   * Caller stays on verify_production_next while pending.
+   */
+  waitForProductionDeploy?(input: {
+    creds: GithubPrCreds
+    mergeSha: string
+  }): Promise<
+    | { ok: true; detail: string }
+    | { ok: false; error: string; pending?: boolean }
+  >
 }
 
 /** True when a stored preview URL is a fixture/placeholder host — never verify against it. */
@@ -342,6 +354,25 @@ export function createLiveGithubOps(): GithubOps {
         }
         return { ok: true, previewUrl: once.previewUrl }
       }
+      return {
+        ok: false,
+        pending: once.pending !== false,
+        error: once.error,
+      }
+    },
+
+    async waitForProductionDeploy({ creds, mergeSha }) {
+      const { checkProductionDeployOnce } = await import(
+        '../fix-flow/wait-vercel-deploy'
+      )
+      const once = await checkProductionDeployOnce({
+        owner: creds.owner,
+        repo: creds.repo,
+        mergeSha,
+        accessToken: creds.accessToken,
+        fetchImpl: fetch,
+      })
+      if (once.ok) return { ok: true, detail: once.detail }
       return {
         ok: false,
         pending: once.pending !== false,
