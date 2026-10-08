@@ -109,8 +109,8 @@ function previewPageUrl(previewBase: string, pageUrl: string | null): string {
 
 /** Stored on prevContents when wait_preview begins — drives tick timeout. */
 const PREVIEW_WAIT_STARTED_KEY = '__previewWaitStartedAt'
-/** Same ceiling as per-finding waitForPrPreviewDeploy default. */
-const PREVIEW_WAIT_TIMEOUT_MS = 8 * 60 * 1000
+/** Bounded wait for a real preview URL signal (deployments / status / comment). */
+const PREVIEW_WAIT_TIMEOUT_MS = 15 * 60 * 1000
 
 function previewWaitStartedAt(run: FixRun): number | null {
   const raw = run.prevContents[PREVIEW_WAIT_STARTED_KEY]
@@ -557,10 +557,22 @@ export async function tickFixRun(input: {
         error: preview.error,
         elapsedMs: elapsed,
       })
+      // Auth-wall / non-pending hard failures fail the run immediately.
+      if (preview.pending === false) {
+        run.phase = 'done'
+        run.status = 'failed'
+        run.errorDetail = preview.error
+        await save()
+        return {
+          run: toPublic(run),
+          advanced: true,
+          detail: 'preview wait failed',
+        }
+      }
       if (elapsed >= PREVIEW_WAIT_TIMEOUT_MS) {
         run.phase = 'done'
         run.status = 'failed'
-        run.errorDetail = `No preview deployment URL for PR #${run.prNumber} after ${Math.round(elapsed / 1000)}s — ${preview.error}`
+        run.errorDetail = `No preview URL within 15 minutes — missing signal: ${preview.error}`
         await save()
         return {
           run: toPublic(run),
@@ -641,19 +653,21 @@ export async function tickFixRun(input: {
       previewPageUrl(run.previewUrl, finding.pageUrl)
     let body = ''
     let fetchOk = false
+    let fetchStatus = 0
     if (next.path && input.deps.fetchPage) {
       const fetched = await input.deps.fetchPage(url)
+      fetchStatus = fetched.status
       fetchOk = fetched.ok && fetched.status >= 200 && fetched.status < 400
       body = fetched.body
     }
 
     if (!fetchOk) {
       const idx = run.items.findIndex((i) => i.id === next.id)
-      run.items[idx] = markItemFailed(
-        next,
-        `Preview re-fetch failed for ${url}`,
-        now,
-      )
+      const failReason =
+        fetchStatus === 401 || fetchStatus === 403
+          ? 'Your preview is protected by a login; turn off Vercel Authentication for previews'
+          : `Preview re-fetch failed for ${url}`
+      run.items[idx] = markItemFailed(next, failReason, now)
       await revertItemCommit(run, next.id, ops, creds)
       console.info('[fix-run] preview verify failed', {
         runId: run.id,

@@ -101,9 +101,14 @@ export async function POST(req: NextRequest) {
     })
 
     if (!started.ok) {
+      const status = started.code === 'already_in_progress' ? 409 : 400
       return NextResponse.json(
-        { error: started.error, code: started.code },
-        { status: 400 },
+        {
+          error: started.error,
+          code: started.code,
+          ...(started.run ? { run: started.run } : {}),
+        },
+        { status },
       )
     }
 
