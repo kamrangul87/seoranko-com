@@ -20,6 +20,10 @@
     {
       "readme": "No mention of 27/28/31/34/45/8",
       "observed": "Whole-site/informational detectors emit these on seed — included for exact match"
+    },
+    {
+      "readme": "No mention of topic 8 page",
+      "observed": "informational-generated-only attaches to about.html (not blog/) on current seed crawl"
     }
   ],
   "findings": [
@@ -194,7 +198,7 @@
     {
       "topicId": "8",
       "verdict": "informational-generated-only",
-      "pageUrl": "https://seoranko-fixture.vercel.app/blog/",
+      "pageUrl": "https://seoranko-fixture.vercel.app/about.html",
       "surfaceClass": "informational",
       "autoFixable": false,
       "bucket": "informational"
