@@ -849,6 +849,40 @@ export async function checkProductionDeployOnce(input: {
     }
   }
 
+  // Check-runs (Vercel often posts these when classic commit statuses are absent).
+  const cr = await readJson(
+    fetchImpl,
+    `${GH}/repos/${owner}/${repo}/commits/${sha}/check-runs?per_page=100`,
+    accessToken,
+  )
+  if (cr.ok && cr.data && typeof cr.data === 'object') {
+    const runs = ((cr.data as { check_runs?: GhCheckRun[] }).check_runs ||
+      []) as GhCheckRun[]
+    const vercelRuns = runs.filter(
+      (r) =>
+        /vercel/i.test(String(r.name || '')) ||
+        /vercel/i.test(String(r.app?.slug || '')),
+    )
+    if (vercelRuns.some((r) => r.status && r.status !== 'completed')) {
+      return {
+        ok: false,
+        pending: true,
+        error: 'Vercel check-run still in progress for merge SHA',
+      }
+    }
+    if (
+      vercelRuns.some(
+        (r) => r.status === 'completed' && r.conclusion === 'success',
+      )
+    ) {
+      return {
+        ok: true,
+        detail: `Vercel check-run success for merge ${sha.slice(0, 7)}`,
+        source: 'commit_status',
+      }
+    }
+  }
+
   if (!depBySha.ok) {
     return {
       ok: false,
