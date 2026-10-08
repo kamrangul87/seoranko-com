@@ -48,9 +48,11 @@ export async function GET(req: NextRequest) {
           : process.env.NEXT_PUBLIC_SITE_URL || null
       if (host && process.env.CRON_SECRET) {
         const cont = `${host}/api/cron/fix-agent-e2e?continue=${result.run.id}`
-        const delayMs = result.advanced ? 500 : 20_000
+        // Always delay so the current invocation finishes before the next
+        // continue — overlapping ticks thrash wait_preview/verify state.
+        const delayMs = result.advanced ? 8_000 : 20_000
         void (async () => {
-          if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs))
+          await new Promise((r) => setTimeout(r, delayMs))
           await fetch(cont, {
             headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` },
           }).catch(() => undefined)

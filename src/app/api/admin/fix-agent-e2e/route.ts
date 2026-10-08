@@ -68,9 +68,13 @@ export async function POST(req: NextRequest) {
           process.env.VERCEL_URL != null
             ? `https://${process.env.VERCEL_URL}`
             : process.env.NEXT_PUBLIC_SITE_URL || 'https://www.seoranko.com'
-        void fetch(`${host}/api/cron/fix-agent-e2e?continue=${result.run.id}`, {
-          headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` },
-        }).catch(() => undefined)
+        void (async () => {
+          await new Promise((r) => setTimeout(r, 8_000))
+          await fetch(
+            `${host}/api/cron/fix-agent-e2e?continue=${result.run.id}`,
+            { headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` } },
+          ).catch(() => undefined)
+        })()
       }
       return NextResponse.json({
         ok: true,
