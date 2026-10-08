@@ -3,6 +3,12 @@
  */
 
 import { describe, expect, it, beforeEach } from 'vitest'
+import { readFileSync } from 'fs'
+import { join } from 'path'
+import {
+  CUSTOMER_WRITE_GATE_USER_MESSAGE,
+  requireActiveCustomerWriteGate,
+} from '@/lib/customer-write-gate'
 import {
   assertSinglePrInvariant,
   canMergeRun,
@@ -25,6 +31,7 @@ import {
 import { startFixRun } from './start'
 import { tickFixRun, approveFixRun, type TickDeps } from './tick'
 import { createFixtureGithubRepo, FIXTURE_CREDS } from './fixture-github'
+import type { GithubOps } from './github-ops'
 
 function makeItem(
   overrides: Partial<FixRunItem> & { id: string; findingId: string },
@@ -69,6 +76,181 @@ function fixtureFinding(
     sourceRows: [],
   }
 }
+
+describe('fix-run write gate', () => {
+  it('tick acquires findings-pr-branch gate before create_branch', async () => {
+    const tickSrc = readFileSync(join(__dirname, 'tick.ts'), 'utf8')
+    expect(tickSrc).toMatch(/withCustomerWriteGate/)
+    expect(tickSrc).toMatch(/findings-pr-branch/)
+    expect(tickSrc).toMatch(/findings-auto-merge/)
+    expect(tickSrc).not.toMatch(/LEGACY_CUSTOMER_WRITES_ENABLED/)
+  })
+
+  it('create_branch via gated tick succeeds when ops require an active gate', async () => {
+    resetMemoryFindingsStore()
+    useMemoryFindingsStore()
+    resetMemoryFixRunStore()
+    useMemoryFixRunStore()
+
+    const store = createMemoryFindingsStore()
+    const crawl = await store.createRun({
+      siteId: 'site-gate',
+      userId: 'user-fix',
+      origin: 'https://fixture.example',
+    })
+    await store.upsertFindings({
+      siteId: 'site-gate',
+      userId: 'user-fix',
+      runId: crawl.id,
+      findings: [fixtureFinding('g', 'a.html')],
+      internalEvidence: [],
+    })
+    const rows = await store.listFindings({
+      siteId: 'site-gate',
+      includeInformational: false,
+    })
+    await store.updateFindingSourceResolution({
+      findingId: rows[0]!.id,
+      sourcePath: 'public/a.html',
+      sourceBlobSha: 'sha-a',
+      sourceResolvedAt: new Date().toISOString(),
+      sourceUnresolvedReason: null,
+      autoFixable: true,
+      surfaceClass: 'auto-fixable',
+    })
+
+    const fixture = createFixtureGithubRepo({
+      'public/a.html': '<html><body>A</body></html>',
+    })
+    const gatedOps: GithubOps = {
+      ...fixture.ops,
+      async createBranch(input) {
+        requireActiveCustomerWriteGate('fix-run.createBranch')
+        return fixture.ops.createBranch(input)
+      },
+      async commitFile(input) {
+        requireActiveCustomerWriteGate('fix-run.commitFile')
+        return fixture.ops.commitFile(input)
+      },
+      async ensurePullRequest(input) {
+        requireActiveCustomerWriteGate('fix-run.ensurePullRequest')
+        return fixture.ops.ensurePullRequest(input)
+      },
+      async mergePullRequest(input) {
+        requireActiveCustomerWriteGate('fix-run.mergePullRequest')
+        return fixture.ops.mergePullRequest(input)
+      },
+    }
+
+    // Ungated live-style call must throw (same class of failure as prod).
+    await expect(
+      gatedOps.createBranch({
+        creds: FIXTURE_CREDS,
+        branchName: 'seoranko/ungated',
+      }),
+    ).rejects.toThrow(/no active write gate/i)
+
+    const started = await startFixRun({
+      userId: 'user-fix',
+      siteId: 'site-gate',
+      siteDomain: 'fixture.example',
+      githubConnected: true,
+    })
+    expect(started.ok).toBe(true)
+    if (!started.ok) return
+
+    const tick = await tickFixRun({
+      runId: started.run.id,
+      userId: 'user-fix',
+      deps: {
+        ops: gatedOps,
+        creds: FIXTURE_CREDS,
+        siteOrigin: 'https://fixture.example',
+        fetchPage: async () => ({ ok: false, body: '', status: 404 }),
+      },
+    })
+    expect(tick.run.phase).toBe('apply_next')
+    expect(tick.run.status).toBe('running')
+    expect(tick.run.errorDetail).toBeNull()
+    expect(tick.detail).toBe('branch created')
+  })
+
+  it('create_branch failure stores plain-language gate message, not raw internals', async () => {
+    resetMemoryFindingsStore()
+    useMemoryFindingsStore()
+    resetMemoryFixRunStore()
+    useMemoryFixRunStore()
+
+    const store = createMemoryFindingsStore()
+    const crawl = await store.createRun({
+      siteId: 'site-gate-fail',
+      userId: 'user-fix',
+      origin: 'https://fixture.example',
+    })
+    await store.upsertFindings({
+      siteId: 'site-gate-fail',
+      userId: 'user-fix',
+      runId: crawl.id,
+      findings: [fixtureFinding('f', 'a.html')],
+      internalEvidence: [],
+    })
+    const rows = await store.listFindings({
+      siteId: 'site-gate-fail',
+      includeInformational: false,
+    })
+    await store.updateFindingSourceResolution({
+      findingId: rows[0]!.id,
+      sourcePath: 'public/a.html',
+      sourceBlobSha: 'sha-a',
+      sourceResolvedAt: new Date().toISOString(),
+      sourceUnresolvedReason: null,
+      autoFixable: true,
+      surfaceClass: 'auto-fixable',
+    })
+
+    // Ops that throw the gate error *inside* the gated callback still map
+    // to plain language when tick catches CustomerWriteGateError. Simulate by
+    // throwing after the outer gate is entered — use a broken nested require
+    // by calling require without inheriting (impossible with ALS nesting).
+    // Instead: throw CustomerWriteGateError from createBranch itself.
+    const { CustomerWriteGateError } = await import('@/lib/customer-write-gate')
+    const fixture = createFixtureGithubRepo({
+      'public/a.html': '<html><body>A</body></html>',
+    })
+    const throwingOps: GithubOps = {
+      ...fixture.ops,
+      async createBranch() {
+        throw new CustomerWriteGateError(
+          'fix-run.createBranch: customer write blocked — no active write gate',
+        )
+      },
+    }
+
+    const started = await startFixRun({
+      userId: 'user-fix',
+      siteId: 'site-gate-fail',
+      siteDomain: 'fixture.example',
+      githubConnected: true,
+    })
+    expect(started.ok).toBe(true)
+    if (!started.ok) return
+
+    const tick = await tickFixRun({
+      runId: started.run.id,
+      userId: 'user-fix',
+      deps: {
+        ops: throwingOps,
+        creds: FIXTURE_CREDS,
+        siteOrigin: 'https://fixture.example',
+        fetchPage: async () => ({ ok: false, body: '', status: 404 }),
+      },
+    })
+    expect(tick.run.status).toBe('failed')
+    expect(tick.run.phase).toBe('done')
+    expect(tick.run.errorDetail).toBe(CUSTOMER_WRITE_GATE_USER_MESSAGE)
+    expect(tick.run.errorDetail).not.toMatch(/no active write gate/i)
+  })
+})
 
 describe('fix-run phase helpers', () => {
   it('enforces single-PR invariant', () => {

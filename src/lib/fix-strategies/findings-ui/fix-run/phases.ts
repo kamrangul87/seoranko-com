@@ -226,13 +226,16 @@ export function markItemCommitted(
 export function deriveRunStatus(
   phase: FixRunPhase,
   items: FixRunItem[],
+  errorDetail?: string | null,
 ): FixRunStatus {
   if (phase === 'done') {
+    // Terminal failure before any item progressed (e.g. create_branch / ensure_pr).
+    if (errorDetail) return 'failed'
     const s = computeSummary(items)
     if (s.verifiedLive > 0 || s.previewVerified > 0 || s.committed > 0) {
       return 'complete'
     }
-    if (s.failed === s.total) return 'failed'
+    if (s.failed === s.total && s.total > 0) return 'failed'
     return 'complete'
   }
   if (phase === 'await_approval') return 'awaiting_approval'

@@ -2,6 +2,11 @@
  * Advance one Fix Agent run tick (resumable — mirrors crawl start/tick).
  */
 
+import {
+  customerWriteGateUserMessage,
+  isCustomerWriteGateError,
+  withCustomerWriteGate,
+} from '@/lib/customer-write-gate'
 import { getFindingsStore } from '../crawl/store'
 import type { PersistedFindingRow } from '../crawl/constants'
 import {
@@ -34,6 +39,20 @@ import {
   resolveSiteAutoMergeEnabled,
 } from '../fix-flow/auto-merge'
 import { assessSingleFileBlastRadius } from '../fix-flow/blast-radius'
+
+/** Branch / commit / PR writes — same purpose as per-finding fix-flow. */
+function withFixRunPrGate<T>(fn: () => Promise<T>): Promise<T> {
+  return withCustomerWriteGate('findings-pr-branch', { approved: true }, fn)
+}
+
+/** Merge after approval or auto-merge gates — same purpose as per-finding auto-merge. */
+function withFixRunMergeGate<T>(fn: () => Promise<T>): Promise<T> {
+  return withCustomerWriteGate(
+    'findings-auto-merge',
+    { autoMergeGatesOk: true },
+    fn,
+  )
+}
 
 export type TickDeps = {
   ops: GithubOps
@@ -140,7 +159,11 @@ export async function tickFixRun(input: {
 
   const save = async () => {
     const current = run!
-    current.status = deriveRunStatus(current.phase, current.items)
+    current.status = deriveRunStatus(
+      current.phase,
+      current.items,
+      current.errorDetail,
+    )
     current.summary = computeSummary(current.items)
     run = await store.saveRun(current)
   }
@@ -150,10 +173,33 @@ export async function tickFixRun(input: {
     if (!run.branchName) {
       run.branchName = `seoranko/fix-run-${Date.now().toString(36)}`
     }
-    const created = await ops.createBranch({
-      creds,
-      branchName: run.branchName,
-    })
+    const branchName = run.branchName
+    let created: Awaited<ReturnType<GithubOps['createBranch']>>
+    try {
+      created = await withFixRunPrGate(() =>
+        ops.createBranch({
+          creds,
+          branchName,
+        }),
+      )
+    } catch (err) {
+      const msg = isCustomerWriteGateError(err)
+        ? customerWriteGateUserMessage(err)
+        : err instanceof Error
+          ? err.message
+          : 'create_branch failed'
+      run.phase = 'done'
+      run.status = 'failed'
+      run.errorDetail = isCustomerWriteGateError(err)
+        ? customerWriteGateUserMessage(err)
+        : msg
+      await save()
+      return {
+        run: toPublic(run),
+        advanced: true,
+        detail: `create_branch failed: ${run.errorDetail}`,
+      }
+    }
     if (!created.ok) {
       run.phase = 'done'
       run.status = 'failed'
@@ -273,13 +319,30 @@ export async function tickFixRun(input: {
       return { run: toPublic(run), advanced, detail }
     }
 
-    const committed = await ops.commitFile({
-      creds,
-      path: applied.path,
-      content: applied.newContent,
-      branchName: run.branchName,
-      message: `fix(seo): ${finding.topicId} ${finding.verdict} (${finding.id.slice(0, 8)})`,
-    })
+    const commitBranch = run.branchName!
+    let committed: Awaited<ReturnType<GithubOps['commitFile']>>
+    try {
+      committed = await withFixRunPrGate(() =>
+        ops.commitFile({
+          creds,
+          path: applied.path,
+          content: applied.newContent,
+          branchName: commitBranch,
+          message: `fix(seo): ${finding.topicId} ${finding.verdict} (${finding.id.slice(0, 8)})`,
+        }),
+      )
+    } catch (err) {
+      const failMsg = isCustomerWriteGateError(err)
+        ? customerWriteGateUserMessage(err)
+        : err instanceof Error
+          ? err.message
+          : 'commit failed'
+      run.items[idx] = markItemFailed(run.items[idx]!, failMsg, now)
+      advanced = true
+      detail = `item ${next.findingId} commit failed`
+      await save()
+      return { run: toPublic(run), advanced, detail }
+    }
 
     if (!committed.ok) {
       // Transform failed at commit — nothing to revert on branch
@@ -337,24 +400,43 @@ export async function tickFixRun(input: {
       await save()
       return { run: toPublic(run), advanced: true, detail }
     }
-    const pr = await ops.ensurePullRequest({
-      creds,
-      branchName: run.branchName,
-      title: `SEORANKO fix run: ${run.items.length} auto-fixable finding(s)`,
-      body: [
-        '## SEORANKO one-run Fix Agent',
-        '',
-        `Run \`${run.id}\` — one branch, one PR, one commit per fix.`,
-        '',
-        'All edits are deterministic transforms. No model-generated code.',
-        '',
-        '### Items',
-        ...run.items.map(
-          (i) =>
-            `- \`${i.findingId}\` — ${i.status}${i.commitSha ? ` (\`${i.commitSha.slice(0, 7)}\`)` : ''}${i.failureReason ? ` — ${i.failureReason}` : ''}`,
-        ),
-      ].join('\n'),
-    })
+    const prBranch = run.branchName!
+    const prRunId = run.id
+    const prItems = run.items
+    let pr: Awaited<ReturnType<GithubOps['ensurePullRequest']>>
+    try {
+      pr = await withFixRunPrGate(() =>
+        ops.ensurePullRequest({
+          creds,
+          branchName: prBranch,
+          title: `SEORANKO fix run: ${prItems.length} auto-fixable finding(s)`,
+          body: [
+            '## SEORANKO one-run Fix Agent',
+            '',
+            `Run \`${prRunId}\` — one branch, one PR, one commit per fix.`,
+            '',
+            'All edits are deterministic transforms. No model-generated code.',
+            '',
+            '### Items',
+            ...prItems.map(
+              (i) =>
+                `- \`${i.findingId}\` — ${i.status}${i.commitSha ? ` (\`${i.commitSha.slice(0, 7)}\`)` : ''}${i.failureReason ? ` — ${i.failureReason}` : ''}`,
+            ),
+          ].join('\n'),
+        }),
+      )
+    } catch (err) {
+      const failMsg = isCustomerWriteGateError(err)
+        ? customerWriteGateUserMessage(err)
+        : err instanceof Error
+          ? err.message
+          : 'PR open failed'
+      run.errorDetail = failMsg
+      run.phase = 'done'
+      run.status = 'failed'
+      await save()
+      return { run: toPublic(run), advanced: true, detail: failMsg }
+    }
     if (!pr.ok) {
       run.errorDetail = pr.error
       run.phase = 'done'
@@ -584,10 +666,28 @@ export async function tickFixRun(input: {
       return { run: toPublic(run), advanced: true, detail }
     }
 
-    const merged = await ops.mergePullRequest({
-      creds,
-      prNumber: run.prNumber,
-    })
+    const mergePrNumber = run.prNumber!
+    let merged: Awaited<ReturnType<GithubOps['mergePullRequest']>>
+    try {
+      merged = await withFixRunMergeGate(() =>
+        ops.mergePullRequest({
+          creds,
+          prNumber: mergePrNumber,
+        }),
+      )
+    } catch (err) {
+      const failMsg = isCustomerWriteGateError(err)
+        ? customerWriteGateUserMessage(err)
+        : err instanceof Error
+          ? err.message
+          : 'merge failed'
+      run.errorDetail = failMsg
+      run.phase = 'await_approval'
+      run.status = 'awaiting_approval'
+      detail = `merge failed: ${failMsg}`
+      await save()
+      return { run: toPublic(run), advanced: true, detail }
+    }
     if (!merged.ok) {
       run.errorDetail = merged.error
       run.phase = 'await_approval'
@@ -744,13 +844,32 @@ async function revertItemCommit(
     })
     return
   }
-  const reverted = await ops.revertFileCommit({
-    creds,
-    path: item.path,
-    branchName: run.branchName,
-    previousContent,
-    message: `revert: undo failed fix for ${item.findingId.slice(0, 8)}`,
-  })
+  const revertPath = item.path
+  const revertBranch = run.branchName
+  let reverted: Awaited<ReturnType<GithubOps['revertFileCommit']>>
+  try {
+    reverted = await withFixRunPrGate(() =>
+      ops.revertFileCommit({
+        creds,
+        path: revertPath,
+        branchName: revertBranch,
+        previousContent,
+        message: `revert: undo failed fix for ${item.findingId.slice(0, 8)}`,
+      }),
+    )
+  } catch (err) {
+    console.info('[fix-run] reverted commit', {
+      runId: run.id,
+      findingId: item.findingId,
+      ok: false,
+      error: isCustomerWriteGateError(err)
+        ? customerWriteGateUserMessage(err)
+        : err instanceof Error
+          ? err.message
+          : 'revert failed',
+    })
+    return
+  }
   console.info('[fix-run] reverted commit', {
     runId: run.id,
     findingId: item.findingId,

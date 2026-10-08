@@ -98,7 +98,24 @@ describe('customer write gate', () => {
     expect(allowed.map((a) => a.id).sort()).toEqual([
       'findings-auto-merge',
       'findings-commit-pr',
+      'fix-run-merge',
+      'fix-run-pr-branch',
     ])
+  })
+
+  it('maps gate errors to plain-language user copy', async () => {
+    const { customerWriteGateUserMessage, CUSTOMER_WRITE_GATE_USER_MESSAGE } =
+      await import('./customer-write-gate')
+    expect(() => requireActiveCustomerWriteGate('x')).toThrow(CustomerWriteGateError)
+    try {
+      requireActiveCustomerWriteGate('x')
+    } catch (err) {
+      expect(customerWriteGateUserMessage(err)).toBe(
+        CUSTOMER_WRITE_GATE_USER_MESSAGE,
+      )
+      expect(customerWriteGateUserMessage(err)).not.toMatch(/no active write gate/i)
+      expect(customerWriteGateUserMessage(err)).not.toMatch(/LEGACY_CUSTOMER/i)
+    }
   })
 
   it('every listed low-level writer source calls requireActiveCustomerWriteGate', () => {
@@ -124,6 +141,14 @@ describe('customer write gate', () => {
         'src/lib/fix-strategies/findings-ui/fix-flow/github-pr-merge.ts',
       'findings.openRevertPullRequest':
         'src/lib/fix-strategies/findings-ui/fix-flow/github-pr-merge.ts',
+      'fix-run.createBranch':
+        'src/lib/fix-strategies/findings-ui/fix-run/github-ops.ts',
+      'fix-run.commitFile':
+        'src/lib/fix-strategies/findings-ui/fix-run/github-ops.ts',
+      'fix-run.ensurePullRequest':
+        'src/lib/fix-strategies/findings-ui/fix-run/github-ops.ts',
+      'fix-run.mergePullRequest':
+        'src/lib/fix-strategies/findings-ui/fix-run/github-ops.ts',
       'site-audit/fix.pushToGithub': 'src/app/api/site-audit/fix/route.ts',
     }
 

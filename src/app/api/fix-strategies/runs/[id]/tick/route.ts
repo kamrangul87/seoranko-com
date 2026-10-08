@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import {
+  customerWriteGateUserMessage,
+  isCustomerWriteGateError,
+} from '@/lib/customer-write-gate'
 import { findOwnedSiteConnection } from '@/lib/site-connection-lookup'
 import {
   tickFixRun,
@@ -145,9 +149,14 @@ export async function POST(
     })
   } catch (err) {
     console.error('[fix-strategies/runs/tick]', err)
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Tick failed' },
-      { status: 500 },
-    )
+    const error = isCustomerWriteGateError(err)
+      ? customerWriteGateUserMessage(err)
+      : err instanceof Error &&
+          /no active write gate|customer write blocked/i.test(err.message)
+        ? customerWriteGateUserMessage(err)
+        : err instanceof Error
+          ? err.message
+          : 'Tick failed'
+    return NextResponse.json({ error }, { status: 500 })
   }
 }

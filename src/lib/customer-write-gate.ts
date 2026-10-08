@@ -40,6 +40,29 @@ export class CustomerWriteGateError extends Error {
   }
 }
 
+/** Plain-language copy for API/UI — never surface raw gate internals. */
+export const CUSTOMER_WRITE_GATE_USER_MESSAGE =
+  'We could not write to your repository because a safety check blocked the change. Please try Fix my site again.'
+
+export function isCustomerWriteGateError(err: unknown): err is CustomerWriteGateError {
+  return (
+    err instanceof CustomerWriteGateError ||
+    (err instanceof Error &&
+      (err.name === 'CustomerWriteGateError' ||
+        (err as { code?: string }).code === 'CUSTOMER_WRITE_BLOCKED'))
+  )
+}
+
+export function customerWriteGateUserMessage(err?: unknown): string {
+  if (err == null || isCustomerWriteGateError(err)) {
+    return CUSTOMER_WRITE_GATE_USER_MESSAGE
+  }
+  if (err instanceof Error && /no active write gate|customer write blocked/i.test(err.message)) {
+    return CUSTOMER_WRITE_GATE_USER_MESSAGE
+  }
+  return CUSTOMER_WRITE_GATE_USER_MESSAGE
+}
+
 type PermitStore = CustomerWritePermit
 
 const storage = new AsyncLocalStorage<PermitStore>()
@@ -77,6 +100,22 @@ export const CUSTOMER_WRITE_INVENTORY = [
     path: 'src/lib/fix-strategies/findings-ui/fix-flow/github-pr-merge.ts#mergePullRequest',
     stack: 'fix-strategies',
     writes: 'Merge PR → default branch',
+    purpose: 'findings-auto-merge' as const,
+    finalState: 'allowed-gated',
+  },
+  {
+    id: 'fix-run-pr-branch',
+    path: 'src/lib/fix-strategies/findings-ui/fix-run/tick.ts#create_branch+apply+ensure_pr',
+    stack: 'fix-strategies',
+    writes: 'GitHub review branch + commits + open PR (never main)',
+    purpose: 'findings-pr-branch' as const,
+    finalState: 'allowed-gated',
+  },
+  {
+    id: 'fix-run-merge',
+    path: 'src/lib/fix-strategies/findings-ui/fix-run/tick.ts#merge',
+    stack: 'fix-strategies',
+    writes: 'Merge fix-run PR → default branch',
     purpose: 'findings-auto-merge' as const,
     finalState: 'allowed-gated',
   },
@@ -203,6 +242,10 @@ export const CUSTOMER_WRITE_LOW_LEVEL_WRITERS = [
   'findings.commitFileViaPullRequest',
   'findings.mergePullRequest',
   'findings.openRevertPullRequest',
+  'fix-run.createBranch',
+  'fix-run.commitFile',
+  'fix-run.ensurePullRequest',
+  'fix-run.mergePullRequest',
   'site-audit/fix.pushToGithub',
 ] as const
 
