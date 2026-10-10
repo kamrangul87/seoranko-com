@@ -34,6 +34,21 @@ describe('selectNextApplyItem', () => {
     expect(selectNextApplyItem(items, 0)?.position).toBe(1)
     expect(selectNextApplyItem(items, 2)?.position).toBe(2)
   })
+
+  it('never re-selects position 0 when cursor is 1 even if item 0 is pending', () => {
+    const items = [
+      item(0, 'pending'),
+      item(1, 'pending'),
+      item(2, 'pending'),
+    ]
+    expect(selectNextApplyItem(items, 1)?.position).toBe(1)
+    expect(selectNextApplyItem(items, 1)?.position).not.toBe(0)
+  })
+
+  it('returns undefined when no pending items remain at or after cursor', () => {
+    const items = [item(0, 'pending'), item(1, 'committed')]
+    expect(selectNextApplyItem(items, 2)).toBeUndefined()
+  })
 })
 
 describe('recordNoProgressTick', () => {
