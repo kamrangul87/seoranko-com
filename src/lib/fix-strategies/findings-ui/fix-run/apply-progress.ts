@@ -8,15 +8,21 @@ import { pickForwardItemStatus } from './store'
 export const PROGRESS_STALL_FP_KEY = '__progressStallFingerprint'
 export const PROGRESS_STALL_COUNT_KEY = '__progressStallCount'
 
-/** First pending item at or after the persisted cursor. */
+/**
+ * First pending/applying item at or after the persisted cursor.
+ * Never returns position < cursor (avoids re-applying when cursor advanced).
+ * No fallback to pending[0] — that re-selected item 0 when cursor > 0.
+ */
 export function selectNextApplyItem(
   items: FixRunItem[],
   cursor: number,
 ): FixRunItem | undefined {
-  const pending = items
-    .filter((i) => i.status === 'pending')
-    .sort((a, b) => a.position - b.position)
-  return pending.find((i) => i.position >= cursor) ?? pending[0]
+  const sorted = [...items].sort((a, b) => a.position - b.position)
+  return sorted.find(
+    (i) =>
+      i.position >= cursor &&
+      (i.status === 'pending' || i.status === 'applying'),
+  )
 }
 
 export function applyProgressFingerprint(run: Pick<FixRun, 'phase' | 'itemCursor' | 'items'>): string {

@@ -199,7 +199,7 @@ export async function tickFixRun(input: {
     result: Pick<TickResult, 'advanced' | 'detail'>,
   ): Promise<TickResult> => {
     const endFp = applyProgressFingerprint(run!)
-    if (!result.advanced && endFp === progressAtStart) {
+    if (endFp === progressAtStart) {
       const stall = recordNoProgressTick(run!.prevContents, endFp)
       if (stall.stalled) {
         try {
