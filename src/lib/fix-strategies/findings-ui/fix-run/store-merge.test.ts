@@ -71,4 +71,14 @@ describe('mergeRunForSave', () => {
     )
     expect(merged.status).toBe('failed')
   })
+
+  it('merges item_cursor forward from DB', () => {
+    const merged = mergeRunForSave(baseRun({ itemCursor: 0 }), {
+      phase: 'apply_next',
+      preview_url: null,
+      status: 'running',
+      item_cursor: 2,
+    })
+    expect(merged.itemCursor).toBe(2)
+  })
 })

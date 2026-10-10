@@ -78,6 +78,9 @@ export function mergeRunForSave(
     phase = dbPhase
   }
 
+  const dbCursor = Number(fresh.item_cursor ?? 0)
+  const itemCursor = Math.max(incoming.itemCursor, dbCursor)
+
   // Keep a real preview URL if a stale wait_preview tick tries to clear it.
   const previewUrl =
     incoming.previewUrl ||
@@ -98,6 +101,7 @@ export function mergeRunForSave(
     phase,
     previewUrl: previewUrl ?? incoming.previewUrl,
     status,
+    itemCursor,
   }
 }
 
@@ -320,7 +324,7 @@ export function createSupabaseFixRunStore(): FixRunStore {
       // (classic race: wait_preview pending save clobbering preview_verified).
       const { data: freshRow } = await supabase
         .from('fix_strategies_runs')
-        .select('phase, preview_url, status')
+        .select('phase, preview_url, status, item_cursor')
         .eq('id', run.id)
         .eq('user_id', run.userId)
         .maybeSingle()

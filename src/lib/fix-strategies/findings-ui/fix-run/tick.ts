@@ -20,7 +20,6 @@ import {
   canMergeRun,
   computeSummary,
   deriveRunStatus,
-  itemsNeedingApply,
   itemsNeedingPreviewVerify,
   itemsNeedingProductionVerify,
   markItemCommitted,
@@ -29,6 +28,15 @@ import {
   nextPhaseAfterPreviewVerify,
   progressLabel,
 } from './phases'
+import {
+  applyProgressFingerprint,
+  bumpItemCursorAfterApply,
+  clearProgressStall,
+  mergeItemsForward,
+  recordNoProgressTick,
+  selectNextApplyItem,
+} from './apply-progress'
+import * as Sentry from '@sentry/nextjs'
 import { getFixRunStore } from './store'
 import type { FixRun, FixRunPublicState } from './types'
 import type { GithubOps, GithubPrCreds } from './github-ops'
@@ -169,6 +177,7 @@ export async function tickFixRun(input: {
     return { run: toPublic(run), advanced: false, detail: 'already done' }
   }
 
+  const progressAtStart = applyProgressFingerprint(run)
   const now = input.deps.now?.() ?? new Date().toISOString()
   const findings = await loadFindingMap(run.items.map((i) => i.findingId))
   const { ops, creds } = input.deps
@@ -184,6 +193,38 @@ export async function tickFixRun(input: {
     )
     current.summary = computeSummary(current.items)
     run = await store.saveRun(current)
+  }
+
+  const finish = async (
+    result: Pick<TickResult, 'advanced' | 'detail'>,
+  ): Promise<TickResult> => {
+    const endFp = applyProgressFingerprint(run!)
+    if (!result.advanced && endFp === progressAtStart) {
+      const stall = recordNoProgressTick(run!.prevContents, endFp)
+      if (stall.stalled) {
+        try {
+          Sentry.captureMessage(stall.reason, {
+            level: 'error',
+            tags: { fix_run: 'progress_stall' },
+            extra: { runId: run!.id, fingerprint: endFp },
+          })
+        } catch {
+          /* optional */
+        }
+        run!.phase = 'done'
+        run!.status = 'failed'
+        run!.errorDetail = stall.reason
+        await save()
+        return {
+          run: toPublic(run!),
+          advanced: true,
+          detail: stall.reason,
+        }
+      }
+    } else if (endFp !== progressAtStart) {
+      clearProgressStall(run!.prevContents)
+    }
+    return { run: toPublic(run!), ...result }
   }
 
   // ── create_branch ───────────────────────────────────────────────
@@ -238,18 +279,32 @@ export async function tickFixRun(input: {
     advanced = true
     detail = 'branch created'
     await save()
-    return { run: toPublic(run), advanced, detail }
+    return finish({ advanced, detail })
   }
 
   // ── apply_next ──────────────────────────────────────────────────
   if (run.phase === 'apply_next') {
-    const next = itemsNeedingApply(run.items)[0]
+    const freshApply = await store.getRun(run.id, input.userId)
+    if (freshApply) {
+      run.items = mergeItemsForward(run.items, freshApply.items)
+      run.itemCursor = Math.max(run.itemCursor, freshApply.itemCursor)
+    }
+
+    const next = selectNextApplyItem(run.items, run.itemCursor)
     if (!next) {
       run.phase = nextPhaseAfterApply(run.items)
       advanced = true
       detail = 'no more items to apply'
       await save()
-      return { run: toPublic(run), advanced, detail }
+      return finish({ advanced, detail })
+    }
+
+    if (next.status !== 'pending') {
+      run.itemCursor = Math.max(run.itemCursor, next.position + 1)
+      advanced = true
+      detail = `apply skip — item ${next.findingId} already ${next.status}`
+      await save()
+      return finish({ advanced, detail })
     }
 
     const finding = findings.get(next.findingId)
@@ -262,6 +317,7 @@ export async function tickFixRun(input: {
         failureReason: 'Finding row missing — left out of run',
         updatedAt: now,
       }
+      run.itemCursor = bumpItemCursorAfterApply(run.itemCursor, next, 'noop')
       console.info('[fix-run] apply skip', {
         runId: run.id,
         findingId: next.findingId,
@@ -270,7 +326,7 @@ export async function tickFixRun(input: {
       advanced = true
       detail = `item ${next.findingId} left out: finding missing`
       await save()
-      return { run: toPublic(run), advanced, detail }
+      return finish({ advanced, detail })
     }
 
     // Re-check stored source before apply — never fail an item for missing path.
@@ -285,6 +341,7 @@ export async function tickFixRun(input: {
         failureReason: reason,
         updatedAt: now,
       }
+      run.itemCursor = bumpItemCursorAfterApply(run.itemCursor, next, 'noop')
       console.info('[fix-run] apply skip', {
         runId: run.id,
         findingId: next.findingId,
@@ -293,7 +350,7 @@ export async function tickFixRun(input: {
       advanced = true
       detail = `item ${next.findingId} left out: unresolved source`
       await save()
-      return { run: toPublic(run), advanced, detail }
+      return finish({ advanced, detail })
     }
 
     const path = resolveTransformPath(finding)
@@ -308,10 +365,11 @@ export async function tickFixRun(input: {
         failureReason: reason,
         updatedAt: now,
       }
+      run.itemCursor = bumpItemCursorAfterApply(run.itemCursor, next, 'noop')
       advanced = true
       detail = `item ${next.findingId} left out: path`
       await save()
-      return { run: toPublic(run), advanced, detail }
+      return finish({ advanced, detail })
     }
 
     const idx = run.items.findIndex((i) => i.id === next.id)
@@ -325,10 +383,11 @@ export async function tickFixRun(input: {
     })
     if (!read.ok) {
       run.items[idx] = markItemFailed(run.items[idx]!, read.error, now)
+      run.itemCursor = bumpItemCursorAfterApply(run.itemCursor, next, 'failed')
       advanced = true
       detail = `item ${next.findingId} failed read: ${read.error}`
       await save()
-      return { run: toPublic(run), advanced, detail }
+      return finish({ advanced, detail })
     }
 
     const previousContent = read.content
@@ -340,6 +399,7 @@ export async function tickFixRun(input: {
 
     if (!applied.ok) {
       run.items[idx] = markItemFailed(run.items[idx]!, applied.error, now)
+      run.itemCursor = bumpItemCursorAfterApply(run.itemCursor, next, 'failed')
       console.info('[fix-run] transform failed', {
         runId: run.id,
         findingId: next.findingId,
@@ -348,7 +408,7 @@ export async function tickFixRun(input: {
       advanced = true
       detail = `item ${next.findingId} transform failed`
       await save()
-      return { run: toPublic(run), advanced, detail }
+      return finish({ advanced, detail })
     }
 
     if (applied.noop || applied.updated === 0) {
@@ -359,6 +419,7 @@ export async function tickFixRun(input: {
         failureReason: null,
         updatedAt: now,
       }
+      run.itemCursor = bumpItemCursorAfterApply(run.itemCursor, next, 'noop')
       console.info('[fix-run] apply noop', {
         runId: run.id,
         findingId: next.findingId,
@@ -367,7 +428,7 @@ export async function tickFixRun(input: {
       advanced = true
       detail = `item ${next.findingId} noop`
       await save()
-      return { run: toPublic(run), advanced, detail }
+      return finish({ advanced, detail })
     }
 
     const commitBranch = run.branchName!
@@ -389,15 +450,17 @@ export async function tickFixRun(input: {
           ? err.message
           : 'commit failed'
       run.items[idx] = markItemFailed(run.items[idx]!, failMsg, now)
+      run.itemCursor = bumpItemCursorAfterApply(run.itemCursor, next, 'failed')
       advanced = true
       detail = `item ${next.findingId} commit failed`
       await save()
-      return { run: toPublic(run), advanced, detail }
+      return finish({ advanced, detail })
     }
 
     if (!committed.ok) {
       // Transform failed at commit — nothing to revert on branch
       run.items[idx] = markItemFailed(run.items[idx]!, committed.error, now)
+      run.itemCursor = bumpItemCursorAfterApply(run.itemCursor, next, 'failed')
       console.info('[fix-run] commit failed', {
         runId: run.id,
         findingId: next.findingId,
@@ -406,14 +469,33 @@ export async function tickFixRun(input: {
       advanced = true
       detail = `item ${next.findingId} commit failed`
       await save()
-      return { run: toPublic(run), advanced, detail }
+      return finish({ advanced, detail })
     }
 
-    run.items[idx] = markItemCommitted(
-      run.items[idx]!,
+    const afterCommit = await store.getRun(run.id, input.userId)
+    if (afterCommit) {
+      run.items = mergeItemsForward(run.items, afterCommit.items)
+      run.itemCursor = Math.max(run.itemCursor, afterCommit.itemCursor)
+    }
+    const liveIdx = run.items.findIndex((i) => i.id === next.id)
+    const liveItem = run.items[liveIdx]
+    if (!liveItem || liveItem.status !== 'applying') {
+      advanced = true
+      detail = `item ${next.findingId} already ${liveItem?.status ?? 'gone'} after commit`
+      await save()
+      return finish({ advanced, detail })
+    }
+
+    run.items[liveIdx] = markItemCommitted(
+      liveItem,
       committed.commitSha,
       applied.path,
       now,
+    )
+    run.itemCursor = bumpItemCursorAfterApply(
+      run.itemCursor,
+      next,
+      'committed',
     )
     run.prevContents = {
       ...(run.prevContents || {}),
@@ -429,7 +511,7 @@ export async function tickFixRun(input: {
     advanced = true
     detail = `item ${next.findingId} committed`
     await save()
-    return { run: toPublic(run), advanced, detail }
+    return finish({ advanced, detail })
   }
 
   // ── ensure_pr ───────────────────────────────────────────────────
@@ -439,7 +521,7 @@ export async function tickFixRun(input: {
       run.status = 'failed'
       run.errorDetail = 'No branch for PR'
       await save()
-      return { run: toPublic(run), advanced: true, detail: 'no branch' }
+      return finish({ advanced: true, detail: 'no branch' })
     }
     const anyCommit = run.items.some((i) => i.status === 'committed')
     if (!anyCommit) {
@@ -449,7 +531,7 @@ export async function tickFixRun(input: {
         : 'complete'
       detail = 'nothing to PR'
       await save()
-      return { run: toPublic(run), advanced: true, detail }
+      return finish({ advanced: true, detail })
     }
     const prBranch = run.branchName!
     const prRunId = run.id
@@ -486,14 +568,14 @@ export async function tickFixRun(input: {
       run.phase = 'done'
       run.status = 'failed'
       await save()
-      return { run: toPublic(run), advanced: true, detail: failMsg }
+      return finish({ advanced: true, detail: failMsg })
     }
     if (!pr.ok) {
       run.errorDetail = pr.error
       run.phase = 'done'
       run.status = 'failed'
       await save()
-      return { run: toPublic(run), advanced: true, detail: pr.error }
+      return finish({ advanced: true, detail: pr.error })
     }
     run.prNumber = pr.prNumber
     run.prUrl = pr.prUrl
@@ -506,7 +588,7 @@ export async function tickFixRun(input: {
       prUrl: pr.prUrl,
     })
     await save()
-    return { run: toPublic(run), advanced, detail }
+    return finish({ advanced, detail })
   }
 
   // ── wait_preview ────────────────────────────────────────────────
@@ -516,7 +598,7 @@ export async function tickFixRun(input: {
       run.status = 'failed'
       run.errorDetail = 'Missing PR number'
       await save()
-      return { run: toPublic(run), advanced: true, detail: 'missing pr' }
+      return finish({ advanced: true, detail: 'missing pr' })
     }
 
     // Never keep a fixture/placeholder preview URL from a prior bad tick.
@@ -535,7 +617,7 @@ export async function tickFixRun(input: {
       advanced = true
       detail = 'preview already resolved'
       await save()
-      return { run: toPublic(run), advanced, detail }
+      return finish({ advanced, detail })
     }
 
     if (!run.prevContents[PREVIEW_WAIT_STARTED_KEY]) {
@@ -602,7 +684,7 @@ export async function tickFixRun(input: {
       // a full saveRun rewrites every item from stale memory and can clobber
       // preview_verified written by a concurrent verify tick.
       detail = `preview wait: ${preview.error}`
-      return { run: toPublic(run), advanced: false, detail }
+      return finish({ advanced: false, detail })
     }
     if (isPlaceholderPreviewUrl(preview.previewUrl)) {
       run.phase = 'done'
@@ -621,7 +703,7 @@ export async function tickFixRun(input: {
     advanced = true
     detail = 'preview ready'
     await save()
-    return { run: toPublic(run), advanced, detail }
+    return finish({ advanced, detail })
   }
 
   // ── verify_preview_next ─────────────────────────────────────────
@@ -641,7 +723,7 @@ export async function tickFixRun(input: {
       advanced = true
       detail = 'cleared placeholder preview; waiting for real deploy'
       await save()
-      return { run: toPublic(run), advanced, detail }
+      return finish({ advanced, detail })
     }
 
     const next = itemsNeedingPreviewVerify(run.items)[0]
@@ -650,7 +732,7 @@ export async function tickFixRun(input: {
       advanced = true
       detail = 'preview verify queue empty'
       await save()
-      return { run: toPublic(run), advanced, detail }
+      return finish({ advanced, detail })
     }
     const finding = findings.get(next.findingId)
     if (!finding || !run.previewUrl) {
@@ -664,7 +746,7 @@ export async function tickFixRun(input: {
       advanced = true
       detail = 'preview verify failed setup'
       await save()
-      return { run: toPublic(run), advanced, detail }
+      return finish({ advanced, detail })
     }
 
     const url =
@@ -696,7 +778,7 @@ export async function tickFixRun(input: {
       advanced = true
       detail = `preview fetch failed ${next.findingId}`
       await save()
-      return { run: toPublic(run), advanced, detail }
+      return finish({ advanced, detail })
     }
 
     const verified = await verifyBodyForFinding(
@@ -718,7 +800,7 @@ export async function tickFixRun(input: {
       advanced = true
       detail = `preview verify failed ${next.findingId}`
       await save()
-      return { run: toPublic(run), advanced, detail }
+      return finish({ advanced, detail })
     }
 
     run.items[idx] = {
@@ -736,7 +818,7 @@ export async function tickFixRun(input: {
     advanced = true
     detail = `preview verified ${next.findingId}`
     await save()
-    return { run: toPublic(run), advanced, detail }
+    return finish({ advanced, detail })
   }
 
   // ── await_approval ──────────────────────────────────────────────
@@ -790,13 +872,13 @@ export async function tickFixRun(input: {
       advanced = true
       detail = decision.reason
       await save()
-      return { run: toPublic(run), advanced, detail }
+      return finish({ advanced, detail })
     }
 
     run.status = 'awaiting_approval'
     detail = decision.reason
     await save()
-    return { run: toPublic(run), advanced: false, detail }
+    return finish({ advanced: false, detail })
   }
 
   // ── merge ───────────────────────────────────────────────────────
@@ -806,7 +888,7 @@ export async function tickFixRun(input: {
       run.status = 'failed'
       run.errorDetail = 'Cannot merge without PR'
       await save()
-      return { run: toPublic(run), advanced: true, detail: 'no pr' }
+      return finish({ advanced: true, detail: 'no pr' })
     }
     const allowed =
       !!run.approvedAt ||
@@ -816,7 +898,7 @@ export async function tickFixRun(input: {
       run.status = 'awaiting_approval'
       detail = 'merge blocked — approval required'
       await save()
-      return { run: toPublic(run), advanced: true, detail }
+      return finish({ advanced: true, detail })
     }
 
     const mergePrNumber = run.prNumber!
@@ -839,7 +921,7 @@ export async function tickFixRun(input: {
       run.status = 'awaiting_approval'
       detail = `merge failed: ${failMsg}`
       await save()
-      return { run: toPublic(run), advanced: true, detail }
+      return finish({ advanced: true, detail })
     }
     if (!merged.ok) {
       run.errorDetail = merged.error
@@ -847,14 +929,14 @@ export async function tickFixRun(input: {
       run.status = 'awaiting_approval'
       detail = `merge failed: ${merged.error}`
       await save()
-      return { run: toPublic(run), advanced: true, detail }
+      return finish({ advanced: true, detail })
     }
     run.mergeSha = merged.mergeSha
     run.phase = 'verify_production_next'
     advanced = true
     detail = `merged ${merged.mergeSha}`
     await save()
-    return { run: toPublic(run), advanced, detail }
+    return finish({ advanced, detail })
   }
 
   // ── verify_production_next ──────────────────────────────────────
@@ -865,7 +947,7 @@ export async function tickFixRun(input: {
       advanced = true
       detail = 'production queue empty'
       await save()
-      return { run: toPublic(run), advanced, detail }
+      return finish({ advanced, detail })
     }
 
     // Gate: do not verify any item until production deploy for mergeSha is READY.
@@ -875,7 +957,7 @@ export async function tickFixRun(input: {
         run.status = 'failed'
         run.errorDetail = 'Missing merge SHA — cannot wait for production deploy'
         await save()
-        return { run: toPublic(run), advanced: true, detail: 'missing merge sha' }
+        return finish({ advanced: true, detail: 'missing merge sha' })
       }
       if (!run.prevContents[PROD_DEPLOY_WAIT_STARTED_KEY]) {
         run.prevContents = {
@@ -957,7 +1039,7 @@ export async function tickFixRun(input: {
       run.items[idx] = markItemFailed(next, 'Finding missing at prod verify', now)
       advanced = true
       await save()
-      return { run: toPublic(run), advanced, detail: 'finding missing' }
+      return finish({ advanced, detail: 'finding missing' })
     }
 
     const url =
@@ -974,7 +1056,7 @@ export async function tickFixRun(input: {
       advanced = true
       detail = `prod fetch failed ${next.findingId}`
       await save()
-      return { run: toPublic(run), advanced, detail }
+      return finish({ advanced, detail })
     }
 
     const verified = await verifyBodyForFinding(
@@ -993,7 +1075,7 @@ export async function tickFixRun(input: {
       advanced = true
       detail = `prod verify failed ${next.findingId}`
       await save()
-      return { run: toPublic(run), advanced, detail }
+      return finish({ advanced, detail })
     }
 
     run.items[idx] = {
@@ -1037,7 +1119,7 @@ export async function tickFixRun(input: {
     advanced = true
     detail = `prod verified ${next.findingId}`
     await save()
-    return { run: toPublic(run), advanced, detail }
+    return finish({ advanced, detail })
   }
 
   // ── recrawl ─────────────────────────────────────────────────────
@@ -1058,10 +1140,10 @@ export async function tickFixRun(input: {
     advanced = true
     detail = 'recrawl kicked; done'
     await save()
-    return { run: toPublic(run), advanced, detail }
+    return finish({ advanced, detail })
   }
 
-  return { run: toPublic(run), advanced: false, detail: 'unknown phase' }
+  return finish({ advanced: false, detail: 'unknown phase' })
 }
 
 async function revertItemCommit(
