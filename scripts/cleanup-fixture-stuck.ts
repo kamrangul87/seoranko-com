@@ -10,7 +10,7 @@ import {
   E2E_FIXTURE_REPO,
 } from '../src/lib/fix-agent-e2e/constants'
 
-const FIX_RUN_ID = '02010c88-b001-4a28-a8a7-39ea373f64d3'
+const FIX_RUN_ID = '6bb2540b-1c7c-43c2-8011-6d6af42457ba'
 const PRS = [3, 4, 5]
 
 async function main() {

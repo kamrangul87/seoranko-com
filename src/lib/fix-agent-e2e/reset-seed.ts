@@ -45,6 +45,52 @@ export type ResetSeedResult =
   | { ok: true; seedSha: string; mainSha: string; detail: string }
   | { ok: false; error: string }
 
+/** Close known stuck Fix Agent e2e PRs and delete their head branches. */
+export async function closeStuckFixturePrs(input: {
+  accessToken: string
+  prNumbers?: number[]
+  owner?: string
+  repo?: string
+}): Promise<{ closed: number[]; detail: string }> {
+  const owner = input.owner || E2E_FIXTURE_OWNER
+  const repo = input.repo || E2E_FIXTURE_REPO
+  const token = input.accessToken
+  const prs = input.prNumbers ?? [3, 4, 5]
+  const closed: number[] = []
+  for (const n of prs) {
+    await ghJson(token, `/repos/${owner}/${repo}/issues/${n}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({
+        body: 'Closing stuck Fix Agent e2e PR — fixture reset to seed for a clean rerun.',
+      }),
+    })
+    const prRes = await ghJson<{
+      state?: string
+      head?: { ref?: string }
+    }>(token, `/repos/${owner}/${repo}/pulls/${n}`)
+    if (prRes.data.state === 'closed') continue
+    const patch = await ghJson(token, `/repos/${owner}/${repo}/pulls/${n}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ state: 'closed' }),
+    })
+    if (patch.ok) closed.push(n)
+    const head = prRes.data.head?.ref
+    if (head) {
+      await ghJson(
+        token,
+        `/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(head)}`,
+        { method: 'DELETE' },
+      )
+    }
+  }
+  return {
+    closed,
+    detail: closed.length
+      ? `closed PRs ${closed.join(',')}`
+      : 'no open stuck PRs',
+  }
+}
+
 /**
  * Point main at a new commit whose tree equals the seed branch tip.
  * If main already equals seed tip, no-op success.
@@ -59,6 +105,8 @@ export async function resetFixtureMainToSeed(input: {
   const repo = input.repo || E2E_FIXTURE_REPO
   const seedBranch = input.seedBranch || E2E_SEED_BRANCH
   const token = input.accessToken
+
+  await closeStuckFixturePrs({ accessToken: token, owner, repo })
 
   const seedRef = await ghJson<{ object?: { sha?: string } }>(
     token,
