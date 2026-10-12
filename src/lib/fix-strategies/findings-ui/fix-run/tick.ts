@@ -264,6 +264,11 @@ export async function tickFixRun(input: {
         clearProgressStall(run!.prevContents)
       }
     }
+    if (result.advanced) {
+      void import('@/lib/run-heartbeat/touch-progress').then(({ touchLastProgress }) =>
+        touchLastProgress('fix', run!.id),
+      )
+    }
     return { run: toPublic(run!), ...result }
   }
 

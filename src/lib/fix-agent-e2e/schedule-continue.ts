@@ -1,6 +1,10 @@
 /**
- * Schedule the next e2e cron continue without racing the current invocation.
- * Uses Vercel waitUntil so the delayed fetch survives after the response.
+ * Optional fast-path continue after an e2e tick.
+ *
+ * Progress must NOT depend on this — Supabase pg_cron hits
+ * POST /api/internal/heartbeat every minute. waitUntil here is only an
+ * optimisation so a live browser/cron invocation can chain sooner; deploys
+ * and function kills may drop it safely.
  */
 
 import { waitUntil } from '@vercel/functions'
@@ -17,7 +21,6 @@ export function scheduleE2eContinue(input: {
   if (!host || !secret) return
 
   const cont = `${host}/api/cron/fix-agent-e2e?continue=${input.runId}`
-  // Longer delay when we only waited — avoids hammering GitHub Deployments.
   // Apply ticks often take >30s (gated GitHub writes); 5s continues overlap
   // and clobber item_cursor — keep ≥45s after progress.
   const delayMs = input.advanced ? 45_000 : 20_000

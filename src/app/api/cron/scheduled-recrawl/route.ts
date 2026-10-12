@@ -93,8 +93,8 @@ export async function GET(req: NextRequest) {
     resumeInProgress: true,
   })
 
-  // If any run is still non-terminal (should be rare — drain forces failed),
-  // chain a continue request so a soft deadline mid-drain does not leave status=running.
+  // Optional continue chain (optimisation). Unfinished crawls are also advanced
+  // by POST /api/internal/heartbeat via Supabase pg_cron every minute.
   const stillOpen = pass.processed.filter(
     (p) =>
       p.runId &&
