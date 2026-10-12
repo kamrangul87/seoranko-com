@@ -97,8 +97,8 @@ export type UiFinding = {
   primarySourceId: number | null
   /** Why SEORANKO did not auto-apply this listable finding (null if auto-fixable). */
   whyNotAutoFixed: string | null
-  /** open / resolved (absent from a later complete crawl) / regressed (a resolved finding reappeared). */
-  status: 'open' | 'resolved' | 'regressed'
+  /** open / resolved (absent from a later complete crawl) / regressed (a resolved finding reappeared) / superseded (duplicate group row retired). */
+  status: 'open' | 'resolved' | 'regressed' | 'superseded'
   /** Set once status has ever been resolved; preserved across a later regression. */
   resolvedAt: string | null
   firstSeenAt?: string

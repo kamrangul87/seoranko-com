@@ -4,6 +4,23 @@ import {
   isCollapsibleDeclarationSite,
 } from './declaration-site'
 import { rollupFindingsByDeclarationSite } from './finding-rollup'
+import {
+  compareUrlsForRepresentative,
+  selectRepresentativePageUrl,
+  sortMemberUrls,
+} from './representative-url'
+
+describe('selectRepresentativePageUrl', () => {
+  it('picks shortest path then lexicographic, ignoring input order', () => {
+    const a = 'https://example.com/about.html'
+    const b = 'https://example.com/'
+    const c = 'https://example.com/blog/'
+    expect(selectRepresentativePageUrl([a, c, b])).toBe(b)
+    expect(selectRepresentativePageUrl([c, a, b])).toBe(b)
+    expect(sortMemberUrls([a, c, b])).toEqual([b, c, a])
+    expect(compareUrlsForRepresentative(b, a)).toBeLessThan(0)
+  })
+})
 
 describe('declaration-site classification', () => {
   it('classifies layouts, components, generators, pages', () => {
@@ -54,8 +71,35 @@ describe('rollupFindingsByDeclarationSite', () => {
     expect(out).toHaveLength(1)
     expect(out[0]!.rolledUp).toBe(true)
     expect(out[0]!.affectedUrlCount).toBe(3)
-    expect(out[0]!.memberUrls).toEqual(pages)
+    expect(out[0]!.memberUrls).toEqual(sortMemberUrls(pages))
+    expect(out[0]!.pageUrl).toBe(selectRepresentativePageUrl(pages))
     expect(out[0]!.detail).toMatch(/3 pages inherit/)
+  })
+
+  it('representative pageUrl is stable when member crawl order flips', () => {
+    const pagesA = [
+      'https://example.com/about.html',
+      'https://example.com/blog/',
+      'https://example.com/',
+    ]
+    const pagesB = [...pagesA].reverse()
+    const mk = (pages: string[]) =>
+      pages.map((pageUrl) => ({
+        topicId: '8',
+        verdict: 'informational-generated-only',
+        pageUrl,
+        declarationSite: 'config:vercel.json',
+      }))
+    const a = rollupFindingsByDeclarationSite(mk(pagesA))[0]!
+    const b = rollupFindingsByDeclarationSite(mk(pagesB))[0]!
+    expect(a.pageUrl).toBe('https://example.com/')
+    expect(b.pageUrl).toBe('https://example.com/')
+    expect(a.memberUrls).toEqual(b.memberUrls)
+    expect(a.memberUrls).toEqual([
+      'https://example.com/',
+      'https://example.com/blog/',
+      'https://example.com/about.html',
+    ])
   })
 
   it('collapses topic 49 image findings from a shared component', () => {

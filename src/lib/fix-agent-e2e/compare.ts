@@ -1,8 +1,13 @@
 /**
  * Exact comparison of crawl findings vs fixtures/seoranko-fixture-site/expected.json
+ *
+ * Actionable findings: topic + verdict + pageUrl (exact).
+ * Informational group findings: topic + verdict + sorted member set
+ * (representative pageUrl must not affect identity).
  */
 
 import expectedJson from '../../../fixtures/seoranko-fixture-site/expected.json'
+import { sortMemberUrls } from '@/lib/fix-strategies/shared'
 
 export type ExpectedFinding = {
   topicId: string
@@ -11,6 +16,7 @@ export type ExpectedFinding = {
   surfaceClass: string
   autoFixable: boolean
   bucket?: string
+  memberUrls?: string[]
 }
 
 export type ObservedFinding = {
@@ -20,10 +26,8 @@ export type ObservedFinding = {
   surfaceClass: string
   autoFixable: boolean
   postFixStatus?: string | null
-}
-
-function key(f: { topicId: string; verdict: string; pageUrl: string | null }) {
-  return `${f.topicId}\0${f.verdict}\0${normalizeUrl(f.pageUrl)}`
+  bucket?: string
+  memberUrls?: string[]
 }
 
 function normalizeUrl(u: string | null | undefined): string {
@@ -42,10 +46,54 @@ function normalizeUrl(u: string | null | undefined): string {
   }
 }
 
+function isInformational(f: { surfaceClass: string; bucket?: string }): boolean {
+  return f.bucket === 'informational' || f.surfaceClass === 'informational'
+}
+
+function isInformationalGroup(f: {
+  surfaceClass: string
+  bucket?: string
+  memberUrls?: string[]
+}): boolean {
+  if (!isInformational(f)) return false
+  const members = sortMemberUrls((f.memberUrls ?? []).map(normalizeUrl).filter(Boolean))
+  return members.length > 1
+}
+
+function key(f: {
+  topicId: string
+  verdict: string
+  pageUrl: string | null
+  surfaceClass: string
+  bucket?: string
+  memberUrls?: string[]
+}): string {
+  if (isInformationalGroup(f)) {
+    const members = sortMemberUrls(
+      (f.memberUrls ?? []).map(normalizeUrl).filter(Boolean),
+    )
+    return `${f.topicId}\0${f.verdict}\0members:${members.join('\0')}`
+  }
+  return `${f.topicId}\0${f.verdict}\0${normalizeUrl(f.pageUrl)}`
+}
+
+function describeFinding(f: {
+  topicId: string
+  verdict: string
+  pageUrl: string | null
+  memberUrls?: string[]
+}): string {
+  if (f.memberUrls && f.memberUrls.length > 1) {
+    return `${f.topicId}/${f.verdict} @ members[${f.memberUrls.length}]`
+  }
+  return `${f.topicId}/${f.verdict} @ ${f.pageUrl}`
+}
+
 export function loadExpectedFindings(): ExpectedFinding[] {
   return (expectedJson.findings as ExpectedFinding[]).map((f) => ({
     ...f,
     pageUrl: f.pageUrl,
+    memberUrls: f.memberUrls,
   }))
 }
 
@@ -67,7 +115,7 @@ export function compareFindingsExact(
   for (const [k, e] of expMap) {
     const o = obsMap.get(k)
     if (!o) {
-      missing.push(`${e.topicId}/${e.verdict} @ ${e.pageUrl}`)
+      missing.push(describeFinding(e))
       continue
     }
     if (o.surfaceClass !== e.surfaceClass || Boolean(o.autoFixable) !== e.autoFixable) {
@@ -78,7 +126,7 @@ export function compareFindingsExact(
   }
   for (const [k, o] of obsMap) {
     if (!expMap.has(k)) {
-      extra.push(`${o.topicId}/${o.verdict} @ ${o.pageUrl}`)
+      extra.push(describeFinding(o))
     }
   }
 

@@ -520,6 +520,7 @@ export function createSupabaseFindingsStore(
         .select('id, page_url, last_seen_run_id, status, bucket')
         .neq('bucket', 'internal')
         .neq('status', 'resolved')
+        .neq('status', 'superseded')
         .neq('last_seen_run_id', runId)
       q = siteId
         ? q.eq('site_id', siteId)
@@ -673,6 +674,7 @@ export function createSupabaseFindingsStore(
         .from('fix_strategies_findings')
         .select('*')
         .neq('bucket', 'internal')
+        .neq('status', 'superseded')
         .order('last_seen_at', { ascending: false })
       if (siteId) {
         q = q.eq('site_id', siteId)
@@ -752,7 +754,7 @@ export function createSupabaseFindingsStore(
       let informational = 0
       let internal = 0
       for (const row of data ?? []) {
-        if (row.status === 'resolved') continue
+        if (row.status === 'resolved' || row.status === 'superseded') continue
         if (row.bucket === 'actionable') actionable++
         else if (row.bucket === 'informational') informational++
         else internal++

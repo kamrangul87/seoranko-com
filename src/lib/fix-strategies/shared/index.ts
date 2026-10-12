@@ -6,6 +6,10 @@ export type { DeclarationSiteKind } from './declaration-site'
 
 export {
   rollupFindingsByDeclarationSite,
+  compareUrlsForRepresentative,
+  selectRepresentativePageUrl,
+  sortMemberUrls,
+  urlPathnameLength,
 } from './finding-rollup'
 export type {
   RollupFindingInput,

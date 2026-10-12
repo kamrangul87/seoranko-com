@@ -573,7 +573,7 @@ export function createMemoryFindingsStore(): FindingsStore {
           : f.siteId == null && f.detectOrigin === originNorm && f.userId === userId
         if (!sameScope) continue
         if (f.bucket === 'internal') continue
-        if (f.status === 'resolved') continue
+        if (f.status === 'resolved' || f.status === 'superseded') continue
         if (f.lastSeenRunId === runId) continue
         const page = f.pageUrl?.trim() || ''
         if (page) {
@@ -686,6 +686,7 @@ export function createMemoryFindingsStore(): FindingsStore {
           return false
         })
         .filter((f) => {
+          if (f.status === 'superseded') return false
           if (f.bucket === 'internal') return false
           if (f.bucket === 'informational') return includeInformational
           return f.bucket === 'actionable'
@@ -740,8 +741,8 @@ export function createMemoryFindingsStore(): FindingsStore {
               (userId == null || f.userId === userId)
             : false
         if (!match) continue
-        // Resolved rows stay in the table for history but do not count as open work.
-        if (f.status === 'resolved') continue
+        // Resolved/superseded rows stay for history but do not count as open work.
+        if (f.status === 'resolved' || f.status === 'superseded') continue
         if (f.bucket === 'actionable') actionable++
         else if (f.bucket === 'informational') informational++
         else internal++

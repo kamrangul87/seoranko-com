@@ -13,11 +13,15 @@ import {
   inspectDocumentHead,
   buildInternalLinkGraph,
   rollupFindingsByDeclarationSite,
+  selectRepresentativePageUrl,
+  sortMemberUrls,
   inspectSiteSitemaps,
   hasNoindexDirective,
   extractHtmlCanonical,
   normalizeFixStrategyUrl,
   isSitemapXmlDocument,
+  classifyDeclarationSite,
+  isCollapsibleDeclarationSite,
   type HopRecordingDeps,
   type RollupFindingInput,
 } from '@/lib/fix-strategies/shared'
@@ -190,19 +194,21 @@ function ingestArray(
     // Skip malformed rows (e.g. ok[] entries that only have pageUrl/detail
     // were previously defaulting to "unknown" and polluting actionable).
     if (!verdict) continue
-    const memberUrls = Array.isArray(item.memberUrls)
-      ? (item.memberUrls as unknown[]).filter((u) => typeof u === 'string')
-      : Array.isArray(item.observedOn)
-        ? // Topic 42: pages sharing one redirect-target rule
-          (item.observedOn as unknown[]).filter((u) => typeof u === 'string')
-        : []
+    const memberUrls = sortMemberUrls(
+      (Array.isArray(item.memberUrls)
+        ? (item.memberUrls as unknown[]).filter((u) => typeof u === 'string')
+        : Array.isArray(item.observedOn)
+          ? // Topic 42: pages sharing one redirect-target rule
+            (item.observedOn as unknown[]).filter((u) => typeof u === 'string')
+          : []) as string[],
+    )
     const pageUrl = String(
       item.pageUrl ??
         item.sourceUrl ??
         item.url ??
         item.urlA ??
         item.loc ??
-        (memberUrls[0] as string | undefined) ??
+        selectRepresentativePageUrl(memberUrls) ??
         '',
     )
     const declarationSite =
@@ -1445,17 +1451,28 @@ export function rollupAndClassify(emits: DetectorEmit[]): {
       }
     }
     const declarationSite = r.declarationSite
-    const rollupKey = [
-      r.topicId,
-      r.verdict,
-      declarationSite ?? r.pageUrl ?? '',
-    ].join('|')
+    const memberUrls = sortMemberUrls(r.memberUrls)
+    const isGroup = r.rolledUp || memberUrls.length > 1
+    const pageUrl = isGroup
+      ? selectRepresentativePageUrl(memberUrls) ?? r.pageUrl
+      : r.pageUrl
+    // Identity must not depend on representative pageUrl. Collapsible
+    // declaration sites already key on topic|verdict|site; multi-member
+    // groups without a collapsible site key on sorted members.
+    const declKind =
+      r.declarationKind ?? classifyDeclarationSite(declarationSite)
+    const rollupKey =
+      declarationSite && isCollapsibleDeclarationSite(declKind)
+        ? [r.topicId, r.verdict, declarationSite].join('|')
+        : isGroup
+          ? [r.topicId, r.verdict, `members:${memberUrls.join(',')}`].join('|')
+          : [r.topicId, r.verdict, declarationSite ?? pageUrl ?? ''].join('|')
     const dossier = dossierSlugForTopic(r.topicId)
     const evidenceValues: Record<string, unknown> | null = (() => {
       const base =
         (payload.evidenceValues as Record<string, unknown> | null) ?? null
       const extra: Record<string, unknown> = {}
-      if (r.memberUrls.length > 1) extra.memberUrls = r.memberUrls
+      if (memberUrls.length > 1) extra.memberUrls = memberUrls
       // Topic 49: image count when several imgs on one page share a verdict.
       if (r.topicId === '49' && r.memberFindingCount > 1) {
         extra.imageCount = r.memberFindingCount
@@ -1469,7 +1486,7 @@ export function rollupAndClassify(emits: DetectorEmit[]): {
       verdict: r.verdict,
       severity: r.severity ?? null,
       detail: r.detail ?? '',
-      pageUrl: r.rolledUp ? r.memberUrls[0] ?? r.pageUrl : r.pageUrl,
+      pageUrl,
       declarationSite,
       rollupKey,
       affectedUrlCount: r.affectedUrlCount,
