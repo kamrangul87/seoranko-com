@@ -33,6 +33,7 @@ import {
   bumpItemCursorAfterApply,
   clearProgressStall,
   mergeItemsForward,
+  reclaimApplyingItems,
   recordNoProgressTick,
   selectNextApplyItem,
 } from './apply-progress'
@@ -184,7 +185,7 @@ export async function tickFixRun(input: {
   let detail = 'noop'
   let advanced = false
 
-  const save = async () => {
+  const save = async (caller = 'tick') => {
     const current = run!
     current.status = deriveRunStatus(
       current.phase,
@@ -192,37 +193,43 @@ export async function tickFixRun(input: {
       current.errorDetail,
     )
     current.summary = computeSummary(current.items)
-    run = await store.saveRun(current)
+    run = await store.saveRun(current, { caller })
   }
 
   const finish = async (
     result: Pick<TickResult, 'advanced' | 'detail'>,
   ): Promise<TickResult> => {
-    const endFp = applyProgressFingerprint(run!)
-    if (endFp === progressAtStart) {
-      const stall = recordNoProgressTick(run!.prevContents, endFp)
-      if (stall.stalled) {
-        try {
-          Sentry.captureMessage(stall.reason, {
-            level: 'error',
-            tags: { fix_run: 'progress_stall' },
-            extra: { runId: run!.id, fingerprint: endFp },
-          })
-        } catch {
-          /* optional */
+    // Stall guard is apply_next only — wait_preview/verify legitimately poll
+    // with no fingerprint change for many ticks.
+    if (run!.phase === 'apply_next' || progressAtStart.startsWith('apply_next|')) {
+      const endFp = applyProgressFingerprint(run!)
+      if (endFp === progressAtStart && endFp.startsWith('apply_next|')) {
+        const stall = recordNoProgressTick(run!.prevContents, endFp)
+        if (stall.stalled) {
+          try {
+            Sentry.captureMessage(stall.reason, {
+              level: 'error',
+              tags: { fix_run: 'progress_stall' },
+              extra: { runId: run!.id, fingerprint: endFp },
+            })
+          } catch {
+            /* optional */
+          }
+          run!.phase = 'done'
+          run!.status = 'failed'
+          run!.errorDetail = stall.reason
+          await save('tick:stall_fail')
+          return {
+            run: toPublic(run!),
+            advanced: true,
+            detail: stall.reason,
+          }
         }
-        run!.phase = 'done'
-        run!.status = 'failed'
-        run!.errorDetail = stall.reason
-        await save()
-        return {
-          run: toPublic(run!),
-          advanced: true,
-          detail: stall.reason,
-        }
+        // Persist stall counter in summary._prevContents across invocations.
+        await save('tick:stall_count')
+      } else if (endFp !== progressAtStart) {
+        clearProgressStall(run!.prevContents)
       }
-    } else if (endFp !== progressAtStart) {
-      clearProgressStall(run!.prevContents)
     }
     return { run: toPublic(run!), ...result }
   }
@@ -289,21 +296,32 @@ export async function tickFixRun(input: {
       run.items = mergeItemsForward(run.items, freshApply.items)
       run.itemCursor = Math.max(run.itemCursor, freshApply.itemCursor)
     }
+    // Reclaim stranded applying rows so we never re-enter via status=applying.
+    run.items = reclaimApplyingItems(run.items, run.itemCursor)
 
     const next = selectNextApplyItem(run.items, run.itemCursor)
     if (!next) {
-      run.phase = nextPhaseAfterApply(run.items)
+      run.phase = nextPhaseAfterApply(run.items, run.itemCursor)
       advanced = true
       detail = 'no more items to apply'
-      await save()
+      await save('tick:apply_done')
       return finish({ advanced, detail })
+    }
+
+    // Hard invariant: never touch an item behind the persisted cursor.
+    if (next.position < run.itemCursor) {
+      run.phase = 'done'
+      run.status = 'failed'
+      run.errorDetail = `apply_next selected position ${next.position} behind item_cursor ${run.itemCursor}`
+      await save('tick:cursor_invariant')
+      return finish({ advanced: true, detail: run.errorDetail })
     }
 
     if (next.status !== 'pending') {
       run.itemCursor = Math.max(run.itemCursor, next.position + 1)
       advanced = true
       detail = `apply skip — item ${next.findingId} already ${next.status}`
-      await save()
+      await save('tick:apply_skip')
       return finish({ advanced, detail })
     }
 

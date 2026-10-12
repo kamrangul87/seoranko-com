@@ -117,8 +117,15 @@ export function canMergeRun(input: {
   }
 }
 
-export function nextPhaseAfterApply(items: FixRunItem[]): FixRunPhase {
-  if (itemsNeedingApply(items).length > 0) return 'apply_next'
+export function nextPhaseAfterApply(
+  items: FixRunItem[],
+  cursor = 0,
+): FixRunPhase {
+  // Only pending at/after cursor can still be applied; pending behind the
+  // cursor is stranded by design (never soft-loop apply_next).
+  if (itemsNeedingApply(items).some((i) => i.position >= cursor)) {
+    return 'apply_next'
+  }
   return 'ensure_pr'
 }
 
