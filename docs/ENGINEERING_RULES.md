@@ -1,5 +1,7 @@
 # SEORANKO engineering rules
 
+Run lint + build locally before every push.
+
 ## Regression tests for production bugs
 
 Every production bug fix **must** include a regression test in the **same PR**

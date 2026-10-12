@@ -90,7 +90,7 @@ describe('runHeartbeat', () => {
     // Simulate lease expiry + another minute — second heartbeat advances again.
     const deps2 = makeDeps({
       listUnfinished: async () => [run],
-      tickE2e: async (id) => {
+      tickE2e: async () => {
         advancedCount += 1
         return { advanced: true }
       },
