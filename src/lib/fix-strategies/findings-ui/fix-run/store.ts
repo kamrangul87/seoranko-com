@@ -505,7 +505,8 @@ export function createSupabaseFixRunStore(): FixRunStore {
       }
     },
 
-    async claimItemForApply(itemId, _runId) {
+    async claimItemForApply(itemId, runId) {
+      void runId
       const supabase = createServiceRoleClient()
       const { data, error } = await supabase
         .from('fix_strategies_run_items')
