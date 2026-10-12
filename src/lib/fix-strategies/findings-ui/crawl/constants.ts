@@ -72,7 +72,7 @@ export const CRAWL_MAX_DISCOVERED = 2000
 
 /**
  * Resumable post-crawl phase ids (ordered).
- * Cursor-chunkable: 22, 24, 25, 28, 26 (by loc), 15, 19, 21, 55–59, 71.
+ * Cursor-chunkable: 22, 24, 25, 28, 26 (by loc), 15, 19, 21, 55–59, 71, 72.
  * Full post-drain snapshot (own tick after graph persisted): 43, 45, 8, 33, 27, 46–48.
  * Rollup/upsert is the last phase — never mark complete with phases outstanding.
  */
@@ -89,6 +89,7 @@ export const POST_CRAWL_PHASE_IDS = [
   'topic_21',
   'topic_55_59',
   'topic_71',
+  'topic_72',
   'full_snapshot',
   'rollup',
   /** After upsert: resolveSourceFile for GitHub-connected sites. */

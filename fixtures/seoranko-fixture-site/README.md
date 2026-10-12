@@ -16,12 +16,14 @@ host `https://seoranko-fixture.vercel.app`.
 | **22** | `Crawl-delay: 10` in robots.txt | `auto-remove-crawl-delay` | `robots.txt` |
 | **26** | Sitemap lists `/gone.html` (4xx) and `/old-blog` (301→`/blog/`) | `auto-remove-confirmed-4xx` / `auto-replace-single-hop-redirect` | `sitemap.xml` |
 | **42** | `<a href="/old-blog">` (redirect hop to `/blog/`) | `auto-rewrite` | `index.html` |
+| **72** | GA4/gtag in initial HTML without consent; privacy page omits Google | `human-review-vendor-unnamed` / `human-review-consent-missing` (+ `human-review-jurisdiction-not-set` when site setting unset) | `index.html`, `privacy.html` |
 
 ## Layout
 
 ```
 index.html
 about.html
+privacy.html
 blog/index.html
 images/hero.jpg
 sitemap.xml

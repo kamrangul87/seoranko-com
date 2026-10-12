@@ -12,6 +12,9 @@
   <url>
     <loc>https://seoranko-fixture.vercel.app/blog/</loc>
   </url>
+  <url>
+    <loc>https://seoranko-fixture.vercel.app/privacy.html</loc>
+  </url>
   <!-- Topic 26: confirmed-4xx loc — page does not exist -->
   <url>
     <loc>https://seoranko-fixture.vercel.app/gone.html</loc>

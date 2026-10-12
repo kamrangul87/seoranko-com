@@ -80,6 +80,8 @@ import { detectCrawledNotIndexed } from '@/lib/fix-strategies/topic-57'
 import { detectIndexedVsCrawlMismatch } from '@/lib/fix-strategies/topic-58'
 import { detectImpressionsNoInternalLinks } from '@/lib/fix-strategies/topic-59'
 import { detectPaginationSeriesIssues } from '@/lib/fix-strategies/topic-71'
+import { detectPrivacyConsentIssues } from '@/lib/fix-strategies/topic-72'
+import { loadPrivacySiteSettings } from '@/lib/compliance/load-privacy-settings'
 import { loadGscDetectContext } from '@/lib/fix-strategies/shared/gsc-detect-context'
 import { normalizeCanonicalForGscMatch } from '@/lib/fix-strategies/shared/canonical-normalize'
 import {
@@ -1221,6 +1223,25 @@ export async function runWholeSiteDetectorsOnCrawl(
     }),
     out,
   )
+
+  // --- Topic 72: privacy & consent ---
+  {
+    const privacySettings = await loadPrivacySiteSettings(options?.siteId ?? null)
+    takeBuckets(
+      '72',
+      'privacy/consent',
+      detectPrivacyConsentIssues({
+        originUrl: origin,
+        jurisdiction: privacySettings?.jurisdiction ?? null,
+        pages: usableHtml.map((p) => ({
+          url: p.url,
+          html: p.html,
+          headers: p.headers ?? null,
+        })),
+      }),
+      out,
+    )
+  }
 
   // --- Topics 46/47/48: hreflang (same collect) ---
   if (usableHtml.length > 0) {
