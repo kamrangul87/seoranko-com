@@ -1,9 +1,10 @@
 -- Minute heartbeat for unfinished crawl / fix / e2e runs via pg_cron + pg_net.
 -- Progress must not depend on browser tabs, deploys, or in-process waitUntil timers.
 -- Requires vault secret name = heartbeat_cron_secret (value = CRON_SECRET).
-
-CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
-CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;
+--
+-- pg_cron / pg_net must already be enabled on the hosted project (Dashboard →
+-- Database → Extensions). CREATE EXTENSION / GRANT for pg_cron fails on
+-- Supabase with SQLSTATE 0LP01 when the migration role re-grants to itself.
 
 -- Lease + progress columns (additive).
 ALTER TABLE public.fix_strategies_crawl_runs
