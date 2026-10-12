@@ -48,6 +48,10 @@ import {
   resolveSiteAutoMergeEnabled,
 } from '../fix-flow/auto-merge'
 import { assessSingleFileBlastRadius } from '../fix-flow/blast-radius'
+import {
+  recordFixFailureSafe,
+  type FixFailureStage,
+} from './failure-learning'
 
 /** Branch / commit / PR writes — same purpose as per-finding fix-flow. */
 function withFixRunPrGate<T>(fn: () => Promise<T>): Promise<T> {
@@ -185,6 +189,34 @@ export async function tickFixRun(input: {
   let detail = 'noop'
   let advanced = false
 
+  const noteFail = (opts: {
+    stage: FixFailureStage
+    reason: string
+    findingId?: string | null
+    topic?: string
+    verdict?: string
+    url?: string | null
+    httpStatus?: number | null
+    filePath?: string | null
+    htmlSnippet?: string | null
+  }) => {
+    const f = opts.findingId ? findings.get(opts.findingId) : undefined
+    recordFixFailureSafe({
+      siteId: run!.siteId,
+      runId: run!.id,
+      findingId: opts.findingId ?? null,
+      topic: opts.topic ?? f?.topicId ?? 'unknown',
+      verdict: opts.verdict ?? f?.verdict ?? 'unknown',
+      stage: opts.stage,
+      reason: opts.reason,
+      url: opts.url ?? f?.pageUrl ?? null,
+      httpStatus: opts.httpStatus,
+      filePath: opts.filePath ?? null,
+      htmlSnippet: opts.htmlSnippet,
+      userId: input.userId,
+    })
+  }
+
   const save = async (caller = 'tick') => {
     const current = run!
     current.status = deriveRunStatus(
@@ -218,6 +250,7 @@ export async function tickFixRun(input: {
           run!.phase = 'done'
           run!.status = 'failed'
           run!.errorDetail = stall.reason
+          noteFail({ stage: 'stall', reason: stall.reason })
           await save('tick:stall_fail')
           return {
             run: toPublic(run!),
@@ -411,6 +444,12 @@ export async function tickFixRun(input: {
     if (!read.ok) {
       run.items[idx] = markItemFailed(run.items[idx]!, read.error, now)
       run.itemCursor = bumpItemCursorAfterApply(run.itemCursor, next, 'failed')
+      noteFail({
+        stage: 'apply',
+        reason: read.error,
+        findingId: next.findingId,
+        filePath: path,
+      })
       advanced = true
       detail = `item ${next.findingId} failed read: ${read.error}`
       await save()
@@ -427,6 +466,12 @@ export async function tickFixRun(input: {
     if (!applied.ok) {
       run.items[idx] = markItemFailed(run.items[idx]!, applied.error, now)
       run.itemCursor = bumpItemCursorAfterApply(run.itemCursor, next, 'failed')
+      noteFail({
+        stage: 'apply',
+        reason: applied.error,
+        findingId: next.findingId,
+        filePath: path,
+      })
       console.info('[fix-run] transform failed', {
         runId: run.id,
         findingId: next.findingId,
@@ -478,6 +523,12 @@ export async function tickFixRun(input: {
           : 'commit failed'
       run.items[idx] = markItemFailed(run.items[idx]!, failMsg, now)
       run.itemCursor = bumpItemCursorAfterApply(run.itemCursor, next, 'failed')
+      noteFail({
+        stage: 'apply',
+        reason: failMsg,
+        findingId: next.findingId,
+        filePath: path,
+      })
       advanced = true
       detail = `item ${next.findingId} commit failed`
       await save()
@@ -488,6 +539,12 @@ export async function tickFixRun(input: {
       // Transform failed at commit — nothing to revert on branch
       run.items[idx] = markItemFailed(run.items[idx]!, committed.error, now)
       run.itemCursor = bumpItemCursorAfterApply(run.itemCursor, next, 'failed')
+      noteFail({
+        stage: 'apply',
+        reason: committed.error,
+        findingId: next.findingId,
+        filePath: path,
+      })
       console.info('[fix-run] commit failed', {
         runId: run.id,
         findingId: next.findingId,
@@ -796,6 +853,15 @@ export async function tickFixRun(input: {
           ? 'Your preview is protected by a login; turn off Vercel Authentication for previews'
           : `Preview re-fetch failed for ${url}`
       run.items[idx] = markItemFailed(next, failReason, now)
+      noteFail({
+        stage: 'preview_verify',
+        reason: failReason,
+        findingId: next.findingId,
+        url,
+        httpStatus: fetchStatus,
+        filePath: next.path,
+        htmlSnippet: body.slice(0, 4000),
+      })
       await revertItemCommit(run, next.id, ops, creds)
       console.info('[fix-run] preview verify failed', {
         runId: run.id,
@@ -823,6 +889,14 @@ export async function tickFixRun(input: {
     const idx = run.items.findIndex((i) => i.id === next.id)
     if (!verified.ok) {
       run.items[idx] = markItemFailed(next, verified.detail, now)
+      noteFail({
+        stage: 'preview_verify',
+        reason: verified.detail,
+        findingId: next.findingId,
+        url,
+        filePath: next.path,
+        htmlSnippet: body.slice(0, 4000),
+      })
       await revertItemCommit(run, next.id, ops, creds)
       advanced = true
       detail = `preview verify failed ${next.findingId}`
@@ -1075,11 +1149,17 @@ export async function tickFixRun(input: {
     const fetched = await input.deps.fetchPage(url)
     if (!fetched.ok) {
       const idx = run.items.findIndex((i) => i.id === next.id)
-      run.items[idx] = markItemFailed(
-        next,
-        `Production re-fetch failed for ${url}`,
-        now,
-      )
+      const prodFail = `Production re-fetch failed for ${url}`
+      run.items[idx] = markItemFailed(next, prodFail, now)
+      noteFail({
+        stage: 'production_verify',
+        reason: prodFail,
+        findingId: next.findingId,
+        url,
+        httpStatus: fetched.status,
+        filePath: next.path,
+        htmlSnippet: fetched.body?.slice(0, 4000),
+      })
       advanced = true
       detail = `prod fetch failed ${next.findingId}`
       await save()
@@ -1099,6 +1179,14 @@ export async function tickFixRun(input: {
     const idx = run.items.findIndex((i) => i.id === next.id)
     if (!verified.ok) {
       run.items[idx] = markItemFailed(next, verified.detail, now)
+      noteFail({
+        stage: 'production_verify',
+        reason: verified.detail,
+        findingId: next.findingId,
+        url,
+        filePath: next.path,
+        htmlSnippet: fetched.body?.slice(0, 4000),
+      })
       advanced = true
       detail = `prod verify failed ${next.findingId}`
       await save()
@@ -1187,6 +1275,16 @@ async function revertItemCommit(
       runId: run.id,
       findingId: item.findingId,
     })
+    recordFixFailureSafe({
+      siteId: run.siteId,
+      runId: run.id,
+      findingId: item.findingId,
+      topic: 'unknown',
+      verdict: 'unknown',
+      stage: 'revert',
+      reason: 'revert skipped — no previous content',
+      filePath: item.path,
+    })
     return
   }
   const revertPath = item.path
@@ -1203,17 +1301,40 @@ async function revertItemCommit(
       }),
     )
   } catch (err) {
+    const errMsg = isCustomerWriteGateError(err)
+      ? customerWriteGateUserMessage(err)
+      : err instanceof Error
+        ? err.message
+        : 'revert failed'
     console.info('[fix-run] reverted commit', {
       runId: run.id,
       findingId: item.findingId,
       ok: false,
-      error: isCustomerWriteGateError(err)
-        ? customerWriteGateUserMessage(err)
-        : err instanceof Error
-          ? err.message
-          : 'revert failed',
+      error: errMsg,
+    })
+    recordFixFailureSafe({
+      siteId: run.siteId,
+      runId: run.id,
+      findingId: item.findingId,
+      topic: 'unknown',
+      verdict: 'unknown',
+      stage: 'revert',
+      reason: errMsg,
+      filePath: revertPath,
     })
     return
+  }
+  if (!reverted.ok) {
+    recordFixFailureSafe({
+      siteId: run.siteId,
+      runId: run.id,
+      findingId: item.findingId,
+      topic: 'unknown',
+      verdict: 'unknown',
+      stage: 'revert',
+      reason: reverted.error,
+      filePath: revertPath,
+    })
   }
   console.info('[fix-run] reverted commit', {
     runId: run.id,

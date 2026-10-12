@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import { getFindingsStore } from '@/lib/fix-strategies/findings-ui/crawl'
 import { persistedToUiFinding } from '@/lib/fix-strategies/findings-ui/map-persisted'
 import { canOfferFix } from '@/lib/fix-strategies/findings-ui/buckets'
+import { isFixTypePaused } from '@/lib/fix-strategies/findings-ui/fix-run/failure-learning'
 import {
   approveFix,
   commitFix,
@@ -67,12 +68,15 @@ export async function POST(
     pathOverride: body.pathOverride,
   }
 
+  const paused = await isFixTypePaused(finding.topicId, finding.verdict)
+
   if (action === 'approve') {
-    if (!canOfferFix(finding.surfaceClass)) {
+    if (!canOfferFix(finding.surfaceClass, { paused })) {
       return NextResponse.json(
         {
-          error:
-            'This finding is not auto-fixable. Human-review and report-only findings cannot enter the fix flow.',
+          error: paused
+            ? 'Automatic fix paused while we fix a problem with it.'
+            : 'This finding is not auto-fixable. Human-review and report-only findings cannot enter the fix flow.',
         },
         { status: 400 },
       )
@@ -84,9 +88,13 @@ export async function POST(
   }
 
   if (action === 'commit') {
-    if (!canOfferFix(finding.surfaceClass)) {
+    if (!canOfferFix(finding.surfaceClass, { paused })) {
       return NextResponse.json(
-        { error: 'Commit refused — finding is not auto-fixable.' },
+        {
+          error: paused
+            ? 'Automatic fix paused while we fix a problem with it.'
+            : 'Commit refused — finding is not auto-fixable.',
+        },
         { status: 400 },
       )
     }

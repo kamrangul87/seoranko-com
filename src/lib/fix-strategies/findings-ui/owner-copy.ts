@@ -448,7 +448,12 @@ export function whyFindingNotAutoFixed(opts: {
   sourceUnresolvedReason?: string | null
   /** Plain-English sentence stored on evidenceValues.sourceUnresolvedWhy. */
   sourceUnresolvedWhy?: string | null
+  /** Circuit breaker paused this (topic, verdict). */
+  fixTypePaused?: boolean
 }): string | null {
+  if (opts.fixTypePaused) {
+    return 'Automatic fix paused while we fix a problem with it.'
+  }
   if (opts.autoFixable && !opts.reportOnly && opts.surfaceClass === 'auto-fixable') {
     return null
   }

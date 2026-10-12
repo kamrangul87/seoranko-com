@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import { getFindingsStore } from '@/lib/fix-strategies/findings-ui/crawl'
 import { persistedToUiFinding } from '@/lib/fix-strategies/findings-ui/map-persisted'
 import { getFixFlow } from '@/lib/fix-strategies/findings-ui/fix-flow-store'
+import { isFixTypePaused } from '@/lib/fix-strategies/findings-ui/fix-run/failure-learning'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,6 +46,7 @@ export async function GET(
 
   const evidence = await store.listEvidenceForFinding(row.id)
   const fixFlow = await getFixFlow(params.id, user.id)
+  const fixTypePaused = await isFixTypePaused(row.topicId, row.verdict)
   const finding = persistedToUiFinding(row, evidence, {
     fixFlow: fixFlow
       ? {
@@ -52,6 +54,7 @@ export async function GET(
           prNumber: fixFlow.prNumber ?? null,
         }
       : null,
+    fixTypePaused,
   })
   return NextResponse.json({ finding, fixFlow })
 }

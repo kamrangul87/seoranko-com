@@ -15,6 +15,7 @@ import {
   type SourceUnresolvedReason,
 } from './resolve-source-file'
 import type { GithubPrCreds } from './github-ops'
+import { recordFixFailureSafe } from './failure-learning'
 
 /** Verdicts that may become auto-fixable once a source path+SHA is stored. */
 function verdictLooksAuto(verdict: string): boolean {
@@ -180,6 +181,19 @@ function demoteUnresolved(
   const ev = {
     ...(finding.evidenceValues ?? {}),
     sourceUnresolvedWhy: why,
+  }
+  // Ledger resolve-stage failures for mechanical auto-* verdicts only.
+  if (/^auto-/.test(finding.verdict)) {
+    recordFixFailureSafe({
+      siteId: finding.siteId,
+      findingId: finding.id,
+      topic: finding.topicId,
+      verdict: finding.verdict,
+      stage: 'resolve',
+      reason: `source unresolved: ${reason}`,
+      url: finding.pageUrl,
+      filePath: finding.sourcePath,
+    })
   }
   return {
     sourcePath: null,

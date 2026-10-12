@@ -376,10 +376,13 @@ export default function FindingsListPage() {
   }
 
   const readyFindings =
-    data?.findings.filter((f) => f.surfaceClass === 'auto-fixable') ?? []
+    data?.findings.filter(
+      (f) => f.surfaceClass === 'auto-fixable' && !f.fixTypePaused,
+    ) ?? []
   const needsYouFindings =
     data?.findings.filter(
       (f) =>
+        f.fixTypePaused ||
         f.surfaceClass === 'human-review' ||
         f.surfaceClass === 'finding' ||
         f.surfaceClass === 'report-only',

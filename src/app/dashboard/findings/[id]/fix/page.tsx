@@ -45,7 +45,11 @@ export default function FindingFixFlowPage() {
       }
       setFinding(body.finding)
       setFixFlow(body.fixFlow)
-      if (!canOfferFix(body.finding.surfaceClass)) {
+      if (
+        !canOfferFix(body.finding.surfaceClass, {
+          paused: body.finding.fixTypePaused,
+        })
+      ) {
         router.replace(`/dashboard/findings/${id}`)
       }
     } catch (e) {

@@ -549,10 +549,17 @@ export function isCommitableFinding(
     | 'sourcePath'
     | 'sourceBlobSha'
   >,
+  opts?: { paused?: boolean },
 ): boolean {
   if (finding.reportOnly) return false
   if (!finding.autoFixable) return false
-  if (!canOfferFix(finding.surfaceClass as FindingSurfaceClass)) return false
+  if (
+    !canOfferFix(finding.surfaceClass as FindingSurfaceClass, {
+      paused: opts?.paused === true,
+    })
+  ) {
+    return false
+  }
   if (finding.postFixStatus === 'verified') return false
   // Acceptance: never auto-fixable without stored resolved path + blob SHA.
   if (!finding.sourcePath || !finding.sourceBlobSha) return false
