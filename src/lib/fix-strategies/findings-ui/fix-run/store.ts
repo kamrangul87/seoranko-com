@@ -105,6 +105,11 @@ export function mergeRunForSave(
   }
 }
 
+export type SaveRunOptions = {
+  /** Call site label for run_items write logs (e.g. tick:apply_next). */
+  caller?: string
+}
+
 export type FixRunStore = {
   createRun(input: {
     userId: string
@@ -113,7 +118,7 @@ export type FixRunStore = {
     branchName: string
   }): Promise<FixRun>
   getRun(runId: string, userId: string): Promise<FixRun | null>
-  saveRun(run: FixRun): Promise<FixRun>
+  saveRun(run: FixRun, opts?: SaveRunOptions): Promise<FixRun>
   listActiveForSite(siteId: string, userId: string): Promise<FixRun | null>
 }
 
@@ -183,7 +188,8 @@ export function createMemoryFixRunStore(): FixRunStore {
       return structuredClone(r)
     },
 
-    async saveRun(run) {
+    async saveRun(run, opts) {
+      void opts
       const next = {
         ...run,
         summary: computeSummary(run.items),
@@ -317,8 +323,9 @@ export function createSupabaseFixRunStore(): FixRunStore {
       )
     },
 
-    async saveRun(run) {
+    async saveRun(run, opts) {
       const supabase = createServiceRoleClient()
+      const caller = opts?.caller || 'saveRun'
 
       // Reload DB row so a stale in-memory tick cannot regress phase/items
       // (classic race: wait_preview pending save clobbering preview_verified).
@@ -371,6 +378,9 @@ export function createSupabaseFixRunStore(): FixRunStore {
           (prev?.status as FixRunItemStatus | undefined) ?? null,
           item.status,
         )
+        const nextCommit =
+          item.commitSha ?? (prev?.commit_sha as string | null) ?? null
+        const nextPath = item.path ?? (prev?.path as string | null) ?? null
         const nextPreviewAt =
           item.previewVerifiedAt ||
           (prev?.preview_verified_at as string | null) ||
@@ -379,20 +389,48 @@ export function createSupabaseFixRunStore(): FixRunStore {
           item.productionVerifiedAt ||
           (prev?.production_verified_at as string | null) ||
           null
+        const nextFailure =
+          nextStatus === 'failed'
+            ? item.failureReason
+            : nextStatus === (prev?.status as string)
+              ? ((prev?.failure_reason as string | null) ?? item.failureReason)
+              : item.failureReason
+
+        const unchanged =
+          prev &&
+          nextStatus === (prev.status as string) &&
+          nextCommit === ((prev.commit_sha as string | null) ?? null) &&
+          nextPath === ((prev.path as string | null) ?? null) &&
+          nextPreviewAt === ((prev.preview_verified_at as string | null) ?? null) &&
+          nextProdAt ===
+            ((prev.production_verified_at as string | null) ?? null) &&
+          (nextFailure ?? null) ===
+            ((prev.failure_reason as string | null) ?? null)
+
+        if (unchanged) {
+          item.status = nextStatus
+          item.previewVerifiedAt = nextPreviewAt
+          item.productionVerifiedAt = nextProdAt
+          continue
+        }
+
+        console.info('[fix-run] run_items write', {
+          caller,
+          runId: merged.id,
+          itemId: item.id,
+          position: item.position,
+          from: prev?.status ?? null,
+          to: nextStatus,
+        })
         const { error: ie } = await supabase
           .from('fix_strategies_run_items')
           .update({
             status: nextStatus,
-            commit_sha: item.commitSha ?? (prev?.commit_sha as string | null) ?? null,
-            path: item.path ?? (prev?.path as string | null) ?? null,
+            commit_sha: nextCommit,
+            path: nextPath,
             preview_verified_at: nextPreviewAt,
             production_verified_at: nextProdAt,
-            failure_reason:
-              nextStatus === 'failed'
-                ? item.failureReason
-                : nextStatus === (prev?.status as string)
-                  ? ((prev?.failure_reason as string | null) ?? item.failureReason)
-                  : item.failureReason,
+            failure_reason: nextFailure,
             updated_at: nowIso(),
           })
           .eq('id', item.id)

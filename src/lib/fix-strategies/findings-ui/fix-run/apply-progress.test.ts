@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   applyProgressFingerprint,
   recordNoProgressTick,
+  reclaimApplyingItems,
   selectNextApplyItem,
 } from './apply-progress'
 import type { FixRunItem } from './types'
@@ -35,14 +36,22 @@ describe('selectNextApplyItem', () => {
     expect(selectNextApplyItem(items, 2)?.position).toBe(2)
   })
 
-  it('never re-selects position 0 when cursor is 1 even if item 0 is pending', () => {
+  it('never re-selects position 0 when cursor is 1', () => {
     const items = [
       item(0, 'pending'),
       item(1, 'pending'),
       item(2, 'pending'),
     ]
     expect(selectNextApplyItem(items, 1)?.position).toBe(1)
-    expect(selectNextApplyItem(items, 1)?.position).not.toBe(0)
+  })
+
+  it('does not select applying items (avoids concurrent re-entry)', () => {
+    const items = [
+      item(0, 'committed'),
+      item(1, 'applying'),
+      item(2, 'pending'),
+    ]
+    expect(selectNextApplyItem(items, 1)?.position).toBe(2)
   })
 
   it('returns undefined when no pending items remain at or after cursor', () => {
@@ -51,10 +60,24 @@ describe('selectNextApplyItem', () => {
   })
 })
 
+describe('reclaimApplyingItems', () => {
+  it('resets applying at/after cursor to pending', () => {
+    const items = reclaimApplyingItems(
+      [item(0, 'committed'), item(1, 'applying'), item(2, 'applying')],
+      1,
+    )
+    expect(items.map((i) => i.status)).toEqual([
+      'committed',
+      'pending',
+      'pending',
+    ])
+  })
+})
+
 describe('recordNoProgressTick', () => {
   it('fails after 3 identical fingerprints', () => {
     const prev: Record<string, string> = {}
-    const fp = 'apply_next|0|0:committed,1:pending'
+    const fp = 'apply_next|cursor:1|applied:1'
     expect(recordNoProgressTick(prev, fp).stalled).toBe(false)
     expect(recordNoProgressTick(prev, fp).stalled).toBe(false)
     const third = recordNoProgressTick(prev, fp)
@@ -75,12 +98,12 @@ describe('recordNoProgressTick', () => {
 })
 
 describe('applyProgressFingerprint', () => {
-  it('includes phase cursor and item statuses', () => {
+  it('tracks applied count not per-item churn', () => {
     const fp = applyProgressFingerprint({
       phase: 'apply_next',
       itemCursor: 1,
       items: [item(0, 'committed'), item(1, 'pending')],
     })
-    expect(fp).toBe('apply_next|1|0:committed,1:pending')
+    expect(fp).toBe('apply_next|cursor:1|applied:1')
   })
 })
