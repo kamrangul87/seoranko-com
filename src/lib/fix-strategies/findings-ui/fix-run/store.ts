@@ -119,6 +119,11 @@ export type FixRunStore = {
   }): Promise<FixRun>
   getRun(runId: string, userId: string): Promise<FixRun | null>
   saveRun(run: FixRun, opts?: SaveRunOptions): Promise<FixRun>
+  /**
+   * Claim a pending item for apply (CAS). Returns false if another tick
+   * already moved it off pending — caller must not apply.
+   */
+  claimItemForApply(itemId: string, runId: string): Promise<boolean>
   listActiveForSite(siteId: string, userId: string): Promise<FixRun | null>
 }
 
@@ -190,14 +195,31 @@ export function createMemoryFixRunStore(): FixRunStore {
 
     async saveRun(run, opts) {
       void opts
+      const existing = memoryRuns.get(run.id)
+      const safeCursor = Math.max(
+        run.itemCursor,
+        existing?.itemCursor ?? 0,
+      )
       const next = {
         ...run,
+        itemCursor: safeCursor,
         summary: computeSummary(run.items),
         prevContents: run.prevContents || {},
         updatedAt: nowIso(),
       }
       memoryRuns.set(run.id, next)
       return structuredClone(next)
+    },
+
+    async claimItemForApply(itemId, runId) {
+      const run = memoryRuns.get(runId)
+      if (!run) return false
+      const item = run.items.find((i) => i.id === itemId)
+      if (!item || item.status !== 'pending') return false
+      item.status = 'applying'
+      item.updatedAt = nowIso()
+      memoryRuns.set(runId, { ...run, updatedAt: nowIso() })
+      return true
     },
 
     async listActiveForSite(siteId, userId) {
@@ -337,31 +359,68 @@ export function createSupabaseFixRunStore(): FixRunStore {
         .maybeSingle()
       const merged = mergeRunForSave(run, freshRow as Record<string, unknown> | null)
 
+      // Re-read cursor immediately before write — overlapping ticks must not
+      // clobber a higher item_cursor with a stale in-memory 0/1.
+      const { data: cursorRow } = await supabase
+        .from('fix_strategies_runs')
+        .select('item_cursor')
+        .eq('id', run.id)
+        .eq('user_id', run.userId)
+        .maybeSingle()
+      merged.itemCursor = Math.max(
+        merged.itemCursor,
+        Number(cursorRow?.item_cursor ?? 0),
+      )
+
       const summary = {
         ...computeSummary(merged.items),
         _prevContents: merged.prevContents || {},
       }
-      const { error } = await supabase
+      const runPatch = {
+        status: merged.status,
+        phase: merged.phase,
+        branch_name: merged.branchName,
+        pr_number: merged.prNumber,
+        pr_url: merged.prUrl,
+        preview_url: merged.previewUrl,
+        merge_sha: merged.mergeSha,
+        approved_at: merged.approvedAt,
+        auto_merge_attempted: merged.autoMergeAttempted,
+        auto_merge_blocked_reason: merged.autoMergeBlockedReason,
+        item_cursor: merged.itemCursor,
+        error_detail: merged.errorDetail,
+        summary,
+        updated_at: nowIso(),
+      }
+      // Never lower item_cursor (lost-update guard for overlapping ticks).
+      const { data: bumped, error } = await supabase
         .from('fix_strategies_runs')
-        .update({
-          status: merged.status,
-          phase: merged.phase,
-          branch_name: merged.branchName,
-          pr_number: merged.prNumber,
-          pr_url: merged.prUrl,
-          preview_url: merged.previewUrl,
-          merge_sha: merged.mergeSha,
-          approved_at: merged.approvedAt,
-          auto_merge_attempted: merged.autoMergeAttempted,
-          auto_merge_blocked_reason: merged.autoMergeBlockedReason,
-          item_cursor: merged.itemCursor,
-          error_detail: merged.errorDetail,
-          summary,
-          updated_at: nowIso(),
-        })
+        .update(runPatch)
         .eq('id', merged.id)
         .eq('user_id', merged.userId)
+        .lte('item_cursor', merged.itemCursor)
+        .select('id')
       if (error) throw new Error(error.message)
+      if (!bumped?.length) {
+        // DB cursor already ahead — still persist other fields, keep DB cursor.
+        const { item_cursor: _drop, ...rest } = runPatch
+        void _drop
+        const { data: latest } = await supabase
+          .from('fix_strategies_runs')
+          .select('item_cursor')
+          .eq('id', merged.id)
+          .maybeSingle()
+        merged.itemCursor = Math.max(
+          merged.itemCursor,
+          Number(latest?.item_cursor ?? 0),
+        )
+        const { error: e2 } = await supabase
+          .from('fix_strategies_runs')
+          .update(rest)
+          .eq('id', merged.id)
+          .eq('user_id', merged.userId)
+        if (e2) throw new Error(e2.message)
+      }
 
       const { data: dbItems } = await supabase
         .from('fix_strategies_run_items')
@@ -444,6 +503,24 @@ export function createSupabaseFixRunStore(): FixRunStore {
         summary: computeSummary(merged.items),
         updatedAt: nowIso(),
       }
+    },
+
+    async claimItemForApply(itemId, runId) {
+      void runId
+      const supabase = createServiceRoleClient()
+      const { data, error } = await supabase
+        .from('fix_strategies_run_items')
+        .update({ status: 'applying', updated_at: nowIso() })
+        .eq('id', itemId)
+        .eq('status', 'pending')
+        .select('id')
+      if (error) throw new Error(error.message)
+      const claimed = Boolean(data?.length)
+      console.info('[fix-run] claimItemForApply', {
+        itemId,
+        claimed,
+      })
+      return claimed
     },
 
     async listActiveForSite(siteId, userId) {

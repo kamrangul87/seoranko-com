@@ -18,7 +18,9 @@ export function scheduleE2eContinue(input: {
 
   const cont = `${host}/api/cron/fix-agent-e2e?continue=${input.runId}`
   // Longer delay when we only waited — avoids hammering GitHub Deployments.
-  const delayMs = input.advanced ? 5_000 : 15_000
+  // Apply ticks often take >30s (gated GitHub writes); 5s continues overlap
+  // and clobber item_cursor — keep ≥45s after progress.
+  const delayMs = input.advanced ? 45_000 : 20_000
 
   waitUntil(
     (async () => {

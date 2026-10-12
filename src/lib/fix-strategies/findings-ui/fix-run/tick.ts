@@ -391,8 +391,17 @@ export async function tickFixRun(input: {
     }
 
     const idx = run.items.findIndex((i) => i.id === next.id)
+    // CAS: only one overlapping tick may claim a pending item.
+    const claimed = await store.claimItemForApply(next.id, run.id)
+    if (!claimed) {
+      run.itemCursor = Math.max(run.itemCursor, next.position + 1)
+      advanced = true
+      detail = `apply skip — item ${next.findingId} already claimed`
+      await save('tick:claim_miss')
+      return finish({ advanced, detail })
+    }
     run.items[idx] = { ...next, status: 'applying', updatedAt: now }
-    await save()
+    await save('tick:applying')
 
     const read = await ops.readFile({
       creds,

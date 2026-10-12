@@ -183,6 +183,22 @@ describe('7-item apply → preview (exactly once each)', () => {
     }
   })
 
+  it('claimItemForApply is exclusive — second claim fails', async () => {
+    const findingIds = await seedSevenFindingIds()
+    const store = getFixRunStore()
+    const run = await store.createRun({
+      userId: 'user-fix',
+      siteId: 'site-7',
+      findingIds,
+      branchName: 'seoranko/claim-test',
+    })
+    const itemId = run.items[0]!.id
+    expect(await store.claimItemForApply(itemId, run.id)).toBe(true)
+    expect(await store.claimItemForApply(itemId, run.id)).toBe(false)
+    const after = await store.getRun(run.id, 'user-fix')
+    expect(after?.items[0]?.status).toBe('applying')
+  })
+
   it('persists stall counter across saveRun and fails the run on the 3rd identical apply fingerprint', async () => {
     const findingIds = await seedSevenFindingIds()
     const store = getFixRunStore()
