@@ -81,4 +81,14 @@ describe('mergeRunForSave', () => {
     })
     expect(merged.itemCursor).toBe(2)
   })
+
+  it('keeps the higher of incoming and DB cursor', () => {
+    const merged = mergeRunForSave(baseRun({ itemCursor: 5 }), {
+      phase: 'apply_next',
+      preview_url: null,
+      status: 'running',
+      item_cursor: 2,
+    })
+    expect(merged.itemCursor).toBe(5)
+  })
 })
