@@ -66,7 +66,9 @@ export default function FindingDetailPage() {
     void load()
   }, [load])
 
-  const offerFix = finding ? canOfferFix(finding.surfaceClass) : false
+  const offerFix = finding
+    ? canOfferFix(finding.surfaceClass, { paused: finding.fixTypePaused })
+    : false
 
   return (
     <div

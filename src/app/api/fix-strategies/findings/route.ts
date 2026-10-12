@@ -17,6 +17,10 @@ import {
 } from '@/lib/fix-strategies/findings-ui/map-persisted'
 import type { FindingsListResponse } from '@/lib/fix-strategies/findings-ui/types'
 import { canRunFixAgent } from '@/lib/fix-strategies/findings-ui/fix-run/master-gate'
+import {
+  fixTypeKey,
+  loadPausedFixTypeSet,
+} from '@/lib/fix-strategies/findings-ui/fix-run/failure-learning'
 
 export const dynamic = 'force-dynamic'
 
@@ -78,10 +82,15 @@ export async function GET(request: Request) {
       userId: user.id,
     })
 
+    const paused = await loadPausedFixTypeSet()
     const findings = []
     for (const row of rows) {
       const evidence = await store.listEvidenceForFinding(row.id)
-      findings.push(persistedToUiFinding(row, evidence))
+      findings.push(
+        persistedToUiFinding(row, evidence, {
+          fixTypePaused: paused.has(fixTypeKey(row.topicId, row.verdict)),
+        }),
+      )
     }
 
     const terminal =
@@ -153,10 +162,15 @@ export async function GET(request: Request) {
   const rows = await store.listFindings({ siteId, includeInformational })
   const counts = await store.counts({ siteId })
 
+  const paused = await loadPausedFixTypeSet()
   const findings = []
   for (const row of rows) {
     const evidence = await store.listEvidenceForFinding(row.id)
-    findings.push(persistedToUiFinding(row, evidence))
+    findings.push(
+      persistedToUiFinding(row, evidence, {
+        fixTypePaused: paused.has(fixTypeKey(row.topicId, row.verdict)),
+      }),
+    )
   }
 
   const origin = `https://${String(site.domain).replace(/^www\./, '')}`

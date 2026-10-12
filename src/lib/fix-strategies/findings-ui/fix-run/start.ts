@@ -30,10 +30,14 @@ export async function selectAutoFixableFindings(
     siteId,
     includeInformational: false,
   })
+  const { fixTypeKey, loadPausedFixTypeSet } = await import('./failure-learning')
+  const paused = await loadPausedFixTypeSet()
   const open = rows.filter(
     (r) =>
       r.bucket === 'actionable' &&
-      isCommitableFinding(r) &&
+      isCommitableFinding(r, {
+        paused: paused.has(fixTypeKey(r.topicId, r.verdict)),
+      }) &&
       r.postFixStatus !== 'verified',
   )
   return orderFindingsForApply(open)

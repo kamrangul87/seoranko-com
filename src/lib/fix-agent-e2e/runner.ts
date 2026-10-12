@@ -99,6 +99,17 @@ function markStep(
   return steps.map((s) => (s.name === name ? { ...s, ...patch } : s))
 }
 
+function e2eStepToFailureStage(
+  step: E2eStepName,
+): 'apply' | 'preview_verify' | 'production_verify' | 'stall' {
+  if (step === 'fix_run_preview') return 'preview_verify'
+  if (step === 'approve_merge_verify' || step === 'recrawl_assert_closed') {
+    return 'production_verify'
+  }
+  if (step === 'finalize') return 'stall'
+  return 'apply'
+}
+
 async function failRun(
   run: E2eRunRow,
   step: E2eStepName,
@@ -122,6 +133,22 @@ async function failRun(
     failingStep: step,
     reason,
   })
+  try {
+    const { recordFixFailureSafe } = await import(
+      '@/lib/fix-strategies/findings-ui/fix-run/failure-learning'
+    )
+    recordFixFailureSafe({
+      siteId: run.site_id,
+      runId: run.fix_run_id,
+      topic: 'e2e',
+      verdict: step,
+      stage: e2eStepToFailureStage(step),
+      reason,
+      e2eStep: step,
+    })
+  } catch {
+    /* ledger optional */
+  }
   return updated
 }
 

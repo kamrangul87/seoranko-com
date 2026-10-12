@@ -73,7 +73,17 @@ export function isListVisible(
   return true
 }
 
-/** Fix button only for auto-fixable (not human-review, not report-only). */
-export function canOfferFix(surfaceClass: FindingSurfaceClass): boolean {
+/**
+ * Fix button only for auto-fixable (not human-review, not report-only).
+ * When `paused` is true (circuit breaker), returns false.
+ */
+export function canOfferFix(
+  surfaceClass: FindingSurfaceClass,
+  opts?: { paused?: boolean },
+): boolean {
+  if (opts?.paused) return false
   return surfaceClass === 'auto-fixable'
 }
+
+export const FIX_TYPE_PAUSED_OWNER_COPY =
+  'Automatic fix paused while we fix a problem with it.'

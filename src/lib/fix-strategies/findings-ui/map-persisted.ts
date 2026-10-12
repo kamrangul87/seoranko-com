@@ -63,9 +63,12 @@ export function persistedToUiFinding(
   evidence: PersistedEvidenceRow[] = [],
   opts?: {
     fixFlow?: { prUrl: string | null; prNumber: number | null } | null
+    /** When true, (topic, verdict) is circuit-breaker paused. */
+    fixTypePaused?: boolean
   },
 ): UiFinding {
   const surfaceClass = row.surfaceClass as FindingSurfaceClass
+  const fixTypePaused = opts?.fixTypePaused === true
   const dossierSlug = dossierSlugForTopic(row.topicId)
   const primarySourceId = primarySourceIdForTopic(row.topicId)
   const stored = (row.sourceRows as SourceCitation[]) ?? []
@@ -117,7 +120,9 @@ export function persistedToUiFinding(
         typeof row.evidenceValues?.sourceUnresolvedWhy === 'string'
           ? row.evidenceValues.sourceUnresolvedWhy
           : null,
+      fixTypePaused,
     }),
+    fixTypePaused,
     status: row.status,
     resolvedAt: row.resolvedAt,
     firstSeenAt: row.firstSeenAt,

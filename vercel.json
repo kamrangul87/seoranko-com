@@ -18,12 +18,19 @@
     },
     "src/app/api/admin/fix-agent-e2e/route.ts": {
       "maxDuration": 300
+    },
+    "src/app/api/cron/fix-failure-digest/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
     {
       "path": "/api/cron/fix-agent-e2e",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/fix-failure-digest",
+      "schedule": "0 9 * * *"
     },
     {
       "path": "/api/cron/scheduled-recrawl",
