@@ -11,8 +11,18 @@ import {
   isCollapsibleDeclarationSite,
   type DeclarationSiteKind,
 } from './declaration-site'
+import {
+  selectRepresentativePageUrl,
+  sortMemberUrls,
+} from './representative-url'
 
 export type { DeclarationSiteKind }
+export {
+  compareUrlsForRepresentative,
+  selectRepresentativePageUrl,
+  sortMemberUrls,
+  urlPathnameLength,
+} from './representative-url'
 
 export type RollupFindingInput = {
   topicId: string
@@ -73,11 +83,13 @@ export function rollupFindingsByDeclarationSite(
     const kind =
       first.declarationKind ??
       classifyDeclarationSite(first.declarationSite)
-    const urls = Array.from(
-      new Set(members.map((m) => m.pageUrl).filter(Boolean)),
-    )
+    const urls = sortMemberUrls(members.map((m) => m.pageUrl))
     const rolledUp =
       isCollapsibleDeclarationSite(kind) && urls.length > 1
+    const pageUrl =
+      rolledUp || urls.length > 1
+        ? selectRepresentativePageUrl(urls) ?? first.pageUrl
+        : first.pageUrl
 
     const detail = rolledUp
       ? `${urls.length} pages inherit ${first.verdict} from ${first.declarationSite}. Report once (topic 33 / register rollup).${first.detail ? ` ${first.detail}` : ''}`
@@ -85,6 +97,7 @@ export function rollupFindingsByDeclarationSite(
 
     out.push({
       ...first,
+      pageUrl,
       declarationKind: kind,
       detail,
       affectedUrlCount: urls.length,

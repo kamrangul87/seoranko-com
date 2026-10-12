@@ -150,7 +150,7 @@ export type CoverageNote = {
  *   re-observation; only a later resolution (going absent again) can move
  *   it back to resolved.
  */
-export type FindingStatus = 'open' | 'resolved' | 'regressed'
+export type FindingStatus = 'open' | 'resolved' | 'regressed' | 'superseded'
 
 /**
  * Change Monitoring 3.2 — post-SEORANKO-fix state on the same finding row.

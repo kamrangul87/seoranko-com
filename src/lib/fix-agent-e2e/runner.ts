@@ -417,13 +417,22 @@ async function stepCrawlCompare(
     siteId: E2E_FIXTURE_SITE_ID,
     includeInformational: true,
   })
-  const observed = findings.map((f) => ({
-    topicId: f.topicId,
-    verdict: f.verdict,
-    pageUrl: f.pageUrl,
-    surfaceClass: f.surfaceClass,
-    autoFixable: f.autoFixable && f.surfaceClass === 'auto-fixable',
-  }))
+  const observed = findings.map((f) => {
+    const members = Array.isArray(f.evidenceValues?.memberUrls)
+      ? (f.evidenceValues!.memberUrls as unknown[]).filter(
+          (u): u is string => typeof u === 'string',
+        )
+      : undefined
+    return {
+      topicId: f.topicId,
+      verdict: f.verdict,
+      pageUrl: f.pageUrl,
+      surfaceClass: f.surfaceClass,
+      autoFixable: f.autoFixable && f.surfaceClass === 'auto-fixable',
+      bucket: f.bucket,
+      memberUrls: members,
+    }
+  })
   const cmp = compareFindingsExact(observed, loadExpectedFindings())
   if (!cmp.ok) {
     return {

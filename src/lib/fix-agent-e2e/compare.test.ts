@@ -48,6 +48,24 @@ describe('fix-agent-e2e expected.json', () => {
     if (!ex.ok) expect(ex.reason).toMatch(/extra/)
   })
 
+  it('informational groups match by member set, not representative pageUrl', () => {
+    const expected = loadExpectedFindings()
+    const topic8 = expected.find(
+      (f) => f.topicId === '8' && f.verdict === 'informational-generated-only',
+    )
+    expect(topic8?.memberUrls?.length).toBeGreaterThan(1)
+    const observed = expected.map((f) =>
+      f.topicId === '8' && f.verdict === 'informational-generated-only'
+        ? {
+            ...f,
+            pageUrl: 'https://seoranko-fixture.vercel.app/about.html',
+            memberUrls: [...(f.memberUrls ?? [])].reverse(),
+          }
+        : f,
+    )
+    expect(compareFindingsExact(observed, expected)).toEqual({ ok: true })
+  })
+
   it('documents README diffs', () => {
     expect(Array.isArray(expectedReadmeDiff())).toBe(true)
     expect((expectedReadmeDiff() as unknown[]).length).toBeGreaterThan(0)

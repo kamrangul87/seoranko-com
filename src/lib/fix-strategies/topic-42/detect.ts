@@ -14,6 +14,8 @@ import {
   normalizeFixStrategyUrl,
   recordRedirectHops,
   resolveFixTarget,
+  selectRepresentativePageUrl,
+  sortMemberUrls,
   type FixTargetResult,
 } from '@/lib/fix-strategies/shared'
 import {
@@ -202,7 +204,11 @@ export async function detectLinksThroughRedirects(
   }
 
   for (const group of groups.values()) {
-    const primary = group.obs[0]!
+    const observedSorted = sortMemberUrls(group.obs.map((o) => o.sourceUrl))
+    const repUrl =
+      selectRepresentativePageUrl(observedSorted) ?? observedSorted[0]!
+    const primary =
+      group.obs.find((o) => o.sourceUrl === repUrl) ?? group.obs[0]!
     const { href, targetUrl, page, sourceUrl } = primary
 
     // Topic 68: confirm the first response is a stable redirect (or flip).
@@ -283,7 +289,7 @@ export async function detectLinksThroughRedirects(
           })
         : resolveFixTarget(art)
 
-    const observedOn = Array.from(new Set(group.obs.map((o) => o.sourceUrl)))
+    const observedOn = observedSorted
     const normTarget =
       normalizeFixStrategyUrl(targetUrl) ?? targetUrl.split('#')[0]!
     const declarationSite =

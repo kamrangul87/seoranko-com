@@ -23,7 +23,7 @@
     },
     {
       "readme": "No mention of topic 8 page",
-      "observed": "informational-generated-only attaches to about.html (not blog/) on current seed crawl"
+      "observed": "informational-generated-only is one rolled group (/, /blog/, /about.html); representative is shortest path `/`"
     }
   ],
   "findings": [
@@ -198,10 +198,15 @@
     {
       "topicId": "8",
       "verdict": "informational-generated-only",
-      "pageUrl": "https://seoranko-fixture.vercel.app/about.html",
+      "pageUrl": "https://seoranko-fixture.vercel.app/",
       "surfaceClass": "informational",
       "autoFixable": false,
-      "bucket": "informational"
+      "bucket": "informational",
+      "memberUrls": [
+        "https://seoranko-fixture.vercel.app/",
+        "https://seoranko-fixture.vercel.app/blog/",
+        "https://seoranko-fixture.vercel.app/about.html"
+      ]
     }
   ]
 }

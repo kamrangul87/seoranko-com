@@ -17,6 +17,8 @@ import {
 import { normalizeFixStrategyUrl } from '@/lib/fix-strategies/shared/url-normalize'
 import {
   resolveFixTarget,
+  selectRepresentativePageUrl,
+  sortMemberUrls,
   type FixTargetResult,
 } from '@/lib/fix-strategies/shared'
 
@@ -197,7 +199,7 @@ export function detectDuplicateTitlesDescriptions(
   ) => {
     for (const [value, members] of groups) {
       if (members.length < 2) continue
-      const urls = members.map((m) => m.url)
+      const urls = sortMemberUrls(members.map((m) => m.url))
 
       // MANDATORY exclusion: URL variants
       if (groupIsUrlVariantCluster(urls)) {
@@ -230,6 +232,8 @@ export function detectDuplicateTitlesDescriptions(
 
       const declarationSite =
         members.map((m) => m.declarationSite).find((s) => s != null) ?? null
+      const representative =
+        selectRepresentativePageUrl(urls) ?? urls[0]!
 
       // Site-wide description
       if (field === 'description' && members.length === indexable.length) {
@@ -239,7 +243,7 @@ export function detectDuplicateTitlesDescriptions(
           severity: 'moderate',
           value,
           field,
-          memberUrls: declarationSite ? urls.slice(0, 1) : urls,
+          memberUrls: declarationSite ? [representative] : urls,
           // One finding naming the layout when shared
           declarationSite,
           detail: declarationSite
@@ -259,8 +263,8 @@ export function detectDuplicateTitlesDescriptions(
         value.length <= 40 &&
         value.split(/\s+/).filter(Boolean).length === 1
 
-      // Collapse to one finding when shared declaration site
-      const memberUrls = declarationSite ? [members[0]!.url] : urls
+      // Collapse to one finding when shared declaration site — always emit
+      // the full sorted member set so identity / representative stay stable.
       const detail = declarationSite
         ? `${members.length} pages inherit identical ${field} from ${declarationSite}. Report once. No ranking penalty (H27). Content generation out of bounds.`
         : `Identical ${field} across ${urls.length} distinct pages. No ranking penalty (H27). Do not generate replacement text.`
@@ -275,7 +279,7 @@ export function detectDuplicateTitlesDescriptions(
         severity: field === 'title' ? 'moderate' : 'low',
         value,
         field,
-        memberUrls: declarationSite ? urls : memberUrls,
+        memberUrls: urls,
         declarationSite,
         detail,
         autoFixable: false,
