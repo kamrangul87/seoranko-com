@@ -3,6 +3,7 @@ import { Suspense, useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase-client'
 import { ConnectSiteModal } from '@/components/ConnectSiteModal'
 import { GithubAppConnect } from '@/components/GithubAppConnect'
+import { PrivacyNoticeAssembler } from '@/components/PrivacyNoticeAssembler'
 import {
   getConnectedSites, addConnectedSite, setPrimarySite, removeConnectedSite,
   ConnectedSite
@@ -287,6 +288,7 @@ export function SitesManager() {
                 </button>
               )}
             </div>
+            <PrivacyNoticeAssembler siteId={site.id} siteDomain={site.domain} />
           </div>
         ))}
       </div>

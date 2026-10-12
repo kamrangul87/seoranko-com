@@ -3,7 +3,7 @@
  *
  * After the URL frontier drains:
  * 1. Persist inspectSiteSitemaps + buildInternalLinkGraph once per run
- * 2. Cursor phases: 22, 24, 25, 28, 26 (by loc), 15, 19, 21, 55–59, 71
+ * 2. Cursor phases: 22, 24, 25, 28, 26 (by loc), 15, 19, 21, 55–59, 71, 72
  * 3. Full-snapshot tick (never partial graph): 43, 45, 8, 33, 27, 46–48
  * 4. Rollup + upsert — only then may the run become complete/partial
  *
@@ -45,6 +45,8 @@ import { detectCrawledNotIndexed } from '@/lib/fix-strategies/topic-57'
 import { detectIndexedVsCrawlMismatch } from '@/lib/fix-strategies/topic-58'
 import { detectImpressionsNoInternalLinks } from '@/lib/fix-strategies/topic-59'
 import { detectPaginationSeriesIssues } from '@/lib/fix-strategies/topic-71'
+import { detectPrivacyConsentIssues } from '@/lib/fix-strategies/topic-72'
+import { loadPrivacySiteSettings } from '@/lib/compliance/load-privacy-settings'
 import { loadGscDetectContext } from '@/lib/fix-strategies/shared/gsc-detect-context'
 import { normalizeCanonicalForGscMatch } from '@/lib/fix-strategies/shared/canonical-normalize'
 import {
@@ -516,6 +518,27 @@ async function runDetectorPhase(
       out,
     )
     topicEmits.push({ topicId: '71', emits: out, mode: 'replace' })
+    return { topicEmits, cursor: {}, phaseComplete: true }
+  }
+
+  if (phase === 'topic_72') {
+    const out: DetectorEmit[] = []
+    const privacySettings = await loadPrivacySiteSettings(ctx.siteId ?? null)
+    takeBuckets(
+      '72',
+      'privacy/consent',
+      detectPrivacyConsentIssues({
+        originUrl: ctx.origin,
+        jurisdiction: privacySettings?.jurisdiction ?? null,
+        pages: ctx.usableHtml.map((p) => ({
+          url: p.url,
+          html: p.html,
+          headers: p.headers ?? null,
+        })),
+      }),
+      out,
+    )
+    topicEmits.push({ topicId: '72', emits: out, mode: 'replace' })
     return { topicEmits, cursor: {}, phaseComplete: true }
   }
 

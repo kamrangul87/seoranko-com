@@ -207,6 +207,30 @@
         "https://seoranko-fixture.vercel.app/blog/",
         "https://seoranko-fixture.vercel.app/about.html"
       ]
+    },
+    {
+      "topicId": "72",
+      "verdict": "human-review-jurisdiction-not-set",
+      "pageUrl": "https://seoranko-fixture.vercel.app",
+      "surfaceClass": "human-review",
+      "autoFixable": false,
+      "bucket": "actionable"
+    },
+    {
+      "topicId": "72",
+      "verdict": "human-review-vendor-unnamed",
+      "pageUrl": "https://seoranko-fixture.vercel.app/privacy.html",
+      "surfaceClass": "human-review",
+      "autoFixable": false,
+      "bucket": "actionable"
+    },
+    {
+      "topicId": "72",
+      "verdict": "human-review-consent-missing",
+      "pageUrl": "https://seoranko-fixture.vercel.app/",
+      "surfaceClass": "human-review",
+      "autoFixable": false,
+      "bucket": "actionable"
     }
   ]
 }
