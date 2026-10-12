@@ -229,6 +229,12 @@ export async function tickE2eRun(input?: {
     }
   }
 
+  if (advanced) {
+    void import('@/lib/run-heartbeat/touch-progress').then(({ touchLastProgress }) =>
+      touchLastProgress('e2e', run.id),
+    )
+  }
+
   return {
     run,
     advanced,

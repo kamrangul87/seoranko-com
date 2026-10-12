@@ -939,6 +939,13 @@ export async function processCrawlTick(
     })
   }
 
+  const advanced = jobs.length > 0 || done || status !== 'running'
+  if (advanced) {
+    void import('@/lib/run-heartbeat/touch-progress').then(({ touchLastProgress }) =>
+      touchLastProgress('crawl', runId),
+    )
+  }
+
   return {
     runId,
     status,

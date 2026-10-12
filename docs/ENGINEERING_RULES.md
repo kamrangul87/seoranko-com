@@ -22,6 +22,16 @@ auto-fixable:
 
 No registry entry without a planted fixture + expected.json row.
 
+## Run heartbeat (pg_cron)
+
+Unfinished crawl, fix, and e2e runs are advanced by
+`POST /api/internal/heartbeat` (Bearer `CRON_SECRET`), invoked every minute
+from Supabase `pg_cron` → `pg_net` (`seoranko-run-heartbeat`). Browser ticks
+and in-process `waitUntil` continues are speed-ups only — deploys must not
+stall runs. Vault secret `heartbeat_cron_secret` must equal `CRON_SECRET`.
+Runs with no progress for 15 minutes are failed (stage `stall` in
+`fix_failures`); `await_approval` is excluded (human wait).
+
 ## Fix Agent e2e
 
 The permanent e2e at `/api/cron/fix-agent-e2e` (daily) and
