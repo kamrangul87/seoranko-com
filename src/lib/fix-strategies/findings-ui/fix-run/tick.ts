@@ -733,7 +733,8 @@ export async function tickFixRun(input: {
         previewUrl: run.previewUrl,
       })
       run.previewUrl = null
-      const { [PREVIEW_COMMIT_SHA_KEY]: _drop, ...rest } = run.prevContents
+      const rest = { ...run.prevContents }
+      delete rest[PREVIEW_COMMIT_SHA_KEY]
       run.prevContents = rest
     }
 
@@ -905,7 +906,8 @@ export async function tickFixRun(input: {
       if (!preview.ok) {
         if (preview.pending !== false) {
           run.previewUrl = null
-          const { [PREVIEW_COMMIT_SHA_KEY]: _drop, ...rest } = run.prevContents
+          const rest = { ...run.prevContents }
+          delete rest[PREVIEW_COMMIT_SHA_KEY]
           run.prevContents = {
             ...rest,
             [PREVIEW_WAIT_STARTED_KEY]:
