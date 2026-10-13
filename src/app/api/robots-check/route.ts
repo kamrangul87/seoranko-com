@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { requireSignedInUser } from '@/lib/require-signed-in-user'
 import { parseRobotsForAIBots } from '@/lib/robots-checker'
 
