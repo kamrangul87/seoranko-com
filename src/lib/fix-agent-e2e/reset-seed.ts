@@ -55,7 +55,7 @@ export async function closeStuckFixturePrs(input: {
   const owner = input.owner || E2E_FIXTURE_OWNER
   const repo = input.repo || E2E_FIXTURE_REPO
   const token = input.accessToken
-  const prs = input.prNumbers ?? [3, 4, 5]
+  const prs = input.prNumbers ?? [3, 4, 5, 6]
   const closed: number[] = []
   for (const n of prs) {
     await ghJson(token, `/repos/${owner}/${repo}/issues/${n}/comments`, {
