@@ -1,0 +1,98 @@
+# Auto-merge PRs labeled "automerge" after the Test workflow succeeds.
+# On Test failure for a labeled PR targeting main: comment the failing job and stop.
+name: Automerge
+
+on:
+  workflow_run:
+    workflows: ['Test']
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    if: github.repository == 'kamrangul87/seoranko-com'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve PR and act
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const run = context.payload.workflow_run;
+
+            if (run.event !== 'pull_request') {
+              core.info(`Skipping: workflow_run event was "${run.event}", not pull_request`);
+              return;
+            }
+
+            let pr = run.pull_requests && run.pull_requests[0];
+            if (!pr) {
+              const { data: prs } = await github.rest.pulls.list({
+                owner,
+                repo,
+                state: 'open',
+                head: `${owner}:${run.head_branch}`,
+                base: 'main',
+                per_page: 5,
+              });
+              const match = prs.find((p) => p.head.sha === run.head_sha) || prs[0];
+              if (!match) {
+                core.info('No open PR found for this workflow_run; skipping');
+                return;
+              }
+              pr = match;
+            }
+
+            const { data: full } = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: pr.number,
+            });
+
+            if (full.base.ref !== 'main') {
+              core.info(`Skipping: base is ${full.base.ref}, not main`);
+              return;
+            }
+            if (full.draft) {
+              core.info(`Skipping: PR #${full.number} is a draft`);
+              return;
+            }
+            const hasLabel = (full.labels || []).some((l) => l.name === 'automerge');
+            if (!hasLabel) {
+              core.info(`Skipping: PR #${full.number} lacks automerge label`);
+              return;
+            }
+
+            if (run.conclusion !== 'success') {
+              const { data: jobs } = await github.rest.actions.listJobsForWorkflowRun({
+                owner,
+                repo,
+                run_id: run.id,
+                per_page: 100,
+              });
+              const failed = (jobs.jobs || [])
+                .filter((j) => j.conclusion === 'failure' || j.conclusion === 'cancelled' || j.conclusion === 'timed_out')
+                .map((j) => j.name);
+              const jobList = failed.length ? failed.join(', ') : '(unknown job)';
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: full.number,
+                body: `Automerge skipped: CI failed (\`${jobList}\`). Fix and push; merge will retry when Test succeeds with the \`automerge\` label.`,
+              });
+              core.info(`Commented CI failure on PR #${full.number}`);
+              return;
+            }
+
+            await github.rest.pulls.merge({
+              owner,
+              repo,
+              pull_number: full.number,
+              merge_method: 'merge',
+            });
+            core.info(`Merged PR #${full.number} with merge commit`);
