@@ -1,23 +1,30 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
-import { detectCMS } from '@/lib/site-adapters'
+/**
+ * Retired product surface — always 410 Gone (no processing).
+ */
+import { goneLegacy } from '@/lib/api-gone'
 
-export const maxDuration = 30
+export const dynamic = 'force-dynamic'
 
-export async function POST(req: NextRequest) {
-  const cookieStore = cookies()
-  const authClient = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { get: (name: string) => cookieStore.get(name)?.value } }
-  )
-  const { data: { user } } = await authClient.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+function gone() {
+  return goneLegacy('RANKO')
+}
 
-  const { domain } = await req.json().catch(() => ({ domain: '' }))
-  if (!domain) return NextResponse.json({ platform: 'unknown' })
+export async function GET() {
+  return gone()
+}
 
-  const platform = await detectCMS(domain)
-  return NextResponse.json({ platform })
+export async function POST() {
+  return gone()
+}
+
+export async function PUT() {
+  return gone()
+}
+
+export async function PATCH() {
+  return gone()
+}
+
+export async function DELETE() {
+  return gone()
 }

@@ -1,45 +1,30 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
-import { fetchPageWithTitle, isSafePublicUrl } from '@/lib/fetch-page-content'
+/**
+ * Retired product surface — always 410 Gone (no processing).
+ */
+import { goneLegacy } from '@/lib/api-gone'
 
-export const maxDuration = 30
+export const dynamic = 'force-dynamic'
 
-export async function POST(req: NextRequest) {
-  const cookieStore = cookies()
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { get(name: string) { return cookieStore.get(name)?.value } } }
-  )
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+function gone() {
+  return goneLegacy('Article content fetch')
+}
 
-  const { url } = await req.json().catch(() => ({ url: undefined }))
+export async function GET() {
+  return gone()
+}
 
-  if (!url || typeof url !== 'string') {
-    return NextResponse.json({ error: 'url is required' }, { status: 400 })
-  }
+export async function POST() {
+  return gone()
+}
 
-  // This endpoint fetches a URL supplied by the caller, so refuse anything
-  // pointing at the local network or a non-HTTP scheme.
-  if (!isSafePublicUrl(url)) {
-    return NextResponse.json(
-      { error: 'That URL cannot be fetched — only public http(s) pages are supported.' },
-      { status: 400 }
-    )
-  }
+export async function PUT() {
+  return gone()
+}
 
-  const { content, title } = await fetchPageWithTitle(url, 20000)
+export async function PATCH() {
+  return gone()
+}
 
-  if (!content) {
-    return NextResponse.json(
-      { error: 'Could not fetch that page — it may be private, blocked, or offline.' },
-      { status: 502 }
-    )
-  }
-
-  return NextResponse.json({ success: true, content, title })
+export async function DELETE() {
+  return gone()
 }

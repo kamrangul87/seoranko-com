@@ -1,85 +1,30 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { NextRequest, NextResponse } from 'next/server';
+/**
+ * Retired product surface — always 410 Gone (no processing).
+ */
+import { goneLegacy } from '@/lib/api-gone'
 
-export async function POST(req: NextRequest) {
-  let body: { keyword?: string; url?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
-  }
-  // Was hardcoded to 2826 (UK) unconditionally, so debugging rank-checking
-  // for a non-UK keyword silently checked the wrong market. Accepts an
-  // optional location_code, defaulting to global (2840) rather than UK.
-  const { keyword, url, location_code: locationCode = 2840 } = body as { keyword?: string; url?: string; location_code?: number };
+export const dynamic = 'force-dynamic'
 
-  const login = process.env.DATAFORSEO_EMAIL;
-  const password = process.env.DATAFORSEO_PASSWORD;
+function gone() {
+  return goneLegacy('Ranking agent')
+}
 
-  if (!login || !password) {
-    return NextResponse.json({ error: 'No DataForSEO credentials found' });
-  }
+export async function GET() {
+  return gone()
+}
 
-  try {
-    const response = await fetch(
-      'https://api.dataforseo.com/v3/serp/google/organic/live/advanced',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: 'Basic ' + Buffer.from(`${login}:${password}`).toString('base64'),
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify([{
-          keyword,
-          location_code: locationCode,
-          language_code: 'en',
-          depth: 50,
-        }]),
-      }
-    );
+export async function POST() {
+  return gone()
+}
 
-    const data = await response.json();
+export async function PUT() {
+  return gone()
+}
 
-    const task = data?.tasks?.[0];
-    const result = task?.result?.[0];
-    const items = result?.items ?? [];
+export async function PATCH() {
+  return gone()
+}
 
-    const organicItems = items
-      .filter((i: any) => i.type === 'organic')
-      .map((i: any) => ({
-        position: i.rank_absolute,
-        domain: i.domain,
-        url: i.url,
-        title: i.title?.slice(0, 60),
-      }));
-
-    // Find target URL in results
-    const targetDomain = url
-      ?.replace('https://', '')
-      ?.replace('http://', '')
-      ?.replace('www.', '')
-      ?.split('/')[0];
-
-    const found = organicItems.find((i: any) =>
-      i.domain?.includes(targetDomain) ||
-      i.url?.includes(targetDomain)
-    );
-
-    return NextResponse.json({
-      keyword,
-      targetUrl: url,
-      targetDomain,
-      taskStatus: task?.status_message,
-      totalItems: items.length,
-      organicItems: organicItems.slice(0, 20),
-      foundAt: found || 'NOT FOUND IN TOP 50',
-      credentials: {
-        login: login?.slice(0, 5) + '***',
-        hasPassword: !!password,
-      }
-    });
-
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message });
-  }
+export async function DELETE() {
+  return gone()
 }

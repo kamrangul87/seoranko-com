@@ -4,6 +4,7 @@
  */
 
 import { NextResponse } from 'next/server'
+import { requireCronSecret } from '@/lib/cron-auth'
 import {
   buildFailureDigestPayload,
   formatFailureDigestText,
@@ -14,17 +15,9 @@ import {
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-function authorize(req: Request): boolean {
-  const secret = process.env.CRON_SECRET?.trim()
-  if (!secret) return true
-  const auth = req.headers.get('authorization') || ''
-  return auth === `Bearer ${secret}`
-}
-
 export async function GET(req: Request) {
-  if (!authorize(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const denied = requireCronSecret(req)
+  if (denied) return denied
   try {
     const payload = await buildFailureDigestPayload()
     if (!shouldSendFailureDigest(payload)) {

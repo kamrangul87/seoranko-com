@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
+import { requireMasterUser } from '@/lib/github-app/require-master'
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { normalizeDomain } from '@/lib/supabase/audit-db';
@@ -74,6 +75,11 @@ async function testCitation(
 }
 
 export async function POST(req: NextRequest) {
+  const master = await requireMasterUser()
+  if (!master.ok) {
+    return NextResponse.json({ error: master.error }, { status: master.status })
+  }
+
   try {
     const body = await req.json();
     const { domain, brandName, topics } = body as {

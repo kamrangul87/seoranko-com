@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireMasterUser } from '@/lib/github-app/require-master'
 import { callClaude } from '@/lib/anthropic'
 import { MODEL_FOR } from '@/lib/model-router'
 
 export async function POST(req: NextRequest) {
+  const master = await requireMasterUser()
+  if (!master.ok) {
+    return NextResponse.json({ error: master.error }, { status: master.status })
+  }
+
   let problem = ''
   try {
     const body = await req.json()

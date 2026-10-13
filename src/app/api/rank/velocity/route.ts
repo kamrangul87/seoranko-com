@@ -1,17 +1,30 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { predictRankingVelocity } from '@/lib/velocity-predictor'
+/**
+ * Retired product surface — always 410 Gone (no processing).
+ */
+import { goneLegacy } from '@/lib/api-gone'
 
-export const maxDuration = 30
+export const dynamic = 'force-dynamic'
 
-export async function POST(req: NextRequest) {
-  try {
-    const { articleId, keyword, targetPosition = 10 } = await req.json()
-    if (!articleId || !keyword) {
-      return NextResponse.json({ error: 'articleId and keyword required' }, { status: 400 })
-    }
-    const prediction = await predictRankingVelocity(articleId, keyword, targetPosition)
-    return NextResponse.json({ success: true, prediction })
-  } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 })
-  }
+function gone() {
+  return goneLegacy('Rank velocity')
+}
+
+export async function GET() {
+  return gone()
+}
+
+export async function POST() {
+  return gone()
+}
+
+export async function PUT() {
+  return gone()
+}
+
+export async function PATCH() {
+  return gone()
+}
+
+export async function DELETE() {
+  return gone()
 }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireMasterUser } from '@/lib/github-app/require-master'
 import { createClient } from '@supabase/supabase-js';
 
 type Reason = 'script_not_found' | 'wrong_site_id' | 'site_unreachable';
@@ -79,6 +80,11 @@ async function markVerified(siteId: string): Promise<void> {
 }
 
 export async function GET(req: NextRequest) {
+  const master = await requireMasterUser()
+  if (!master.ok) {
+    return NextResponse.json({ error: master.error }, { status: master.status })
+  }
+
   const rawDomain = req.nextUrl.searchParams.get('domain')?.trim();
   if (!rawDomain) {
     return NextResponse.json({ verified: false, reason: 'site_unreachable' as Reason });
