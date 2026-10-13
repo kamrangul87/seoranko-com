@@ -4,6 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireMasterUser } from '@/lib/github-app/require-master'
 import {
   applyKnownRegistryUrlCorrection,
   checkUrlReachable,
@@ -11,6 +12,11 @@ import {
 } from '@/lib/registry-url-health'
 
 export async function POST(req: NextRequest) {
+  const master = await requireMasterUser()
+  if (!master.ok) {
+    return NextResponse.json({ error: master.error }, { status: master.status })
+  }
+
   let body: { url?: string }
   try {
     body = await req.json()

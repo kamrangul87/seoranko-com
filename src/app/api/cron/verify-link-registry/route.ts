@@ -12,6 +12,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireCronSecret } from '@/lib/cron-auth'
 import { createClient } from '@supabase/supabase-js'
 import {
   auditRegistryLinkRows,
@@ -21,10 +22,8 @@ import {
 export const maxDuration = 60
 
 export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const denied = requireCronSecret(req)
+  if (denied) return denied
 
   const dryRun = req.nextUrl.searchParams.get('dry_run') === '1'
   const supabase = createClient(

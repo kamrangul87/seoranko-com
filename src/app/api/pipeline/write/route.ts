@@ -1,11 +1,30 @@
-import { NextResponse } from 'next/server'
+/**
+ * Retired product surface — always 410 Gone (no processing).
+ */
+import { goneLegacy } from '@/lib/api-gone'
+
+export const dynamic = 'force-dynamic'
+
+function gone() {
+  return goneLegacy('Content pipeline write')
+}
+
+export async function GET() {
+  return gone()
+}
 
 export async function POST() {
-  return NextResponse.json(
-    {
-      error: 'Article write pipeline removed. Use /api/copilot/brief for guidance-only briefs.',
-      code: 'ARTICLE_GENERATION_REMOVED',
-    },
-    { status: 410 },
-  )
+  return gone()
+}
+
+export async function PUT() {
+  return gone()
+}
+
+export async function PATCH() {
+  return gone()
+}
+
+export async function DELETE() {
+  return gone()
 }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireCronSecret } from '@/lib/cron-auth'
 import { createClient } from '@supabase/supabase-js'
 import { syncAllActiveGscConnections } from '@/lib/gsc/sync'
 import { syncAllUrlInspections } from '@/lib/gsc/inspection-scheduler'
@@ -10,10 +11,8 @@ export const maxDuration = 60
  * Metrics first; inspections degrade gracefully when quota is exhausted.
  */
 export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const denied = requireCronSecret(req)
+  if (denied) return denied
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

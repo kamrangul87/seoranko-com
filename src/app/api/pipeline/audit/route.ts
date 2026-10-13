@@ -1,33 +1,30 @@
-import { NextRequest, NextResponse } from "next/server";
-import { editorialAudit } from "@/lib/fact-verifier";
-import type { VerifiedFact } from "@/lib/fact-verifier";
+/**
+ * Retired product surface — always 410 Gone (no processing).
+ */
+import { goneLegacy } from '@/lib/api-gone'
 
-export const maxDuration = 60;
+export const dynamic = 'force-dynamic'
 
-export async function POST(req: NextRequest) {
-  try {
-    const { article, verified_facts, unverifiable_claims, published_pages } = await req.json();
-    if (!article) {
-      return NextResponse.json({ error: "article is required" }, { status: 400 });
-    }
-    const audit = await editorialAudit(
-      article,
-      (verified_facts ?? []) as VerifiedFact[],
-      unverifiable_claims ?? [],
-      published_pages ?? [],
-    );
-    return NextResponse.json({
-      final_article: audit.final_article,
-      article_clean: audit.article_clean,
-      broken_links: audit.broken_links,
-      fact_audit: audit.fact_audit,
-    });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } catch (error: any) {
-    console.error("[pipeline/audit] unhandled error:", error);
-    return NextResponse.json(
-      { error: error?.message || "Unknown error in audit step" },
-      { status: 500 }
-    );
-  }
+function gone() {
+  return goneLegacy('Content pipeline audit')
+}
+
+export async function GET() {
+  return gone()
+}
+
+export async function POST() {
+  return gone()
+}
+
+export async function PUT() {
+  return gone()
+}
+
+export async function PATCH() {
+  return gone()
+}
+
+export async function DELETE() {
+  return gone()
 }

@@ -1,52 +1,30 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { generateArticleImagesFromRequests, buildArticleImageRequests } from '@/lib/image-generator'
-import { createClient } from '@supabase/supabase-js'
+/**
+ * Retired product surface — always 410 Gone (no processing).
+ */
+import { goneLegacy } from '@/lib/api-gone'
 
-export const maxDuration = 120
+export const dynamic = 'force-dynamic'
 
-export async function POST(req: NextRequest) {
-  try {
-    const { articleId, keyword, title, sections = [] } = await req.json()
+function gone() {
+  return goneLegacy('Article image regeneration')
+}
 
-    if (!keyword) {
-      return NextResponse.json({ error: 'keyword is required' }, { status: 400 })
-    }
+export async function GET() {
+  return gone()
+}
 
-    const requests = buildArticleImageRequests(keyword, title || keyword, sections)
-    const results = await generateArticleImagesFromRequests(requests)
+export async function POST() {
+  return gone()
+}
 
-    const successful = results.filter(r => r.success)
-    const failed = results.filter(r => !r.success)
+export async function PUT() {
+  return gone()
+}
 
-    if (articleId && successful.length > 0) {
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-      )
+export async function PATCH() {
+  return gone()
+}
 
-      const imageMap = Object.fromEntries(
-        successful.map(r => [`image_${r.slot}`, r.url])
-      )
-
-      await supabase
-        .from('articles')
-        .update({ ...imageMap, updated_at: new Date().toISOString() })
-        .eq('id', articleId)
-    }
-
-    return NextResponse.json({
-      success: true,
-      generated: successful.length,
-      failed: failed.length,
-      results,
-      message: `${successful.length} of ${requests.length} images generated`
-    })
-
-  } catch (error) {
-    console.error('[regenerate-images]', error)
-    return NextResponse.json(
-      { error: 'Image generation failed', details: String(error) },
-      { status: 500 }
-    )
-  }
+export async function DELETE() {
+  return gone()
 }

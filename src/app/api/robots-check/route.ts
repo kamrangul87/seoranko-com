@@ -1,7 +1,12 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireMasterUser } from '@/lib/github-app/require-master'
 import { parseRobotsForAIBots } from '@/lib/robots-checker'
 
 export async function POST(req: NextRequest) {
+  const master = await requireMasterUser()
+  if (!master.ok) {
+    return NextResponse.json({ error: master.error }, { status: master.status })
+  }
   try {
     const { domain } = await req.json()
     if (!domain) {

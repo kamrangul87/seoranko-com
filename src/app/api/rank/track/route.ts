@@ -1,131 +1,30 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { cookies } from 'next/headers'
-import { createServerClient } from '@supabase/ssr'
-import {
-  findLinkedArticleId,
-  recomputeFreshnessForTracked,
-} from '@/lib/rank-monitor-pass'
-import { enterAtPublish } from '@/lib/pages'
+/**
+ * Retired product surface — always 410 Gone (no processing).
+ */
+import { goneLegacy } from '@/lib/api-gone'
 
-export const maxDuration = 30
+export const dynamic = 'force-dynamic'
 
-export async function POST(req: NextRequest) {
-  try {
-    const { keyword, articleUrl, locationCode } = await req.json()
-    if (!keyword || !articleUrl) {
-      return NextResponse.json({ error: 'keyword and articleUrl required' }, { status: 400 })
-    }
-
-    const cookieStore = cookies()
-    const supabaseAuth = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { cookies: { get: (name) => cookieStore.get(name)?.value } }
-    )
-    const { data: { user } } = await supabaseAuth.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
-
-    const linkedArticleId = await findLinkedArticleId(supabase, user.id, articleUrl)
-
-    // Rank tracking must target the real hosted URL, not a placeholder —
-    // if this article has a live (or verified) hosted publication, its
-    // publications.public_url wins over whatever URL was passed in
-    // (e.g. a stale articles.article_url slug path with no domain).
-    let trackedUrl = articleUrl
-    if (linkedArticleId) {
-      const { data: pub } = await supabase
-        .from('publications')
-        .select('public_url, state')
-        .eq('article_id', linkedArticleId)
-        .eq('user_id', user.id)
-        .eq('destination', 'hosted')
-        .in('state', ['LIVE_UNVERIFIED', 'LIVE_VERIFIED'])
-        .order('published_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      if (pub?.public_url) trackedUrl = pub.public_url
-    }
-
-    const { data: row, error } = await supabase
-      .from('ranking_agent_articles')
-      .insert({
-        user_id: user.id,
-        keyword,
-        article_url: trackedUrl,
-        title: keyword,
-        location_code: locationCode ?? 2840,
-        article_id: linkedArticleId,
-        freshness_status: 'fresh',
-        needs_refresh: false,
-      })
-      .select('id')
-      .single()
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    if (row?.id) {
-      await recomputeFreshnessForTracked(supabase, row.id)
-    }
-
-    enterAtPublish(supabase, {
-      userId: user.id,
-      keyword,
-      url: trackedUrl,
-    }).catch(() => {})
-
-    return NextResponse.json({
-      success: true,
-      id: row?.id,
-      linkedArticleId,
-    })
-  } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 })
-  }
+function gone() {
+  return goneLegacy('Rank track')
 }
 
-/** Stop tracking a URL (Track tab Remove). */
-export async function DELETE(req: NextRequest) {
-  try {
-    const id = req.nextUrl.searchParams.get('id')
-    if (!id) {
-      return NextResponse.json({ error: 'id required' }, { status: 400 })
-    }
+export async function GET() {
+  return gone()
+}
 
-    const cookieStore = cookies()
-    const supabaseAuth = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { cookies: { get: (name) => cookieStore.get(name)?.value } }
-    )
-    const { data: { user } } = await supabaseAuth.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+export async function POST() {
+  return gone()
+}
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
+export async function PUT() {
+  return gone()
+}
 
-    // rank_history cascades via ranking_article_id FK when present
-    const { error } = await supabase
-      .from('ranking_agent_articles')
-      .delete()
-      .eq('id', id)
-      .eq('user_id', user.id)
+export async function PATCH() {
+  return gone()
+}
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ success: true })
-  } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 })
-  }
+export async function DELETE() {
+  return gone()
 }

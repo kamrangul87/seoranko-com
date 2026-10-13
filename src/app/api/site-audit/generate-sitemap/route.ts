@@ -1,9 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
+import { requireMasterUser } from '@/lib/github-app/require-master'
 
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
+  const master = await requireMasterUser()
+  if (!master.ok) {
+    return NextResponse.json({ error: master.error }, { status: master.status })
+  }
+
   try {
     const {
       isLegacyCustomerWritesEnabled,

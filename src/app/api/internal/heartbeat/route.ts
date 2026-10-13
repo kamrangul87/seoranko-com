@@ -7,6 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireCronSecret } from '@/lib/cron-auth'
 import {
   createSupabaseHeartbeatDeps,
   runHeartbeat,
@@ -15,16 +16,10 @@ import {
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
-function unauthorized() {
-  return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-}
 
 export async function POST(req: NextRequest) {
-  const authHeader = req.headers.get('authorization')
-  const secret = process.env.CRON_SECRET?.trim()
-  if (!secret || authHeader !== `Bearer ${secret}`) {
-    return unauthorized()
-  }
+  const denied = requireCronSecret(req)
+  if (denied) return denied
 
   try {
     const result = await runHeartbeat(createSupabaseHeartbeatDeps())

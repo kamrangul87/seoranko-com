@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireMasterUser } from '@/lib/github-app/require-master'
 
 export interface DetectedPlatform {
   platform: 'wordpress' | 'shopify' | 'wix' | 'squarespace' | 'webflow' | 'nextjs' | 'ghost' | 'html';
@@ -82,6 +83,11 @@ function detect(html: string, headers: Headers): DetectedPlatform['platform'] {
 }
 
 export async function GET(req: NextRequest) {
+  const master = await requireMasterUser()
+  if (!master.ok) {
+    return NextResponse.json({ error: master.error }, { status: master.status })
+  }
+
   const domain = new URL(req.url).searchParams.get('domain')?.trim();
   if (!domain) {
     return NextResponse.json({ error: 'domain is required' }, { status: 400 });

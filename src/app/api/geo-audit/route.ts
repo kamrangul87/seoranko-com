@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireMasterUser } from '@/lib/github-app/require-master'
 import { createClient } from '@supabase/supabase-js'
 import { runGEOAudit } from '@/lib/geo-auditor'
 
 export const maxDuration = 120
 
 export async function POST(req: NextRequest) {
+  const master = await requireMasterUser()
+  if (!master.ok) {
+    return NextResponse.json({ error: master.error }, { status: master.status })
+  }
+
   try {
     const { url, saveResult = true } = await req.json()
     if (!url) return NextResponse.json({ error: 'URL required' }, { status: 400 })

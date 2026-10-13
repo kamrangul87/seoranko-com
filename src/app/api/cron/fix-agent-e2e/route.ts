@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireCronSecret } from '@/lib/cron-auth'
 import {
   startOrGetE2eRun,
   tickE2eRun,
@@ -15,15 +16,10 @@ import { scheduleE2eContinue } from '@/lib/fix-agent-e2e/schedule-continue'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
-function unauthorized() {
-  return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-}
 
 export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return unauthorized()
-  }
+  const denied = requireCronSecret(req)
+  if (denied) return denied
 
   const continueId = req.nextUrl.searchParams.get('continue')
   try {

@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireCronSecret } from '@/lib/cron-auth'
 import { createClient } from '@supabase/supabase-js'
 import {
   runScheduledRecrawlForSite,
@@ -18,15 +19,10 @@ export const dynamic = 'force-dynamic'
 /** Hobby Fluid Compute ceiling is 300s — drain ticks + whole-site finalize. */
 export const maxDuration = 300
 
-function unauthorized() {
-  return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-}
 
 export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return unauthorized()
-  }
+  const denied = requireCronSecret(req)
+  if (denied) return denied
 
   const domainFilter = req.nextUrl.searchParams.get('domain')
   const continueRunId = req.nextUrl.searchParams.get('continue')

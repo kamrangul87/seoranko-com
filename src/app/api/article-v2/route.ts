@@ -1,21 +1,30 @@
-import { NextResponse } from 'next/server'
-
 /**
- * Article generation removed in the SEO copilot pivot.
- * Full Write pipeline preserved on branch `article-writing-feature-backup`
- * (see article-writing-feature-backup.zip).
+ * Retired product surface — always 410 Gone (no processing).
  */
-export async function POST() {
-  return NextResponse.json(
-    {
-      error: 'Article generation has been removed. Use /dashboard/audit and /dashboard/briefs instead.',
-      code: 'ARTICLE_GENERATION_REMOVED',
-      backupBranch: 'article-writing-feature-backup',
-    },
-    { status: 410 },
-  )
+import { goneLegacy } from '@/lib/api-gone'
+
+export const dynamic = 'force-dynamic'
+
+function gone() {
+  return goneLegacy('Article writing')
 }
 
 export async function GET() {
-  return POST()
+  return gone()
+}
+
+export async function POST() {
+  return gone()
+}
+
+export async function PUT() {
+  return gone()
+}
+
+export async function PATCH() {
+  return gone()
+}
+
+export async function DELETE() {
+  return gone()
 }
