@@ -45,6 +45,33 @@ describe('verifyLiveImgDimensions — blog/index.html + hero.jpg', () => {
     expect(live.diagnostics?.deploymentUrl).toBe(`${PREVIEW_ORIGIN}/blog/`)
   })
 
+  it('fails when image bytes were corrupted by res.text() (fetchPage adapter bug)', async () => {
+    // Simulates tick wiring fetchPage → Response(string): UTF-8 decode mangled
+    // the JPEG so SOF is unreadable even though HTTP 200 and attrs are correct.
+    const asText = HERO.toString('utf8')
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === `${PREVIEW_ORIGIN}/images/hero.jpg`) {
+        return new Response(asText, {
+          status: 200,
+          headers: { 'content-type': 'image/jpeg' },
+        })
+      }
+      return new Response('missing', { status: 404 })
+    }) as unknown as typeof fetch
+
+    const live = await verifyLiveImgDimensions(
+      BLOG_HTML,
+      `${PREVIEW_ORIGIN}/blog/`,
+      fetchImpl,
+      { deploymentSha: '158c8b6deadbeef' },
+    )
+    expect(live.ok).toBe(false)
+    expect(live.failures[0]?.reason).toMatch(/intrinsic header unreadable/i)
+    expect(live.detail).toMatch(/heightAuto=yes/)
+    expect(live.detail).toMatch(/failed=intrinsic header unreadable/)
+  })
+
   it('fails with diagnostics when image is served from production (wrong origin) with mismatched size', async () => {
     // 1×1 JPEG — stands in for a stale production / older preview asset.
     const stale = Buffer.from([
