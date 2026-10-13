@@ -17,6 +17,8 @@ export type DeployWaitResult =
       state: string
       detail: string
       source: PreviewUrlSource
+      /** Git SHA the preview deployment was resolved for (set by checkPreviewOnce). */
+      sha?: string
     }
   | { ok: false; error: string; pending?: boolean }
 
@@ -535,23 +537,32 @@ export async function checkPreviewOnce(input: {
   fetchImpl: typeof fetch
   /** When true (default), probe the resolved URL for Vercel Authentication. */
   probeAuth?: boolean
+  /**
+   * Exact commit SHA to resolve a deployment for. Prefer this over the branch
+   * tip so per-item preview verify never reuses an earlier item's deploy.
+   */
+  commitSha?: string | null
 }): Promise<DeployWaitResult> {
   const { owner, repo, branchName, accessToken, fetchImpl } = input
   const probeAuth = input.probeAuth !== false
 
-  const refRes = await readJson(
-    fetchImpl,
-    `${GH}/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(branchName)}`,
-    accessToken,
-  )
-  if (!refRes.ok) {
-    return {
-      ok: false,
-      pending: true,
-      error: `Branch ref not found yet (HTTP ${refRes.status})`,
+  let sha = input.commitSha?.trim() || ''
+  if (!sha) {
+    const refRes = await readJson(
+      fetchImpl,
+      `${GH}/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(branchName)}`,
+      accessToken,
+    )
+    if (!refRes.ok) {
+      return {
+        ok: false,
+        pending: true,
+        error: `Branch ref not found yet (HTTP ${refRes.status})`,
+      }
     }
+    sha =
+      (refRes.data as { object?: { sha?: string } } | null)?.object?.sha || ''
   }
-  const sha = (refRes.data as { object?: { sha?: string } } | null)?.object?.sha
   if (!sha) {
     return { ok: false, pending: true, error: 'Branch SHA missing' }
   }
@@ -583,7 +594,9 @@ export async function checkPreviewOnce(input: {
       accessToken,
       sha,
     )
-    if (fromDep?.ok) return maybeProbe(fromDep, fetchImpl, probeAuth)
+    if (fromDep?.ok) {
+      return maybeProbe({ ...fromDep, sha }, fetchImpl, probeAuth)
+    }
     if (fromDep && !fromDep.ok && fromDep.pending) {
       signals.push(fromDep.error)
     } else if (
@@ -594,7 +607,7 @@ export async function checkPreviewOnce(input: {
     }
   }
 
-  // ── 1b. Deployments by ref (branch) ─────────────────────────────
+  // ── 1b. Deployments by ref (branch) — still filtered to `sha` ────
   const depByRef = await readJson(
     fetchImpl,
     `${GH}/repos/${owner}/${repo}/deployments?ref=${encodeURIComponent(branchName)}&per_page=10`,
@@ -604,6 +617,7 @@ export async function checkPreviewOnce(input: {
     owner,
     repo,
     ref: branchName,
+    sha,
     status: depByRef.status,
     count: Array.isArray(depByRef.data) ? depByRef.data.length : null,
   })
@@ -616,7 +630,9 @@ export async function checkPreviewOnce(input: {
       accessToken,
       sha,
     )
-    if (fromDep?.ok) return maybeProbe(fromDep, fetchImpl, probeAuth)
+    if (fromDep?.ok) {
+      return maybeProbe({ ...fromDep, sha }, fetchImpl, probeAuth)
+    }
     if (fromDep && !fromDep.ok && fromDep.pending) {
       signals.push(fromDep.error)
     }
@@ -640,7 +656,9 @@ export async function checkPreviewOnce(input: {
         : { ok: false, error: fromStatus.error }
       : { ok: false, error: 'no vercel.app URL on commit statuses' },
   })
-  if (fromStatus?.ok) return maybeProbe(fromStatus, fetchImpl, probeAuth)
+  if (fromStatus?.ok) {
+    return maybeProbe({ ...fromStatus, sha }, fetchImpl, probeAuth)
+  }
   if (fromStatus && !fromStatus.ok) signals.push(fromStatus.error)
   else signals.push('no vercel.app URL on commit statuses for this SHA')
 
@@ -662,7 +680,9 @@ export async function checkPreviewOnce(input: {
         : { ok: false, error: fromChecks.error }
       : { ok: false, error: 'no vercel.app URL on check-runs' },
   })
-  if (fromChecks?.ok) return maybeProbe(fromChecks, fetchImpl, probeAuth)
+  if (fromChecks?.ok) {
+    return maybeProbe({ ...fromChecks, sha }, fetchImpl, probeAuth)
+  }
   if (fromChecks && !fromChecks.ok) signals.push(fromChecks.error)
   else signals.push('no vercel.app URL on check-runs for this SHA')
 
@@ -696,7 +716,9 @@ export async function checkPreviewOnce(input: {
             : { ok: false, error: fromComment.error }
           : { ok: false, error: 'no comment source' },
       })
-      if (fromComment?.ok) return maybeProbe(fromComment, fetchImpl, probeAuth)
+      if (fromComment?.ok) {
+        return maybeProbe({ ...fromComment, sha }, fetchImpl, probeAuth)
+      }
       if (fromComment && !fromComment.ok) signals.push(fromComment.error)
     } else {
       signals.push('no successful Vercel commit status for this SHA (PR comment skipped)')

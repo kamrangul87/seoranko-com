@@ -97,6 +97,55 @@ describe('checkPreviewOnce', () => {
     expect(once.source).toBe('github_deployment')
   })
 
+
+  it('commitSha overrides branch tip — refuses deployments for a different SHA', async () => {
+    const ITEM_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    const TIP_SHA = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+    const ITEM_PREVIEW = 'https://widget-itemsha-team.vercel.app'
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/git/ref/heads/')) {
+        return jsonResponse({ object: { sha: TIP_SHA } })
+      }
+      if (url.includes(`/deployments?sha=${ITEM_SHA}`)) {
+        return jsonResponse([
+          {
+            id: 11,
+            sha: ITEM_SHA,
+            environment: 'Preview',
+            production_environment: false,
+            statuses_url: 'https://api.github.com/repos/o/r/deployments/11/statuses',
+          },
+        ])
+      }
+      if (url.includes('/deployments/11/statuses')) {
+        return jsonResponse([
+          { state: 'success', environment_url: ITEM_PREVIEW, target_url: ITEM_PREVIEW },
+        ])
+      }
+      if (url.includes(`/deployments?sha=${TIP_SHA}`)) {
+        throw new Error('must not query tip SHA when commitSha is provided')
+      }
+      if (url.includes('/deployments?ref=')) return jsonResponse([])
+      if (url.startsWith(ITEM_PREVIEW)) return new Response('ok', { status: 200 })
+      return jsonResponse({}, 404)
+    }) as unknown as typeof fetch
+
+    const once = await checkPreviewOnce({
+      owner: OWNER,
+      repo: REPO,
+      branchName: BRANCH,
+      accessToken: 't',
+      prNumber: 1,
+      fetchImpl,
+      commitSha: ITEM_SHA,
+    })
+    expect(once.ok).toBe(true)
+    if (!once.ok) return
+    expect(once.previewUrl).toBe(ITEM_PREVIEW)
+    expect(once.sha).toBe(ITEM_SHA)
+  })
+
   it('falls back to vercel[bot] PR comment when deployments return 403', async () => {
     const payload = Buffer.from(
       JSON.stringify({

@@ -395,7 +395,10 @@ describe('fix-run fixture acceptance (3 defects → 1 PR)', () => {
         if (!file) {
           return { ok: false, body: '', status: 404 }
         }
-        if (url.includes('fix-run-preview.test')) {
+        if (
+          url.includes('fix-run-preview.test') ||
+          /fix-run-preview-[a-z0-9]+\.vercel\.app/i.test(url)
+        ) {
           const body = repo.previewContent.get(file) || repo.branches.get(
             [...repo.branches.keys()][0] || '',
           )?.get(file) || ''
@@ -562,7 +565,10 @@ describe('fix-run fixture acceptance (3 defects → 1 PR)', () => {
       ...buildDeps(repo),
       ops,
       fetchPage: async (url) => {
-        if (!url.includes('fix-run-preview.test')) {
+        const isPreview =
+          url.includes('fix-run-preview.test') ||
+          /fix-run-preview-[a-z0-9]+\.vercel\.app/i.test(url)
+        if (!isPreview) {
           productionFetches.push(url)
         }
         return buildDeps(repo).fetchPage(url)
