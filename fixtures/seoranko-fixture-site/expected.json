@@ -1,13 +1,13 @@
 {
   "origin": "https://seoranko-fixture.vercel.app",
   "seedBranch": "seed",
-  "seedCommitSha": "6ed5aff",
-  "generatedAt": "2026-10-13T07:37:00.000Z",
-  "notes": "Post-crawl + source-resolve surface classes. autoFixable requires registered transform + stored path/SHA. Diff vs README: topic 1 is report-only/human-review (not auto); topic 26 also emits human-review-canonical-elsewhere on about.html; topic 49 may also emit human-review-no-height-auto alongside auto-set-dimensions; topic 27/28/31/34/45/8 are detector side-findings not listed as planted defects in README.",
+  "seedCommitSha": "b5f19cdbb2bc2013a99fe57963e3d8679552cc09",
+  "generatedAt": "2026-10-13T08:16:00.000Z",
+  "notes": "Post-crawl + source-resolve surface classes. autoFixable requires registered transform + stored path/SHA. Sitemap lists /, /blog/, /about.html, /privacy.html \u2014 no topic-27 omissions for those. Topic 34 skips non-200 (/old-blog 308). Blog has height:auto so topic 49 is auto-set-dimensions only. Side-findings: 26 canonical-elsewhere, 28/31/45/8, 72 privacy/consent.",
   "readmeDiff": [
     {
       "readme": "Topic 1 expected human-review / no-action",
-      "observed": "verdict human-review, surfaceClass report-only — matches README (not auto-fixable)"
+      "observed": "verdict human-review, surfaceClass report-only \u2014 matches README (not auto-fixable)"
     },
     {
       "readme": "Topics 14/17/22/26/42/49 planted as auto-*",
@@ -18,12 +18,12 @@
       "observed": "Detector also emits human-review-canonical-elsewhere on about.html (side finding)"
     },
     {
-      "readme": "No mention of 27/28/31/34/45/8",
-      "observed": "Whole-site/informational detectors emit these on seed — included for exact match"
+      "readme": "No mention of 28/31/45/8/72 side-findings",
+      "observed": "Whole-site/informational detectors emit these on seed \u2014 included for exact match"
     },
     {
       "readme": "No mention of topic 8 page",
-      "observed": "informational-generated-only is one rolled group (/, /blog/, /about.html); representative is shortest path `/`"
+      "observed": "informational-generated-only is one rolled group (/, /blog/, /about.html, /privacy.html); representative is shortest path `/`"
     }
   ],
   "findings": [
@@ -84,22 +84,6 @@
       "bucket": "actionable"
     },
     {
-      "topicId": "27",
-      "verdict": "report-omission",
-      "pageUrl": "https://seoranko-fixture.vercel.app/",
-      "surfaceClass": "report-only",
-      "autoFixable": false,
-      "bucket": "actionable"
-    },
-    {
-      "topicId": "27",
-      "verdict": "report-omission",
-      "pageUrl": "https://seoranko-fixture.vercel.app/blog/",
-      "surfaceClass": "report-only",
-      "autoFixable": false,
-      "bucket": "actionable"
-    },
-    {
       "topicId": "28",
       "verdict": "informational-unreferenced",
       "pageUrl": "https://seoranko-fixture.vercel.app/robots.txt",
@@ -138,14 +122,6 @@
       "surfaceClass": "informational",
       "autoFixable": false,
       "bucket": "informational"
-    },
-    {
-      "topicId": "34",
-      "verdict": "human-review-missing-lang",
-      "pageUrl": "https://seoranko-fixture.vercel.app/old-blog",
-      "surfaceClass": "human-review",
-      "autoFixable": false,
-      "bucket": "actionable"
     },
     {
       "topicId": "42",
@@ -201,14 +177,6 @@
       "pageUrl": "https://seoranko-fixture.vercel.app/blog/",
       "surfaceClass": "auto-fixable",
       "autoFixable": true,
-      "bucket": "actionable"
-    },
-    {
-      "topicId": "49",
-      "verdict": "human-review-no-height-auto",
-      "pageUrl": "https://seoranko-fixture.vercel.app/blog/",
-      "surfaceClass": "human-review",
-      "autoFixable": false,
       "bucket": "actionable"
     },
     {
