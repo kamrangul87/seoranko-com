@@ -158,6 +158,11 @@ export async function verifyLiveImgDimensions(
         deploymentSha,
         resolvedImgUrl: absolute,
         httpStatus: header.status,
+        contentType: header.contentType,
+        byteLength: header.bytes.length,
+        magicHex: Array.from(header.bytes.subarray(0, 4))
+          .map((x) => x.toString(16).padStart(2, '0'))
+          .join(''),
         heightAuto: css.hasHeightAuto,
         failedCondition: reason,
       })

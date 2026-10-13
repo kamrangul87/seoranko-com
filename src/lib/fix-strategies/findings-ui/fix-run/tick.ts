@@ -988,17 +988,14 @@ export async function tickFixRun(input: {
       return finish({ advanced, detail })
     }
 
+    // Verifier secondary fetches (e.g. topic-49 <img> bytes) must use binary-safe
+    // fetch — never fetchPage, which decodes via res.text() and corrupts JPEGs.
     const verified = await verifyBodyForFinding(
       finding,
       body,
       url,
       'preview',
-      input.deps.fetchPage
-        ? (async (u: RequestInfo | URL) => {
-            const r = await input.deps.fetchPage(String(u))
-            return new Response(r.body, { status: r.status })
-          }) as typeof fetch
-        : undefined,
+      fetch,
       previewSha,
     )
     const idx = run.items.findIndex((i) => i.id === next.id)
@@ -1281,15 +1278,14 @@ export async function tickFixRun(input: {
       return finish({ advanced, detail })
     }
 
+    // Same as preview: image/header probes need raw bytes, not fetchPage text.
     const verified = await verifyBodyForFinding(
       finding,
       fetched.body,
       url,
       'production',
-      (async (u: RequestInfo | URL) => {
-        const r = await input.deps.fetchPage(String(u))
-        return new Response(r.body, { status: r.status })
-      }) as typeof fetch,
+      fetch,
+      run.mergeSha,
     )
     const idx = run.items.findIndex((i) => i.id === next.id)
     if (!verified.ok) {
