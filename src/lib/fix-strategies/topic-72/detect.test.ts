@@ -82,4 +82,55 @@ describe('topic 72 privacy consent', () => {
       result.findings.some((f) => f.verdict === 'human-review-no-privacy-page'),
     ).toBe(true)
   })
+
+  it('never emits no-privacy-page when any crawled page is the privacy page', () => {
+    // Fixture-shaped: origin without trailing slash + /privacy.html in crawl.
+    const result = detectPrivacyConsentIssues({
+      originUrl: 'https://seoranko-fixture.vercel.app',
+      jurisdiction: null,
+      pages: [
+        {
+          url: 'https://seoranko-fixture.vercel.app',
+          html: `<script src="https://www.googletagmanager.com/gtag/js?id=G-X"></script>
+            <footer><a href="/privacy.html">Privacy policy</a></footer>`,
+        },
+        {
+          url: 'https://seoranko-fixture.vercel.app/privacy.html',
+          html: POLICY_WITHOUT_GOOGLE,
+        },
+      ],
+    })
+    expect(result.privacyPageUrl).toContain('privacy')
+    expect(
+      result.findings.some((f) => f.verdict === 'human-review-no-privacy-page'),
+    ).toBe(false)
+    expect(
+      result.findings.some((f) => f.verdict === 'human-review-vendor-unnamed'),
+    ).toBe(true)
+    expect(
+      result.findings.some((f) => f.verdict === 'human-review-consent-missing'),
+    ).toBe(true)
+  })
+
+  it('path-heuristic privacy page blocks no-privacy-page even without footer match', () => {
+    const result = detectPrivacyConsentIssues({
+      originUrl: 'https://example.com',
+      jurisdiction: 'UK',
+      pages: [
+        {
+          url: 'https://example.com',
+          html: `<script src="https://www.googletagmanager.com/gtag/js?id=G-X"></script>`,
+        },
+        {
+          url: 'https://example.com/privacy.html',
+          html: POLICY_WITHOUT_GOOGLE,
+        },
+      ],
+    })
+    expect(
+      result.findings.some((f) => f.verdict === 'human-review-no-privacy-page'),
+    ).toBe(false)
+    expect(result.privacyPageUrl).toContain('/privacy.html')
+  })
 })
+

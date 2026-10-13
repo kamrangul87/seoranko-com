@@ -107,6 +107,39 @@ export type PageForPrivacySearch = {
   html: string
 }
 
+/** Path looks like a privacy / data-protection page. */
+export function isPrivacyPath(pathname: string): boolean {
+  return /privacy|data-protection|data_protection|datenschutz/i.test(pathname)
+}
+
+/** Find page in crawl set matching a resolved URL (host+path; slash/case tolerant). */
+export function findPageByUrl(
+  pages: PageForPrivacySearch[],
+  targetUrl: string,
+): PageForPrivacySearch | undefined {
+  const want = normalizeUrl(targetUrl)
+  const byExact = pages.find((x) => normalizeUrl(x.url) === want)
+  if (byExact) return byExact
+  // Fallback: same host + path (covers origin with/without trailing slash bases).
+  try {
+    const t = new URL(targetUrl)
+    const wantHost = t.hostname.replace(/^www\./i, '').toLowerCase()
+    const wantPath = (t.pathname.replace(/\/$/, '') || '/').toLowerCase()
+    return pages.find((x) => {
+      try {
+        const u = new URL(x.url)
+        const host = u.hostname.replace(/^www\./i, '').toLowerCase()
+        const path = (u.pathname.replace(/\/$/, '') || '/').toLowerCase()
+        return host === wantHost && path === wantPath
+      } catch {
+        return false
+      }
+    })
+  } catch {
+    return undefined
+  }
+}
+
 /** Find privacy page via footer-ish links, then path heuristic. */
 export function findPrivacyPage(
   pages: PageForPrivacySearch[],
@@ -119,11 +152,10 @@ export function findPrivacyPage(
       const href = m[1] ?? ''
       const text = (m[2] ?? '').replace(/<[^>]+>/g, ' ').trim()
       if (!PRIVACY_HREF_RE.test(href) && !PRIVACY_TEXT_RE.test(text)) continue
-      const resolved = resolveUrl(href, p.url)
+      // Normalize base so `https://host` and `https://host/` both resolve /privacy.html.
+      const resolved = resolveUrl(href, canonicalizeBase(p.url))
       if (!resolved) continue
-      const target = pages.find(
-        (x) => normalizeUrl(x.url) === normalizeUrl(resolved),
-      )
+      const target = findPageByUrl(pages, resolved)
       if (target) {
         return {
           pageUrl: target.url,
@@ -136,10 +168,8 @@ export function findPrivacyPage(
 
   for (const p of pages) {
     try {
-      const pathName = new URL(p.url).pathname.toLowerCase()
-      if (
-        /privacy|data-protection|data_protection|datenschutz/.test(pathName)
-      ) {
+      const pathName = new URL(p.url).pathname
+      if (isPrivacyPath(pathName)) {
         return {
           pageUrl: p.url,
           html: p.html,
@@ -153,6 +183,19 @@ export function findPrivacyPage(
   return null
 }
 
+/** Ensure origin-only bases have a trailing slash so relative /path resolves. */
+function canonicalizeBase(url: string): string {
+  try {
+    const u = new URL(url)
+    if (u.pathname === '' || u.pathname === '/') {
+      u.pathname = '/'
+    }
+    return u.href
+  } catch {
+    return url.endsWith('/') ? url : `${url}/`
+  }
+}
+
 function resolveUrl(href: string, base: string): string | null {
   try {
     return new URL(href, base).href
@@ -161,12 +204,12 @@ function resolveUrl(href: string, base: string): string | null {
   }
 }
 
-function normalizeUrl(u: string): string {
+export function normalizeUrl(u: string): string {
   try {
     const x = new URL(u)
     x.hash = ''
     const path = x.pathname.replace(/\/$/, '') || '/'
-    return `${x.origin}${path}`.toLowerCase()
+    return `${x.origin.toLowerCase()}${path.toLowerCase()}`
   } catch {
     return u.replace(/\/$/, '').toLowerCase()
   }
