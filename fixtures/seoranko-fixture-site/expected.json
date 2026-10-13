@@ -23,7 +23,7 @@
     },
     {
       "readme": "No mention of topic 8 page",
-      "observed": "informational-generated-only is one rolled group (/, /blog/, /about.html); representative is shortest path `/`"
+      "observed": "informational-generated-only is one rolled group (/, /blog/, /about.html, /privacy.html); representative is shortest path `/`"
     }
   ],
   "findings": [
