@@ -12,6 +12,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -20,6 +22,14 @@ jobs:
         run: npm ci
       - name: Unique migration timestamps
         run: bash scripts/check-unique-migration-timestamps.sh
+      - name: expected.json requires seoranko-fixture seed commit link
+        run: bash scripts/check-expected-json-seed-link.sh
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
       - name: Lint
         run: npm run lint
       - name: Typecheck (production sources, mirrors next build)

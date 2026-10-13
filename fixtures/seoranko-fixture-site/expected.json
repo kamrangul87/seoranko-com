@@ -1,8 +1,8 @@
 {
   "origin": "https://seoranko-fixture.vercel.app",
   "seedBranch": "seed",
-  "seedCommitSha": "4e4bbf9",
-  "generatedAt": "2026-10-08T09:45:00.000Z",
+  "seedCommitSha": "6ed5aff",
+  "generatedAt": "2026-10-13T07:37:00.000Z",
   "notes": "Post-crawl + source-resolve surface classes. autoFixable requires registered transform + stored path/SHA. Diff vs README: topic 1 is report-only/human-review (not auto); topic 26 also emits human-review-canonical-elsewhere on about.html; topic 49 may also emit human-review-no-height-auto alongside auto-set-dimensions; topic 27/28/31/34/45/8 are detector side-findings not listed as planted defects in README.",
   "readmeDiff": [
     {

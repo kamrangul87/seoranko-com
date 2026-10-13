@@ -24,6 +24,12 @@ auto-fixable:
 
 No registry entry without a planted fixture + expected.json row.
 
+Any PR that changes `fixtures/seoranko-fixture-site/expected.json` must link the
+matching `kamrangul87/seoranko-fixture` **seed** commit in the PR description
+(e.g. `https://github.com/kamrangul87/seoranko-fixture/commit/<sha>`). CI fails
+without that link. Do not pin a seed SHA for `reset_seed` — it always resolves
+the live `seed` branch tip.
+
 ## Run heartbeat (pg_cron)
 
 Unfinished crawl, fix, and e2e runs are advanced by
