@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMasterUser } from '@/lib/github-app/require-master'
+import { requireSignedInUser } from '@/lib/require-signed-in-user'
 import { createClient } from '@supabase/supabase-js';
 
 const KNOWN_FIX_TYPES = [
@@ -22,10 +22,8 @@ export async function OPTIONS() {
 }
 
 export async function POST(req: NextRequest) {
-  const master = await requireMasterUser()
-  if (!master.ok) {
-    return NextResponse.json({ error: master.error }, { status: master.status })
-  }
+  const auth = await requireSignedInUser()
+  if (!auth.ok) return auth.response
 
   try {
     const {

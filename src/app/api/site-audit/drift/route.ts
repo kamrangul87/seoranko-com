@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMasterUser } from '@/lib/github-app/require-master'
+import { requireSignedInUser } from '@/lib/require-signed-in-user'
 import { createClient } from '@supabase/supabase-js';
 import { normalizeDomain } from '@/lib/supabase/audit-db';
 
@@ -34,10 +34,8 @@ export interface DriftResponse {
 }
 
 export async function GET(req: NextRequest) {
-  const master = await requireMasterUser()
-  if (!master.ok) {
-    return NextResponse.json({ error: master.error }, { status: master.status })
-  }
+  const auth = await requireSignedInUser()
+  if (!auth.ok) return auth.response
 
   const { searchParams } = new URL(req.url);
   const rawDomain = searchParams.get('domain');

@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMasterUser } from '@/lib/github-app/require-master'
+import { requireSignedInUser } from '@/lib/require-signed-in-user'
 import { createClient } from '@supabase/supabase-js';
 
 // GET /api/sites?domain=example.com
 // Returns { verified: boolean } for the given domain.
 // Used by the audit dashboard to gate the Quick Fix button.
 export async function GET(req: NextRequest) {
-  const master = await requireMasterUser()
-  if (!master.ok) {
-    return NextResponse.json({ error: master.error }, { status: master.status })
-  }
+  const auth = await requireSignedInUser()
+  if (!auth.ok) return auth.response
 
   const domain = new URL(req.url).searchParams.get('domain')?.trim().toLowerCase().replace(/^www\./, '');
   if (!domain) return NextResponse.json({ verified: false });

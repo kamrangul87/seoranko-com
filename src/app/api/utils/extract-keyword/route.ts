@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireMasterUser } from '@/lib/github-app/require-master'
+import { requireSignedInUser } from '@/lib/require-signed-in-user'
 import { callClaude } from '@/lib/anthropic'
 import { MODEL_FOR } from '@/lib/model-router'
 
 export async function POST(req: NextRequest) {
-  const master = await requireMasterUser()
-  if (!master.ok) {
-    return NextResponse.json({ error: master.error }, { status: master.status })
-  }
+  const auth = await requireSignedInUser()
+  if (!auth.ok) return auth.response
 
   let problem = ''
   try {

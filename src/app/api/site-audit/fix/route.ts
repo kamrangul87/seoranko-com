@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMasterUser } from '@/lib/github-app/require-master'
+import { requireSignedInUser } from '@/lib/require-signed-in-user'
 import Anthropic from '@anthropic-ai/sdk';
 import { buildMasterPrompt, validateAndCorrect } from '@/lib/article-master';
 import { updateFixedPage, updateScrapedPage, normalizeUrl, normalizeDomain } from '@/lib/supabase/audit-db';
@@ -578,10 +578,8 @@ async function rescrapeAndUpdate(
 
 // ── MAIN HANDLER ──────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
-  const master = await requireMasterUser()
-  if (!master.ok) {
-    return NextResponse.json({ error: master.error }, { status: master.status })
-  }
+  const auth = await requireSignedInUser()
+  if (!auth.ok) return auth.response
 
   try {
     const body = await req.json();
