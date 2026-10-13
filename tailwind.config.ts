@@ -29,7 +29,7 @@ const config: Config = {
         'warning-light': '#FEF9C3',
       },
       fontFamily: {
-        sans: ['Outfit', 'sans-serif'],
+        sans: ['Outfit Variable', 'Outfit', 'sans-serif'],
       },
       borderRadius: {
         DEFAULT: "10px",
