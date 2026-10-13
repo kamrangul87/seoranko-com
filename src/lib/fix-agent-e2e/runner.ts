@@ -446,10 +446,18 @@ async function stepCrawlCompare(
     }
   }
 
-  const findings = await store.listFindings({
-    siteId: E2E_FIXTURE_SITE_ID,
-    includeInformational: true,
-  })
+  const findings = (
+    await store.listFindings({
+      siteId: E2E_FIXTURE_SITE_ID,
+      includeInformational: true,
+    })
+  ).filter(
+    // listFindings returns resolved history too — compare only what this crawl
+    // last observed as open work (open | regressed).
+    (f) =>
+      (f.status === 'open' || f.status === 'regressed') &&
+      f.lastSeenRunId === crawlId,
+  )
   const observed = findings.map((f) => {
     const members = Array.isArray(f.evidenceValues?.memberUrls)
       ? (f.evidenceValues!.memberUrls as unknown[]).filter(

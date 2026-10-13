@@ -6,13 +6,13 @@
     <!-- Topic 17: redundant duplicate canonical (same target twice) -->
     <link rel="canonical" href="/" />
     <link rel="canonical" href="/" />
-    <!-- Topic 72: GA4/gtag without consent gate (findings b + c) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-FIXTURE72"></script>
+    <!-- Topic 72: GA4 loads unconditionally (no consent gate); privacy page does not name Google -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-FIXTURE000"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
-      gtag('config', 'G-FIXTURE72');
+      gtag('config', 'G-FIXTURE000');
     </script>
   </head>
   <body>
@@ -24,8 +24,7 @@
       <a href="/old-blog">Old blog path</a>
       <!-- Topic 1: dead internal anchor (target returns 404) -->
       <a href="/gone.html">Missing page</a>
-      <!-- Topic 72: privacy footer link -->
-      <a href="/privacy.html">Privacy Policy</a>
     </p>
+    <footer><a href="/privacy.html">Privacy policy</a></footer>
   </body>
 </html>

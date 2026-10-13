@@ -132,6 +132,14 @@
       "bucket": "informational"
     },
     {
+      "topicId": "31",
+      "verdict": "informational-missing",
+      "pageUrl": "https://seoranko-fixture.vercel.app/privacy.html",
+      "surfaceClass": "informational",
+      "autoFixable": false,
+      "bucket": "informational"
+    },
+    {
       "topicId": "34",
       "verdict": "human-review-missing-lang",
       "pageUrl": "https://seoranko-fixture.vercel.app/old-blog",
@@ -180,6 +188,14 @@
       "bucket": "informational"
     },
     {
+      "topicId": "45",
+      "verdict": "metric-click-depth",
+      "pageUrl": "https://seoranko-fixture.vercel.app/privacy.html",
+      "surfaceClass": "informational",
+      "autoFixable": false,
+      "bucket": "informational"
+    },
+    {
       "topicId": "49",
       "verdict": "auto-set-dimensions",
       "pageUrl": "https://seoranko-fixture.vercel.app/blog/",
@@ -204,8 +220,9 @@
       "bucket": "informational",
       "memberUrls": [
         "https://seoranko-fixture.vercel.app/",
+        "https://seoranko-fixture.vercel.app/about.html",
         "https://seoranko-fixture.vercel.app/blog/",
-        "https://seoranko-fixture.vercel.app/about.html"
+        "https://seoranko-fixture.vercel.app/privacy.html"
       ]
     },
     {
@@ -231,6 +248,14 @@
       "surfaceClass": "human-review",
       "autoFixable": false,
       "bucket": "actionable"
+    },
+    {
+      "topicId": "72",
+      "verdict": "informational-vendor-named-not-detected",
+      "pageUrl": "https://seoranko-fixture.vercel.app/privacy.html",
+      "surfaceClass": "informational",
+      "autoFixable": false,
+      "bucket": "informational"
     }
   ]
 }
