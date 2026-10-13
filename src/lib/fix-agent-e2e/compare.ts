@@ -84,7 +84,11 @@ function describeFinding(f: {
   memberUrls?: string[]
 }): string {
   if (f.memberUrls && f.memberUrls.length > 1) {
-    return `${f.topicId}/${f.verdict} @ members[${f.memberUrls.length}]`
+    // Stable key = sorted member page URLs (never array index / count).
+    const members = sortMemberUrls(
+      f.memberUrls.map(normalizeUrl).filter(Boolean),
+    )
+    return `${f.topicId}/${f.verdict} @ {${members.join(',')}}`
   }
   return `${f.topicId}/${f.verdict} @ ${f.pageUrl}`
 }

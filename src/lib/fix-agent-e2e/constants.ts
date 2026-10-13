@@ -4,8 +4,7 @@ export const E2E_FIXTURE_OWNER = 'kamrangul87'
 export const E2E_FIXTURE_REPO = 'seoranko-fixture'
 export const E2E_FIXTURE_ORIGIN = 'https://seoranko-fixture.vercel.app'
 export const E2E_SEED_BRANCH = 'seed'
-/** Documented seed tip; resolved live from the seed branch at run start. */
-export const E2E_SEED_COMMIT_HINT = '4e4bbf9'
+/** Seed tip is always resolved live from `E2E_SEED_BRANCH` in reset_seed — never pin a SHA. */
 
 export const E2E_STEP_ORDER = [
   'reset_seed',

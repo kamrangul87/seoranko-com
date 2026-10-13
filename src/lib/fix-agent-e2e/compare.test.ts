@@ -48,22 +48,48 @@ describe('fix-agent-e2e expected.json', () => {
     if (!ex.ok) expect(ex.reason).toMatch(/extra/)
   })
 
-  it('informational groups match by member set, not representative pageUrl', () => {
+  it('informational groups match by sorted member page URLs, not index or representative', () => {
     const expected = loadExpectedFindings()
     const topic8 = expected.find(
       (f) => f.topicId === '8' && f.verdict === 'informational-generated-only',
     )
     expect(topic8?.memberUrls?.length).toBeGreaterThan(1)
+    const shuffled = [...(topic8!.memberUrls ?? [])].reverse()
     const observed = expected.map((f) =>
       f.topicId === '8' && f.verdict === 'informational-generated-only'
         ? {
             ...f,
             pageUrl: 'https://seoranko-fixture.vercel.app/about.html',
-            memberUrls: [...(f.memberUrls ?? [])].reverse(),
+            memberUrls: shuffled,
           }
         : f,
     )
     expect(compareFindingsExact(observed, expected)).toEqual({ ok: true })
+  })
+
+  it('mismatch messages key groups by member URLs, never members[N] index', () => {
+    const expected = loadExpectedFindings()
+    const topic8 = expected.find(
+      (f) => f.topicId === '8' && f.verdict === 'informational-generated-only',
+    )
+    expect(topic8).toBeTruthy()
+    const observed = expected.map((f) =>
+      f.topicId === '8' && f.verdict === 'informational-generated-only'
+        ? {
+            ...f,
+            memberUrls: [
+              ...(f.memberUrls ?? []),
+              'https://seoranko-fixture.vercel.app/extra.html',
+            ],
+          }
+        : f,
+    )
+    const cmp = compareFindingsExact(observed, expected)
+    expect(cmp.ok).toBe(false)
+    if (!cmp.ok) {
+      expect(cmp.reason).not.toMatch(/members\[\d+\]/)
+      expect(cmp.reason).toMatch(/privacy\.html|about\.html|\//)
+    }
   })
 
   it('documents README diffs', () => {

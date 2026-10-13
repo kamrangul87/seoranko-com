@@ -184,7 +184,8 @@ async function main() {
   const out = {
     origin: ORIGIN,
     seedBranch: 'seed',
-    seedCommitSha: '4e4bbf9',
+    // Documented tip only — e2e reset_seed always resolves the live `seed` branch.
+    seedCommitSha: process.env.FIXTURE_SEED_SHA || 'RESOLVE_FROM_SEED_BRANCH',
     generatedAt: new Date().toISOString(),
     notes:
       'surfaceClass auto-fixable = registered transform after source resolve. Compare post-crawl+resolve findings.',

@@ -6,6 +6,7 @@
 import { buildSiteInventory, type InventoryPageInput } from '@/lib/compliance/inventory'
 import {
   findPrivacyPage,
+  isPrivacyPath,
   missingPolicySections,
   SECTION_PATTERNS,
   vendorNamedOnPage,
@@ -96,14 +97,32 @@ export function detectPrivacyConsentIssues(
     })
   }
 
-  const privacy = findPrivacyPage(
-    opts.pages.map((p) => ({ url: p.url, html: p.html })),
-  )
+  const pageInputs = opts.pages.map((p) => ({ url: p.url, html: p.html }))
+  let privacy = findPrivacyPage(pageInputs)
+
+  // Invariant: if any crawled URL is itself a privacy path, never emit
+  // no-privacy-page — even when footer-link resolution misses a slash variant.
+  if (!privacy) {
+    const byPath = opts.pages.find((p) => {
+      try {
+        return isPrivacyPath(new URL(p.url).pathname)
+      } catch {
+        return false
+      }
+    })
+    if (byPath) {
+      privacy = {
+        pageUrl: byPath.url,
+        html: byPath.html,
+        discoveredVia: 'path_heuristic',
+      }
+    }
+  }
 
   if (!privacy) {
     findings.push({
       verdict: 'human-review-no-privacy-page',
-      pageUrl: origin,
+      pageUrl: origin.replace(/\/$/, ''),
       severity: 'high',
       autoFixable: false,
       detail:

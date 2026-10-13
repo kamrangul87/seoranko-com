@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+@import '@fontsource-variable/outfit/wght.css';
 
 @tailwind base;
 @tailwind components;
@@ -33,7 +33,7 @@
 html, body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: 'Outfit', sans-serif;
+  font-family: 'Outfit Variable', Outfit, sans-serif;
   font-size: 15px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
@@ -55,7 +55,7 @@ input, textarea, select {
   border: 1px solid var(--border);
   color: var(--foreground);
   border-radius: var(--radius);
-  font-family: 'Outfit', sans-serif;
+  font-family: 'Outfit Variable', Outfit, sans-serif;
   transition: border-color 0.15s;
 }
 input:focus, textarea:focus, select:focus {
@@ -64,7 +64,7 @@ input:focus, textarea:focus, select:focus {
   box-shadow: 0 0 0 3px rgba(255,107,44,0.12);
 }
 
-button { font-family: 'Outfit', sans-serif; cursor: pointer; }
+button { font-family: 'Outfit Variable', Outfit, sans-serif; cursor: pointer; }
 
 .btn-primary {
   background: var(--accent);
