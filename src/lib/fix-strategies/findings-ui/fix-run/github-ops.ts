@@ -69,8 +69,13 @@ export type GithubOps = {
     /** Fix-run branch name (PR head). Required for live preview resolution. */
     branchName?: string | null
     pagePath?: string
+    /**
+     * Item commit SHA — resolve a deployment for this exact SHA, never an
+     * earlier item's preview on the same PR branch.
+     */
+    commitSha?: string | null
   }): Promise<
-    | { ok: true; previewUrl: string }
+    | { ok: true; previewUrl: string; sha: string }
     | { ok: false; error: string; pending?: boolean }
   >
 
@@ -318,7 +323,7 @@ export function createLiveGithubOps(): GithubOps {
      * GitHub Deployments → commit status / check-run → vercel[bot] PR comment.
      * One poll per tick — caller stays on wait_preview while pending.
      */
-    async waitForPreview({ creds, prNumber, branchName }) {
+    async waitForPreview({ creds, prNumber, branchName, commitSha }) {
       const { checkPreviewOnce } = await import(
         '../fix-flow/wait-vercel-deploy'
       )
@@ -344,6 +349,7 @@ export function createLiveGithubOps(): GithubOps {
         accessToken: creds.accessToken,
         prNumber,
         fetchImpl: fetch,
+        commitSha,
       })
       if (once.ok) {
         if (isPlaceholderPreviewUrl(once.previewUrl)) {
@@ -352,7 +358,11 @@ export function createLiveGithubOps(): GithubOps {
             error: 'Preview resolver returned a placeholder host — refusing',
           }
         }
-        return { ok: true, previewUrl: once.previewUrl }
+        return {
+          ok: true,
+          previewUrl: once.previewUrl,
+          sha: once.sha || String(commitSha || '').trim(),
+        }
       }
       return {
         ok: false,

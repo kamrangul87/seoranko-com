@@ -138,13 +138,19 @@ export function createFixtureGithubRepo(
       return { ok: true, mergeSha }
     },
 
-    async waitForPreview({ prNumber }) {
+    async waitForPreview({ prNumber, commitSha }) {
       const pr = state.prs.get(prNumber)
       if (!pr) return { ok: false, error: 'PR not found' }
       // Non-example host so production placeholder guards stay meaningful.
+      // Unique origin per commit SHA so tests catch stale-preview reuse.
+      const tip =
+        commitSha?.trim() ||
+        state.commits.get(pr.branch)?.slice(-1)[0]?.sha ||
+        `pr-${prNumber}`
       return {
         ok: true,
-        previewUrl: `https://fix-run-preview.test/pr-${prNumber}`,
+        previewUrl: `https://fix-run-preview-${tip.slice(0, 7)}.vercel.app`,
+        sha: tip,
       }
     },
 

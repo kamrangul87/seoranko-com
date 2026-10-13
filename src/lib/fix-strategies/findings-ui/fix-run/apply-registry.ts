@@ -66,6 +66,8 @@ export type VerifyContext = {
   liveUrl: string
   responseHeaders?: Headers
   fetchImpl?: typeof fetch
+  /** Deploy SHA that produced `liveUrl` (item commit / merge SHA). */
+  deploymentSha?: string | null
 }
 
 export type VerifyResult = { ok: boolean; detail: string }
@@ -315,7 +317,9 @@ const verifyFixture: TransformVerifier = async (ctx) => {
 
 const verifyTopic49: TransformVerifier = async (ctx) => {
   const fetchImpl = ctx.fetchImpl ?? fetch
-  const v = await verifyLiveImgDimensions(ctx.body, ctx.liveUrl, fetchImpl)
+  const v = await verifyLiveImgDimensions(ctx.body, ctx.liveUrl, fetchImpl, {
+    deploymentSha: ctx.deploymentSha ?? null,
+  })
   return {
     ok: v.ok,
     detail: v.ok

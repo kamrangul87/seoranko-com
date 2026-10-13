@@ -122,6 +122,8 @@ function previewPageUrl(previewBase: string, pageUrl: string | null): string {
 
 /** Stored on prevContents when wait_preview begins — drives tick timeout. */
 const PREVIEW_WAIT_STARTED_KEY = '__previewWaitStartedAt'
+/** SHA that `run.previewUrl` was resolved for — must match item.commitSha. */
+const PREVIEW_COMMIT_SHA_KEY = '__previewCommitSha'
 /** Bounded wait for a real preview URL signal (deployments / status / comment). */
 const PREVIEW_WAIT_TIMEOUT_MS = 15 * 60 * 1000
 /** Stored when production deploy wait begins after merge. */
@@ -158,6 +160,7 @@ async function verifyBodyForFinding(
   liveUrl: string,
   stage: 'preview' | 'production',
   fetchImpl?: typeof fetch,
+  deploymentSha?: string | null,
 ): Promise<{ ok: boolean; detail: string }> {
   return verifyRegisteredTransform({
     finding,
@@ -165,6 +168,7 @@ async function verifyBodyForFinding(
     liveUrl,
     stage,
     fetchImpl,
+    deploymentSha,
   })
 }
 
@@ -699,14 +703,39 @@ export async function tickFixRun(input: {
       run.previewUrl = null
     }
 
-    // Already resolved (e.g. prior tick or concurrent discover) — do not
-    // re-poll GitHub Deployments; that races with verify and clobbers items.
-    if (run.previewUrl && !isPlaceholderPreviewUrl(run.previewUrl)) {
+    // Reuse only when the cached preview was resolved for the next item's
+    // commit SHA — never an earlier item's deployment on the same PR.
+    const nextForPreview = itemsNeedingPreviewVerify(run.items)[0]
+    const cachedSha = run.prevContents[PREVIEW_COMMIT_SHA_KEY] || ''
+    if (
+      run.previewUrl &&
+      !isPlaceholderPreviewUrl(run.previewUrl) &&
+      nextForPreview?.commitSha &&
+      cachedSha &&
+      cachedSha === nextForPreview.commitSha
+    ) {
       run.phase = 'verify_preview_next'
       advanced = true
-      detail = 'preview already resolved'
+      detail = `preview already resolved for ${cachedSha.slice(0, 7)}`
       await save()
       return finish({ advanced, detail })
+    }
+    if (
+      run.previewUrl &&
+      nextForPreview?.commitSha &&
+      cachedSha &&
+      cachedSha !== nextForPreview.commitSha
+    ) {
+      console.info('[fix-run] clearing stale preview for new item commit', {
+        runId: run.id,
+        cachedSha: cachedSha.slice(0, 7),
+        itemSha: nextForPreview.commitSha.slice(0, 7),
+        previewUrl: run.previewUrl,
+      })
+      run.previewUrl = null
+      const rest = { ...run.prevContents }
+      delete rest[PREVIEW_COMMIT_SHA_KEY]
+      run.prevContents = rest
     }
 
     if (!run.prevContents[PREVIEW_WAIT_STARTED_KEY]) {
@@ -731,10 +760,13 @@ export async function tickFixRun(input: {
       }
     }
 
+    const shaForWait =
+      itemsNeedingPreviewVerify(run.items)[0]?.commitSha || null
     const preview = await ops.waitForPreview({
       creds,
       prNumber: run.prNumber,
       branchName: run.branchName,
+      commitSha: shaForWait,
     })
     if (!preview.ok) {
       const started = previewWaitStartedAt(run) ?? Date.parse(now)
@@ -788,9 +820,13 @@ export async function tickFixRun(input: {
       }
     }
     run.previewUrl = preview.previewUrl
+    run.prevContents = {
+      ...run.prevContents,
+      [PREVIEW_COMMIT_SHA_KEY]: preview.sha || shaForWait || '',
+    }
     run.phase = 'verify_preview_next'
     advanced = true
-    detail = 'preview ready'
+    detail = `preview ready for ${(preview.sha || shaForWait || '').slice(0, 7)}`
     await save()
     return finish({ advanced, detail })
   }
@@ -824,11 +860,11 @@ export async function tickFixRun(input: {
       return finish({ advanced, detail })
     }
     const finding = findings.get(next.findingId)
-    if (!finding || !run.previewUrl) {
+    if (!finding || !next.commitSha) {
       const idx = run.items.findIndex((i) => i.id === next.id)
       run.items[idx] = markItemFailed(
         next,
-        'Missing finding or preview URL',
+        'Missing finding or item commit SHA for preview verify',
         now,
       )
       await revertItemCommit(run, next.id, ops, creds)
@@ -838,9 +874,81 @@ export async function tickFixRun(input: {
       return finish({ advanced, detail })
     }
 
+    // Always resolve a deployment for THIS item's commit — never reuse a
+    // preview URL from an earlier item verified on the same PR.
+    if (!ops.waitForPreview) {
+      const idx = run.items.findIndex((i) => i.id === next.id)
+      run.items[idx] = markItemFailed(
+        next,
+        'Preview resolution is not configured — cannot verify without a real deployment URL',
+        now,
+      )
+      await revertItemCommit(run, next.id, ops, creds)
+      advanced = true
+      detail = 'preview resolver missing'
+      await save()
+      return finish({ advanced, detail })
+    }
+    const cachedSha = run.prevContents[PREVIEW_COMMIT_SHA_KEY] || ''
+    let previewOrigin = run.previewUrl
+    let previewSha = cachedSha
+    if (
+      !previewOrigin ||
+      isPlaceholderPreviewUrl(previewOrigin) ||
+      cachedSha !== next.commitSha
+    ) {
+      const preview = await ops.waitForPreview({
+        creds,
+        prNumber: run.prNumber!,
+        branchName: run.branchName,
+        commitSha: next.commitSha,
+      })
+      if (!preview.ok) {
+        if (preview.pending !== false) {
+          run.previewUrl = null
+          const rest = { ...run.prevContents }
+          delete rest[PREVIEW_COMMIT_SHA_KEY]
+          run.prevContents = {
+            ...rest,
+            [PREVIEW_WAIT_STARTED_KEY]:
+              run.prevContents[PREVIEW_WAIT_STARTED_KEY] || now,
+          }
+          run.phase = 'wait_preview'
+          advanced = true
+          detail = `waiting for preview deploy of ${next.commitSha.slice(0, 7)}: ${preview.error}`
+          await save()
+          return finish({ advanced, detail })
+        }
+        const idx = run.items.findIndex((i) => i.id === next.id)
+        run.items[idx] = markItemFailed(next, preview.error, now)
+        await revertItemCommit(run, next.id, ops, creds)
+        advanced = true
+        detail = `preview resolve failed ${next.findingId}`
+        await save()
+        return finish({ advanced, detail })
+      }
+      if (preview.sha && preview.sha !== next.commitSha) {
+        const idx = run.items.findIndex((i) => i.id === next.id)
+        const failReason = `Preview deployment SHA ${preview.sha.slice(0, 7)} does not match item commit ${next.commitSha.slice(0, 7)}`
+        run.items[idx] = markItemFailed(next, failReason, now)
+        await revertItemCommit(run, next.id, ops, creds)
+        advanced = true
+        detail = failReason
+        await save()
+        return finish({ advanced, detail })
+      }
+      previewOrigin = preview.previewUrl
+      previewSha = preview.sha || next.commitSha
+      run.previewUrl = previewOrigin
+      run.prevContents = {
+        ...run.prevContents,
+        [PREVIEW_COMMIT_SHA_KEY]: previewSha,
+      }
+    }
+
     const url =
-      resolveVerifyUrl(finding, run.previewUrl) ||
-      previewPageUrl(run.previewUrl, finding.pageUrl)
+      resolveVerifyUrl(finding, previewOrigin) ||
+      previewPageUrl(previewOrigin, finding.pageUrl)
     let body = ''
     let fetchOk = false
     let fetchStatus = 0
@@ -872,6 +980,7 @@ export async function tickFixRun(input: {
         runId: run.id,
         findingId: next.findingId,
         url,
+        deploymentSha: previewSha,
       })
       advanced = true
       detail = `preview fetch failed ${next.findingId}`
@@ -890,6 +999,7 @@ export async function tickFixRun(input: {
             return new Response(r.body, { status: r.status })
           }) as typeof fetch
         : undefined,
+      previewSha,
     )
     const idx = run.items.findIndex((i) => i.id === next.id)
     if (!verified.ok) {
