@@ -5,9 +5,22 @@
 
 export const HEARTBEAT_STALE_MS = 60_000
 export const WATCHDOG_NO_PROGRESS_MS = 15 * 60_000
+/** Default lease for fix / e2e ticks (short mechanical steps). */
 export const TICK_LEASE_MS = 55_000
+/**
+ * Crawl ticks (esp. SPA headless render + post-crawl) can run tens of seconds
+ * under Hobby maxDuration=300. A 55s lease let the next heartbeat claim while
+ * the previous tick was still writing jobs/cursors — progress stalled, then
+ * the 15m watchdog failed the run. Hold the lease for almost the full
+ * invocation budget so browser drain and heartbeat serialize on one tick.
+ */
+export const CRAWL_TICK_LEASE_MS = 280_000
 
 export type RunKind = 'crawl' | 'fix' | 'e2e'
+
+export function tickLeaseMsForKind(kind: RunKind): number {
+  return kind === 'crawl' ? CRAWL_TICK_LEASE_MS : TICK_LEASE_MS
+}
 
 export type ScheduledRun = {
   kind: RunKind
@@ -57,7 +70,6 @@ const STALL_REASON = 'No progress for 15 minutes — failed by heartbeat watchdo
 export async function runHeartbeat(deps: HeartbeatDeps): Promise<HeartbeatResult> {
   const nowMs = deps.nowMs()
   const nowIso = new Date(nowMs).toISOString()
-  const leaseUntilIso = new Date(nowMs + TICK_LEASE_MS).toISOString()
 
   const unfinished = await deps.listUnfinished()
   const ticked: HeartbeatResult['ticked'] = []
@@ -91,6 +103,10 @@ export async function runHeartbeat(deps: HeartbeatDeps): Promise<HeartbeatResult
       skipped += 1
       continue
     }
+
+    const leaseUntilIso = new Date(
+      nowMs + tickLeaseMsForKind(run.kind),
+    ).toISOString()
 
     let claimed = false
     try {

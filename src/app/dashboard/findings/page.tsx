@@ -411,9 +411,16 @@ export default function FindingsListPage() {
           error?: string
           done?: boolean
           origin?: string
+          skipped?: boolean
+          reason?: string
         }
         if (!tickRes.ok) {
           throw new Error(tickBody.error || 'Crawl tick failed')
+        }
+        // Heartbeat holds the tick lease — wait and retry (do not abort).
+        if (tickBody.skipped && tickBody.reason === 'lease_held') {
+          await new Promise((r) => setTimeout(r, 2_000))
+          continue
         }
         if (opts?.detectOnly) {
           if (tickBody.origin) setDetectOrigin(tickBody.origin)

@@ -356,7 +356,32 @@ export async function processCrawlTick(
     ? Math.min(chunkSize, renderChunk)
     : chunkSize
 
-  const jobs = await store.claimUrlChunk(runId, adaptiveChunk)
+  let jobs = await store.claimUrlChunk(runId, adaptiveChunk)
+  if (jobs.length === 0) {
+    // Reclaim + retry once — concurrent killed ticks can leave a brief gap.
+    await store.requeueOrphanedRunningJobs(runId)
+    jobs = await store.claimUrlChunk(runId, adaptiveChunk)
+  }
+  if (jobs.length === 0) {
+    const earlyCounts = await store.countJobsByStatus(runId)
+    if (earlyCounts.queued > 0) {
+      run = await store.updateRun(runId, {
+        status: 'failed',
+        finishedAt: new Date().toISOString(),
+        errorDetail: `Crawl stuck: ${earlyCounts.queued} URL(s) queued but tick claimed 0 — failing instead of stalling`,
+        isPartial: true,
+      })
+      return {
+        runId,
+        status: 'failed',
+        processedThisTick: 0,
+        remainingQueued: earlyCounts.queued,
+        isPartial: true,
+        coverageNotes: run.coverageNotes,
+        done: true,
+      }
+    }
+  }
   const crawled: CrawledPage[] = []
   const notes: CoverageNote[] = [...run.coverageNotes]
   let crawledN = run.urlsCrawled
@@ -939,7 +964,16 @@ export async function processCrawlTick(
     })
   }
 
-  const advanced = jobs.length > 0 || done || status !== 'running'
+  // URL work OR post-crawl phase movement OR terminal status — all count as
+  // progress so the heartbeat watchdog does not false-fail SPA crawls.
+  const postCrawlMoved =
+    frontierDrained &&
+    (didRollup ||
+      needsSourceResolve ||
+      postCrawlComplete ||
+      run.postCrawlPhase != null)
+  const advanced =
+    jobs.length > 0 || done || status !== 'running' || postCrawlMoved
   if (advanced) {
     void import('@/lib/run-heartbeat/touch-progress').then(({ touchLastProgress }) =>
       touchLastProgress('crawl', runId),

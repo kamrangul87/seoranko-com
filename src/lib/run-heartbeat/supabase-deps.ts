@@ -190,11 +190,28 @@ export function createSupabaseHeartbeatDeps(): HeartbeatDeps {
     },
 
     async tickCrawl(id) {
-      const tick = await processCrawlTick(id, { store: getFindingsStore() })
+      const store = getFindingsStore()
+      const before = await store.getRun(id)
+      const tick = await processCrawlTick(id, { store })
+      const after = await store.getRun(id)
+
+      // Post-crawl ticks claim 0 URL jobs but still advance phase/cursor.
+      // Treating those as non-progress left last_progress_at frozen until the
+      // 15m watchdog failed SPA crawls mid post-crawl.
+      const postCrawlAdvanced =
+        Boolean(before && after) &&
+        tick.remainingQueued === 0 &&
+        (before!.postCrawlPhase !== after!.postCrawlPhase ||
+          JSON.stringify(before!.postCrawlCursor) !==
+            JSON.stringify(after!.postCrawlCursor) ||
+          before!.urlsCrawled !== after!.urlsCrawled)
+
       const advanced =
         tick.processedThisTick > 0 ||
         Boolean(tick.done) ||
-        tick.status !== 'running'
+        tick.status !== 'running' ||
+        postCrawlAdvanced
+
       return { advanced }
     },
 
