@@ -5,6 +5,7 @@ import { getFindingsStore } from '@/lib/fix-strategies/findings-ui/crawl'
 import { persistedToUiFinding } from '@/lib/fix-strategies/findings-ui/map-persisted'
 import { getFixFlow } from '@/lib/fix-strategies/findings-ui/fix-flow-store'
 import { isFixTypePaused } from '@/lib/fix-strategies/findings-ui/fix-run/failure-learning'
+import { isFindingId } from '@/lib/fix-strategies/findings-ui/is-finding-id'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,6 +36,14 @@ export async function GET(
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  if (!isFindingId(params.id)) {
+    return NextResponse.json(
+      { error: 'Finding id must be a UUID' },
+      { status: 400 },
+    )
+  }
+
+  // Read-only: never call updateFindingSourceResolution (or other writes) here.
   const store = getFindingsStore()
   const row = await store.getFinding(params.id)
   if (!row || row.userId !== user.id) {

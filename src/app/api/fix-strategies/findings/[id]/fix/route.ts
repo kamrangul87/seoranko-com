@@ -11,6 +11,7 @@ import {
   verifyFix,
 } from '@/lib/fix-strategies/findings-ui/fix-flow-store'
 import { assertFixWriteEntitled } from '@/lib/stripe/entitlements'
+import { isFindingId } from '@/lib/fix-strategies/findings-ui/is-finding-id'
 
 export const dynamic = 'force-dynamic'
 /** Commit + deploy wait + live verify can exceed default. */
@@ -41,6 +42,13 @@ export async function POST(
   } = await supabase.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  if (!isFindingId(params.id)) {
+    return NextResponse.json(
+      { error: 'Finding id must be a UUID' },
+      { status: 400 },
+    )
   }
 
   const store = getFindingsStore()
