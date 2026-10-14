@@ -30,6 +30,8 @@ import {
   type E2eRunRow,
   type E2eStepRecord,
 } from './store'
+import { isCurrentlyPresentFindingStatus } from '@/lib/fix-strategies/findings-ui/finding-status'
+import { claimTickLease } from '@/lib/run-heartbeat/claim-tick-lease'
 import { resolveGithubAppRepoCreds } from '@/lib/github-app/resolve-repo-creds'
 import { checkProductionDeployOnce } from '@/lib/fix-strategies/findings-ui/fix-flow/wait-vercel-deploy'
 import { startCrawlRun } from '@/lib/fix-strategies/findings-ui/crawl/orchestrator'
@@ -158,7 +160,11 @@ function stepTimedOut(step: E2eStepRecord, name: E2eStepName): boolean {
   return elapsed >= E2E_STEP_TIMEOUT_MS[name]
 }
 
-/** Start a new e2e run (or return the active one). */
+/**
+ * Start a new e2e run, or return the active one (legacy helper for callers
+ * that only need "a running run"). Prefer {@link startE2eRunIfIdle} when
+ * starting from cron/admin so overlapping starts are refused.
+ */
 export async function startOrGetE2eRun(): Promise<E2eRunRow> {
   const active = await getActiveE2eRun()
   if (active) return active
@@ -166,6 +172,29 @@ export async function startOrGetE2eRun(): Promise<E2eRunRow> {
     siteId: E2E_FIXTURE_SITE_ID,
     steps: initialSteps(),
   })
+}
+
+/**
+ * Create a new fixture e2e run only when none is running.
+ * Overlapping starts corrupt step state (reuse seed_sha / re-enter crawl_compare).
+ */
+export async function startE2eRunIfIdle(): Promise<
+  | { ok: true; run: E2eRunRow; created: true }
+  | { ok: false; error: string; run: E2eRunRow }
+> {
+  const active = await getActiveE2eRun()
+  if (active) {
+    return {
+      ok: false,
+      error: 'A fix_agent_fixture e2e run is already running',
+      run: active,
+    }
+  }
+  const run = await createE2eRun({
+    siteId: E2E_FIXTURE_SITE_ID,
+    steps: initialSteps(),
+  })
+  return { ok: true, run, created: true }
 }
 
 /**
@@ -184,11 +213,33 @@ export async function tickE2eRun(input?: {
     return { run, advanced: false, done: true, detail: `already ${run.status}` }
   }
 
+  // CAS lease — heartbeat + cron continue must not tick the same run concurrently.
+  const claimed = await claimTickLease('e2e', run.id)
+  if (!claimed) {
+    return {
+      run,
+      advanced: false,
+      done: false,
+      detail: 'e2e tick lease held by another worker',
+    }
+  }
+
   const userId = await masterUserId()
   let advanced = false
   let detail = 'idle'
 
   while (Date.now() < deadline && run.status === 'running') {
+    // Re-read each loop so a concurrent worker cannot rewind steps under us.
+    const fresh = await getE2eRun(run.id)
+    if (!fresh || fresh.status !== 'running') {
+      return {
+        run: fresh ?? run,
+        advanced,
+        done: true,
+        detail: fresh ? `already ${fresh.status}` : 'run vanished',
+      }
+    }
+    run = fresh
     const stepName = (run.current_step || E2E_STEP_ORDER[0]) as E2eStepName
     let steps = run.steps
     let step = steps.find((s) => s.name === stepName)
@@ -296,16 +347,33 @@ async function advanceTo(
   })
 }
 
+/**
+ * Normalize fixture finding state before the seed crawl so the reuse-seed_sha
+ * path and the fresh reset-commit path leave the same DB preconditions.
+ * Clears stale verified post-fix flags and drops any prior crawl/fix ids on
+ * the e2e run so crawl_compare always starts a fresh crawl.
+ */
+async function prepareFixtureFindingsForSeed(): Promise<number> {
+  return clearFixtureStaleVerified()
+}
+
 async function stepResetSeed(run: E2eRunRow, userId: string) {
   // Idempotent: concurrent ticks must not create repeated reset commits.
   const prior = run.steps.find((s) => s.name === 'reset_seed')
   if (run.seed_sha && (prior?.status === 'passed' || prior?.status === 'running')) {
+    const cleared = await prepareFixtureFindingsForSeed()
     const next = await advanceTo(
       run,
       'reset_seed',
       'wait_seed_production',
-      prior.detail || `reuse seed_sha ${run.seed_sha.slice(0, 7)}`,
-      { seed_sha: run.seed_sha },
+      prior.detail ||
+        `reuse seed_sha ${run.seed_sha.slice(0, 7)}; prepared findings (cleared ${cleared} verified)`,
+      {
+        seed_sha: run.seed_sha,
+        // Both reset paths must start crawl_compare with no prior crawl id.
+        crawl_run_id: null,
+        fix_run_id: null,
+      },
     )
     return {
       run: next,
@@ -325,9 +393,18 @@ async function stepResetSeed(run: E2eRunRow, userId: string) {
       detail: reset.error,
     }
   }
-  const next = await advanceTo(run, 'reset_seed', 'wait_seed_production', reset.detail, {
-    seed_sha: reset.mainSha,
-  })
+  const cleared = await prepareFixtureFindingsForSeed()
+  const next = await advanceTo(
+    run,
+    'reset_seed',
+    'wait_seed_production',
+    `${reset.detail}; prepared findings (cleared ${cleared} verified)`,
+    {
+      seed_sha: reset.mainSha,
+      crawl_run_id: null,
+      fix_run_id: null,
+    },
+  )
   return { run: next, advanced: true, done: false, detail: reset.detail }
 }
 
@@ -452,10 +529,10 @@ async function stepCrawlCompare(
       includeInformational: true,
     })
   ).filter(
-    // listFindings returns resolved history too — compare only what this crawl
-    // last observed as open work (open | regressed).
+    // listFindings returns resolved history too — compare currently-detected
+    // findings from this crawl (open + regressed).
     (f) =>
-      (f.status === 'open' || f.status === 'regressed') &&
+      isCurrentlyPresentFindingStatus(f.status) &&
       f.lastSeenRunId === crawlId,
   )
   const observed = findings.map((f) => {
@@ -804,6 +881,7 @@ async function stepRecrawlAssert(
   const expectedAuto = loadExpectedAutoFixable()
   const stillOpen = findings.filter(
     (f) =>
+      isCurrentlyPresentFindingStatus(f.status) &&
       expectedAuto.some(
         (e) =>
           e.topicId === f.topicId &&
@@ -829,6 +907,7 @@ async function stepRecrawlAssert(
   // No brand-new actionable auto-fixable beyond expected (none should remain).
   const newAuto = findings.filter(
     (f) =>
+      isCurrentlyPresentFindingStatus(f.status) &&
       f.surfaceClass === 'auto-fixable' &&
       f.postFixStatus !== 'verified' &&
       !expectedAuto.some(

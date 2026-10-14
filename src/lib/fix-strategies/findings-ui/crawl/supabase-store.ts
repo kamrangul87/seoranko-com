@@ -387,6 +387,9 @@ export function createSupabaseFindingsStore(
           // resolved_at as the historical "last considered fixed" date
           // rather than clearing it.
           const becomingRegressed = existing.status === 'resolved'
+          const reappearedAfterVerified =
+            existing.post_fix_status === 'verified' ||
+            (becomingRegressed && existing.fixed_at != null)
           const patch: Record<string, unknown> = {
             kind: f.kind,
             bucket: f.bucket,
@@ -414,14 +417,13 @@ export function createSupabaseFindingsStore(
           }
           if (becomingRegressed) {
             patch.status = 'regressed'
+          }
+          if (becomingRegressed || reappearedAfterVerified) {
             patch.regression_observed_at =
               (existing.regression_observed_at as string | null) ?? now
-            if (
-              existing.post_fix_status === 'verified' ||
-              existing.fixed_at != null
-            ) {
-              patch.post_fix_status = 'regressed'
-            }
+          }
+          if (reappearedAfterVerified) {
+            patch.post_fix_status = 'regressed'
           }
           const { error } = await db()
             .from('fix_strategies_findings')
@@ -754,6 +756,7 @@ export function createSupabaseFindingsStore(
       let informational = 0
       let internal = 0
       for (const row of data ?? []) {
+        // Regressed counts as currently-present open work (same as status=open).
         if (row.status === 'resolved' || row.status === 'superseded') continue
         if (row.bucket === 'actionable') actionable++
         else if (row.bucket === 'informational') informational++

@@ -11,6 +11,7 @@ export {
 } from './compare'
 export {
   startOrGetE2eRun,
+  startE2eRunIfIdle,
   tickE2eRun,
   assertExpectedFixturePresent,
   type E2eTickResult,

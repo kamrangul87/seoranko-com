@@ -10,7 +10,7 @@ import {
   consecutivePassingE2eDays,
   listRecentE2eRuns,
   getActiveE2eRun,
-  startOrGetE2eRun,
+  startE2eRunIfIdle,
   tickE2eRun,
   expectedReadmeDiff,
   E2E_FIXTURE_SITE_ID,
@@ -61,8 +61,19 @@ export async function POST(req: NextRequest) {
 
   try {
     if (action === 'run_now') {
-      const run = await startOrGetE2eRun()
-      const result = await tickE2eRun({ runId: run.id })
+      const started = await startE2eRunIfIdle()
+      if (!started.ok) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: started.error,
+            code: 'already_running',
+            run: started.run,
+          },
+          { status: 409 },
+        )
+      }
+      const result = await tickE2eRun({ runId: started.run.id })
       if (result.run.status === 'running') {
         scheduleE2eContinue({
           runId: result.run.id,

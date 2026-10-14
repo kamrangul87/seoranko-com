@@ -241,9 +241,11 @@ export async function resolveFindingSourcesForSite(input: {
   const idSet = input.findingIds ? new Set(input.findingIds) : null
   // Lazy import avoids circular init with apply-registry.
   const { isTransformRegistered } = await import('./apply-registry')
+  const { isCurrentlyPresentFindingStatus } = await import('../finding-status')
 
   const targets = all.filter((f) => {
     if (idSet && !idSet.has(f.id)) return false
+    if (!isCurrentlyPresentFindingStatus(f.status)) return false
     // Only registered transforms — unresolved stay human-task after demotion.
     if (!isTransformRegistered(f.topicId, f.verdict)) return false
     return evidenceNeedleForResolution(f) != null
