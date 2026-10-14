@@ -116,8 +116,7 @@ export async function updateE2eRun(
           patch.current_step as E2eStepName,
         )
         if (liveIdx >= 0 && nextIdx >= 0 && nextIdx < liveIdx) {
-          const { current_step: _drop, ...rest } = nextPatch
-          nextPatch = rest
+          delete nextPatch.current_step
         }
       }
     }
