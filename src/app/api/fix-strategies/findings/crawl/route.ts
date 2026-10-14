@@ -14,6 +14,7 @@ import {
   releaseCrawlStart,
 } from '@/lib/fix-strategies/findings-ui/crawl/rate-limit'
 import { crawlDailyLimitForUser, crawlPageQuotaForUser } from '@/lib/stripe/entitlements'
+import { claimTickLease } from '@/lib/run-heartbeat'
 
 export const dynamic = 'force-dynamic'
 /** Hobby Fluid Compute ceiling is 300s; whole-site finalize needs ~2min on small sites. */
@@ -138,6 +139,20 @@ export async function POST(request: Request) {
       ) {
         return NextResponse.json({ error: 'Run not found' }, { status: 404 })
       }
+      const claimed = await claimTickLease('crawl', body.runId)
+      if (!claimed) {
+        return NextResponse.json({
+          runId: body.runId,
+          status: run.status,
+          processedThisTick: 0,
+          remainingQueued: 0,
+          done: false,
+          skipped: true,
+          reason: 'lease_held',
+          detectOnly: true,
+          origin: run.origin,
+        })
+      }
       const tick = await processCrawlTick(body.runId, { store })
       return NextResponse.json({ ...tick, detectOnly: true, origin: run.origin })
     }
@@ -224,6 +239,18 @@ export async function POST(request: Request) {
     const run = await store.getRun(body.runId)
     if (!run || run.userId !== user.id || run.siteId !== siteId) {
       return NextResponse.json({ error: 'Run not found' }, { status: 404 })
+    }
+    const claimed = await claimTickLease('crawl', body.runId)
+    if (!claimed) {
+      return NextResponse.json({
+        runId: body.runId,
+        status: run.status,
+        processedThisTick: 0,
+        remainingQueued: 0,
+        done: false,
+        skipped: true,
+        reason: 'lease_held',
+      })
     }
     const tick = await processCrawlTick(body.runId, { store })
     return NextResponse.json(tick)

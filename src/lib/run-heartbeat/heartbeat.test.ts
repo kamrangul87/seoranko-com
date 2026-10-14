@@ -5,6 +5,9 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   HEARTBEAT_STALE_MS,
   WATCHDOG_NO_PROGRESS_MS,
+  TICK_LEASE_MS,
+  CRAWL_TICK_LEASE_MS,
+  tickLeaseMsForKind,
   runHeartbeat,
   type HeartbeatDeps,
   type ScheduledRun,
@@ -177,5 +180,70 @@ describe('runHeartbeat', () => {
 
   it('exports stale threshold of 60s', () => {
     expect(HEARTBEAT_STALE_MS).toBe(60_000)
+  })
+
+  it('uses a long crawl lease under Hobby 300s (SPA / post-crawl safe)', () => {
+    expect(CRAWL_TICK_LEASE_MS).toBe(280_000)
+    expect(CRAWL_TICK_LEASE_MS).toBeGreaterThan(TICK_LEASE_MS)
+    expect(CRAWL_TICK_LEASE_MS).toBeLessThan(300_000)
+    expect(tickLeaseMsForKind('crawl')).toBe(CRAWL_TICK_LEASE_MS)
+    expect(tickLeaseMsForKind('fix')).toBe(TICK_LEASE_MS)
+    expect(tickLeaseMsForKind('e2e')).toBe(TICK_LEASE_MS)
+  })
+
+  it('drives an unfinished crawl with heartbeat ticks alone (SPA multi-tick)', async () => {
+    const run = baseRun({ kind: 'crawl', id: 'crawl-spa-1' })
+    let remaining = 6 // 3 ticks × 2 render-chunk URLs
+    const deps = makeDeps({
+      listUnfinished: async () =>
+        remaining > 0
+          ? [
+              {
+                ...run,
+                lastProgressAt: new Date(Date.now() - 90_000).toISOString(),
+                leaseUntil: null,
+              },
+            ]
+          : [],
+      tickCrawl: async (id) => {
+        deps.ticks.push({ kind: 'crawl', id })
+        remaining = Math.max(0, remaining - 2)
+        return { advanced: true }
+      },
+      claimRun: async (_kind, id, leaseUntilIso) => {
+        deps.claims.push(`${id}:${leaseUntilIso}`)
+        // Lease must cover near-full Hobby budget so a concurrent heartbeat
+        // cannot steal mid headless render.
+        const until = Date.parse(leaseUntilIso)
+        expect(until - Date.now()).toBeGreaterThan(200_000)
+        return true
+      },
+    })
+
+    let ticks = 0
+    while (remaining > 0 && ticks < 10) {
+      ticks += 1
+      await runHeartbeat(deps)
+    }
+    expect(remaining).toBe(0)
+    expect(deps.ticks.filter((t) => t.kind === 'crawl')).toHaveLength(3)
+  })
+
+  it('marks post-crawl-only ticks as progress (not watchdog food)', async () => {
+    // Simulated via deps: tickCrawl reports advanced=true when phase moves
+    // with processedThisTick=0 — covered in supabase-deps wiring; here we
+    // assert the heartbeat still markProgresses when advanced.
+    const run = baseRun({ kind: 'crawl', id: 'crawl-post-1' })
+    const progress: string[] = []
+    const deps = makeDeps({
+      listUnfinished: async () => [run],
+      tickCrawl: async () => ({ advanced: true }), // post-crawl phase moved
+      markProgress: async (_k, id, at) => {
+        progress.push(`${id}:${at}`)
+      },
+    })
+    await runHeartbeat(deps)
+    expect(progress).toHaveLength(1)
+    expect(progress[0]).toMatch(/^crawl-post-1:/)
   })
 })
