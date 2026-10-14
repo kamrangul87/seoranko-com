@@ -13,6 +13,7 @@ import { summarizePartialCoverage } from '@/lib/fix-strategies/findings-ui/crawl
 import { itemUiStep } from '@/lib/fix-strategies/findings-ui/fix-run/phases'
 import { shouldShowFixMySiteButton } from '@/lib/fix-strategies/findings-ui/fix-run/master-gate'
 import { whyNotFixedOrFallback } from '@/lib/fix-strategies/findings-ui/owner-copy'
+import { isCurrentlyPresentFindingStatus } from '@/lib/fix-strategies/findings-ui/finding-status'
 import { readParamFromUrl, writeParamToUrl } from '@/lib/site-selection-url'
 import type { User } from '@supabase/supabase-js'
 
@@ -376,20 +377,22 @@ export default function FindingsListPage() {
     }
   }
 
-  const readyFindings =
-    data?.findings.filter(
-      (f) => f.surfaceClass === 'auto-fixable' && !f.fixTypePaused,
-    ) ?? []
-  const needsYouFindings =
-    data?.findings.filter(
-      (f) =>
-        f.fixTypePaused ||
-        f.surfaceClass === 'human-review' ||
-        f.surfaceClass === 'finding' ||
-        f.surfaceClass === 'report-only',
-    ) ?? []
-  const infoFindings =
-    data?.findings.filter((f) => f.surfaceClass === 'informational') ?? []
+  const presentFindings =
+    data?.findings.filter((f) => isCurrentlyPresentFindingStatus(f.status)) ??
+    []
+  const readyFindings = presentFindings.filter(
+    (f) => f.surfaceClass === 'auto-fixable' && !f.fixTypePaused,
+  )
+  const needsYouFindings = presentFindings.filter(
+    (f) =>
+      f.fixTypePaused ||
+      f.surfaceClass === 'human-review' ||
+      f.surfaceClass === 'finding' ||
+      f.surfaceClass === 'report-only',
+  )
+  const infoFindings = presentFindings.filter(
+    (f) => f.surfaceClass === 'informational',
+  )
 
   async function drainCrawlTicks(runId: string, opts?: { detectOnly?: boolean }) {
     setCrawling(true)

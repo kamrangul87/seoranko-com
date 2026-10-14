@@ -4,6 +4,7 @@
 
 import { getFindingsStore } from '../crawl/store'
 import type { PersistedFindingRow } from '../crawl/constants'
+import { isCurrentlyPresentFindingStatus } from '../finding-status'
 import {
   isCommitableFinding,
   orderFindingsForApply,
@@ -34,6 +35,7 @@ export async function selectAutoFixableFindings(
   const paused = await loadPausedFixTypeSet()
   const open = rows.filter(
     (r) =>
+      isCurrentlyPresentFindingStatus(r.status) &&
       r.bucket === 'actionable' &&
       isCommitableFinding(r, {
         paused: paused.has(fixTypeKey(r.topicId, r.verdict)),

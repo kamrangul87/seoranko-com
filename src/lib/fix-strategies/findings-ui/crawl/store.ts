@@ -442,7 +442,13 @@ export function createMemoryFindingsStore(): FindingsStore {
           // regression, not a plain re-detection — flag it, and keep
           // resolvedAt as the historical "last considered fixed" date
           // rather than clearing it.
+          // Re-observed after resolved → regressed. Re-observed while still
+          // regressed (or verified post-fix) also refreshes regression so
+          // post_fix_status never stays "verified" on a live defect.
           const becomingRegressed = existing.status === 'resolved'
+          const reappearedAfterVerified =
+            existing.postFixStatus === 'verified' ||
+            (becomingRegressed && existing.fixedAt != null)
           const status: FindingStatus = becomingRegressed
             ? 'regressed'
             : existing.status
@@ -471,15 +477,13 @@ export function createMemoryFindingsStore(): FindingsStore {
             lastSeenRunId: runId,
             lastSeenAt: now,
             status,
-            regressionObservedAt: becomingRegressed
-              ? (existing.regressionObservedAt ?? now)
-              : existing.regressionObservedAt,
-            postFixStatus:
-              becomingRegressed &&
-              (existing.postFixStatus === 'verified' ||
-                existing.fixedAt != null)
-                ? 'regressed'
-                : existing.postFixStatus,
+            regressionObservedAt:
+              becomingRegressed || reappearedAfterVerified
+                ? (existing.regressionObservedAt ?? now)
+                : existing.regressionObservedAt,
+            postFixStatus: reappearedAfterVerified
+              ? 'regressed'
+              : existing.postFixStatus,
           }
           state().findings.set(key, updated)
           state().observations.add(`${updated.id}::${runId}`)

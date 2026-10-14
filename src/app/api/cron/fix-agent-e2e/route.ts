@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireCronSecret } from '@/lib/cron-auth'
 import {
-  startOrGetE2eRun,
+  startE2eRunIfIdle,
   tickE2eRun,
   getE2eRun,
 } from '@/lib/fix-agent-e2e'
@@ -25,8 +25,19 @@ export async function GET(req: NextRequest) {
   try {
     let runId = continueId
     if (!runId) {
-      const run = await startOrGetE2eRun()
-      runId = run.id
+      const started = await startE2eRunIfIdle()
+      if (!started.ok) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: started.error,
+            code: 'already_running',
+            run: started.run,
+          },
+          { status: 409 },
+        )
+      }
+      runId = started.run.id
     } else {
       const existing = await getE2eRun(runId)
       if (!existing) {

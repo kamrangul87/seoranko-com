@@ -7,6 +7,7 @@
  */
 
 import type { PersistedFindingRow } from './constants'
+import { isCurrentlyPresentFindingStatus } from '../finding-status'
 import { buildRegressionReport } from './regression-report'
 
 export type WhatChangedFindingRef = {
@@ -96,8 +97,8 @@ export function buildWhatChangedDigest(input: {
       ref(f, { fixFlow: input.fixFlowByFindingId?.get(f.id) }),
     )
 
-  const stillOpenCount = listable.filter(
-    (f) => f.status === 'open' || f.status === 'regressed',
+  const stillOpenCount = listable.filter((f) =>
+    isCurrentlyPresentFindingStatus(f.status),
   ).length
 
   const parts: string[] = []
