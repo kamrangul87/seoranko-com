@@ -3,9 +3,12 @@ import {
   assertFixWriteEntitled,
   crawlDailyLimitForUser,
   crawlPageQuotaForUser,
+  crawlPagesCapForPlanId,
   formatPlanPageLimitMessage,
   isMasterUserEmail,
+  paidCrawlPagesFromStripe,
 } from '@/lib/stripe/entitlements'
+import { SEORANKO_PLANS } from '@/lib/stripe/plans'
 import {
   reserveCrawlStart,
   releaseCrawlStart,
@@ -116,7 +119,8 @@ describe('crawlPageQuotaForUser', () => {
     })
   })
 
-  it('returns paid default when subscribed and Stripe metadata absent', async () => {
+  it('falls back to Starter (100), never 500, when Stripe metadata absent', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
     mockSubscriptionRow({
       status: 'active',
       plan_id: 'seoranko_starter',
@@ -127,17 +131,22 @@ describe('crawlPageQuotaForUser', () => {
       subscriptions: {
         retrieve: vi.fn().mockResolvedValue({
           metadata: {},
-          items: { data: [{ price: { metadata: {}, product: { metadata: {} } } }] },
+          items: { data: [{ price: { id: 'price_x', metadata: {}, product: { metadata: {} } } }] },
         }),
       },
     } as never)
     await expect(
       crawlPageQuotaForUser({ userId: 'u1', email: 'a@b.co' }),
     ).resolves.toMatchObject({
-      maxPages: FIX_STRATEGY_PRODUCT_DECISIONS.crawlPagesPerRunPaidDefault,
+      maxPages: 100,
       planLabel: 'Starter',
       isFree: false,
     })
+    expect(FIX_STRATEGY_PRODUCT_DECISIONS.crawlPagesPerRunPaidDefault).toBe(100)
+    expect(err).toHaveBeenCalled()
+    const msg = String(err.mock.calls[0]?.[0] ?? '')
+    expect(msg).toMatch(/falling back to Starter/i)
+    err.mockRestore()
   })
 
   it('reads seoranko_crawl_pages from Stripe Price metadata', async () => {
@@ -275,8 +284,38 @@ describe('reserveCrawlStart with explicit limit', () => {
 })
 
 describe('product-decisions page limits', () => {
-  it('ships free 25 and paid default 500', () => {
+  it('ships free 25 and paid fallback Starter 100 (never silent 500)', () => {
     expect(FIX_STRATEGY_PRODUCT_DECISIONS.crawlPagesPerRunFree).toBe(25)
-    expect(FIX_STRATEGY_PRODUCT_DECISIONS.crawlPagesPerRunPaidDefault).toBe(500)
+    expect(FIX_STRATEGY_PRODUCT_DECISIONS.crawlPagesPerRunPaidDefault).toBe(100)
+  })
+})
+
+describe('crawlPagesCapForPlanId', () => {
+  it('maps each plan to its page cap', () => {
+    expect(crawlPagesCapForPlanId('seoranko_starter')).toBe(100)
+    expect(crawlPagesCapForPlanId('seoranko_pro')).toBe(500)
+    expect(crawlPagesCapForPlanId('seoranko_agency')).toBe(2000)
+    expect(SEORANKO_PLANS.seoranko_starter.pagesPerCrawlDisplay).toBe(100)
+    expect(SEORANKO_PLANS.seoranko_pro.pagesPerCrawlDisplay).toBe(500)
+    expect(SEORANKO_PLANS.seoranko_agency.pagesPerCrawlDisplay).toBe(2000)
+  })
+
+  it('unknown plan id falls back to Starter 100, never 500', () => {
+    expect(crawlPagesCapForPlanId('legacy_unknown')).toBe(100)
+    expect(crawlPagesCapForPlanId(null)).toBe(100)
+  })
+})
+
+describe('paidCrawlPagesFromStripe', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+    delete process.env.STRIPE_SECRET_KEY
+  })
+
+  it('logs and returns Starter 100 when subscription id missing', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await expect(paidCrawlPagesFromStripe(null)).resolves.toBe(100)
+    expect(err).toHaveBeenCalled()
+    err.mockRestore()
   })
 })

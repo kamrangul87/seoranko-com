@@ -127,6 +127,8 @@ export async function GET(request: Request) {
             pagesRenderFailed: latest.pagesRenderFailed ?? 0,
             totalRenderTimeMs: latest.totalRenderTimeMs ?? 0,
             updatedAt: latest.updatedAt ?? null,
+            startedAt: latest.startedAt ?? null,
+            finishedAt: latest.finishedAt ?? null,
           }
         : null,
       whatChanged,
@@ -209,6 +211,8 @@ export async function GET(request: Request) {
           pagesRenderFailed: latest.pagesRenderFailed ?? 0,
           totalRenderTimeMs: latest.totalRenderTimeMs ?? 0,
           updatedAt: latest.updatedAt ?? null,
+          startedAt: latest.startedAt ?? null,
+          finishedAt: latest.finishedAt ?? null,
         }
       : null,
     whatChanged,
