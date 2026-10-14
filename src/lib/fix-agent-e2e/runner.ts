@@ -240,15 +240,32 @@ export async function tickE2eRun(input?: {
       }
     }
     run = fresh
-    const stepName = (run.current_step || E2E_STEP_ORDER[0]) as E2eStepName
+    let stepName = (run.current_step || E2E_STEP_ORDER[0]) as E2eStepName
     let steps = run.steps
     let step = steps.find((s) => s.name === stepName)
     if (!step) {
       run = await failRun(run, 'finalize', `Unknown step ${stepName}`)
       return { run, advanced: true, done: true, detail: 'unknown step' }
     }
+    // Never re-execute a passed step (stale current_step) — jump to the next
+    // non-passed step so reset_seed cannot clobber later steps' startedAt.
+    if (step.status === 'passed') {
+      const idx = E2E_STEP_ORDER.indexOf(stepName)
+      const nextName =
+        idx >= 0 && idx + 1 < E2E_STEP_ORDER.length
+          ? E2E_STEP_ORDER[idx + 1]
+          : null
+      if (!nextName) {
+        run = await failRun(run, stepName, `Step ${stepName} already passed but no next step`)
+        return { run, advanced: true, done: true, detail: 'stuck after passed step' }
+      }
+      run = await updateE2eRun(run.id, { current_step: nextName })
+      stepName = nextName
+      step = run.steps.find((s) => s.name === stepName)!
+      advanced = true
+    }
     if (step.status === 'pending') {
-      steps = markStep(steps, stepName, {
+      steps = markStep(run.steps, stepName, {
         status: 'running',
         startedAt: new Date().toISOString(),
       })
@@ -358,9 +375,37 @@ async function prepareFixtureFindingsForSeed(): Promise<number> {
 }
 
 async function stepResetSeed(run: E2eRunRow, userId: string) {
-  // Idempotent: concurrent ticks must not create repeated reset commits.
   const prior = run.steps.find((s) => s.name === 'reset_seed')
-  if (run.seed_sha && (prior?.status === 'passed' || prior?.status === 'running')) {
+
+  // Already passed: never call advanceTo again — that re-marks
+  // wait_seed_production as pending and wipes its startedAt, which stalls
+  // the fingerprint wait until the 15m watchdog fires.
+  if (prior?.status === 'passed' && run.seed_sha) {
+    if (run.current_step === 'reset_seed' || !run.current_step) {
+      const next = await updateE2eRun(run.id, {
+        current_step: 'wait_seed_production',
+        seed_sha: run.seed_sha,
+        crawl_run_id: null,
+        fix_run_id: null,
+      })
+      return {
+        run: next,
+        advanced: true,
+        done: false,
+        detail: `reset already passed; resume wait_seed_production (${run.seed_sha.slice(0, 7)})`,
+      }
+    }
+    return {
+      run,
+      advanced: false,
+      done: false,
+      detail: 'reset already passed',
+    }
+  }
+
+  // Concurrent tick already set seed_sha while this step is still running —
+  // finish the step once without creating another reset commit.
+  if (run.seed_sha && prior?.status === 'running') {
     const cleared = await prepareFixtureFindingsForSeed()
     const next = await advanceTo(
       run,
@@ -370,7 +415,6 @@ async function stepResetSeed(run: E2eRunRow, userId: string) {
         `reuse seed_sha ${run.seed_sha.slice(0, 7)}; prepared findings (cleared ${cleared} verified)`,
       {
         seed_sha: run.seed_sha,
-        // Both reset paths must start crawl_compare with no prior crawl id.
         crawl_run_id: null,
         fix_run_id: null,
       },
@@ -463,7 +507,12 @@ async function stepWaitSeedProduction(run: E2eRunRow, userId: string) {
   // reset commit (seed tree), accept production when the live origin serves
   // the seed fingerprint and the wait step has been running ≥45s.
   const waitStep = run.steps.find((s) => s.name === 'wait_seed_production')
-  const startedMs = waitStep?.startedAt ? Date.parse(waitStep.startedAt) : 0
+  const resetStep = run.steps.find((s) => s.name === 'reset_seed')
+  const startedMs = waitStep?.startedAt
+    ? Date.parse(waitStep.startedAt)
+    : resetStep?.finishedAt
+      ? Date.parse(resetStep.finishedAt)
+      : 0
   const waitedMs = startedMs ? Date.now() - startedMs : 0
   if (waitedMs >= 45_000 && (await fixtureOriginLooksLikeSeed())) {
     const detail = `seed fingerprint live on ${E2E_FIXTURE_ORIGIN} after ${Math.round(waitedMs / 1000)}s (GitHub deploy signals unavailable: ${once.error})`
