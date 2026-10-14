@@ -26,10 +26,12 @@ import {
   createE2eRun,
   getActiveE2eRun,
   getE2eRun,
+  listRunningE2eRuns,
   updateE2eRun,
   type E2eRunRow,
   type E2eStepRecord,
 } from './store'
+import { maxReachedStepIndex } from './step-progress'
 import { isCurrentlyPresentFindingStatus } from '@/lib/fix-strategies/findings-ui/finding-status'
 import { resolveGithubAppRepoCreds } from '@/lib/github-app/resolve-repo-creds'
 import { checkProductionDeployOnce } from '@/lib/fix-strategies/findings-ui/fix-flow/wait-vercel-deploy'
@@ -193,6 +195,24 @@ export async function startE2eRunIfIdle(): Promise<
     siteId: E2E_FIXTURE_SITE_ID,
     steps: initialSteps(),
   })
+  // Two concurrent cron starts can both pass the idle check. Keep the oldest
+  // running run and fail the duplicate so overlapping ticks cannot rewind steps.
+  const running = await listRunningE2eRuns()
+  const oldest = running[0]
+  if (oldest && oldest.id !== run.id) {
+    await updateE2eRun(run.id, {
+      status: 'failed',
+      current_step: 'reset_seed',
+      first_failing_step: 'reset_seed',
+      fail_reason: 'Aborted: overlapping e2e start (exclusive winner kept)',
+      finished_at: new Date().toISOString(),
+    })
+    return {
+      ok: false,
+      error: 'A fix_agent_fixture e2e run is already running',
+      run: oldest,
+    }
+  }
   return { ok: true, run, created: true }
 }
 
@@ -267,6 +287,14 @@ export async function tickE2eRun(input?: {
           done: true,
           detail: `already ${latest.status}`,
         }
+      }
+      const targetIdx = E2E_STEP_ORDER.indexOf(stepName)
+      const liveIdx = E2E_STEP_ORDER.indexOf(
+        (latest.current_step || stepName) as E2eStepName,
+      )
+      if (liveIdx > targetIdx || maxReachedStepIndex(latest.steps) > targetIdx) {
+        run = latest
+        continue
       }
       if (latest.current_step && latest.current_step !== stepName) {
         run = latest
