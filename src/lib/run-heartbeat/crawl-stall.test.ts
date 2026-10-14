@@ -9,7 +9,6 @@ import { runHeartbeat, CRAWL_TICK_LEASE_MS, type HeartbeatDeps } from './heartbe
 
 vi.mock('@/lib/fix-strategies/findings-ui/crawl/fetch-page', () => ({
   crawlOneUrl: async (url: string, opts?: { skipRender?: boolean }) => {
-    const renderNeeded = true
     if (opts?.skipRender) {
       return {
         url,
