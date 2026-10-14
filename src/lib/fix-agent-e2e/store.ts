@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { E2eStepName } from './constants'
+import { mergeStepsNoRewind } from './step-progress'
 
 export type E2eStepRecord = {
   name: E2eStepName
@@ -83,9 +84,47 @@ export async function updateE2eRun(
     finished_at: string | null
   }>,
 ): Promise<E2eRunRow> {
-  const { data, error } = await sb()
+  const client = sb()
+  // Merge steps onto the live row so a slow tick cannot rewind later progress.
+  let nextPatch = { ...patch }
+  if (patch.steps) {
+    const { data: live, error: liveErr } = await client
+      .from('e2e_runs')
+      .select('steps,current_step')
+      .eq('id', id)
+      .maybeSingle()
+    if (liveErr) throw new Error(liveErr.message)
+    if (live?.steps) {
+      nextPatch = {
+        ...nextPatch,
+        steps: mergeStepsNoRewind(
+          live.steps as E2eStepRecord[],
+          patch.steps,
+        ),
+      }
+      // Never move current_step backwards when a concurrent tick is ahead.
+      if (
+        patch.current_step != null &&
+        live.current_step &&
+        typeof live.current_step === 'string'
+      ) {
+        const { E2E_STEP_ORDER } = await import('./constants')
+        const liveIdx = E2E_STEP_ORDER.indexOf(
+          live.current_step as E2eStepName,
+        )
+        const nextIdx = E2E_STEP_ORDER.indexOf(
+          patch.current_step as E2eStepName,
+        )
+        if (liveIdx >= 0 && nextIdx >= 0 && nextIdx < liveIdx) {
+          const { current_step: _drop, ...rest } = nextPatch
+          nextPatch = rest
+        }
+      }
+    }
+  }
+  const { data, error } = await client
     .from('e2e_runs')
-    .update({ ...patch, updated_at: new Date().toISOString() })
+    .update({ ...nextPatch, updated_at: new Date().toISOString() })
     .eq('id', id)
     .select('*')
     .single()
@@ -148,4 +187,16 @@ export async function getActiveE2eRun(): Promise<E2eRunRow | null> {
     .maybeSingle()
   if (error) throw new Error(error.message)
   return (data as E2eRunRow) || null
+}
+
+/** Oldest-first running fixture e2e runs (for exclusive-start race cleanup). */
+export async function listRunningE2eRuns(): Promise<E2eRunRow[]> {
+  const { data, error } = await sb()
+    .from('e2e_runs')
+    .select('*')
+    .eq('status', 'running')
+    .eq('kind', 'fix_agent_fixture')
+    .order('started_at', { ascending: true })
+  if (error) throw new Error(error.message)
+  return (data as E2eRunRow[]) || []
 }

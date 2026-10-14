@@ -21,6 +21,12 @@ export {
   listRecentE2eRuns,
   consecutivePassingE2eDays,
   getActiveE2eRun,
+  listRunningE2eRuns,
   type E2eRunRow,
 } from './store'
+export {
+  mergeStepsNoRewind,
+  maxReachedStepIndex,
+  wouldRewindSteps,
+} from './step-progress'
 export { resetFixtureMainToSeed } from './reset-seed'
