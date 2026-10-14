@@ -257,7 +257,22 @@ export async function tickE2eRun(input?: {
       advanced = true
     }
     if (step.status === 'pending') {
-      steps = markStep(run.steps, stepName, {
+      // Re-read before writing steps — a concurrent tick may have advanced
+      // further; overwriting with a stale all-pending snapshot rewinds the run.
+      const latest = (await getE2eRun(run.id)) ?? run
+      if (latest.status !== 'running') {
+        return {
+          run: latest,
+          advanced,
+          done: true,
+          detail: `already ${latest.status}`,
+        }
+      }
+      if (latest.current_step && latest.current_step !== stepName) {
+        run = latest
+        continue
+      }
+      steps = markStep(latest.steps, stepName, {
         status: 'running',
         startedAt: new Date().toISOString(),
       })
@@ -341,14 +356,26 @@ async function advanceTo(
   detail: string,
   extra?: Parameters<typeof updateE2eRun>[1],
 ): Promise<E2eRunRow> {
-  let steps = markStep(run.steps, from, {
+  // Merge onto the latest steps row so a slow reset cannot clobber later
+  // progress written by another worker after this tick's initial read.
+  const latest = (await getE2eRun(run.id)) ?? run
+  const fromIdx = E2E_STEP_ORDER.indexOf(from)
+  const liveIdx = E2E_STEP_ORDER.indexOf(
+    (latest.current_step || from) as E2eStepName,
+  )
+  if (liveIdx > fromIdx) {
+    // Another tick already moved past `from` — do not rewind.
+    return latest
+  }
+  let steps = markStep(latest.steps, from, {
     status: 'passed',
     finishedAt: new Date().toISOString(),
     detail,
   })
-  steps = markStep(steps, to, {
-    status: 'pending',
-  })
+  const toStep = steps.find((s) => s.name === to)
+  if (!toStep || toStep.status === 'pending') {
+    steps = markStep(steps, to, { status: 'pending' })
+  }
   return updateE2eRun(run.id, {
     current_step: to,
     steps,
@@ -370,15 +397,13 @@ async function stepResetSeed(run: E2eRunRow, userId: string) {
   const prior = run.steps.find((s) => s.name === 'reset_seed')
 
   // Already passed: never call advanceTo again — that re-marks
-  // wait_seed_production as pending and wipes its startedAt, which stalls
-  // the fingerprint wait until the 15m watchdog fires.
+  // wait_seed_production as pending and wipes its startedAt / can clear
+  // crawl_run_id after crawl_compare already started.
   if (prior?.status === 'passed' && run.seed_sha) {
     if (run.current_step === 'reset_seed' || !run.current_step) {
       const next = await updateE2eRun(run.id, {
         current_step: 'wait_seed_production',
         seed_sha: run.seed_sha,
-        crawl_run_id: null,
-        fix_run_id: null,
       })
       return {
         run: next,
@@ -407,8 +432,11 @@ async function stepResetSeed(run: E2eRunRow, userId: string) {
         `reuse seed_sha ${run.seed_sha.slice(0, 7)}; prepared findings (cleared ${cleared} verified)`,
       {
         seed_sha: run.seed_sha,
-        crawl_run_id: null,
-        fix_run_id: null,
+        // Only clear crawl/fix ids on the first transition out of reset —
+        // never if a later step already recorded them (stale current_step).
+        ...(run.crawl_run_id || run.fix_run_id
+          ? {}
+          : { crawl_run_id: null, fix_run_id: null }),
       },
     )
     return {
