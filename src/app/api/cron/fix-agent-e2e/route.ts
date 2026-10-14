@@ -12,6 +12,7 @@ import {
   getE2eRun,
 } from '@/lib/fix-agent-e2e'
 import { scheduleE2eContinue } from '@/lib/fix-agent-e2e/schedule-continue'
+import { claimTickLease } from '@/lib/run-heartbeat/claim-tick-lease'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -43,6 +44,18 @@ export async function GET(req: NextRequest) {
       if (!existing) {
         return NextResponse.json({ ok: false, error: 'Run not found' }, { status: 404 })
       }
+    }
+
+    const claimed = await claimTickLease('e2e', runId)
+    if (!claimed) {
+      const run = await getE2eRun(runId)
+      return NextResponse.json({
+        ok: true,
+        run,
+        advanced: false,
+        done: false,
+        detail: 'e2e tick lease held by another worker',
+      })
     }
 
     const result = await tickE2eRun({ runId })

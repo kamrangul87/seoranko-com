@@ -5,7 +5,7 @@
 
 export const HEARTBEAT_STALE_MS = 60_000
 export const WATCHDOG_NO_PROGRESS_MS = 15 * 60_000
-/** Default lease for fix / e2e ticks (short mechanical steps). */
+/** Default lease for fix ticks (short mechanical steps). */
 export const TICK_LEASE_MS = 55_000
 /**
  * Crawl ticks (esp. SPA headless render + post-crawl) can run tens of seconds
@@ -15,11 +15,18 @@ export const TICK_LEASE_MS = 55_000
  * invocation budget so browser drain and heartbeat serialize on one tick.
  */
 export const CRAWL_TICK_LEASE_MS = 280_000
+/**
+ * E2e ticks use a ~240s soft budget. A 55s lease let heartbeat reclaim mid-tick;
+ * combined with a second claim inside tickE2eRun, wait_seed_production starved.
+ */
+export const E2E_TICK_LEASE_MS = 280_000
 
 export type RunKind = 'crawl' | 'fix' | 'e2e'
 
 export function tickLeaseMsForKind(kind: RunKind): number {
-  return kind === 'crawl' ? CRAWL_TICK_LEASE_MS : TICK_LEASE_MS
+  if (kind === 'crawl') return CRAWL_TICK_LEASE_MS
+  if (kind === 'e2e') return E2E_TICK_LEASE_MS
+  return TICK_LEASE_MS
 }
 
 export type ScheduledRun = {

@@ -7,6 +7,7 @@ import {
   WATCHDOG_NO_PROGRESS_MS,
   TICK_LEASE_MS,
   CRAWL_TICK_LEASE_MS,
+  E2E_TICK_LEASE_MS,
   tickLeaseMsForKind,
   runHeartbeat,
   type HeartbeatDeps,
@@ -188,7 +189,8 @@ describe('runHeartbeat', () => {
     expect(CRAWL_TICK_LEASE_MS).toBeLessThan(300_000)
     expect(tickLeaseMsForKind('crawl')).toBe(CRAWL_TICK_LEASE_MS)
     expect(tickLeaseMsForKind('fix')).toBe(TICK_LEASE_MS)
-    expect(tickLeaseMsForKind('e2e')).toBe(TICK_LEASE_MS)
+    expect(tickLeaseMsForKind('e2e')).toBe(E2E_TICK_LEASE_MS)
+    expect(E2E_TICK_LEASE_MS).toBe(280_000)
   })
 
   it('drives an unfinished crawl with heartbeat ticks alone (SPA multi-tick)', async () => {

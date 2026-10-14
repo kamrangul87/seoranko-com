@@ -31,7 +31,6 @@ import {
   type E2eStepRecord,
 } from './store'
 import { isCurrentlyPresentFindingStatus } from '@/lib/fix-strategies/findings-ui/finding-status'
-import { claimTickLease } from '@/lib/run-heartbeat/claim-tick-lease'
 import { resolveGithubAppRepoCreds } from '@/lib/github-app/resolve-repo-creds'
 import { checkProductionDeployOnce } from '@/lib/fix-strategies/findings-ui/fix-flow/wait-vercel-deploy'
 import { startCrawlRun } from '@/lib/fix-strategies/findings-ui/crawl/orchestrator'
@@ -213,16 +212,9 @@ export async function tickE2eRun(input?: {
     return { run, advanced: false, done: true, detail: `already ${run.status}` }
   }
 
-  // CAS lease — heartbeat + cron continue must not tick the same run concurrently.
-  const claimed = await claimTickLease('e2e', run.id)
-  if (!claimed) {
-    return {
-      run,
-      advanced: false,
-      done: false,
-      detail: 'e2e tick lease held by another worker',
-    }
-  }
+  // Lease is claimed by the caller (heartbeat claimRun, or cron/admin via
+  // claimTickLease). Do NOT claim here — a second claim always fails while
+  // heartbeat holds the lease and leaves e2e stuck on wait_seed_production.
 
   const userId = await masterUserId()
   let advanced = false

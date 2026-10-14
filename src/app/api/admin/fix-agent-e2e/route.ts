@@ -12,10 +12,12 @@ import {
   getActiveE2eRun,
   startE2eRunIfIdle,
   tickE2eRun,
+  getE2eRun,
   expectedReadmeDiff,
   E2E_FIXTURE_SITE_ID,
 } from '@/lib/fix-agent-e2e'
 import { scheduleE2eContinue } from '@/lib/fix-agent-e2e/schedule-continue'
+import { claimTickLease } from '@/lib/run-heartbeat/claim-tick-lease'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -73,6 +75,16 @@ export async function POST(req: NextRequest) {
           { status: 409 },
         )
       }
+      const claimed = await claimTickLease('e2e', started.run.id)
+      if (!claimed) {
+        return NextResponse.json({
+          ok: true,
+          run: started.run,
+          advanced: false,
+          done: false,
+          detail: 'e2e tick lease held by another worker',
+        })
+      }
       const result = await tickE2eRun({ runId: started.run.id })
       if (result.run.status === 'running') {
         scheduleE2eContinue({
@@ -92,6 +104,17 @@ export async function POST(req: NextRequest) {
     if (action === 'tick') {
       if (!body.runId) {
         return NextResponse.json({ error: 'runId required' }, { status: 400 })
+      }
+      const claimed = await claimTickLease('e2e', body.runId)
+      if (!claimed) {
+        const existing = await getE2eRun(body.runId)
+        return NextResponse.json({
+          ok: true,
+          run: existing,
+          advanced: false,
+          done: false,
+          detail: 'e2e tick lease held by another worker',
+        })
       }
       const result = await tickE2eRun({ runId: body.runId })
       if (result.run.status === 'running') {
