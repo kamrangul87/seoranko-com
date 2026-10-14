@@ -189,6 +189,10 @@ export type FindingsListResponse = {
     totalRenderTimeMs?: number
     /** Last tick/progress write — used for stall detection. */
     updatedAt?: string | null
+    /** Crawl wall-clock start (ISO). */
+    startedAt?: string | null
+    /** Crawl wall-clock end when terminal (ISO); null while running. */
+    finishedAt?: string | null
   } | null
   /** Present when the latest run is terminal — CM Stage 4. */
   whatChanged?: WhatChangedDigestUi | null

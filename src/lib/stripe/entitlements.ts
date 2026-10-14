@@ -10,8 +10,10 @@ import { FIX_STRATEGY_PRODUCT_DECISIONS } from '@/lib/fix-strategies/product-dec
 import { getStripe } from './client'
 import {
   DEFAULT_SEORANKO_PLAN_ID,
+  SEORANKO_PLANS,
   getSeorankoPlan,
   hasManageableSubscription,
+  type SeorankoPlanId,
 } from './plans'
 
 export type EntitlementDenial = {
@@ -113,16 +115,42 @@ function parsePositiveInt(raw: string | null | undefined): number | null {
 }
 
 /**
+ * Authoritative per-plan page cap from SEORANKO_PLANS (Starter 100 / Pro 500 /
+ * Agency 2000). Unknown plan ids → Starter (lowest paid), never Pro's 500.
+ */
+export function crawlPagesCapForPlanId(
+  planId: string | null | undefined,
+): number {
+  if (planId && planId in SEORANKO_PLANS) {
+    return SEORANKO_PLANS[planId as SeorankoPlanId].pagesPerCrawlDisplay
+  }
+  return SEORANKO_PLANS[DEFAULT_SEORANKO_PLAN_ID].pagesPerCrawlDisplay
+}
+
+/**
  * Paid page limit from Stripe Price → Product → Subscription metadata.
  * Keys tried: product-decisions crawlPagesStripeMetadataKey, then crawl_pages_per_run.
- * Falls back to crawlPagesPerRunPaidDefault when missing/unreadable.
+ * Missing/unreadable metadata → log error and fall back to Starter (100), never 500.
  */
 export async function paidCrawlPagesFromStripe(
   stripeSubscriptionId: string | null | undefined,
 ): Promise<number> {
-  const fallback = FIX_STRATEGY_PRODUCT_DECISIONS.crawlPagesPerRunPaidDefault
-  if (!stripeSubscriptionId?.trim()) return fallback
-  if (!process.env.STRIPE_SECRET_KEY?.trim()) return fallback
+  const starterFallback =
+    SEORANKO_PLANS[DEFAULT_SEORANKO_PLAN_ID].pagesPerCrawlDisplay
+  if (!stripeSubscriptionId?.trim()) {
+    console.error(
+      '[entitlements] paidCrawlPagesFromStripe: missing stripe_subscription_id; falling back to Starter page cap',
+      { fallback: starterFallback },
+    )
+    return starterFallback
+  }
+  if (!process.env.STRIPE_SECRET_KEY?.trim()) {
+    console.error(
+      '[entitlements] paidCrawlPagesFromStripe: STRIPE_SECRET_KEY unset; falling back to Starter page cap',
+      { fallback: starterFallback },
+    )
+    return starterFallback
+  }
 
   try {
     const stripe = getStripe()
@@ -147,10 +175,26 @@ export async function paidCrawlPagesFromStripe(
 
     const fromSub = fromMeta(sub.metadata)
     if (fromSub != null) return fromSub
-  } catch {
-    // Stripe outage / bad id → paid default, never free
+
+    console.error(
+      '[entitlements] paidCrawlPagesFromStripe: no crawl page metadata on Price/Product/Subscription; falling back to Starter page cap',
+      {
+        stripeSubscriptionId,
+        priceId: typeof price?.id === 'string' ? price.id : null,
+        fallback: starterFallback,
+      },
+    )
+  } catch (err) {
+    console.error(
+      '[entitlements] paidCrawlPagesFromStripe: Stripe lookup failed; falling back to Starter page cap',
+      {
+        stripeSubscriptionId,
+        fallback: starterFallback,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    )
   }
-  return fallback
+  return starterFallback
 }
 
 /** Per-crawl page enqueue limit + plan label for coverage notes / UI. */
@@ -159,9 +203,10 @@ export async function crawlPageQuotaForUser(input: {
   email?: string | null
 }): Promise<CrawlPageQuota> {
   if (isMasterUserEmail(input.email)) {
+    // Dogfood: Agency enqueue cap (hard safety still CRAWL_MAX_DISCOVERED).
     return {
-      maxPages: FIX_STRATEGY_PRODUCT_DECISIONS.crawlPagesPerRunPaidDefault,
-      planLabel: getSeorankoPlan(DEFAULT_SEORANKO_PLAN_ID).label,
+      maxPages: crawlPagesCapForPlanId('seoranko_agency'),
+      planLabel: getSeorankoPlan('seoranko_agency').label,
       isFree: false,
     }
   }

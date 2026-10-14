@@ -8,6 +8,7 @@ import type {
   FindingsListResponse,
   UiFinding,
 } from '@/lib/fix-strategies/findings-ui/client'
+import { formatCrawlDuration } from '@/lib/fix-strategies/findings-ui/crawl/format-crawl-duration'
 import { summarizePartialCoverage } from '@/lib/fix-strategies/findings-ui/crawl/partial-coverage'
 import { itemUiStep } from '@/lib/fix-strategies/findings-ui/fix-run/phases'
 import { shouldShowFixMySiteButton } from '@/lib/fix-strategies/findings-ui/fix-run/master-gate'
@@ -641,6 +642,33 @@ export default function FindingsListPage() {
                 Status:{' '}
                 {crawlStalled ? 'Crawl stalled' : crawlStatusLabel(crawl.status)}
               </span>
+              {(() => {
+                const duration = formatCrawlDuration({
+                  startedAt: crawl.startedAt,
+                  finishedAt: crawl.finishedAt,
+                })
+                if (!duration) return null
+                const label =
+                  crawl.finishedAt != null
+                    ? `Duration ${duration}`
+                    : `Elapsed ${duration}`
+                return (
+                  <span
+                    className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]"
+                    title={
+                      crawl.startedAt
+                        ? `Started ${crawl.startedAt}${
+                            crawl.finishedAt
+                              ? ` · Finished ${crawl.finishedAt}`
+                              : ''
+                          }`
+                        : undefined
+                    }
+                  >
+                    {label}
+                  </span>
+                )
+              })()}
               <span className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]">
                 {crawl.urlsCrawled} crawled · {crawl.urlsFound} found
                 {crawl.urlsDiscovered < crawl.urlsFound
