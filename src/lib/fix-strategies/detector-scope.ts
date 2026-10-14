@@ -57,6 +57,8 @@ import { DETECTOR_SCOPE as t58 } from './topic-58'
 import { DETECTOR_SCOPE as t59 } from './topic-59'
 import { DETECTOR_SCOPE as t71 } from './topic-71'
 import { DETECTOR_SCOPE as t72 } from './topic-72'
+import { DETECTOR_SCOPE as t73 } from './topic-73'
+import { DETECTOR_SCOPE as t74 } from './topic-74'
 
 export type DetectorScope = 'per-page' | 'whole-site'
 
@@ -112,6 +114,8 @@ export const DETECTOR_SCOPE_BY_TOPIC: Readonly<Record<string, DetectorScope>> = 
   '59': t59,
   '71': t71,
   '72': t72,
+  '73': t73,
+  '74': t74,
 }
 
 /**
@@ -149,6 +153,8 @@ export const CHUNK_LOOP_TOPIC_IDS = [
   '39',
   '42',
   '49',
+  '73',
+  '74',
 ] as const
 
 /** Topic ids run once when the crawl frontier is exhausted. */

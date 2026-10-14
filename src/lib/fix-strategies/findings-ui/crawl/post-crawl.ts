@@ -42,12 +42,19 @@ import { detectAlternateTargetNotIndexable } from '@/lib/fix-strategies/topic-48
 import { detectGoogleChosenCanonicalMismatch } from '@/lib/fix-strategies/topic-55'
 import { detectDiscoveredNotIndexed } from '@/lib/fix-strategies/topic-56'
 import { detectCrawledNotIndexed } from '@/lib/fix-strategies/topic-57'
+import { detectZeroRawCrawlableAnchors } from '@/lib/fix-strategies/topic-73'
+import { buildIndexDiagnosis } from '@/lib/fix-strategies/shared/index-diagnosis'
+import { FIX_STRATEGY_PRODUCT_DECISIONS } from '@/lib/fix-strategies/product-decisions'
 import { detectIndexedVsCrawlMismatch } from '@/lib/fix-strategies/topic-58'
 import { detectImpressionsNoInternalLinks } from '@/lib/fix-strategies/topic-59'
 import { detectPaginationSeriesIssues } from '@/lib/fix-strategies/topic-71'
 import { detectPrivacyConsentIssues } from '@/lib/fix-strategies/topic-72'
 import { loadPrivacySiteSettings } from '@/lib/compliance/load-privacy-settings'
-import { loadGscDetectContext } from '@/lib/fix-strategies/shared/gsc-detect-context'
+import {
+  isCrawledNotIndexed,
+  isDiscoveredNotIndexed,
+  loadGscDetectContext,
+} from '@/lib/fix-strategies/shared/gsc-detect-context'
 import { normalizeCanonicalForGscMatch } from '@/lib/fix-strategies/shared/canonical-normalize'
 import {
   isPaginatedUrl,
@@ -736,12 +743,35 @@ async function runGscTopics(ctx: PhaseCtx): Promise<DetectorEmit[]> {
     detectGoogleChosenCanonicalMismatch({ gsc, declaredCanonicalByUrl }),
     out,
   )
-  takeBuckets(
-    '56',
-    'gsc/discovered-not-indexed',
-    detectDiscoveredNotIndexed({ gsc, orphanNormalized }),
-    out,
-  )
+
+  const floor = FIX_STRATEGY_PRODUCT_DECISIONS.impressionsFloor
+  const highImpressionNormalized = new Set<string>()
+  if (typeof floor === 'number') {
+    for (const m of gsc.metrics) {
+      if (m.impressions >= floor) highImpressionNormalized.add(m.urlNormalized)
+    }
+  }
+  if (highImpressionNormalized.size > 0) {
+    takeBuckets(
+      '73',
+      'crawlability/zero-raw-crawlable-anchors',
+      detectZeroRawCrawlableAnchors({
+        origin: ctx.origin,
+        highImpressionNormalized,
+        pages: ctx.usableHtml.map((p) => ({
+          pageUrl: p.url,
+          rawHtml: p.html || '',
+          renderedHtml: null,
+        })),
+        normalizeUrl: (u) =>
+          normalizeCanonicalForGscMatch(u) ||
+          normalizeFixStrategyUrl(u) ||
+          u,
+      }),
+      out,
+    )
+  }
+
   const independentFindingsByUrl = new Map<string, string[]>()
   for (const e of [...ctx.priorEmits, ...out]) {
     if (e.bucket === 'internal') continue
@@ -755,10 +785,66 @@ async function runGscTopics(ctx: PhaseCtx): Promise<DetectorEmit[]> {
     if (!prev.includes(label)) prev.push(label)
     independentFindingsByUrl.set(norm, prev)
   }
+
+  const sitePagesRaw = ctx.usableHtml.map((p) => ({
+    pageUrl: p.url,
+    rawHtml: p.html || '',
+  }))
+  const pageByNorm = new Map(
+    ctx.usableHtml.map((p) => {
+      const n =
+        normalizeCanonicalForGscMatch(p.url) ||
+        normalizeFixStrategyUrl(p.url) ||
+        p.url
+      return [n, p] as const
+    }),
+  )
+  const diagnosisByUrl = new Map<
+    string,
+    ReturnType<typeof buildIndexDiagnosis>
+  >()
+  for (const row of gsc.inspections) {
+    if (
+      !isDiscoveredNotIndexed(row.coverageState) &&
+      !isCrawledNotIndexed(row.coverageState)
+    ) {
+      continue
+    }
+    const norm = row.urlNormalized || normalizeCanonicalForGscMatch(row.url)
+    const page = pageByNorm.get(norm) || null
+    diagnosisByUrl.set(
+      norm,
+      buildIndexDiagnosis({
+        pageUrl: row.url,
+        coverageState: row.coverageState,
+        page: page
+          ? {
+              pageUrl: page.url,
+              rawHtml: page.html || '',
+              headers: page.headers ?? null,
+              httpStatus: page.status,
+            }
+          : null,
+        sitePagesRaw,
+        independentFindings: independentFindingsByUrl.get(norm) || [],
+      }),
+    )
+  }
+
+  takeBuckets(
+    '56',
+    'gsc/discovered-not-indexed',
+    detectDiscoveredNotIndexed({ gsc, orphanNormalized, diagnosisByUrl }),
+    out,
+  )
   takeBuckets(
     '57',
     'gsc/crawled-not-indexed',
-    detectCrawledNotIndexed({ gsc, independentFindingsByUrl }),
+    detectCrawledNotIndexed({
+      gsc,
+      independentFindingsByUrl,
+      diagnosisByUrl,
+    }),
     out,
   )
   takeBuckets(

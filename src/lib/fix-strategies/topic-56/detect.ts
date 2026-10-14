@@ -8,6 +8,7 @@ import {
   type GscDetectContext,
 } from '@/lib/fix-strategies/shared/gsc-detect-context'
 import { normalizeCanonicalForGscMatch } from '@/lib/fix-strategies/shared/canonical-normalize'
+import type { IndexDiagnosis } from '@/lib/fix-strategies/shared/index-diagnosis'
 
 export type Topic56Verdict = 'discovered-not-indexed'
 
@@ -34,6 +35,8 @@ export type DetectTopic56Options = {
   persistent5xxNormalized?: Set<string>
   /** Normalized URLs Disallow'd for Googlebot. */
   disallowedNormalized?: Set<string>
+  /** Side-by-side crawl evidence + honest classification (Index Diagnosis). */
+  diagnosisByUrl?: Map<string, IndexDiagnosis>
 }
 
 export function detectDiscoveredNotIndexed(
@@ -72,6 +75,17 @@ export function detectDiscoveredNotIndexed(
     if (orphan) corroborations.push('zero_inbound_crawlable_links')
     if (persistent5xx) corroborations.push('persistent_5xx_on_our_crawl')
 
+    const diagnosis =
+      opts.diagnosisByUrl?.get(norm) ||
+      opts.diagnosisByUrl?.get(row.url) ||
+      null
+    const diagnosisLine = diagnosis
+      ? ` Index Diagnosis: inbound raw links ${diagnosis.inboundInternalLinksRaw}, ` +
+        `words ${diagnosis.wordCount}, canonical ${diagnosis.canonical ?? 'none'}, ` +
+        `robots ${diagnosis.robots ?? 'none'}, last-modified ${diagnosis.lastModified ?? 'unknown'}. ` +
+        `${diagnosis.classificationDetail}`
+      : ''
+
     findings.push({
       verdict: 'discovered-not-indexed',
       pageUrl: row.url,
@@ -84,7 +98,8 @@ export function detectDiscoveredNotIndexed(
         (corroborations.length
           ? `Independent corroboration: ${corroborations.join(', ')}. `
           : `No independent corroborating defect on our crawl. `) +
-        `Inspection coverage may be partial.`,
+        diagnosisLine +
+        ` Inspection coverage may be partial. Never promises indexing.`,
       evidenceValues: {
         coverageState: row.coverageState,
         lastCrawlTime: null,
@@ -93,6 +108,8 @@ export function detectDiscoveredNotIndexed(
         corroborations,
         neverAssertServerOverload: true,
         inspectionCoveragePartial: opts.gsc.inspectionCoveragePartial,
+        indexDiagnosis: diagnosis,
+        neverPromiseIndexing: true,
       },
     })
   }

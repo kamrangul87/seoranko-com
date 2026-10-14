@@ -7,6 +7,7 @@ import {
   isCrawledNotIndexed,
   type GscDetectContext,
 } from '@/lib/fix-strategies/shared/gsc-detect-context'
+import type { IndexDiagnosis } from '@/lib/fix-strategies/shared/index-diagnosis'
 
 export type Topic57Verdict = 'crawled-not-indexed'
 
@@ -29,6 +30,8 @@ export type DetectTopic57Options = {
   gsc: GscDetectContext | null
   /** Independent findings already raised on the same URL (other topics) — listed, never as cause. */
   independentFindingsByUrl?: Map<string, string[]>
+  /** Side-by-side crawl evidence + honest classification (Index Diagnosis). */
+  diagnosisByUrl?: Map<string, IndexDiagnosis>
 }
 
 export function detectCrawledNotIndexed(
@@ -50,6 +53,17 @@ export function detectCrawledNotIndexed(
       opts.independentFindingsByUrl?.get(row.urlNormalized) ||
       opts.independentFindingsByUrl?.get(row.url) ||
       []
+    const diagnosis =
+      opts.diagnosisByUrl?.get(row.urlNormalized) ||
+      opts.diagnosisByUrl?.get(row.url) ||
+      null
+
+    const diagnosisLine = diagnosis
+      ? ` Index Diagnosis: inbound raw links ${diagnosis.inboundInternalLinksRaw}, ` +
+        `words ${diagnosis.wordCount}, canonical ${diagnosis.canonical ?? 'none'}, ` +
+        `robots ${diagnosis.robots ?? 'none'}, last-modified ${diagnosis.lastModified ?? 'unknown'}. ` +
+        `${diagnosis.classificationDetail}`
+      : ''
 
     findings.push({
       verdict: 'crawled-not-indexed',
@@ -64,7 +78,8 @@ export function detectCrawledNotIndexed(
         (independent.length
           ? `Separately, independent findings on this URL (not claimed as the cause): ${independent.join('; ')}. `
           : '') +
-        `Historical Inspection state; coverage may be partial.`,
+        diagnosisLine +
+        ` Historical Inspection state; coverage may be partial. Never promises indexing.`,
       evidenceValues: {
         coverageState: row.coverageState,
         lastCrawlTime: row.lastCrawlTime,
@@ -75,6 +90,8 @@ export function detectCrawledNotIndexed(
         independentFindings: independent,
         doNotResubmit: true,
         inspectionCoveragePartial: opts.gsc.inspectionCoveragePartial,
+        indexDiagnosis: diagnosis,
+        neverPromiseIndexing: true,
       },
     })
   }

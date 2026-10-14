@@ -81,9 +81,17 @@ import { detectIndexedVsCrawlMismatch } from '@/lib/fix-strategies/topic-58'
 import { detectImpressionsNoInternalLinks } from '@/lib/fix-strategies/topic-59'
 import { detectPaginationSeriesIssues } from '@/lib/fix-strategies/topic-71'
 import { detectPrivacyConsentIssues } from '@/lib/fix-strategies/topic-72'
+import { detectZeroRawCrawlableAnchors } from '@/lib/fix-strategies/topic-73'
+import { detectOriginPrefixedExternalHrefs } from '@/lib/fix-strategies/topic-74'
 import { loadPrivacySiteSettings } from '@/lib/compliance/load-privacy-settings'
-import { loadGscDetectContext } from '@/lib/fix-strategies/shared/gsc-detect-context'
+import {
+  isCrawledNotIndexed,
+  isDiscoveredNotIndexed,
+  loadGscDetectContext,
+} from '@/lib/fix-strategies/shared/gsc-detect-context'
 import { normalizeCanonicalForGscMatch } from '@/lib/fix-strategies/shared/canonical-normalize'
+import { buildIndexDiagnosis } from '@/lib/fix-strategies/shared/index-diagnosis'
+import { FIX_STRATEGY_PRODUCT_DECISIONS } from '@/lib/fix-strategies/product-decisions'
 import {
   isPaginatedUrl,
   paginationPatternUrlsFromCrawl,
@@ -472,7 +480,6 @@ export async function runDetectorsOnPages(
   pages: CrawledPage[],
   priorFiveXXByUrl?: Map<string, PriorFiveXXObservation>,
 ): Promise<DetectorEmit[]> {
-  void origin
   const out: DetectorEmit[] = []
   // urlset/sitemapindex bodies are sitemap detector INPUT (24–28), not HTML
   // pages — exclude from every HTML per-page detector (2b, 30, 34, …).
@@ -636,6 +643,39 @@ export async function runDetectorsOnPages(
         { deps: fetchDeps },
       ),
       out,
+    )
+  }
+
+  // Topic 73/74: include client-only SPA shells (raw HTML is the signal).
+  const rawJudgePages = pages.filter(
+    (p) =>
+      p.streamComplete &&
+      !p.crawlerCausedBackoff &&
+      p.status === 200 &&
+      (p.rawHtml || p.html) &&
+      !isSitemapXmlDocument(p.rawHtml || p.html || ''),
+  )
+  takeBuckets(
+    '73',
+    'crawlability/zero-raw-crawlable-anchors',
+    detectZeroRawCrawlableAnchors({
+      origin,
+      pages: rawJudgePages.map((p) => ({
+        pageUrl: p.finalUrl,
+        rawHtml: p.rawHtml || '',
+        renderedHtml:
+          p.renderMode === 'rendered' && p.html !== p.rawHtml ? p.html : null,
+      })),
+    }),
+    out,
+  )
+  for (const p of rawJudgePages) {
+    takeBuckets(
+      '74',
+      'internal-links/origin-prefixed-external-href',
+      detectOriginPrefixedExternalHrefs(p.rawHtml || p.html || '', p.finalUrl),
+      out,
+      p.finalUrl,
     )
   }
 
@@ -1332,15 +1372,53 @@ export async function runWholeSiteDetectorsOnCrawl(
       }),
       out,
     )
-    takeBuckets(
-      '56',
-      'gsc/discovered-not-indexed',
-      detectDiscoveredNotIndexed({
-        gsc,
-        orphanNormalized,
+
+    // Topic 73 again for high-impression URLs (impressions from GSC).
+    const floor = FIX_STRATEGY_PRODUCT_DECISIONS.impressionsFloor
+    const highImpressionNormalized = new Set<string>()
+    if (typeof floor === 'number') {
+      for (const m of gsc.metrics) {
+        if (m.impressions >= floor) highImpressionNormalized.add(m.urlNormalized)
+      }
+    }
+    if (highImpressionNormalized.size > 0) {
+      takeBuckets(
+        '73',
+        'crawlability/zero-raw-crawlable-anchors',
+        detectZeroRawCrawlableAnchors({
+          origin,
+          highImpressionNormalized,
+          pages: usableHtml.map((p) => ({
+            pageUrl: p.url,
+            // Post-crawl store may only keep detector HTML; treat as raw for
+            // high-impression re-check (chunk pass already judged true raw).
+            rawHtml: p.html || '',
+            renderedHtml: null,
+          })),
+          normalizeUrl: (u) =>
+            normalizeCanonicalForGscMatch(u) ||
+            normalizeFixStrategyUrl(u) ||
+            u,
+        }),
+        out,
+      )
+    }
+
+    // Index Diagnosis inputs (raw-ish HTML from crawl store).
+    const sitePagesRaw = usableHtml.map((p) => ({
+      pageUrl: p.url,
+      rawHtml: p.html || '',
+    }))
+    const pageByNorm = new Map(
+      usableHtml.map((p) => {
+        const n =
+          normalizeCanonicalForGscMatch(p.url) ||
+          normalizeFixStrategyUrl(p.url) ||
+          p.url
+        return [n, p] as const
       }),
-      out,
     )
+
     // Topic 57: list independent findings already raised on the same URL
     // (never as cause — B12). Built from emits so far in this post-crawl pass
     // plus any prior per-chunk emits already in `out` when callers merge.
@@ -1357,10 +1435,58 @@ export async function runWholeSiteDetectorsOnCrawl(
       if (!prev.includes(label)) prev.push(label)
       independentFindingsByUrl.set(norm, prev)
     }
+
+    const diagnosisByUrl = new Map<
+      string,
+      ReturnType<typeof buildIndexDiagnosis>
+    >()
+    for (const row of gsc.inspections) {
+      if (
+        !isDiscoveredNotIndexed(row.coverageState) &&
+        !isCrawledNotIndexed(row.coverageState)
+      ) {
+        continue
+      }
+      const norm = row.urlNormalized || normalizeCanonicalForGscMatch(row.url)
+      const page = pageByNorm.get(norm) || null
+      diagnosisByUrl.set(
+        norm,
+        buildIndexDiagnosis({
+          pageUrl: row.url,
+          coverageState: row.coverageState,
+          page: page
+            ? {
+                pageUrl: page.url,
+                rawHtml: page.html || '',
+                headers: page.headers ?? null,
+                httpStatus: page.status,
+              }
+            : null,
+          sitePagesRaw,
+          independentFindings: independentFindingsByUrl.get(norm) || [],
+          disallowedByRobots: false,
+        }),
+      )
+    }
+
+    takeBuckets(
+      '56',
+      'gsc/discovered-not-indexed',
+      detectDiscoveredNotIndexed({
+        gsc,
+        orphanNormalized,
+        diagnosisByUrl,
+      }),
+      out,
+    )
     takeBuckets(
       '57',
       'gsc/crawled-not-indexed',
-      detectCrawledNotIndexed({ gsc, independentFindingsByUrl }),
+      detectCrawledNotIndexed({
+        gsc,
+        independentFindingsByUrl,
+        diagnosisByUrl,
+      }),
       out,
     )
     takeBuckets(

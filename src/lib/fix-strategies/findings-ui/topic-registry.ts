@@ -54,6 +54,8 @@ export const TOPIC_DOSSIER_SLUG: Record<string, string> = {
   '59': 'gsc__impressions_no_internal_links',
   '71': 'pagination__series_misconfigured',
   '72': 'privacy-consent',
+  '73': 'crawlability__zero_raw_crawlable_anchors',
+  '74': 'internal-links__origin_prefixed_external_href',
 }
 
 export function dossierSlugForTopic(topicId: string): string | null {

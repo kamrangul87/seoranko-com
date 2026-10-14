@@ -231,6 +231,76 @@ export default function FindingDetailPage() {
                     )}
                   </dl>
                 )}
+                {(() => {
+                  const d = finding.evidenceValues?.indexDiagnosis as
+                    | {
+                        inboundInternalLinksRaw?: number
+                        wordCount?: number
+                        canonical?: string | null
+                        robots?: string | null
+                        lastModified?: string | null
+                        classification?: string
+                        classificationDetail?: string
+                        technicalCauses?: string[]
+                      }
+                    | null
+                    | undefined
+                  if (!d || typeof d !== 'object') return null
+                  return (
+                    <div className="mt-4 rounded-md border border-[#E8E8E4] p-4">
+                      <h3 className="text-xs uppercase tracking-wide text-[#9B9B9B] mb-3">
+                        Index Diagnosis
+                      </h3>
+                      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <dt className="text-xs text-[#9B9B9B]">
+                            Inbound internal links (raw HTML)
+                          </dt>
+                          <dd className="font-mono">
+                            {d.inboundInternalLinksRaw ?? '—'}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-[#9B9B9B]">Word count</dt>
+                          <dd className="font-mono">{d.wordCount ?? '—'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-[#9B9B9B]">Canonical</dt>
+                          <dd className="font-mono break-all">
+                            {d.canonical ?? 'none'}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-[#9B9B9B]">Robots</dt>
+                          <dd className="font-mono break-all">
+                            {d.robots ?? 'none'}
+                          </dd>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <dt className="text-xs text-[#9B9B9B]">
+                            Last modified
+                          </dt>
+                          <dd className="font-mono">
+                            {d.lastModified ?? 'unknown'}
+                          </dd>
+                        </div>
+                      </dl>
+                      <p className="mt-3 text-sm text-[#0F0F0F]">
+                        {d.classification === 'technical_cause_found'
+                          ? 'Technical cause found'
+                          : 'No technical blocker found – Google\'s quality or priority decision'}
+                      </p>
+                      {d.classificationDetail && (
+                        <p className="mt-1 text-sm text-[#6B6B6B]">
+                          {d.classificationDetail}
+                        </p>
+                      )}
+                      <p className="mt-2 text-xs text-[#9B9B9B]">
+                        Never promises indexing.
+                      </p>
+                    </div>
+                  )
+                })()}
                 {finding.evidenceValues?.relatedFindings &&
                   finding.evidenceValues.relatedFindings.length > 0 && (
                     <div className="mt-4">
