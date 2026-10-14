@@ -157,8 +157,12 @@ export type ScheduledSiteInput = {
 const DRAIN_GUARD = 500
 
 /**
- * Tick a run until terminal (complete/partial/failed) or guard exhausted.
- * Abandon-fail any leftover running state so we never leave finished_at null.
+ * Tick a run until terminal (complete/partial/failed) or this drain's tick
+ * budget is exhausted.
+ *
+ * Exhausting maxTicks must NOT mark the crawl failed while URLs remain —
+ * the next heartbeat / e2e continue advances it. Only the 15-minute
+ * no-progress watchdog may fail a stalled crawl.
  */
 export async function drainCrawlRunToTerminal(
   runId: string,
@@ -180,17 +184,7 @@ export async function drainCrawlRunToTerminal(
     isPartial = tick.isPartial
     if (tick.done) break
   }
-  let run = await store.getRun(runId)
-  if (run && (run.status === 'queued' || run.status === 'running')) {
-    // Must not leave scheduled runs stuck — force failed with finished_at.
-    await store.updateRun(runId, {
-      status: 'failed',
-      finishedAt: new Date().toISOString(),
-      errorDetail:
-        'Scheduled drain exceeded tick budget before frontier emptied — marked failed so resolution/monitoring stay honest.',
-    })
-    run = await store.getRun(runId)
-  }
+  const run = await store.getRun(runId)
   return {
     status: run?.status ?? lastStatus,
     done: Boolean(
