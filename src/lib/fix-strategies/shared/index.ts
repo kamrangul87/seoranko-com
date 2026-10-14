@@ -137,6 +137,16 @@ export {
 } from './response-signals'
 
 export {
+  buildIndexDiagnosis,
+  countInboundInternalLinksRaw,
+} from './index-diagnosis'
+export type {
+  IndexDiagnosis,
+  IndexDiagnosisClassification,
+  IndexDiagnosisPageInput,
+} from './index-diagnosis'
+
+export {
   extractStructuredData,
   collectUrlProperties,
   getProp,

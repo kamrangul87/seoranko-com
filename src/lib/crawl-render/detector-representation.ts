@@ -66,6 +66,10 @@ export const DETECTOR_REPRESENTATION_BY_TOPIC: Record<string, DetectorRepresenta
   '47': 'both',
   '48': 'both',
   '49': 'rendered',
+
+  // Pre-JS crawlability / malformed hrefs — judge the HTTP body Googlebot sees
+  '73': 'raw',
+  '74': 'raw',
 }
 
 export function representationForTopic(topicId: string): DetectorRepresentation {
