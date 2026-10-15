@@ -67,7 +67,9 @@ function rowToReceipt(row: ItemJoinRow): FixReceipt | null {
     pageUrl: finding.page_url,
     topicId: String(finding.topic_id),
     verdict: finding.verdict,
-    plainEnglish: ownerPlainEnglish(finding.verdict),
+    plainEnglish:
+      ownerPlainEnglish(finding.verdict) ??
+      `Fixed: ${finding.verdict.replace(/_/g, ' ')}`,
     path: row.path,
     commitSha: row.commit_sha,
     prUrl: run.pr_url,
