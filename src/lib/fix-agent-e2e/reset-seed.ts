@@ -45,7 +45,42 @@ export type ResetSeedResult =
   | { ok: true; seedSha: string; mainSha: string; detail: string }
   | { ok: false; error: string }
 
-/** Close known stuck Fix Agent e2e PRs and delete their head branches. */
+type OpenPr = { number: number; headRef?: string }
+
+/** List open PRs on the fixture repo (paginated, capped). */
+export async function listOpenFixturePrs(input: {
+  accessToken: string
+  owner?: string
+  repo?: string
+  maxPages?: number
+}): Promise<OpenPr[]> {
+  const owner = input.owner || E2E_FIXTURE_OWNER
+  const repo = input.repo || E2E_FIXTURE_REPO
+  const token = input.accessToken
+  const maxPages = input.maxPages ?? 5
+  const out: OpenPr[] = []
+  for (let page = 1; page <= maxPages; page++) {
+    const res = await ghJson<
+      Array<{ number?: number; head?: { ref?: string }; state?: string }>
+    >(
+      token,
+      `/repos/${owner}/${repo}/pulls?state=open&per_page=100&page=${page}`,
+    )
+    if (!res.ok || !Array.isArray(res.data) || res.data.length === 0) break
+    for (const pr of res.data) {
+      if (typeof pr.number === 'number') {
+        out.push({ number: pr.number, headRef: pr.head?.ref })
+      }
+    }
+    if (res.data.length < 100) break
+  }
+  return out
+}
+
+/**
+ * Close open fixture PRs (and delete head branches) in parallel.
+ * Defaults to every open PR when prNumbers is omitted.
+ */
 export async function closeStuckFixturePrs(input: {
   accessToken: string
   prNumbers?: number[]
@@ -55,34 +90,69 @@ export async function closeStuckFixturePrs(input: {
   const owner = input.owner || E2E_FIXTURE_OWNER
   const repo = input.repo || E2E_FIXTURE_REPO
   const token = input.accessToken
-  const prs = input.prNumbers ?? [3, 4, 5, 6]
-  const closed: number[] = []
-  for (const n of prs) {
-    await ghJson(token, `/repos/${owner}/${repo}/issues/${n}/comments`, {
-      method: 'POST',
-      body: JSON.stringify({
-        body: 'Closing stuck Fix Agent e2e PR — fixture reset to seed for a clean rerun.',
-      }),
-    })
-    const prRes = await ghJson<{
-      state?: string
-      head?: { ref?: string }
-    }>(token, `/repos/${owner}/${repo}/pulls/${n}`)
-    if (prRes.data.state === 'closed') continue
-    const patch = await ghJson(token, `/repos/${owner}/${repo}/pulls/${n}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ state: 'closed' }),
-    })
-    if (patch.ok) closed.push(n)
-    const head = prRes.data.head?.ref
-    if (head) {
-      await ghJson(
-        token,
-        `/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(head)}`,
-        { method: 'DELETE' },
+
+  let targets: OpenPr[]
+  if (input.prNumbers && input.prNumbers.length > 0) {
+    targets = input.prNumbers.map((n) => ({ number: n }))
+  } else {
+    try {
+      targets = await listOpenFixturePrs({ accessToken: token, owner, repo })
+    } catch (err) {
+      console.warn(
+        '[reset-seed] list open PRs failed:',
+        err instanceof Error ? err.message : err,
       )
+      return { closed: [], detail: 'list open PRs failed' }
     }
   }
+
+  if (targets.length === 0) {
+    return { closed: [], detail: 'no open stuck PRs' }
+  }
+
+  const closed = (
+    await Promise.all(
+      targets.map(async (pr) => {
+        try {
+          await ghJson(token, `/repos/${owner}/${repo}/issues/${pr.number}/comments`, {
+            method: 'POST',
+            body: JSON.stringify({
+              body: 'Closing stuck Fix Agent e2e PR — fixture reset to seed for a clean rerun.',
+            }),
+          })
+          const prRes = await ghJson<{
+            state?: string
+            head?: { ref?: string }
+          }>(token, `/repos/${owner}/${repo}/pulls/${pr.number}`)
+          if (prRes.data.state === 'closed') return null
+          const patch = await ghJson(
+            token,
+            `/repos/${owner}/${repo}/pulls/${pr.number}`,
+            {
+              method: 'PATCH',
+              body: JSON.stringify({ state: 'closed' }),
+            },
+          )
+          const head = pr.headRef || prRes.data.head?.ref
+          if (head) {
+            await ghJson(
+              token,
+              `/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(head)}`,
+              { method: 'DELETE' },
+            )
+          }
+          return patch.ok ? pr.number : null
+        } catch (err) {
+          console.warn(
+            `[reset-seed] close PR #${pr.number} failed:`,
+            err instanceof Error ? err.message : err,
+          )
+          return null
+        }
+      }),
+    )
+  ).filter((n): n is number => n != null)
+
   return {
     closed,
     detail: closed.length
@@ -92,8 +162,33 @@ export async function closeStuckFixturePrs(input: {
 }
 
 /**
+ * Fire-and-forget PR cleanup so reset_seed is never blocked by GitHub PR API
+ * latency. Errors are logged; the reset commit proceeds immediately.
+ */
+export function scheduleCloseStuckFixturePrs(input: {
+  accessToken: string
+  owner?: string
+  repo?: string
+  prNumbers?: number[]
+}): void {
+  void closeStuckFixturePrs(input)
+    .then((r) => {
+      if (r.closed.length > 0) {
+        console.info(`[reset-seed] ${r.detail}`)
+      }
+    })
+    .catch((err) => {
+      console.warn(
+        '[reset-seed] background PR cleanup failed:',
+        err instanceof Error ? err.message : err,
+      )
+    })
+}
+
+/**
  * Point main at a new commit whose tree equals the seed branch tip.
  * If main already equals seed tip, no-op success.
+ * PR cleanup runs in the background and must not delay the reset commit.
  */
 export async function resetFixtureMainToSeed(input: {
   accessToken: string
@@ -106,7 +201,8 @@ export async function resetFixtureMainToSeed(input: {
   const seedBranch = input.seedBranch || E2E_SEED_BRANCH
   const token = input.accessToken
 
-  await closeStuckFixturePrs({ accessToken: token, owner, repo })
+  // Do not await — stale PR close must not block reset_seed step budget.
+  scheduleCloseStuckFixturePrs({ accessToken: token, owner, repo })
 
   const seedRef = await ghJson<{ object?: { sha?: string } }>(
     token,

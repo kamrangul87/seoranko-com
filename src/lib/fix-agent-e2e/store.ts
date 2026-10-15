@@ -1,6 +1,11 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { E2eStepName } from './constants'
-import { prepareForwardOnlyE2eWrite } from './step-progress'
+import {
+  maxReachedStepIndex,
+  prepareForwardOnlyE2eWrite,
+  stepStatusRank,
+  wouldRewindCurrentStep,
+} from './step-progress'
 
 export type E2eStepRecord = {
   name: E2eStepName
@@ -29,6 +34,8 @@ export type E2eRunRow = {
   finished_at: string | null
   created_at: string
   updated_at: string
+  /** Monotonic CAS token; preferred over updated_at for compare-and-swap. */
+  write_version?: number
 }
 
 function sb(): SupabaseClient {
@@ -68,7 +75,7 @@ export async function getE2eRun(id: string): Promise<E2eRunRow | null> {
   return (data as E2eRunRow) || null
 }
 
-const E2E_STEPS_CAS_ATTEMPTS = 5
+const E2E_STEPS_CAS_ATTEMPTS = 8
 
 export type E2eRunUpdatePatch = Partial<{
   status: E2eRunRow['status']
@@ -85,9 +92,84 @@ export type E2eRunUpdatePatch = Partial<{
 }>
 
 /**
+ * True when live already has every forward field the patch wants — so a CAS
+ * miss after a concurrent successful write is still a success (idempotent).
+ */
+export function liveSatisfiesForwardPatch(
+  live: Pick<
+    E2eRunRow,
+    'status' | 'current_step' | 'steps' | 'seed_sha' | 'merge_sha' | 'fix_run_id' | 'crawl_run_id' | 'finished_at' | 'fail_reason' | 'first_failing_step' | 'consecutive_pass_days'
+  >,
+  patch: E2eRunUpdatePatch,
+): boolean {
+  if (patch.status !== undefined && live.status !== patch.status) return false
+  if (patch.seed_sha !== undefined && live.seed_sha !== patch.seed_sha) return false
+  if (patch.merge_sha !== undefined && live.merge_sha !== patch.merge_sha) return false
+  if (patch.fix_run_id !== undefined && live.fix_run_id !== patch.fix_run_id) {
+    return false
+  }
+  if (
+    patch.crawl_run_id !== undefined &&
+    live.crawl_run_id !== patch.crawl_run_id
+  ) {
+    return false
+  }
+  if (
+    patch.finished_at !== undefined &&
+    live.finished_at !== patch.finished_at
+  ) {
+    return false
+  }
+  if (
+    patch.fail_reason !== undefined &&
+    live.fail_reason !== patch.fail_reason
+  ) {
+    return false
+  }
+  if (
+    patch.first_failing_step !== undefined &&
+    live.first_failing_step !== patch.first_failing_step
+  ) {
+    return false
+  }
+  if (
+    patch.consecutive_pass_days !== undefined &&
+    live.consecutive_pass_days !== patch.consecutive_pass_days
+  ) {
+    return false
+  }
+
+  if (patch.current_step !== undefined) {
+    // Satisfied when live equals proposed, or live is already ahead (no rewind).
+    if (
+      live.current_step !== patch.current_step &&
+      !wouldRewindCurrentStep(live.current_step, patch.current_step)
+    ) {
+      return false
+    }
+  }
+
+  if (patch.steps !== undefined) {
+    const liveMax = maxReachedStepIndex(live.steps ?? [])
+    const wantMax = maxReachedStepIndex(patch.steps)
+    if (liveMax < wantMax) return false
+    for (const want of patch.steps) {
+      const cur = (live.steps ?? []).find((s) => s.name === want.name)
+      if (!cur) return false
+      if (stepStatusRank(cur.status) < stepStatusRank(want.status)) return false
+    }
+  }
+
+  return true
+}
+
+/**
  * Sole writer for e2e_runs.steps / current_step (compare-and-swap).
  * Heartbeat and ticks must call this — never update steps directly.
  * Forward-only: rejects passed→pending and current_step rewinds (logged).
+ * CAS uses write_version (integer); falls back to updated_at only if the
+ * column is missing (pre-migration). Retries on conflict; if live already
+ * satisfies the forward patch, returns success without rewriting.
  */
 export async function updateE2eRun(
   id: string,
@@ -99,16 +181,19 @@ export async function updateE2eRun(
   for (let attempt = 0; attempt < E2E_STEPS_CAS_ATTEMPTS; attempt++) {
     const { data: live, error: liveErr } = await client
       .from('e2e_runs')
-      .select('steps,current_step,updated_at')
+      .select('*')
       .eq('id', id)
       .maybeSingle()
     if (liveErr) throw new Error(liveErr.message)
     if (!live) throw new Error(`e2e_runs ${id} not found`)
 
-    const liveSteps = (live.steps as E2eStepRecord[]) ?? []
+    const liveRow = live as E2eRunRow
+    const liveSteps = liveRow.steps ?? []
     const liveCurrent =
-      typeof live.current_step === 'string' ? live.current_step : null
-    const liveUpdatedAt = String(live.updated_at)
+      typeof liveRow.current_step === 'string' ? liveRow.current_step : null
+    const liveVersion =
+      typeof liveRow.write_version === 'number' ? liveRow.write_version : null
+    const liveUpdatedAt = String(liveRow.updated_at)
 
     const nextPatch: Record<string, unknown> = { ...patch }
     if (patch.steps !== undefined || patch.current_step !== undefined) {
@@ -119,7 +204,7 @@ export async function updateE2eRun(
         proposedCurrentStep: patch.current_step,
       })
       for (const reason of prepared.rejected) {
-        console.warn(`[e2e_runs] run=${id} ${reason}`)
+        console.warn(`[e2e_runs] rejected write run=${id} reason=${reason}`)
       }
       if (patch.steps !== undefined) {
         nextPatch.steps = prepared.steps ?? liveSteps
@@ -133,24 +218,68 @@ export async function updateE2eRun(
       }
     }
 
+    // After forward-only merge, if live already matches what we would write,
+    // treat as success (another writer landed the same forward progress).
+    const effectivePatch: E2eRunUpdatePatch = {
+      ...patch,
+      ...(nextPatch.steps !== undefined
+        ? { steps: nextPatch.steps as E2eStepRecord[] }
+        : {}),
+      ...(nextPatch.current_step !== undefined ||
+      (patch.current_step !== undefined && !('current_step' in nextPatch))
+        ? 'current_step' in nextPatch
+          ? { current_step: nextPatch.current_step as string | null }
+          : { current_step: liveCurrent }
+        : {}),
+    }
+    if (liveSatisfiesForwardPatch(liveRow, effectivePatch)) {
+      if (attempt > 0) {
+        console.warn(
+          `[e2e_runs] rejected write run=${id} reason=cas_conflict_but_live_satisfies attempt=${attempt + 1}`,
+        )
+      }
+      return liveRow
+    }
+
     const nowIso = new Date().toISOString()
-    const { data, error } = await client
-      .from('e2e_runs')
-      .update({ ...nextPatch, updated_at: nowIso })
-      .eq('id', id)
-      .eq('updated_at', liveUpdatedAt)
-      .select('*')
-      .maybeSingle()
+    const writeBody: Record<string, unknown> = {
+      ...nextPatch,
+      updated_at: nowIso,
+    }
+    if (liveVersion !== null) {
+      writeBody.write_version = liveVersion + 1
+    }
+
+    let query = client.from('e2e_runs').update(writeBody).eq('id', id)
+    if (liveVersion !== null) {
+      query = query.eq('write_version', liveVersion)
+    } else {
+      // Pre-migration fallback — fragile; prefer write_version once migrated.
+      query = query.eq('updated_at', liveUpdatedAt)
+    }
+
+    const { data, error } = await query.select('*').maybeSingle()
 
     if (error) {
+      console.warn(
+        `[e2e_runs] rejected write run=${id} reason=db_error attempt=${attempt + 1} error=${error.message}`,
+      )
       lastErr = error.message
       continue
     }
     if (data) return data as E2eRunRow
-    // CAS miss — another writer won; retry with fresh live row.
+
+    console.warn(
+      `[e2e_runs] rejected write run=${id} reason=cas_conflict attempt=${attempt + 1} cas=${
+        liveVersion !== null ? `write_version=${liveVersion}` : `updated_at=${liveUpdatedAt}`
+      }`,
+    )
     lastErr = `e2e_runs CAS conflict on ${id} (attempt ${attempt + 1})`
   }
 
+  console.warn(
+    `[e2e_runs] rejected write run=${id} reason=cas_exhausted attempts=${E2E_STEPS_CAS_ATTEMPTS} last=${lastErr}`,
+  )
   throw new Error(lastErr)
 }
 
