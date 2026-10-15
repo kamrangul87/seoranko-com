@@ -23,6 +23,10 @@ import {
   createSupabaseFindingsStore,
   supabaseFindingsStoreAvailable,
 } from './supabase-store'
+import {
+  idsToSupersedeAsPresentDuplicates,
+  logicalPresentFindingKey,
+} from './dedupe-present-findings'
 
 export type FindingsStore = {
   createRun(input: {
@@ -436,8 +440,48 @@ export function createMemoryFindingsStore(): FindingsStore {
       const scope = scopeKey({ siteId, detectOrigin: originNorm })
       for (const f of findings) {
         const key = findingKey(scope, f.topicId, f.rollupKey)
-        const existing = state().findings.get(key)
-        if (existing) {
+        let existing = state().findings.get(key)
+        let existingMapKey = existing ? key : null
+        // Rollup-key drift must not create a second row for the same
+        // topic+verdict+page — update the logical match instead.
+        if (!existing) {
+          const logical = logicalPresentFindingKey({
+            topicId: f.topicId,
+            verdict: f.verdict,
+            pageUrl: f.pageUrl,
+          })
+          let best: { row: PersistedFindingRow; mapKey: string } | null = null
+          for (const [mapKey, row] of state().findings) {
+            if (row.status === 'superseded') continue
+            const sameScope =
+              siteId != null
+                ? row.siteId === siteId
+                : row.siteId == null && row.detectOrigin === originNorm
+            if (!sameScope || row.topicId !== f.topicId) continue
+            if (
+              logicalPresentFindingKey({
+                topicId: row.topicId,
+                verdict: row.verdict,
+                pageUrl: row.pageUrl,
+              }) !== logical
+            ) {
+              continue
+            }
+            if (
+              !best ||
+              row.firstSeenAt < best.row.firstSeenAt ||
+              (row.firstSeenAt === best.row.firstSeenAt &&
+                row.id < best.row.id)
+            ) {
+              best = { row, mapKey }
+            }
+          }
+          if (best) {
+            existing = best.row
+            existingMapKey = best.mapKey
+          }
+        }
+        if (existing && existingMapKey) {
           // A finding re-observed after being marked resolved is a
           // regression, not a plain re-detection — flag it, and keep
           // resolvedAt as the historical "last considered fixed" date
@@ -468,6 +512,7 @@ export function createMemoryFindingsStore(): FindingsStore {
             proposedDiff: f.proposedDiff,
             evidenceValues: f.evidenceValues,
             sourceRows: f.sourceRows,
+            rollupKey: f.rollupKey,
             // Clear stale resolution — resolve_sources re-fills after upsert.
             sourcePath: null,
             sourceBlobSha: null,
@@ -484,6 +529,9 @@ export function createMemoryFindingsStore(): FindingsStore {
             postFixStatus: reappearedAfterVerified
               ? 'regressed'
               : existing.postFixStatus,
+          }
+          if (existingMapKey !== key) {
+            state().findings.delete(existingMapKey)
           }
           state().findings.set(key, updated)
           state().observations.add(`${updated.id}::${runId}`)
@@ -526,6 +574,34 @@ export function createMemoryFindingsStore(): FindingsStore {
           }
           state().findings.set(key, row)
           state().observations.add(`${row.id}::${runId}`)
+        }
+      }
+
+      // Collapse any remaining present duplicates for this scope.
+      const present = [...state().findings.values()].filter((row) => {
+        const sameScope =
+          siteId != null
+            ? row.siteId === siteId
+            : row.siteId == null && row.detectOrigin === originNorm
+        return sameScope
+      })
+      const supersedeIds = new Set(
+        idsToSupersedeAsPresentDuplicates(
+          present.map((row) => ({
+            id: row.id,
+            topicId: row.topicId,
+            verdict: row.verdict,
+            pageUrl: row.pageUrl,
+            status: row.status,
+            firstSeenAt: row.firstSeenAt,
+            rollupKey: row.rollupKey,
+          })),
+        ),
+      )
+      if (supersedeIds.size > 0) {
+        for (const [mapKey, row] of state().findings) {
+          if (!supersedeIds.has(row.id)) continue
+          state().findings.set(mapKey, { ...row, status: 'superseded' })
         }
       }
 
