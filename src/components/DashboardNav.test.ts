@@ -6,6 +6,7 @@ const EXPECTED_HREFS = [
   '/dashboard',
   '/dashboard/settings',
   '/dashboard/findings',
+  '/dashboard/receipts',
   '/dashboard/experiments',
   '/dashboard/audit',
   '/dashboard/install',
@@ -16,6 +17,7 @@ const EXPECTED_LABELS = [
   'Overview',
   'Sites',
   'Audit',
+  'Receipts',
   'Google status',
   'Diagnostics',
   'History',
@@ -23,7 +25,7 @@ const EXPECTED_LABELS = [
 ] as const
 
 describe('NAV_ITEMS (dashboard-focus)', () => {
-  it('contains exactly the seven shipped hrefs and none of the legacy hrefs', () => {
+  it('contains exactly the shipped hrefs and none of the legacy hrefs', () => {
     const hrefs = NAV_ITEMS.map((i) => i.href)
     expect(hrefs).toEqual([...EXPECTED_HREFS])
     for (const legacy of LEGACY_DASHBOARD_ROUTES) {

@@ -20,6 +20,11 @@ export const NAV_ITEMS = [
     description: "Crawl your site and fix what's found",
   },
   {
+    href: '/dashboard/receipts',
+    label: 'Receipts',
+    description: 'Verified fixes you can share',
+  },
+  {
     href: '/dashboard/experiments',
     label: 'Google status',
     description: 'What Google sees',
