@@ -392,7 +392,8 @@ async function advanceTo(
   const liveIdx = E2E_STEP_ORDER.indexOf(
     (latest.current_step || from) as E2eStepName,
   )
-  if (liveIdx > fromIdx) {
+  const reachedIdx = maxReachedStepIndex(latest.steps)
+  if (liveIdx > fromIdx || reachedIdx > fromIdx) {
     // Another tick already moved past `from` — do not rewind.
     return latest
   }
