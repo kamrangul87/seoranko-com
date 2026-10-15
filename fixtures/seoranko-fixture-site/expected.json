@@ -2,12 +2,12 @@
   "origin": "https://seoranko-fixture.vercel.app",
   "seedBranch": "seed",
   "seedCommitSha": "b5f19cdbb2bc2013a99fe57963e3d8679552cc09",
-  "generatedAt": "2026-10-13T08:16:00.000Z",
-  "notes": "Post-crawl + source-resolve surface classes. autoFixable requires registered transform + stored path/SHA. Sitemap lists /, /blog/, /about.html, /privacy.html \u2014 no topic-27 omissions for those. Topic 34 skips non-200 (/old-blog 308). Blog has height:auto so topic 49 is auto-set-dimensions only. Side-findings: 26 canonical-elsewhere, 28/31/45/8, 72 privacy/consent.",
+  "generatedAt": "2026-10-15T07:08:00.930Z",
+  "notes": "Post-crawl + source-resolve surface classes. autoFixable requires registered transform + stored path/SHA. Sitemap lists /, /blog/, /about.html, /privacy.html — no topic-27 omissions for those. Topic 34 skips non-200 (/old-blog 308). Blog has height:auto so topic 49 is auto-set-dimensions only. Side-findings: 26 canonical-elsewhere, 28/31/45/8, 72 privacy/consent. Topic 74 auto-unwrap-origin-prefix planted on / and /about.html (curly quotes on about).",
   "readmeDiff": [
     {
       "readme": "Topic 1 expected human-review / no-action",
-      "observed": "verdict human-review, surfaceClass report-only \u2014 matches README (not auto-fixable)"
+      "observed": "verdict human-review, surfaceClass report-only — matches README (not auto-fixable)"
     },
     {
       "readme": "Topics 14/17/22/26/42/49 planted as auto-*",
@@ -19,7 +19,7 @@
     },
     {
       "readme": "No mention of 28/31/45/8/72 side-findings",
-      "observed": "Whole-site/informational detectors emit these on seed \u2014 included for exact match"
+      "observed": "Whole-site/informational detectors emit these on seed — included for exact match"
     },
     {
       "readme": "No mention of topic 8 page",
@@ -127,6 +127,22 @@
       "topicId": "42",
       "verdict": "auto-rewrite",
       "pageUrl": "https://seoranko-fixture.vercel.app/",
+      "surfaceClass": "auto-fixable",
+      "autoFixable": true,
+      "bucket": "actionable"
+    },
+    {
+      "topicId": "74",
+      "verdict": "auto-unwrap-origin-prefix",
+      "pageUrl": "https://seoranko-fixture.vercel.app/",
+      "surfaceClass": "auto-fixable",
+      "autoFixable": true,
+      "bucket": "actionable"
+    },
+    {
+      "topicId": "74",
+      "verdict": "auto-unwrap-origin-prefix",
+      "pageUrl": "https://seoranko-fixture.vercel.app/about.html",
       "surfaceClass": "auto-fixable",
       "autoFixable": true,
       "bucket": "actionable"

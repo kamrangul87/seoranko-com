@@ -16,11 +16,25 @@ describe('topic 74 origin-prefixed external href', () => {
       'https://autodun.com/blog/mot-history-check-uk.html',
     )
     expect(r.findings).toHaveLength(1)
-    expect(r.findings[0]!.verdict).toBe('origin-prefixed-external-href')
+    expect(r.findings[0]!.verdict).toBe('auto-unwrap-origin-prefix')
+    expect(r.findings[0]!.autoFixable).toBe(true)
     expect(r.findings[0]!.embeddedExternal).toBe(
       'https://www.gov.uk/check-mot-history',
     )
+    expect(r.findings[0]!.rewriteHref).toBe(
+      'https://www.gov.uk/check-mot-history',
+    )
     expect(r.findings[0]!.detail).toMatch(/prefixed with this site's own domain/i)
+  })
+
+  it('detects curly-quoted origin-prefixed hrefs (CMS paste)', () => {
+    const html = `<a href=“/https://www.gov.uk/check-mot-history”>MOT check</a>`
+    const r = detectOriginPrefixedExternalHrefs(html, 'https://autodun.com/')
+    expect(r.findings).toHaveLength(1)
+    expect(r.findings[0]!.verdict).toBe('auto-unwrap-origin-prefix')
+    expect(r.findings[0]!.rewriteHref).toBe(
+      'https://www.gov.uk/check-mot-history',
+    )
   })
 
   it('detects /https://… relative form and scheme-less www. host path', () => {

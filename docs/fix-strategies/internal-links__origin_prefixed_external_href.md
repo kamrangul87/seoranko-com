@@ -1,6 +1,6 @@
 # internal-links__origin_prefixed_external_href
 
-Status: READY — report-only
+Status: READY — auto-fixable
 Topic: 74 of the issue register
 Tier: A — HTML-only
 Research title: origin_prefixed_external_href (topic 74).
@@ -19,12 +19,15 @@ this detector names the malformation without a network round-trip.
 ## detect
 
 Same-host resolved URL whose pathname starts with `http(s)://…` or `www.…`
-(or contains an embedded absolute URL).
+(or contains an embedded absolute URL). Straight and curly attribute quotes
+are both accepted (CMS paste).
 
 ## fix
 
-None automatic. Correct the href to the external URL (or a real internal path).
+Auto: rewrite the href to the embedded external URL (`auto-unwrap-origin-prefix`).
+Supports straight and curly `href="…"` / `href=“…”` quotes.
 
 ## verdict
 
-`origin-prefixed-external-href`, report-only.
+`auto-unwrap-origin-prefix` (auto-fixable). Legacy slug
+`origin-prefixed-external-href` remains in owner-copy for older rows.

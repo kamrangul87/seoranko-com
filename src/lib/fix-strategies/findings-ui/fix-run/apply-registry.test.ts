@@ -71,6 +71,7 @@ describe('apply-registry registration gate', () => {
         { topicId: '26', verdict: 'auto-remove-confirmed-4xx' },
         { topicId: '26', verdict: 'auto-replace-single-hop-redirect' },
         { topicId: '42', verdict: 'auto-rewrite' },
+        { topicId: '74', verdict: 'auto-unwrap-origin-prefix' },
       ]),
     )
     expect(isTransformRegistered('13', 'auto-add-self-canonical')).toBe(false)

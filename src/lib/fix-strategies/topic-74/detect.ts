@@ -17,17 +17,25 @@ import {
   isSkippableHref,
 } from '@/lib/fix-strategies/topic-1/extract-anchors'
 
-export type Topic74Verdict = 'origin-prefixed-external-href'
+/**
+ * Auto-unwrap the origin-prefixed malformation to the embedded external URL.
+ * Legacy report-only slug kept for docs / owner-copy aliases.
+ */
+export type Topic74Verdict =
+  | 'auto-unwrap-origin-prefix'
+  | 'origin-prefixed-external-href'
 
 export type Topic74Finding = {
   verdict: Topic74Verdict
   pageUrl: string
   href: string
+  /** Destination after unwrap — also stored as rewriteHref for apply-registry. */
+  rewriteHref: string
   resolvedUrl: string
   embeddedExternal: string
   detail: string
   severity: 'high'
-  autoFixable: false
+  autoFixable: true
   evidenceValues: Record<string, unknown>
 }
 
@@ -119,20 +127,22 @@ export function detectOriginPrefixedExternalHrefs(
     seen.add(key)
 
     findings.push({
-      verdict: 'origin-prefixed-external-href',
+      verdict: 'auto-unwrap-origin-prefix',
       pageUrl,
       href: a.href,
+      rewriteHref: hit.embeddedExternal,
       resolvedUrl: hit.resolvedUrl,
       embeddedExternal: hit.embeddedExternal,
       severity: 'high',
-      autoFixable: false,
+      autoFixable: true,
       detail:
         `Malformed internal link: an external URL is prefixed with this site's own domain. ` +
         `Declared href "${a.href}" resolves to ${hit.resolvedUrl}, but the intended target ` +
         `appears to be ${hit.embeddedExternal}. Googlebot treats this as a same-host URL ` +
-        `(usually 404). Fix the href to the external URL directly (or a real internal path).`,
+        `(usually 404). Auto-fix rewrites the href to the external URL.`,
       evidenceValues: {
         href: a.href,
+        rewriteHref: hit.embeddedExternal,
         resolvedUrl: hit.resolvedUrl,
         embeddedExternal: hit.embeddedExternal,
         neverPromiseIndexing: true,
