@@ -18,6 +18,7 @@ const state = vi.hoisted(() => ({
   /** Force N CAS misses before allowing a write (simulates concurrent writer). */
   forceCasMisses: 0,
   selectCalls: 0,
+  fetchOpts: null as null | typeof fetch,
 }))
 
 function chainableUpdate(patch: Record<string, unknown>) {
@@ -83,31 +84,37 @@ function chainableUpdate(patch: Record<string, unknown>) {
 }
 
 vi.mock('@supabase/supabase-js', () => ({
-  createClient: () => ({
-    from: () => ({
-      select: () => ({
-        eq: () => ({
-          maybeSingle: async () => {
-            state.selectCalls += 1
-            return {
-              data: state.row
-                ? {
-                    ...state.row,
-                    steps: state.row.steps,
-                    current_step: state.row.current_step,
-                    updated_at: state.row.updated_at,
-                    write_version: state.row.write_version,
-                    seed_sha: state.row.seed_sha ?? null,
-                  }
-                : null,
-              error: null,
-            }
-          },
+  createClient: (_url?: string, _key?: string, opts?: { global?: { fetch?: typeof fetch } }) => {
+    // Ensure the no-store fetch wrapper is installed (Next.js GET cache bust).
+    if (opts?.global?.fetch) {
+      state.fetchOpts = opts.global.fetch
+    }
+    return {
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            maybeSingle: async () => {
+              state.selectCalls += 1
+              return {
+                data: state.row
+                  ? {
+                      ...state.row,
+                      steps: state.row.steps,
+                      current_step: state.row.current_step,
+                      updated_at: state.row.updated_at,
+                      write_version: state.row.write_version,
+                      seed_sha: state.row.seed_sha ?? null,
+                    }
+                  : null,
+                error: null,
+              }
+            },
+          }),
         }),
+        update: (patch: Record<string, unknown>) => chainableUpdate(patch),
       }),
-      update: (patch: Record<string, unknown>) => chainableUpdate(patch),
-    }),
-  }),
+    }
+  },
 }))
 
 function allPassedThrough(lastPassed: string): E2eStepRecord[] {
@@ -128,6 +135,7 @@ describe('updateE2eRun forward-only CAS', () => {
     state.writes = 0
     state.forceCasMisses = 0
     state.selectCalls = 0
+    state.fetchOpts = null
     state.row = {
       id: 'e2e-1',
       current_step: 'recrawl_assert_closed',
@@ -217,6 +225,32 @@ describe('updateE2eRun forward-only CAS', () => {
     expect(
       state.row!.steps.find((s) => s.name === 'fix_run_preview')?.status,
     ).toBe('running')
+  })
+
+  it('installs no-store fetch so CAS retries do not read a stale write_version', async () => {
+    const { updateE2eRun } = await import('./store')
+    await updateE2eRun('e2e-1', { current_step: 'finalize' })
+    expect(state.fetchOpts).toBeTypeOf('function')
+    const fakeReq = {
+      url: 'https://example.supabase.co/rest/v1/e2e_runs',
+    } as unknown as RequestInfo
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('[]', { status: 200 }),
+    )
+    await state.fetchOpts!(fakeReq, { method: 'GET' })
+    expect(spy).toHaveBeenCalled()
+    const init = spy.mock.calls[0]?.[1] as RequestInit & { cache?: string }
+    expect(init?.cache).toBe('no-store')
+    spy.mockRestore()
+  })
+
+  it('parseWriteVersion accepts PostgREST number or numeric string', async () => {
+    const { parseWriteVersion } = await import('./store')
+    expect(parseWriteVersion(0)).toBe(0)
+    expect(parseWriteVersion(12)).toBe(12)
+    expect(parseWriteVersion('7')).toBe(7)
+    expect(parseWriteVersion(undefined)).toBeNull()
+    expect(parseWriteVersion('nope')).toBeNull()
   })
 
   it('legitimate forward write (reset_seed→passed) succeeds after CAS conflict retry', async () => {
