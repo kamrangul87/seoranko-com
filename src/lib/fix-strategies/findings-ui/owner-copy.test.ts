@@ -181,7 +181,8 @@ describe('homepage claim discipline (docs/POSITIONING.md)', () => {
 describe('dashboard-focus claim discipline', () => {
   it('NAV_ITEMS labels and descriptions avoid banned claim words and legacy content labels', () => {
     const strings = NAV_ITEMS.flatMap((i) => [i.label, i.description])
-    expect(strings.length).toBe(14)
+    // 8 nav items × (label + description)
+    expect(strings.length).toBe(16)
     for (const s of strings) {
       expect(s).not.toMatch(BANNED_CLAIM_WORDS_RE)
     }
@@ -191,6 +192,7 @@ describe('dashboard-focus claim discipline', () => {
     expect(joined).toMatch(/Sites/)
     expect(joined).toMatch(/Audit/)
     expect(joined).toMatch(/Diagnostics/)
+    expect(joined).toMatch(/Receipts/)
     expect(joined).toMatch(/Billing/)
     expect(joined).not.toMatch(/\bFindings\b/)
   })
