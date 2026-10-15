@@ -296,6 +296,37 @@ describe('resolved cases per wired topic', () => {
     expect(result.status).toBe('resolved')
   })
 
+  it('topic 74 — origin-prefixed href needle promotes to auto-fixable', async () => {
+    const href = '/https://www.gov.uk/check-mot-history'
+    const f = finding({
+      id: 'f-74',
+      topicId: '74',
+      verdict: 'auto-unwrap-origin-prefix',
+      pageUrl: 'https://autodun.com/',
+      evidenceValues: {
+        href,
+        rewriteHref: 'https://www.gov.uk/check-mot-history',
+      },
+      surfaceClass: 'finding',
+      autoFixable: false,
+    })
+    expect(evidenceNeedleForResolution(f)?.needle).toBe(href)
+
+    const patch = await resolveOneFindingSource({
+      siteId: 'site-1',
+      finding: f,
+      tree: [{ path: 'public/index.html', sha: 'sha-idx' }],
+      treeShas: { 'public/index.html': 'sha-idx' },
+      readFile: async () =>
+        `<html><body><a href="${href}">MOT</a></body></html>`,
+    })
+    expect(patch.sourcePath).toBe('public/index.html')
+    expect(patch.sourceBlobSha).toBe('sha-idx')
+    expect(patch.sourceUnresolvedReason).toBeNull()
+    expect(patch.autoFixable).toBe(true)
+    expect(patch.surfaceClass).toBe('auto-fixable')
+  })
+
   it('topic 49 — srcAttr needle', async () => {
     const result = await resolveSourceFile({
       url: 'https://autodun.com/blog',

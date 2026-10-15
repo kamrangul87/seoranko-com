@@ -11,6 +11,11 @@ import {
   type RobotsRules,
 } from './crawler-identity'
 import { safeCrawlFetch } from './safe-crawl-fetch'
+import {
+  extractAnchors,
+  isSkippableHref,
+} from '@/lib/fix-strategies/topic-1/extract-anchors'
+import { classifyOriginPrefixedHref } from '@/lib/fix-strategies/topic-74/detect'
 
 function hostOf(url: string): string {
   try {
@@ -182,6 +187,9 @@ export async function discoverSameHostUrls(origin: string): Promise<{
 
 /**
  * Extract same-host absolute http(s) URLs from crawlable <a href> in HTML.
+ * Skips origin-prefixed external malformations (topic 74) — those are not
+ * real site pages; following them invents extra findings and pollutes compare.
+ * Uses extractAnchors so curly-quoted CMS hrefs are handled consistently.
  */
 export function extractSameHostLinks(
   html: string,
@@ -191,16 +199,13 @@ export function extractSameHostLinks(
   const originHost = hostOf(origin)
   if (!originHost) return []
   const out = new Set<string>()
-  const re = /<a\s[^>]*href\s*=\s*(["'])([^"']+)\1/gi
-  let m: RegExpExecArray | null
-  while ((m = re.exec(html))) {
-    const raw = m[2]!.trim()
-    if (!raw || raw.startsWith('#') || raw.toLowerCase().startsWith('javascript:')) {
-      continue
-    }
+  for (const a of extractAnchors(html)) {
+    if (isSkippableHref(a.href)) continue
+    // Topic 74 plantations must not enter the frontier.
+    if (classifyOriginPrefixedHref(a.href, pageUrl)) continue
     let abs: string
     try {
-      abs = new URL(raw, pageUrl).href
+      abs = new URL(a.href, pageUrl).href
     } catch {
       continue
     }
