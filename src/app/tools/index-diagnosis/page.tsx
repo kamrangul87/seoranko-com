@@ -15,6 +15,16 @@ type TopCause = {
   autoFixable?: boolean
 }
 
+type FixPreview = {
+  reason: string
+  exampleUrl: string
+  headline: string
+  beforeHtml: string
+  afterHtml: string
+  changeSummary: string
+  autoFixable: boolean
+}
+
 type UrlRow = {
   url: string
   reason: string
@@ -39,6 +49,7 @@ type ScanOk = {
   urlsFetched: number
   partial: boolean
   topCauses: TopCause[]
+  fixPreviews?: FixPreview[]
   indexableCount: number
   problemCount: number
   urlCount: number
@@ -275,6 +286,75 @@ function PublicIndexDiagnosisInner() {
                 </ol>
               )}
             </section>
+
+            {result.fixPreviews && result.fixPreviews.length > 0 ? (
+              <section>
+                <h2 className="text-lg font-semibold mb-1">Fix preview</h2>
+                <p className="text-sm text-[#6B6B6B] mb-4 leading-relaxed">
+                  How the live HTML would change for{' '}
+                  {result.fixPreviews.length === 1
+                    ? 'this finding'
+                    : `${result.fixPreviews.length} findings`}
+                  . This is a rendered HTML preview — not a code diff (we do not have your repo
+                  yet).
+                </p>
+                <div className="space-y-4">
+                  {result.fixPreviews.map((fp) => (
+                    <div
+                      key={`${fp.reason}-${fp.exampleUrl}`}
+                      className="border border-[#E8E8E4] rounded-xl bg-white p-4"
+                    >
+                      <p className="text-xs font-semibold text-[#9B9B9B] uppercase tracking-wide mb-1">
+                        {fp.reason.replace(/_/g, ' ')}
+                      </p>
+                      <p className="font-semibold text-[#0F0F0F] mb-1">{fp.headline}</p>
+                      <p className="text-sm text-[#6B6B6B] mb-3 break-all">{fp.exampleUrl}</p>
+                      <p className="text-sm text-[#0F0F0F] mb-3">{fp.changeSummary}</p>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <p className="text-xs font-medium text-[#9B9B9B] mb-1">Before</p>
+                          <pre className="text-xs font-mono p-3 rounded-lg bg-[#F5F4F1] text-[#0F0F0F] overflow-x-auto whitespace-pre-wrap break-all">
+                            {fp.beforeHtml}
+                          </pre>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-[#9B9B9B] mb-1">After</p>
+                          <pre className="text-xs font-mono p-3 rounded-lg bg-[#FFF4EE] text-[#0F0F0F] overflow-x-auto whitespace-pre-wrap break-all border border-[#FF6B2C]/30">
+                            {fp.afterHtml}
+                          </pre>
+                        </div>
+                      </div>
+                      {fp.autoFixable ? (
+                        <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-2">
+                          <Link
+                            href={`/signup?intent=fix&domain=${encodeURIComponent(result.domain)}`}
+                            className="inline-flex justify-center px-4 py-2.5 rounded-lg bg-[#FF6B2C] text-white text-sm font-medium hover:opacity-90"
+                          >
+                            Fix it for me
+                          </Link>
+                          <p className="text-sm text-[#6B6B6B]">
+                            Connect GitHub and we&apos;ll open the real PR. No time promise until
+                            measured.
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+                {result.fixPreviews.some((fp) => fp.autoFixable) ? null : (
+                  <p className="text-sm text-[#6B6B6B] mt-3">
+                    These need a human edit today.{' '}
+                    <Link
+                      href={`/signup?domain=${encodeURIComponent(result.domain)}`}
+                      className="text-[#FF6B2C] font-medium hover:underline"
+                    >
+                      Create a free account
+                    </Link>{' '}
+                    to track them.
+                  </p>
+                )}
+              </section>
+            ) : null}
 
             <section className="border border-[#E8E8E4] rounded-xl bg-white p-5">
               <h2 className="text-base font-semibold mb-1">Get the full report</h2>
