@@ -18,6 +18,7 @@ export {
 } from './runner'
 export {
   getE2eRun,
+  updateE2eRun,
   listRecentE2eRuns,
   consecutivePassingE2eDays,
   getActiveE2eRun,
@@ -28,5 +29,6 @@ export {
   mergeStepsNoRewind,
   maxReachedStepIndex,
   wouldRewindSteps,
+  prepareForwardOnlyE2eWrite,
 } from './step-progress'
 export { resetFixtureMainToSeed } from './reset-seed'
