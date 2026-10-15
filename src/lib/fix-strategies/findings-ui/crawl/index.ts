@@ -77,6 +77,11 @@ export {
 } from './orchestrator'
 export type { StartCrawlInput, TickResult } from './orchestrator'
 export { normalizeAssessedPageUrl } from './store'
+export {
+  idsToSupersedeAsPresentDuplicates,
+  logicalPresentFindingKey,
+} from './dedupe-present-findings'
+export type { DedupePresentFindingRow } from './dedupe-present-findings'
 
 export {
   advancePostCrawlPhases,

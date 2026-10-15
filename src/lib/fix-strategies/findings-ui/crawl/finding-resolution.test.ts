@@ -120,6 +120,54 @@ describe('finding resolution lifecycle', () => {
     expect(row!.resolvedAt).not.toBeNull()
   })
 
+  it('re-detect with a drifted rollupKey updates the same row (never duplicates)', async () => {
+    const store = createMemoryFindingsStore()
+    const run1 = await store.createRun({
+      siteId: 'site-a',
+      userId: 'user-a',
+      origin: 'https://example.com',
+    })
+    await store.upsertFindings({
+      siteId: 'site-a',
+      userId: 'user-a',
+      runId: run1.id,
+      findings: [makeFinding()],
+      internalEvidence: [],
+    })
+    const [first] = await store.listFindings({
+      siteId: 'site-a',
+      includeInformational: false,
+    })
+    expect(first!.status).toBe('open')
+
+    const run2 = await store.createRun({
+      siteId: 'site-a',
+      userId: 'user-a',
+      origin: 'https://example.com',
+    })
+    await store.upsertFindings({
+      siteId: 'site-a',
+      userId: 'user-a',
+      runId: run2.id,
+      findings: [
+        makeFinding({
+          rollupKey: '13|auto-add-canonical|https://example.com/page|drift',
+        }),
+      ],
+      internalEvidence: [],
+    })
+    const after = await store.listFindings({
+      siteId: 'site-a',
+      includeInformational: false,
+    })
+    const present = after.filter((r) => r.status === 'open' || r.status === 'regressed')
+    expect(present).toHaveLength(1)
+    expect(present[0]!.id).toBe(first!.id)
+    expect(present[0]!.rollupKey).toBe(
+      '13|auto-add-canonical|https://example.com/page|drift',
+    )
+  })
+
   it('flags a resolved finding as regressed when it reappears, and keeps resolvedAt', async () => {
     const store = createMemoryFindingsStore()
     const run1 = await store.createRun({ siteId: 'site-a', userId: 'user-a', origin: 'https://example.com' })

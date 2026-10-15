@@ -12,6 +12,7 @@
 import { parseHtml } from './html-parser'
 import { normalizeFixStrategyUrl } from './url-normalize'
 import { presenceAfterServedHtml, type ContentPresenceState } from '../fetch/content-presence'
+import { classifyOriginPrefixedHref } from '@/lib/fix-strategies/topic-74/detect'
 
 export type LinkGraphPageInput = {
   url: string
@@ -139,6 +140,11 @@ export function extractPageLinkSignals(
     }
 
     if (isSkippableScheme(href)) continue
+
+    // Topic 74 malformations are not real site pages — exclude from the
+    // link graph, click-depth, and every per-page metric that walks edges.
+    // They are reported only as topic-74 findings on the linking page.
+    if (classifyOriginPrefixedHref(href, pageUrl)) continue
 
     let resolved: URL
     try {

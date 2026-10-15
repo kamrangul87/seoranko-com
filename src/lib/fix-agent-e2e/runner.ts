@@ -19,6 +19,7 @@ import {
   loadExpectedAutoFixable,
   loadExpectedFindings,
 } from './compare'
+import { assertAllFixRunItemsVerifiedLive } from './fix-run-verify'
 import { notifyE2eFailure } from './notify'
 import { resetFixtureMainToSeed } from './reset-seed'
 import {
@@ -890,16 +891,30 @@ async function stepApproveMergeVerify(
     run = await updateE2eRun(run.id, { merge_sha: tick.run.mergeSha })
   }
   if (fr.status === 'complete' || fr.phase === 'done') {
-    const live = fr.items.filter((i) => i.status === 'verified_live')
-    const expectedN = loadExpectedAutoFixable().length
-    if (live.length < expectedN) {
-      const failed = fr.items.filter((i) => i.status === 'failed')
+    // Compare against this fix run's own items — never expected.json length
+    // (seed/resolve lag made "7/9 … Failed:" with an empty failed list).
+    const findingsStore = getFindingsStore()
+    const siteFindings = await findingsStore.listFindings({
+      siteId: run.site_id,
+      includeInformational: true,
+    })
+    const byFindingId = new Map(siteFindings.map((f) => [f.id, f]))
+    const verify = assertAllFixRunItemsVerifiedLive(
+      fr.items.map((i) => {
+        const f = byFindingId.get(i.findingId)
+        return {
+          status: i.status,
+          failureReason: i.failureReason,
+          findingId: i.findingId,
+          topicId: f?.topicId ?? null,
+          verdict: f?.verdict ?? null,
+          pageUrl: f?.pageUrl ?? null,
+        }
+      }),
+    )
+    if (!verify.ok) {
       return {
-        run: await failRun(
-          run,
-          'approve_merge_verify',
-          `Only ${live.length}/${expectedN} verified live. Failed: ${failed.map((f) => f.failureReason).join('; ')}`,
-        ),
+        run: await failRun(run, 'approve_merge_verify', verify.detail),
         advanced: true,
         done: true,
         detail: 'verify incomplete',
@@ -909,7 +924,7 @@ async function stepApproveMergeVerify(
       run,
       'approve_merge_verify',
       'recrawl_assert_closed',
-      `merge ${fr.mergeSha}; ${live.length} verified live`,
+      `merge ${fr.mergeSha}; ${verify.liveCount} verified live`,
       { merge_sha: fr.mergeSha },
     )
     return { run: next, advanced: true, done: false, detail: 'verified live' }

@@ -17,6 +17,48 @@ import type {
 import { normalizeAssessedPageUrl, type FindingsStore } from './store'
 import type { DetectorEmit } from './run-detectors'
 import type { UrlObservationRecord } from './observation-timeline'
+import { idsToSupersedeAsPresentDuplicates } from './dedupe-present-findings'
+
+async function supersedePresentFindingDuplicates(
+  db: () => SupabaseClient,
+  input: {
+    siteId: string | null
+    userId: string
+    detectOrigin: string | null
+  },
+): Promise<void> {
+  let q = db()
+    .from('fix_strategies_findings')
+    .select('id, topic_id, verdict, page_url, status, first_seen_at, rollup_key')
+    .in('status', ['open', 'regressed'])
+  if (input.siteId) {
+    q = q.eq('site_id', input.siteId)
+  } else {
+    q = q
+      .is('site_id', null)
+      .eq('user_id', input.userId)
+      .eq('detect_origin', input.detectOrigin)
+  }
+  const { data, error } = await q
+  if (error) throw new Error(error.message)
+  const ids = idsToSupersedeAsPresentDuplicates(
+    (data ?? []).map((row) => ({
+      id: String(row.id),
+      topicId: String(row.topic_id),
+      verdict: String(row.verdict),
+      pageUrl: (row.page_url as string | null) ?? null,
+      status: String(row.status),
+      firstSeenAt: String(row.first_seen_at),
+      rollupKey: String(row.rollup_key),
+    })),
+  )
+  if (ids.length === 0) return
+  const { error: updErr } = await db()
+    .from('fix_strategies_findings')
+    .update({ status: 'superseded', updated_at: new Date().toISOString() })
+    .in('id', ids)
+  if (updErr) throw new Error(updErr.message)
+}
 
 function mapRun(row: Record<string, unknown>): CrawlRunRecord {
   return {
@@ -365,7 +407,7 @@ export function createSupabaseFindingsStore(
         let existingQuery = db()
           .from('fix_strategies_findings')
           .select(
-            'id, first_seen_run_id, first_seen_at, status, fixed_at, post_fix_status, regression_observed_at',
+            'id, first_seen_run_id, first_seen_at, status, fixed_at, post_fix_status, regression_observed_at, rollup_key',
           )
           .eq('topic_id', f.topicId)
           .eq('rollup_key', f.rollupKey)
@@ -377,7 +419,32 @@ export function createSupabaseFindingsStore(
             .eq('user_id', userId)
             .eq('detect_origin', originNorm)
         }
-        const { data: existing } = await existingQuery.maybeSingle()
+        let { data: existing } = await existingQuery.maybeSingle()
+
+        // Rollup-key drift: reuse the logical topic+verdict+page row.
+        if (!existing && f.pageUrl) {
+          let logicalQuery = db()
+            .from('fix_strategies_findings')
+            .select(
+              'id, first_seen_run_id, first_seen_at, status, fixed_at, post_fix_status, regression_observed_at, rollup_key',
+            )
+            .eq('topic_id', f.topicId)
+            .eq('verdict', f.verdict)
+            .eq('page_url', f.pageUrl)
+            .neq('status', 'superseded')
+            .order('first_seen_at', { ascending: true })
+            .limit(1)
+          if (siteId) {
+            logicalQuery = logicalQuery.eq('site_id', siteId)
+          } else {
+            logicalQuery = logicalQuery
+              .is('site_id', null)
+              .eq('user_id', userId)
+              .eq('detect_origin', originNorm)
+          }
+          const { data: logicalHit } = await logicalQuery.maybeSingle()
+          if (logicalHit) existing = logicalHit
+        }
 
         let findingId: string
         if (existing) {
@@ -405,6 +472,7 @@ export function createSupabaseFindingsStore(
             proposed_diff: f.proposedDiff,
             evidence_values: f.evidenceValues,
             source_rows: f.sourceRows,
+            rollup_key: f.rollupKey,
             // Clear stale resolution — resolve_sources re-fills after upsert.
             source_path: null,
             source_blob_sha: null,
@@ -471,6 +539,13 @@ export function createSupabaseFindingsStore(
             { onConflict: 'finding_id,run_id' },
           )
       }
+
+      // Collapse present duplicates (topic+verdict+page) for this scope.
+      await supersedePresentFindingDuplicates(db, {
+        siteId,
+        userId,
+        detectOrigin: originNorm,
+      })
 
       for (const e of internalEvidence as DetectorEmit[]) {
         let findingId: string | null = null
