@@ -87,6 +87,7 @@ export async function POST(req: NextRequest) {
 
     const verdictSummary = {
       topCauses: result.topCauses,
+      fixPreviews: result.fixPreviews,
       indexableCount: result.indexableCount,
       problemCount: result.problemCount,
       partial: result.partial,
@@ -134,6 +135,7 @@ export async function POST(req: NextRequest) {
       terminationReason: result.terminationReason,
       terminationEvidence: result.terminationEvidence,
       topCauses: result.topCauses,
+      fixPreviews: result.fixPreviews,
       indexableCount: result.indexableCount,
       problemCount: result.problemCount,
       urlCount: result.urls.length,

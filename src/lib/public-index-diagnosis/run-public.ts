@@ -6,6 +6,10 @@ import { runIndexCrawl } from '@/lib/index-diagnosis/crawler'
 import { matchRobotsForUrl } from '@/lib/index-diagnosis/robots-parser'
 import { classifyPublicScan } from './classify'
 import {
+  buildPublicFixPreviews,
+  type PublicFixPreview,
+} from './fix-preview'
+import {
   PUBLIC_SCAN_DEADLINE_MS,
   PUBLIC_SCAN_MAX_DEPTH,
   PUBLIC_SCAN_MAX_DISCOVERED,
@@ -33,6 +37,8 @@ export type PublicScanResult = {
   terminationReason: string
   terminationEvidence: string
   topCauses: PublicCauseSummary[]
+  /** Up to 2 HTML before/after fix previews (never a code diff). */
+  fixPreviews: PublicFixPreview[]
   indexableCount: number
   problemCount: number
   urls: PublicUrlEvidence[]
@@ -110,6 +116,12 @@ export async function runPublicIndexDiagnosis(
     robotsTxt: crawl.robotsTxt,
   })
 
+  const fixPreviews = buildPublicFixPreviews({
+    urls: classified.urls,
+    fetchedPages: crawl.fetchedPages,
+    max: 2,
+  })
+
   const partial =
     crawl.coverage.terminationReason === 'FETCH_BUDGET_EXHAUSTED' ||
     crawl.coverage.terminationReason === 'DISCOVERY_CAP_REACHED' ||
@@ -149,6 +161,7 @@ export async function runPublicIndexDiagnosis(
     terminationReason: crawl.coverage.terminationReason,
     terminationEvidence: crawl.coverage.terminationEvidence,
     topCauses: classified.topCauses,
+    fixPreviews,
     indexableCount: classified.indexableCount,
     problemCount: classified.problemCount,
     urls: classified.urls,
