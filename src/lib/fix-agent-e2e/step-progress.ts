@@ -87,3 +87,78 @@ export function wouldRewindSteps(
 ): boolean {
   return maxReachedStepIndex(proposed) < maxReachedStepIndex(latest)
 }
+
+/** Steps that `proposed` would demote from a terminal/advanced status to pending. */
+export function passedStepsProposedAsPending(
+  latest: E2eStepRecord[],
+  proposed: E2eStepRecord[],
+): string[] {
+  const out: string[] = []
+  for (const live of latest) {
+    if (stepStatusRank(live.status) < 3) continue // not passed/skipped/failed
+    const next = proposed.find((s) => s.name === live.name)
+    if (next && next.status === 'pending') out.push(live.name)
+  }
+  return out
+}
+
+export function wouldRewindCurrentStep(
+  liveCurrentStep: string | null | undefined,
+  proposedCurrentStep: string | null | undefined,
+): boolean {
+  if (proposedCurrentStep == null || !liveCurrentStep) return false
+  const liveIdx = E2E_STEP_ORDER.indexOf(liveCurrentStep as E2eStepName)
+  const nextIdx = E2E_STEP_ORDER.indexOf(proposedCurrentStep as E2eStepName)
+  return liveIdx >= 0 && nextIdx >= 0 && nextIdx < liveIdx
+}
+
+/**
+ * Build a forward-only steps/current_step patch against the live row.
+ * Rejects (omits) rewinds and returns reasons for logging.
+ */
+export function prepareForwardOnlyE2eWrite(input: {
+  liveSteps: E2eStepRecord[]
+  liveCurrentStep: string | null
+  proposedSteps?: E2eStepRecord[]
+  proposedCurrentStep?: string | null
+}): {
+  steps?: E2eStepRecord[]
+  currentStep?: string | null
+  rejected: string[]
+} {
+  const rejected: string[] = []
+  let steps: E2eStepRecord[] | undefined
+  let currentStep: string | null | undefined = undefined
+
+  if (input.proposedSteps) {
+    const demoted = passedStepsProposedAsPending(
+      input.liveSteps,
+      input.proposedSteps,
+    )
+    if (demoted.length > 0) {
+      rejected.push(
+        `rejected passed→pending for steps: ${demoted.join(', ')}`,
+      )
+    }
+    if (wouldRewindSteps(input.liveSteps, input.proposedSteps)) {
+      rejected.push(
+        `rejected steps rewind (maxReached ${maxReachedStepIndex(input.proposedSteps)} < live ${maxReachedStepIndex(input.liveSteps)})`,
+      )
+    }
+    steps = mergeStepsNoRewind(input.liveSteps, input.proposedSteps)
+  }
+
+  if (input.proposedCurrentStep !== undefined) {
+    if (
+      wouldRewindCurrentStep(input.liveCurrentStep, input.proposedCurrentStep)
+    ) {
+      rejected.push(
+        `rejected current_step rewind ${input.liveCurrentStep} → ${input.proposedCurrentStep}`,
+      )
+    } else {
+      currentStep = input.proposedCurrentStep
+    }
+  }
+
+  return { steps, currentStep, rejected }
+}

@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { E2eStepName } from './constants'
-import { mergeStepsNoRewind } from './step-progress'
+import { prepareForwardOnlyE2eWrite } from './step-progress'
 
 export type E2eStepRecord = {
   name: E2eStepName
@@ -68,69 +68,90 @@ export async function getE2eRun(id: string): Promise<E2eRunRow | null> {
   return (data as E2eRunRow) || null
 }
 
+const E2E_STEPS_CAS_ATTEMPTS = 5
+
+export type E2eRunUpdatePatch = Partial<{
+  status: E2eRunRow['status']
+  current_step: string | null
+  steps: E2eStepRecord[]
+  first_failing_step: string | null
+  fail_reason: string | null
+  fix_run_id: string | null
+  crawl_run_id: string | null
+  seed_sha: string | null
+  merge_sha: string | null
+  consecutive_pass_days: number | null
+  finished_at: string | null
+}>
+
+/**
+ * Sole writer for e2e_runs.steps / current_step (compare-and-swap).
+ * Heartbeat and ticks must call this — never update steps directly.
+ * Forward-only: rejects passed→pending and current_step rewinds (logged).
+ */
 export async function updateE2eRun(
   id: string,
-  patch: Partial<{
-    status: E2eRunRow['status']
-    current_step: string | null
-    steps: E2eStepRecord[]
-    first_failing_step: string | null
-    fail_reason: string | null
-    fix_run_id: string | null
-    crawl_run_id: string | null
-    seed_sha: string | null
-    merge_sha: string | null
-    consecutive_pass_days: number | null
-    finished_at: string | null
-  }>,
+  patch: E2eRunUpdatePatch,
 ): Promise<E2eRunRow> {
   const client = sb()
-  // Merge steps onto the live row so a slow tick cannot rewind later progress.
-  // Always re-read live current_step (even when patch has no steps) — a
-  // current_step-only write used to bypass the guard and rewind the run.
-  let nextPatch = { ...patch }
-  if (patch.steps || patch.current_step != null) {
+  let lastErr = 'e2e_runs update failed'
+
+  for (let attempt = 0; attempt < E2E_STEPS_CAS_ATTEMPTS; attempt++) {
     const { data: live, error: liveErr } = await client
       .from('e2e_runs')
-      .select('steps,current_step')
+      .select('steps,current_step,updated_at')
       .eq('id', id)
       .maybeSingle()
     if (liveErr) throw new Error(liveErr.message)
-    if (patch.steps && live?.steps) {
-      nextPatch = {
-        ...nextPatch,
-        steps: mergeStepsNoRewind(
-          live.steps as E2eStepRecord[],
-          patch.steps,
-        ),
+    if (!live) throw new Error(`e2e_runs ${id} not found`)
+
+    const liveSteps = (live.steps as E2eStepRecord[]) ?? []
+    const liveCurrent =
+      typeof live.current_step === 'string' ? live.current_step : null
+    const liveUpdatedAt = String(live.updated_at)
+
+    const nextPatch: Record<string, unknown> = { ...patch }
+    if (patch.steps !== undefined || patch.current_step !== undefined) {
+      const prepared = prepareForwardOnlyE2eWrite({
+        liveSteps,
+        liveCurrentStep: liveCurrent,
+        proposedSteps: patch.steps,
+        proposedCurrentStep: patch.current_step,
+      })
+      for (const reason of prepared.rejected) {
+        console.warn(`[e2e_runs] run=${id} ${reason}`)
+      }
+      if (patch.steps !== undefined) {
+        nextPatch.steps = prepared.steps ?? liveSteps
+      }
+      if (patch.current_step !== undefined) {
+        if (prepared.currentStep === undefined) {
+          delete nextPatch.current_step
+        } else {
+          nextPatch.current_step = prepared.currentStep
+        }
       }
     }
-    // Never move current_step backwards when a concurrent tick is ahead.
-    if (
-      patch.current_step != null &&
-      live?.current_step &&
-      typeof live.current_step === 'string'
-    ) {
-      const { E2E_STEP_ORDER } = await import('./constants')
-      const liveIdx = E2E_STEP_ORDER.indexOf(
-        live.current_step as E2eStepName,
-      )
-      const nextIdx = E2E_STEP_ORDER.indexOf(
-        patch.current_step as E2eStepName,
-      )
-      if (liveIdx >= 0 && nextIdx >= 0 && nextIdx < liveIdx) {
-        delete nextPatch.current_step
-      }
+
+    const nowIso = new Date().toISOString()
+    const { data, error } = await client
+      .from('e2e_runs')
+      .update({ ...nextPatch, updated_at: nowIso })
+      .eq('id', id)
+      .eq('updated_at', liveUpdatedAt)
+      .select('*')
+      .maybeSingle()
+
+    if (error) {
+      lastErr = error.message
+      continue
     }
+    if (data) return data as E2eRunRow
+    // CAS miss — another writer won; retry with fresh live row.
+    lastErr = `e2e_runs CAS conflict on ${id} (attempt ${attempt + 1})`
   }
-  const { data, error } = await client
-    .from('e2e_runs')
-    .update({ ...nextPatch, updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .select('*')
-    .single()
-  if (error || !data) throw new Error(error?.message || 'e2e_runs update failed')
-  return data as E2eRunRow
+
+  throw new Error(lastErr)
 }
 
 export async function listRecentE2eRuns(limit = 20): Promise<E2eRunRow[]> {

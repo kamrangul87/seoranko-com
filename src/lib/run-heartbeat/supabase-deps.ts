@@ -15,6 +15,10 @@ import {
 import { resolveGithubAppRepoCreds } from '@/lib/github-app/resolve-repo-creds'
 import { findOwnedSiteConnection } from '@/lib/site-connection-lookup'
 import { tickE2eRun } from '@/lib/fix-agent-e2e'
+import {
+  updateE2eRun,
+  type E2eStepRecord,
+} from '@/lib/fix-agent-e2e/store'
 import { recordFixFailureSafe } from '@/lib/fix-strategies/findings-ui/fix-run/failure-learning'
 import {
   TICK_LEASE_MS,
@@ -311,7 +315,7 @@ export function createSupabaseHeartbeatDeps(): HeartbeatDeps {
         return
       }
 
-      // e2e
+      // e2e — sole steps writer is updateE2eRun (CAS + forward-only merge).
       const { data: e2e } = await sb
         .from('e2e_runs')
         .select('*')
@@ -330,18 +334,13 @@ export function createSupabaseHeartbeatDeps(): HeartbeatDeps {
             }
           : s,
       )
-      await sb
-        .from('e2e_runs')
-        .update({
-          status: 'failed',
-          steps: nextSteps,
-          first_failing_step: stepName,
-          fail_reason: reason,
-          finished_at: nowIso,
-          updated_at: nowIso,
-        })
-        .eq('id', run.id)
-        .eq('status', 'running')
+      await updateE2eRun(run.id, {
+        status: 'failed',
+        steps: nextSteps as E2eStepRecord[],
+        first_failing_step: stepName,
+        fail_reason: reason,
+        finished_at: nowIso,
+      })
       recordFixFailureSafe({
         siteId: run.siteId || e2e.site_id,
         runId: e2e.fix_run_id,
