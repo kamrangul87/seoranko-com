@@ -38,11 +38,39 @@ export type E2eRunRow = {
   write_version?: number
 }
 
+/**
+ * Next.js App Router caches `fetch` GETs by default. Supabase-js uses fetch,
+ * so CAS retries would keep reading a stale write_version (always 0) after the
+ * first successful write in the same invocation — see e2e 8108f0dd / 269047f9.
+ */
+function noStoreFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  return fetch(input, {
+    ...init,
+    cache: 'no-store',
+  })
+}
+
 function sb(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) throw new Error('Supabase service role not configured')
-  return createClient(url, key)
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: noStoreFetch },
+  })
+}
+
+/** Coerce PostgREST bigint (number | string) to a finite integer. */
+export function parseWriteVersion(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value)
+  if (typeof value === 'string' && /^-?\d+$/.test(value.trim())) {
+    const n = Number(value)
+    return Number.isFinite(n) ? n : null
+  }
+  return null
 }
 
 export async function createE2eRun(input: {
@@ -191,8 +219,7 @@ export async function updateE2eRun(
     const liveSteps = liveRow.steps ?? []
     const liveCurrent =
       typeof liveRow.current_step === 'string' ? liveRow.current_step : null
-    const liveVersion =
-      typeof liveRow.write_version === 'number' ? liveRow.write_version : null
+    const liveVersion = parseWriteVersion(liveRow.write_version)
     const liveUpdatedAt = String(liveRow.updated_at)
 
     const nextPatch: Record<string, unknown> = { ...patch }
