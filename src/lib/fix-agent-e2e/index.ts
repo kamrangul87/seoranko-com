@@ -19,6 +19,7 @@ export {
 export {
   getE2eRun,
   updateE2eRun,
+  liveSatisfiesForwardPatch,
   listRecentE2eRuns,
   consecutivePassingE2eDays,
   getActiveE2eRun,
@@ -31,4 +32,9 @@ export {
   wouldRewindSteps,
   prepareForwardOnlyE2eWrite,
 } from './step-progress'
-export { resetFixtureMainToSeed } from './reset-seed'
+export {
+  resetFixtureMainToSeed,
+  closeStuckFixturePrs,
+  scheduleCloseStuckFixturePrs,
+  listOpenFixturePrs,
+} from './reset-seed'
