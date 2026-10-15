@@ -86,15 +86,17 @@ export async function updateE2eRun(
 ): Promise<E2eRunRow> {
   const client = sb()
   // Merge steps onto the live row so a slow tick cannot rewind later progress.
+  // Always re-read live current_step (even when patch has no steps) — a
+  // current_step-only write used to bypass the guard and rewind the run.
   let nextPatch = { ...patch }
-  if (patch.steps) {
+  if (patch.steps || patch.current_step != null) {
     const { data: live, error: liveErr } = await client
       .from('e2e_runs')
       .select('steps,current_step')
       .eq('id', id)
       .maybeSingle()
     if (liveErr) throw new Error(liveErr.message)
-    if (live?.steps) {
+    if (patch.steps && live?.steps) {
       nextPatch = {
         ...nextPatch,
         steps: mergeStepsNoRewind(
@@ -102,22 +104,22 @@ export async function updateE2eRun(
           patch.steps,
         ),
       }
-      // Never move current_step backwards when a concurrent tick is ahead.
-      if (
-        patch.current_step != null &&
-        live.current_step &&
-        typeof live.current_step === 'string'
-      ) {
-        const { E2E_STEP_ORDER } = await import('./constants')
-        const liveIdx = E2E_STEP_ORDER.indexOf(
-          live.current_step as E2eStepName,
-        )
-        const nextIdx = E2E_STEP_ORDER.indexOf(
-          patch.current_step as E2eStepName,
-        )
-        if (liveIdx >= 0 && nextIdx >= 0 && nextIdx < liveIdx) {
-          delete nextPatch.current_step
-        }
+    }
+    // Never move current_step backwards when a concurrent tick is ahead.
+    if (
+      patch.current_step != null &&
+      live?.current_step &&
+      typeof live.current_step === 'string'
+    ) {
+      const { E2E_STEP_ORDER } = await import('./constants')
+      const liveIdx = E2E_STEP_ORDER.indexOf(
+        live.current_step as E2eStepName,
+      )
+      const nextIdx = E2E_STEP_ORDER.indexOf(
+        patch.current_step as E2eStepName,
+      )
+      if (liveIdx >= 0 && nextIdx >= 0 && nextIdx < liveIdx) {
+        delete nextPatch.current_step
       }
     }
   }
