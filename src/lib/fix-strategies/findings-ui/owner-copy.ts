@@ -71,6 +71,7 @@ export const OWNER_PLAIN_ENGLISH: Record<string, string> = {
   "crawled-not-indexed": "Google crawled this page and has not indexed it; Google does not publish why.",
   "zero-raw-crawlable-anchors": "Google sees no crawlable links from this page before JavaScript runs.",
   "origin-prefixed-external-href": "An external URL was incorrectly prefixed with your own domain, so crawlers treat it as a broken internal link.",
+  "auto-unwrap-origin-prefix": "An external URL was incorrectly prefixed with your own domain, so crawlers treat it as a broken internal link.",
   "in-gsc-not-in-crawl": "Search Console knows this URL, but our crawl from your site’s links did not reach it.",
   "in-crawl-not-in-gsc-weak": "Our crawl found this URL, but it did not appear in Search Console top rows — that absence is not proof Google does not know it.",
   "impressions-no-internal-links": "This page gets Search impressions but has no inbound crawlable internal links from your site.",

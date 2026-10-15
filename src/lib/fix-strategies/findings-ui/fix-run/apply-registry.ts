@@ -32,6 +32,7 @@ import {
 } from '@/lib/fix-strategies/topic-26/parse-sitemap'
 import { rewriteAnchorHref } from '@/lib/fix-strategies/topic-42/fix-rewrite-href'
 import { verifyLiveHrefRewritten } from '@/lib/fix-strategies/topic-42/verify-live-href'
+import { unwrapOriginPrefixedHref } from '@/lib/fix-strategies/topic-74/fix-unwrap-href'
 import { verifyLiveImgDimensions } from '@/lib/fix-strategies/topic-49/verify-live-dimensions'
 import {
   evidenceCollapseTo,
@@ -305,6 +306,28 @@ const topic42RewriteHref: TransformHandler = async (ctx) => {
   return { ok: true, path: ctx.path, newContent: html, updated: rewritten }
 }
 
+const topic74UnwrapHref: TransformHandler = async (ctx) => {
+  const rw = evidenceRewrite(ctx.finding)
+  if (!rw) {
+    return { ok: false, error: 'Missing href/rewriteHref for topic 74' }
+  }
+  const { html, rewritten } = unwrapOriginPrefixedHref(
+    ctx.fileContent,
+    rw.fromHref,
+    rw.toHref,
+  )
+  if (!rewritten) {
+    return {
+      ok: true,
+      path: ctx.path,
+      newContent: ctx.fileContent,
+      updated: 0,
+      noop: true,
+    }
+  }
+  return { ok: true, path: ctx.path, newContent: html, updated: rewritten }
+}
+
 // ── Verifiers (re-fetch body already provided by tick) ────────────
 
 const verifyFixture: TransformVerifier = async (ctx) => {
@@ -416,6 +439,27 @@ const verifyTopic42: TransformVerifier = async (ctx) => {
   )
 }
 
+/** Topic 74 — only assert HTML rewrite; do not fetch the external destination. */
+const verifyTopic74: TransformVerifier = async (ctx) => {
+  const rw = evidenceRewrite(ctx.finding)
+  if (!rw) return { ok: false, detail: 'Missing unwrap evidence' }
+  const hasNew = ctx.body.includes(rw.toHref)
+  const stillOld =
+    ctx.body.includes(`"${rw.fromHref}"`) ||
+    ctx.body.includes(`'${rw.fromHref}'`) ||
+    ctx.body.includes(`\u201C${rw.fromHref}\u201D`)
+  if (!hasNew) {
+    return { ok: false, detail: `live HTML missing unwrapped href ${rw.toHref}` }
+  }
+  if (stillOld) {
+    return {
+      ok: false,
+      detail: `live HTML still contains origin-prefixed href ${rw.fromHref}`,
+    }
+  }
+  return { ok: true, detail: `unwrapped href present: ${rw.toHref}` }
+}
+
 // ── Registry ──────────────────────────────────────────────────────
 
 const REGISTRY: RegistryEntry[] = [
@@ -519,6 +563,14 @@ const REGISTRY: RegistryEntry[] = [
     resolvePath: storedSourcePath,
     previewVerifier: verifyTopic42,
     productionVerifier: verifyTopic42,
+  },
+  {
+    topicId: '74',
+    verdict: 'auto-unwrap-origin-prefix',
+    handler: topic74UnwrapHref,
+    resolvePath: storedSourcePath,
+    previewVerifier: verifyTopic74,
+    productionVerifier: verifyTopic74,
   },
 ]
 
