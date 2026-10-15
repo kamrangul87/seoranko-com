@@ -149,6 +149,11 @@ export function evidenceNeedleForResolution(
       const href = evidenceHref(finding)
       return href ? { needle: href, expectedCount } : null
     }
+    case '74': {
+      // Origin-prefixed malformation — locate via the declared href in the file.
+      const href = evidenceHref(finding)
+      return href ? { needle: href, expectedCount } : null
+    }
     case '49': {
       const src = evidenceSrcAttr(finding)
       return src ? { needle: src, expectedCount } : null
