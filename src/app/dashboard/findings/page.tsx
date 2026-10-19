@@ -393,10 +393,14 @@ export default function FindingsListPage() {
   )
   const needsYouFindings = presentFindings.filter(
     (f) =>
-      f.fixTypePaused ||
-      f.surfaceClass === 'human-review' ||
-      f.surfaceClass === 'finding' ||
-      f.surfaceClass === 'report-only',
+      !f.acceptedAt &&
+      (f.fixTypePaused ||
+        f.surfaceClass === 'human-review' ||
+        f.surfaceClass === 'finding' ||
+        f.surfaceClass === 'report-only'),
+  )
+  const acceptedFindings = presentFindings.filter(
+    (f) => Boolean(f.acceptedAt) && f.surfaceClass === 'human-review',
   )
   const infoFindings = presentFindings.filter(
     (f) => f.surfaceClass === 'informational',
@@ -1109,6 +1113,11 @@ export default function FindingsListPage() {
                 [
                   { key: 'ready', title: `Ready to fix (${readyFindings.length})`, rows: readyFindings },
                   { key: 'needs', title: `Needs you (${needsYouFindings.length})`, rows: needsYouFindings },
+                  {
+                    key: 'accepted',
+                    title: `Reviewed and accepted (${acceptedFindings.length})`,
+                    rows: acceptedFindings,
+                  },
                   { key: 'info', title: `For information (${infoFindings.length})`, rows: infoFindings },
                 ] as const
               ).map((group) =>

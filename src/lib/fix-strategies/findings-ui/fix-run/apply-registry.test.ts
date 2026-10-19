@@ -52,6 +52,9 @@ function finding(
     verificationAt: null,
     postFixStatus: null,
     regressionObservedAt: null,
+    acceptedAt: null,
+    acceptedBy: null,
+    acceptedFingerprint: null,
     ...partial,
   }
 }

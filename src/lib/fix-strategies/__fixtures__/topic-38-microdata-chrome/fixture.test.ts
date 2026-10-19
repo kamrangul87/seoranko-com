@@ -43,7 +43,7 @@ describe('topic 38 — microdata/RDFa chrome Organization is not primary', () =>
     ).toBe(true)
   })
 
-  it('still raises JSON-LD Organization-only about-page mismatch', () => {
+  it('never raises JSON-LD Organization-only url vs page (homepage identity)', () => {
     const html = `<!doctype html><html><head><title>About</title>
 <script type="application/ld+json">${JSON.stringify({
       '@context': 'https://schema.org',
@@ -58,6 +58,9 @@ describe('topic 38 — microdata/RDFa chrome Organization is not primary', () =>
     })
     expect(
       result.findings.some((f) => f.verdict === 'human-review-entity-url-mismatch'),
+    ).toBe(false)
+    expect(
+      result.suppressed.some((s) => s.verdict === 'suppress-non-primary-entity-url'),
     ).toBe(true)
   })
 })

@@ -229,22 +229,24 @@ const PRIMARY_PAGE_ENTITY_TYPES = [
   'dataset',
 ]
 
-const ORG_PERSON_TYPES = [
+/**
+ * Entity types whose `url` is the org/site/person identity (often the
+ * homepage) — never compared to the carrying page URL. Autodun /privacy
+ * Organization{url: homepage} is correct schema, not a D6 contradiction.
+ */
+const NEVER_PAGE_URL_ENTITY_TYPES = [
   'organization',
   'localbusiness',
-  'person',
   'corporation',
+  'person',
+  'brand',
+  'website',
+  'onlinebusiness',
+  'onlinestore',
+  'store',
 ]
 
 const LIST_MEMBER_TYPES = ['listitem', 'itemlist', 'breadcrumblist']
-
-/** Theme chrome — Organization/Person nested here is never the page entity. */
-const SITE_CHROME_TYPES = [
-  'wpheader',
-  'wpfooter',
-  'sitenavigationelement',
-  'website',
-]
 
 function typeKey(t: string): string {
   return t.replace(/^https?:\/\/schema\.org\//i, '').toLowerCase()
@@ -252,44 +254,20 @@ function typeKey(t: string): string {
 
 /**
  * True when this node's `url` should be compared to the page URL (38a D6).
- * Primary = WebPage / Article / Product / … describing this page.
- * Org/Person only when no page-content type is present (about-page case) —
- * and never when nested under site chrome (WPHeader/WPFooter/nav) in
- * microdata/RDFa. ListItem / ItemList never — those urls point elsewhere.
+ * Primary = WebPage / Article / Product / FAQPage / … describing this page.
+ * Organization / WebSite / LocalBusiness / Brand / Person — never (their url
+ * is the entity identity, typically the homepage). ListItem / ItemList never.
  */
 export function isPrimaryPageEntityForUrlCheck(
   node: StructuredDataNode,
-  allNodes: StructuredDataNode[],
+  // Kept for call-site compatibility (previously used for about-page Org fallback).
+  _allNodes?: StructuredDataNode[],
 ): boolean {
+  void _allNodes
   const keys = node.types.map(typeKey)
   if (keys.some((k) => LIST_MEMBER_TYPES.includes(k))) return false
-
-  if (keys.some((k) => PRIMARY_PAGE_ENTITY_TYPES.includes(k))) return true
-
-  if (keys.some((k) => ORG_PERSON_TYPES.includes(k))) {
-    const ancestors = (node.ancestorTypes ?? []).map(typeKey)
-    if (ancestors.some((k) => SITE_CHROME_TYPES.includes(k))) {
-      return false
-    }
-    // Microdata/RDFa Organization in a shared header is emitted as a
-    // top-level node even when not nested (WP themes often mark the header
-    // block and the Organization as siblings / parallel scopes). If the
-    // page also declares site chrome types, Org/Person is chrome — not D6.
-    if (
-      (node.format === 'microdata' || node.format === 'rdfa') &&
-      allNodes.some((n) =>
-        n.types.some((t) => SITE_CHROME_TYPES.includes(typeKey(t))),
-      )
-    ) {
-      return false
-    }
-    const pageHasContentType = allNodes.some((n) =>
-      n.types.some((t) => PRIMARY_PAGE_ENTITY_TYPES.includes(typeKey(t))),
-    )
-    return !pageHasContentType
-  }
-
-  return false
+  if (keys.some((k) => NEVER_PAGE_URL_ENTITY_TYPES.includes(k))) return false
+  return keys.some((k) => PRIMARY_PAGE_ENTITY_TYPES.includes(k))
 }
 
 export function detectStructuredDataContradictsVisible(

@@ -110,6 +110,9 @@ export type UiFinding = {
   verificationAt: string | null
   postFixStatus: 'verified' | 'verify_failed' | 'regressed' | null
   regressionObservedAt: string | null
+  /** Human Mark as OK — leaves Needs you until fingerprint drifts. */
+  acceptedAt: string | null
+  acceptedBy: string | null
   /** Present when status === 'regressed' — owner-facing copy from buildRegressionReport. */
   regressionReport?: {
     headline: string

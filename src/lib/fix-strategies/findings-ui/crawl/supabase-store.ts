@@ -163,6 +163,9 @@ function mapFinding(row: Record<string, unknown>): PersistedFindingRow {
       (row.post_fix_status as PersistedFindingRow['postFixStatus']) ?? null,
     regressionObservedAt:
       (row.regression_observed_at as string | null) ?? null,
+    acceptedAt: (row.accepted_at as string | null) ?? null,
+    acceptedBy: (row.accepted_by as string | null) ?? null,
+    acceptedFingerprint: (row.accepted_fingerprint as string | null) ?? null,
   }
 }
 
@@ -407,7 +410,7 @@ export function createSupabaseFindingsStore(
         let existingQuery = db()
           .from('fix_strategies_findings')
           .select(
-            'id, first_seen_run_id, first_seen_at, status, fixed_at, post_fix_status, regression_observed_at, rollup_key',
+            'id, first_seen_run_id, first_seen_at, status, fixed_at, post_fix_status, regression_observed_at, rollup_key, accepted_at, accepted_by, accepted_fingerprint',
           )
           .eq('topic_id', f.topicId)
           .eq('rollup_key', f.rollupKey)
@@ -426,7 +429,7 @@ export function createSupabaseFindingsStore(
           let logicalQuery = db()
             .from('fix_strategies_findings')
             .select(
-              'id, first_seen_run_id, first_seen_at, status, fixed_at, post_fix_status, regression_observed_at, rollup_key',
+              'id, first_seen_run_id, first_seen_at, status, fixed_at, post_fix_status, regression_observed_at, rollup_key, accepted_at, accepted_by, accepted_fingerprint',
             )
             .eq('topic_id', f.topicId)
             .eq('verdict', f.verdict)
@@ -492,6 +495,25 @@ export function createSupabaseFindingsStore(
           }
           if (reappearedAfterVerified) {
             patch.post_fix_status = 'regressed'
+          }
+          // Mark-as-OK: clear acceptance when the observation fingerprint drifts.
+          if (existing.accepted_at) {
+            const { findingAcceptanceFingerprint } = await import(
+              '../acceptance-fingerprint'
+            )
+            const nextFp = findingAcceptanceFingerprint({
+              detail: f.detail,
+              pageUrl: f.pageUrl,
+              evidenceValues: f.evidenceValues,
+            })
+            if (
+              !existing.accepted_fingerprint ||
+              existing.accepted_fingerprint !== nextFp
+            ) {
+              patch.accepted_at = null
+              patch.accepted_by = null
+              patch.accepted_fingerprint = null
+            }
           }
           const { error } = await db()
             .from('fix_strategies_findings')
@@ -813,6 +835,49 @@ export function createSupabaseFindingsStore(
         .update(patch)
         .eq('id', input.findingId)
       if (error) throw new Error(error.message)
+    },
+
+    async setFindingAccepted(input) {
+      const { data: raw, error: readErr } = await db()
+        .from('fix_strategies_findings')
+        .select('*')
+        .eq('id', input.findingId)
+        .maybeSingle()
+      if (readErr) throw new Error(readErr.message)
+      if (!raw) return null
+      const current = mapFinding(raw as Record<string, unknown>)
+      const now = new Date().toISOString()
+      let patch: Record<string, unknown>
+      if (!input.accepted) {
+        patch = {
+          accepted_at: null,
+          accepted_by: null,
+          accepted_fingerprint: null,
+          updated_at: now,
+        }
+      } else {
+        const { findingAcceptanceFingerprint } = await import(
+          '../acceptance-fingerprint'
+        )
+        patch = {
+          accepted_at: now,
+          accepted_by: input.userId,
+          accepted_fingerprint: findingAcceptanceFingerprint({
+            detail: current.detail,
+            pageUrl: current.pageUrl,
+            evidenceValues: current.evidenceValues,
+          }),
+          updated_at: now,
+        }
+      }
+      const { data: updated, error } = await db()
+        .from('fix_strategies_findings')
+        .update(patch)
+        .eq('id', input.findingId)
+        .select('*')
+        .maybeSingle()
+      if (error) throw new Error(error.message)
+      return updated ? mapFinding(updated as Record<string, unknown>) : null
     },
 
     async listEvidenceForFinding(findingId) {

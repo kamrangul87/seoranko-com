@@ -27,6 +27,7 @@ import {
   idsToSupersedeAsPresentDuplicates,
   logicalPresentFindingKey,
 } from './dedupe-present-findings'
+import { findingAcceptanceFingerprint } from '../acceptance-fingerprint'
 
 export type FindingsStore = {
   createRun(input: {
@@ -158,6 +159,16 @@ export type FindingsStore = {
     surfaceClass?: string
     evidenceValues?: Record<string, unknown> | null
   }): Promise<void>
+  /**
+   * Mark / un-mark a human-review finding as OK (Needs you ↔ Reviewed).
+   * Fingerprint pins the observation; a later upsert with a different
+   * fingerprint clears acceptance automatically.
+   */
+  setFindingAccepted(input: {
+    findingId: string
+    accepted: boolean
+    userId: string
+  }): Promise<PersistedFindingRow | null>
   counts(input: {
     siteId?: string | null
     detectOrigin?: string | null
@@ -530,6 +541,21 @@ export function createMemoryFindingsStore(): FindingsStore {
               ? 'regressed'
               : existing.postFixStatus,
           }
+          if (existing.acceptedAt) {
+            const nextFp = findingAcceptanceFingerprint({
+              detail: f.detail,
+              pageUrl: f.pageUrl,
+              evidenceValues: f.evidenceValues,
+            })
+            if (
+              !existing.acceptedFingerprint ||
+              existing.acceptedFingerprint !== nextFp
+            ) {
+              updated.acceptedAt = null
+              updated.acceptedBy = null
+              updated.acceptedFingerprint = null
+            }
+          }
           if (existingMapKey !== key) {
             state().findings.delete(existingMapKey)
           }
@@ -571,6 +597,9 @@ export function createMemoryFindingsStore(): FindingsStore {
             verificationAt: null,
             postFixStatus: null,
             regressionObservedAt: null,
+            acceptedAt: null,
+            acceptedBy: null,
+            acceptedFingerprint: null,
           }
           state().findings.set(key, row)
           state().observations.add(`${row.id}::${runId}`)
@@ -801,6 +830,36 @@ export function createMemoryFindingsStore(): FindingsStore {
         })
         return
       }
+    },
+
+    async setFindingAccepted(input) {
+      for (const [key, f] of state().findings.entries()) {
+        if (f.id !== input.findingId) continue
+        if (!input.accepted) {
+          const cleared: PersistedFindingRow = {
+            ...f,
+            acceptedAt: null,
+            acceptedBy: null,
+            acceptedFingerprint: null,
+          }
+          state().findings.set(key, cleared)
+          return cleared
+        }
+        const fp = findingAcceptanceFingerprint({
+          detail: f.detail,
+          pageUrl: f.pageUrl,
+          evidenceValues: f.evidenceValues,
+        })
+        const accepted: PersistedFindingRow = {
+          ...f,
+          acceptedAt: new Date().toISOString(),
+          acceptedBy: input.userId,
+          acceptedFingerprint: fp,
+        }
+        state().findings.set(key, accepted)
+        return accepted
+      }
+      return null
     },
 
     async listEvidenceForFinding(findingId) {

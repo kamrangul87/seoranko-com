@@ -328,7 +328,7 @@ describe('topic 38 — structured vs structured (38a) / observation (38b)', () =
       }).findings.some((f) => f.verdict === 'human-review-rating-inconsistent'),
     ).toBe(true)
 
-    // 4. entity url → human-review (both values shown; never auto-fix)
+    // 4. Organization url is never a D6 page-url check (homepage identity)
     const r4 = detectStructuredDataContradictsVisible({
       html: page({
         '@context': 'https://schema.org',
@@ -338,7 +338,25 @@ describe('topic 38 — structured vs structured (38a) / observation (38b)', () =
       pageUrl: ORIGIN,
       nowMs: now,
     })
-    const entity = r4.findings.find(
+    expect(
+      r4.findings.some((f) => f.verdict === 'human-review-entity-url-mismatch'),
+    ).toBe(false)
+    expect(
+      r4.suppressed.some((s) => s.verdict === 'suppress-non-primary-entity-url'),
+    ).toBe(true)
+
+    // 4d. Article url mismatch → human-review (both values shown; never auto-fix)
+    const r4d = detectStructuredDataContradictsVisible({
+      html: page({
+        '@context': 'https://schema.org',
+        '@type': 'Article',
+        headline: 'H',
+        url: 'https://other.example/',
+      }),
+      pageUrl: ORIGIN,
+      nowMs: now,
+    })
+    const entity = r4d.findings.find(
       (f) => f.verdict === 'human-review-entity-url-mismatch',
     )
     expect(entity).toBeTruthy()

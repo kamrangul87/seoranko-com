@@ -45,6 +45,9 @@ function finding(
     verificationAt: null,
     postFixStatus: null,
     regressionObservedAt: null,
+    acceptedAt: null,
+    acceptedBy: null,
+    acceptedFingerprint: null,
     ...rest,
   }
 }
@@ -127,6 +130,9 @@ describe('buildWhatChangedDigest', () => {
           status: 'regressed',
           resolvedAt: '2026-09-21T11:00:00.000Z',
           regressionObservedAt: '2026-09-28T11:30:00.000Z',
+    acceptedAt: null,
+    acceptedBy: null,
+    acceptedFingerprint: null,
         }),
         finding({
           id: 'f-still',
