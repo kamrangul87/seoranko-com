@@ -42,9 +42,9 @@ describe('topic 57 crawled not indexed', () => {
     })
     expect(r.findings).toHaveLength(1)
     const f = r.findings[0]!
-    expect(f.detail).toMatch(/does not publish why/i)
-    // Refusal language may name the forbidden inferences; must not assert them as cause.
-    expect(f.detail).toMatch(/does not translate that state into/i)
+    expect(f.verdict).toBe('informational-crawled-not-indexed')
+    expect(f.detail).toMatch(/Google's choice, not a technical error/i)
+    expect(f.detail).toMatch(/can't force indexing/i)
     expect(f.evidenceValues.neverInferThinOrDuplicateOrQuality).toBe(true)
     expect(f.evidenceValues.noPublishedClassifier).toBe(true)
     expect(f.evidenceValues.independentFindings).toEqual([

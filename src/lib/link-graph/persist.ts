@@ -37,6 +37,36 @@ export async function persistLinkGraphResult(
 
   const auditId = audit.id as string
 
+  // Keep only the latest 3 audits per domain — drop older edge/target/finding
+  // rows so Diagnostics never shows a prior run as current, and so "internal"
+  // counts stay scoped to recent crawls.
+  try {
+    const { data: prior } = await supabase
+      .from('link_graph_audits')
+      .select('id, created_at')
+      .eq('user_id', opts.userId)
+      .eq('domain', opts.domain)
+      .order('created_at', { ascending: false })
+    const keep = new Set(
+      (prior || []).slice(0, 3).map((r: { id: string }) => r.id),
+    )
+    keep.add(auditId)
+    const stale = (prior || [])
+      .map((r: { id: string }) => r.id)
+      .filter((id: string) => !keep.has(id))
+    if (stale.length > 0) {
+      await supabase.from('link_edges').delete().in('audit_id', stale)
+      await supabase.from('link_targets').delete().in('audit_id', stale)
+      await supabase.from('link_findings').delete().in('audit_id', stale)
+      await supabase.from('link_graph_audits').delete().in('id', stale)
+    }
+  } catch (err) {
+    console.warn(
+      '[link-graph] prune old audits failed',
+      err instanceof Error ? err.message : err,
+    )
+  }
+
   const edgeRows = opts.result.edges.map((e) => ({
     audit_id: auditId,
     source_url: e.sourceUrl,

@@ -585,12 +585,12 @@ describe('topics 43 + 45 — link graph / depth / client_only', () => {
     expect(
       r43.findings.some(
         (f) =>
-          f.verdict === 'finding-link-graph-orphan' && f.pageUrl === orphan,
+          f.verdict === 'auto-add-nav-link' && f.pageUrl === orphan,
       ),
     ).toBe(true)
     expect(
       r43.findings.some(
-        (f) => f.verdict === 'finding-orphan-in-sitemap-lower',
+        (f) => f.verdict === 'auto-add-nav-link' && f.inSitemap === true,
       ),
     ).toBe(true)
     expect(
@@ -739,7 +739,7 @@ describe('topics 43 + 45 — link graph / depth / client_only', () => {
       r43.findings.some((f) => f.verdict === 'report-client-only-graph'),
     ).toBe(true)
     expect(
-      r43.findings.some((f) => f.verdict === 'finding-link-graph-orphan'),
+      r43.findings.some((f) => f.verdict === 'auto-add-nav-link'),
     ).toBe(false)
 
     const r45 = detectCrawlDepth({ graph })
@@ -777,11 +777,9 @@ describe('topics 43 + 45 — link graph / depth / client_only', () => {
     expect(graph.clientOnlyGraph).toBe(false)
 
     const withoutGuard = detectOrphanPages({ graph })
-    // Without the guard, pages with zero inbound would raise (homepage excluded)
+    // Without the guard, pages with zero inbound raise auto-add-nav-link
     expect(
-      withoutGuard.findings.some((f) =>
-        f.verdict.startsWith('finding-'),
-      ),
+      withoutGuard.findings.some((f) => f.verdict === 'auto-add-nav-link'),
     ).toBe(true)
 
     const withGuard = detectOrphanPages({
@@ -792,7 +790,7 @@ describe('topics 43 + 45 — link graph / depth / client_only', () => {
       withGuard.findings.some((f) => f.verdict === 'client_only-limited'),
     ).toBe(true)
     expect(
-      withGuard.findings.some((f) => f.verdict.startsWith('finding-')),
+      withGuard.findings.some((f) => f.verdict === 'auto-add-nav-link'),
     ).toBe(false)
   })
 

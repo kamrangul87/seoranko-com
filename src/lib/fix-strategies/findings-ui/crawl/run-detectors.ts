@@ -326,6 +326,10 @@ function ingestArray(
       if (typeof item.selfCanonical === 'string') applyEv.selfCanonical = item.selfCanonical
       // Topic 14 — broken canonical href currently in the file (resolution needle).
       if (typeof item.canonicalUrl === 'string') applyEv.canonicalUrl = item.canonicalUrl
+      // Topic 43 / related-articles approval fixes
+      if (typeof item.anchorText === 'string') applyEv.anchorText = item.anchorText
+      if (Array.isArray(item.relatedTargets)) applyEv.relatedTargets = item.relatedTargets
+      if (item.requiresApproval === true) applyEv.requiresApproval = true
       // Topic 22 — crawl-delay raw lines for resolveSourceFile.
       const inspection = item.inspection as
         | { crawlDelayLines?: Array<{ raw?: string } | string> }

@@ -9,7 +9,8 @@ import {
 } from '@/lib/fix-strategies/shared/gsc-detect-context'
 import type { IndexDiagnosis } from '@/lib/fix-strategies/shared/index-diagnosis'
 
-export type Topic57Verdict = 'crawled-not-indexed'
+/** Informational — Google's choice, not a technical finding (bucket via prefix). */
+export type Topic57Verdict = 'informational-crawled-not-indexed'
 
 export type Topic57Finding = {
   verdict: Topic57Verdict
@@ -66,20 +67,19 @@ export function detectCrawledNotIndexed(
       : ''
 
     findings.push({
-      verdict: 'crawled-not-indexed',
+      verdict: 'informational-crawled-not-indexed',
       pageUrl: row.url,
       severity: 'low',
       autoFixable: false,
       detail:
-        `Google crawled this page and has not indexed it. Google does not publish why, ` +
-        `and says no resubmission is needed. Last crawl: ${row.lastCrawlTime || 'unknown'}. ` +
-        `This product does not translate that state into thin content, duplicate content, ` +
-        `or a quality failure. ` +
+        `Google's choice, not a technical error — SEORANKO can't force indexing. ` +
+        `Google crawled this page and has not indexed it. Last crawl: ${row.lastCrawlTime || 'unknown'}. ` +
+        `No resubmission is needed. ` +
         (independent.length
           ? `Separately, independent findings on this URL (not claimed as the cause): ${independent.join('; ')}. `
           : '') +
         diagnosisLine +
-        ` Historical Inspection state; coverage may be partial. Never promises indexing.`,
+        ` Historical Inspection state; coverage may be partial.`,
       evidenceValues: {
         coverageState: row.coverageState,
         lastCrawlTime: row.lastCrawlTime,

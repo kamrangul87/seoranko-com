@@ -16,8 +16,16 @@ import { canOfferFix } from '../buckets'
 import type { FindingSurfaceClass } from '../types'
 import { removeAnchorByHref } from '@/lib/fix-strategies/topic-1/fix-remove-anchor'
 import { verifyAnchorAbsent } from '@/lib/fix-strategies/topic-1/verify-anchor-absent'
-import { setHeadCanonicalHref } from '@/lib/fix-strategies/topic-14/fix-repoint-canonical'
+import { ensurePageSelfCanonical } from '@/lib/fix-strategies/topic-14/fix-repoint-canonical'
 import { verifyLiveCanonicalTarget200 } from '@/lib/fix-strategies/topic-14/verify-live-target'
+import {
+  addNavOrFooterLink,
+  pickAnchorText,
+} from '@/lib/fix-strategies/topic-43/fix-add-nav-link'
+import {
+  addRelatedArticlesBlock,
+  type RelatedTarget,
+} from '@/lib/fix-strategies/related-articles/fix-add-related'
 import {
   collapseToSingleHeadCanonical,
   removeBodyCanonicalLinks,
@@ -191,7 +199,19 @@ const topic1RemoveAnchor: TransformHandler = async (ctx) => {
 const topic14RepointCanonical: TransformHandler = async (ctx) => {
   const href = evidenceSelfCanonical(ctx.finding)
   if (!href) return { ok: false, error: 'Missing self-canonical for topic 14' }
-  const { html, updated } = setHeadCanonicalHref(ctx.fileContent, href)
+  // Never apply to layout.* — page override only (shared layout defaults).
+  if (/\/layout\.(tsx|ts|jsx|js)$/i.test(ctx.path)) {
+    return {
+      ok: false,
+      error:
+        'Refusing to edit layout for topic 14 — resolve the page file and add a page-level self-canonical',
+    }
+  }
+  const { content, updated } = ensurePageSelfCanonical(
+    ctx.fileContent,
+    ctx.path,
+    href,
+  )
   if (!updated) {
     return {
       ok: true,
@@ -201,7 +221,7 @@ const topic14RepointCanonical: TransformHandler = async (ctx) => {
       noop: true,
     }
   }
-  return { ok: true, path: ctx.path, newContent: html, updated }
+  return { ok: true, path: ctx.path, newContent: content, updated }
 }
 
 const topic17Collapse: TransformHandler = async (ctx) => {
@@ -304,6 +324,77 @@ const topic42RewriteHref: TransformHandler = async (ctx) => {
     }
   }
   return { ok: true, path: ctx.path, newContent: html, updated: rewritten }
+}
+
+const topic43AddNavLink: TransformHandler = async (ctx) => {
+  const pageUrl = ctx.finding.pageUrl || ''
+  let href = '/'
+  try {
+    href = new URL(pageUrl).pathname || '/'
+  } catch {
+    /* keep */
+  }
+  const ev = (ctx.finding.evidenceValues || {}) as Record<string, unknown>
+  const anchor = pickAnchorText({
+    pageTitle: typeof ev.anchorText === 'string' ? ev.anchorText : null,
+    pageUrl,
+  })
+  const { html, updated } = addNavOrFooterLink(ctx.fileContent, {
+    href,
+    anchorText: anchor,
+  })
+  if (!updated) {
+    return {
+      ok: true,
+      path: ctx.path,
+      newContent: ctx.fileContent,
+      updated: 0,
+      noop: true,
+    }
+  }
+  return { ok: true, path: ctx.path, newContent: html, updated }
+}
+
+const verifyTopic43NavLink: TransformVerifier = async (ctx) => {
+  const pageUrl = ctx.finding.pageUrl || ''
+  let href = '/'
+  try {
+    href = new URL(pageUrl).pathname || '/'
+  } catch {
+    /* keep */
+  }
+  if (!ctx.body.includes(`href="${href}"`) && !ctx.body.includes(`href='${href}'`)) {
+    return { ok: false, detail: `live HTML missing nav link to ${href}` }
+  }
+  return { ok: true, detail: `nav/footer link to ${href} present` }
+}
+
+const topicRelatedArticles: TransformHandler = async (ctx) => {
+  const ev = (ctx.finding.evidenceValues || {}) as Record<string, unknown>
+  const raw = ev.relatedTargets
+  const targets: RelatedTarget[] = Array.isArray(raw)
+    ? (raw as RelatedTarget[]).filter(
+        (t) => t && typeof t.href === 'string' && typeof t.anchorText === 'string',
+      )
+    : []
+  const { html, updated } = addRelatedArticlesBlock(ctx.fileContent, targets)
+  if (!updated) {
+    return {
+      ok: true,
+      path: ctx.path,
+      newContent: ctx.fileContent,
+      updated: 0,
+      noop: true,
+    }
+  }
+  return { ok: true, path: ctx.path, newContent: html, updated }
+}
+
+const verifyRelatedArticles: TransformVerifier = async (ctx) => {
+  if (!ctx.body.includes('data-seoranko-related-articles')) {
+    return { ok: false, detail: 'Related articles block missing on live page' }
+  }
+  return { ok: true, detail: 'Related articles block present' }
 }
 
 const topic74UnwrapHref: TransformHandler = async (ctx) => {
@@ -571,6 +662,22 @@ const REGISTRY: RegistryEntry[] = [
     resolvePath: storedSourcePath,
     previewVerifier: verifyTopic74,
     productionVerifier: verifyTopic74,
+  },
+  {
+    topicId: '43',
+    verdict: 'auto-add-nav-link',
+    handler: topic43AddNavLink,
+    resolvePath: storedSourcePath,
+    previewVerifier: verifyTopic43NavLink,
+    productionVerifier: verifyTopic43NavLink,
+  },
+  {
+    topicId: 'related',
+    verdict: 'auto-add-related-articles',
+    handler: topicRelatedArticles,
+    resolvePath: storedSourcePath,
+    previewVerifier: verifyRelatedArticles,
+    productionVerifier: verifyRelatedArticles,
   },
 ]
 

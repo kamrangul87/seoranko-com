@@ -120,9 +120,42 @@ describe('topic 14 — canonical points to non-200', () => {
       result.findings.find((f) => f.pageUrl === `${ORIGIN}/d`)?.kind,
     ).toBe('canonical/soft-404-target')
 
+    // /e points at a different healthy URL → auto-self-canonical (elsewhere)
+    expect(
+      result.findings.find((f) => f.pageUrl === `${ORIGIN}/e`)?.verdict,
+    ).toBe('auto-self-canonical')
+    expect(
+      result.findings.find((f) => f.pageUrl === `${ORIGIN}/e`)?.kind,
+    ).toBe('canonical/points-elsewhere')
+
+    // Non-HTML 200 target remains ok
     expect(result.ok.map((o) => o.pageUrl)).toEqual(
-      expect.arrayContaining([`${ORIGIN}/e`, `${ORIGIN}/f`]),
+      expect.arrayContaining([`${ORIGIN}/f`]),
     )
+  })
+
+  it('autodun-style /privacy → homepage is auto-self-canonical', async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response('home', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    )
+    const result = await detectCanonicalTargetNot200(
+      [
+        {
+          url: `${ORIGIN}/privacy`,
+          body: htmlWithCanonical(`${ORIGIN}/`),
+          pageReturns200: true,
+          repoSiteKind: 'page',
+        },
+      ],
+      { deps: { fetch: fetchMock as unknown as typeof fetch }, siteOrigin: ORIGIN },
+    )
+    const f = result.findings[0]
+    expect(f?.verdict).toBe('auto-self-canonical')
+    expect(f?.selfCanonical).toBe(`${ORIGIN}/privacy`)
+    expect(f?.canonicalUrl).toMatch(/\/$/)
   })
 
   it('fixer + verifier: self-canonical then target 200', async () => {

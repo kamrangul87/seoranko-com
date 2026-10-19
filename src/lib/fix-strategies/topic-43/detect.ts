@@ -18,6 +18,7 @@ export type Topic43Verdict =
   | 'finding-link-graph-orphan'
   | 'finding-orphan-in-sitemap-lower'
   | 'finding-orphan-onclick-only'
+  | 'auto-add-nav-link'
   | 'human-review-campaign-landing'
   | 'suppress-homepage'
   | 'suppress-non-indexable'
@@ -38,6 +39,10 @@ export type Topic43Finding = {
   inSitemap: boolean
   /** Convert onclick/javascript: → <a href> when that is the only inbound. */
   convertNonCrawlableToAnchor: boolean
+  /** Approval-required footer/nav link fix — never auto-merge. */
+  requiresApproval?: boolean
+  /** Suggested anchor text (page title / path). */
+  anchorText?: string
 }
 
 export type DetectTopic43Result = {
@@ -191,31 +196,49 @@ export function detectOrphanPages(
       continue
     }
 
+    // Approval-required: add a real <a href> in shared footer/nav next to
+    // existing links (anchor = page title). Never auto-merge (Footer blast radius).
+    const pathLabel = (() => {
+      try {
+        const seg = new URL(node.urlNormalized).pathname
+          .split('/')
+          .filter(Boolean)
+          .pop()
+        return seg ? seg.replace(/[-_]+/g, ' ') : node.urlNormalized
+      } catch {
+        return node.urlNormalized
+      }
+    })()
+
     if (node.inSitemap) {
       findings.push({
         kind: 'internal-links/orphan-pages',
-        verdict: 'finding-orphan-in-sitemap-lower',
+        verdict: 'auto-add-nav-link',
         severity: 'moderate',
         pageUrl: node.urlNormalized,
         detail:
-          'Orphaned in the link graph but listed in the XML sitemap — discovery is not blocked (N8, N9); sitemap does not close the graph orphan.',
-        autoFixable: false,
+          'Orphaned in the link graph but listed in the sitemap. Approval-required fix: add a footer/nav link (anchor = page title). Sitemap does not close the graph orphan (N8, N9).',
+        autoFixable: true,
         inSitemap: true,
         convertNonCrawlableToAnchor: false,
+        requiresApproval: true,
+        anchorText: pathLabel,
       })
       continue
     }
 
     findings.push({
       kind: 'internal-links/orphan-pages',
-      verdict: 'finding-link-graph-orphan',
+      verdict: 'auto-add-nav-link',
       severity: 'high',
       pageUrl: node.urlNormalized,
       detail:
-        'Zero inbound crawlable internal links — orphaned in the site link graph. Not a claim that Google cannot discover or index this page (N8).',
-      autoFixable: false,
+        'Zero inbound crawlable internal links — orphaned in the site link graph. Approval-required fix: add a footer/nav link (N8).',
+      autoFixable: true,
       inSitemap: false,
       convertNonCrawlableToAnchor: false,
+      requiresApproval: true,
+      anchorText: pathLabel,
     })
   }
 

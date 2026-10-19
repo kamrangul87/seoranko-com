@@ -701,7 +701,7 @@ export default function FindingsListPage() {
                 <>
                   <span
                     className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]"
-                    title="Headless render coverage — only pages where raw HTML lacked links/content"
+                    title="Headless render runs only when raw HTML lacks crawlable links/content. Static HTML sites often show 0 rendered — that is expected, not a failure."
                   >
                     {crawl.pagesRendered ?? 0} rendered
                     {(crawl.pagesRenderFailed ?? 0) > 0

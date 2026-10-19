@@ -13,7 +13,11 @@ export type {
   Topic14Verdict,
 } from './classify'
 
-export { setHeadCanonicalHref } from './fix-repoint-canonical'
+export {
+  setHeadCanonicalHref,
+  ensurePageSelfCanonical,
+  ensureNextPageMetadataCanonical,
+} from './fix-repoint-canonical'
 export { verifyLiveCanonicalTarget200 } from './verify-live-target'
 export type { LiveCanonicalTargetVerification } from './verify-live-target'
 

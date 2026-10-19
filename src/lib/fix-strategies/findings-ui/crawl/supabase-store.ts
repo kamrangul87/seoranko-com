@@ -19,6 +19,50 @@ import type { DetectorEmit } from './run-detectors'
 import type { UrlObservationRecord } from './observation-timeline'
 import { idsToSupersedeAsPresentDuplicates } from './dedupe-present-findings'
 
+/** Delete finding_evidence rows for crawls older than the last `keep` per site. */
+async function pruneEvidenceOlderThanLastNCrawls(
+  db: () => SupabaseClient,
+  input: {
+    siteId: string | null
+    userId: string
+    detectOrigin: string | null
+    keep: number
+  },
+): Promise<void> {
+  try {
+    let runsQ = db()
+      .from('fix_strategies_crawl_runs')
+      .select('id, finished_at, started_at, created_at')
+      .order('created_at', { ascending: false })
+      .limit(50)
+    if (input.siteId) {
+      runsQ = runsQ.eq('site_id', input.siteId)
+    } else {
+      runsQ = runsQ
+        .is('site_id', null)
+        .eq('user_id', input.userId)
+        .eq('detect_origin', input.detectOrigin)
+    }
+    const { data: runs } = await runsQ
+    const keepIds = new Set(
+      (runs ?? []).slice(0, Math.max(1, input.keep)).map((r) => String(r.id)),
+    )
+    const stale = (runs ?? [])
+      .map((r) => String(r.id))
+      .filter((id) => !keepIds.has(id))
+    if (stale.length === 0) return
+    await db()
+      .from('fix_strategies_finding_evidence')
+      .delete()
+      .in('run_id', stale)
+  } catch (err) {
+    console.warn(
+      '[findings] prune old evidence failed',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
 async function supersedePresentFindingDuplicates(
   db: () => SupabaseClient,
   input: {
@@ -608,6 +652,15 @@ export function createSupabaseFindingsStore(
           if (evErr) throw new Error(evErr.message)
         }
       }
+
+      // Keep evidence for the last 3 crawls only — older rows inflate the
+      // master-only "internal" chip (e.g. 10k+ for a 15-page site).
+      await pruneEvidenceOlderThanLastNCrawls(db, {
+        siteId,
+        userId,
+        detectOrigin: originNorm,
+        keep: 3,
+      })
     },
 
     async resolveAbsentFindings({
@@ -915,14 +968,22 @@ export function createSupabaseFindingsStore(
         else internal++
       }
       if (siteId) {
-        const { count: evidenceCount, error: eErr } = await db()
-          .from('fix_strategies_finding_evidence')
-          .select('id, fix_strategies_crawl_runs!inner(site_id)', {
-            count: 'exact',
-            head: true,
-          })
-          .eq('fix_strategies_crawl_runs.site_id', siteId)
-        if (!eErr && evidenceCount != null) internal += evidenceCount
+        // Scope internal evidence to the latest crawl only — never sum
+        // historical suppress/ok rows across every past run.
+        const { data: latestRun } = await db()
+          .from('fix_strategies_crawl_runs')
+          .select('id')
+          .eq('site_id', siteId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (latestRun?.id) {
+          const { count: evidenceCount, error: eErr } = await db()
+            .from('fix_strategies_finding_evidence')
+            .select('id', { count: 'exact', head: true })
+            .eq('run_id', latestRun.id as string)
+          if (!eErr && evidenceCount != null) internal += evidenceCount
+        }
       }
       return { actionable, informational, internal }
     },

@@ -164,7 +164,7 @@ export async function getSiteConnectionStatus(
         suggestedDomain: host,
         parentDomain: parent.domain,
         prompt:
-          `This fix requires connecting ${host} — go to Settings to connect it. You have ${parent.domain} connected; each host needs its own site + CMS connection (GSC listing alone does not grant write access).`,
+          `Connect ${host} to fix this. You have ${parent.domain} connected; each host needs its own site + CMS connection (GSC listing alone does not grant write access).`,
       }
     }
   }

@@ -44,6 +44,12 @@ export type ClassifyTopic14Input = {
     | 'unknown'
   /** Non-HTML target returning 200 is valid. */
   targetIsNonHtml200: boolean
+  /**
+   * Declared canonical points at a different same-host page (not an
+   * equivalent variant). Healthy 200 targets still need a self-canonical
+   * when the page is a dedicated content URL (e.g. /privacy → /).
+   */
+  canonicalPointsElsewhere?: boolean
 }
 
 export type ClassifyTopic14Result = {
@@ -135,6 +141,25 @@ export function classifyCanonicalTarget(
       return {
         verdict: 'finding-soft-404',
         detail: 'Canonical target is soft-404 (200 + noindex) — topic 2a',
+      }
+    }
+    // Wrong-elsewhere but healthy target (e.g. /privacy → homepage).
+    // Always page-file self-canonical — including when the live tag comes from
+    // a shared layout default. Never edit layout; page override wins.
+    if (
+      input.canonicalPointsElsewhere &&
+      input.pageReturns200 &&
+      (input.repoSiteKind === 'page' ||
+        input.repoSiteKind === 'layout' ||
+        input.repoSiteKind === 'none' ||
+        input.repoSiteKind === 'unknown')
+    ) {
+      return {
+        verdict: 'auto-self-canonical',
+        detail:
+          input.repoSiteKind === 'layout'
+            ? 'Canonical inherited from shared layout points elsewhere — add self-referential canonical on the page file only (do not edit layout)'
+            : 'Canonical points at a different same-host URL that returns 200 — repoint to self-referential on the page file (not layout)',
       }
     }
     return {

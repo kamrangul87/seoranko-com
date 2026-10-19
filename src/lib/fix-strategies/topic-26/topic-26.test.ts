@@ -203,7 +203,9 @@ describe('topic 26 — sitemap not indexable', () => {
     ).toBe(locs.final)
     expect(byLoc[locs.noindex]).toBe('auto-remove-repo-noindex')
     expect(byLoc[locs.injected]).toBe('auto-remove-injected-noindex')
-    expect(byLoc[locs.elsewhere]).toBe('human-review-canonical-elsewhere')
+    expect(byLoc[locs.elsewhere]).toBe(
+      'suppress-page-canonical-elsewhere-topic-14',
+    )
     expect(detected.ok).toEqual(expect.arrayContaining([locs.healthy, locs.pdf]))
     expect(detected.ok).toHaveLength(2)
 

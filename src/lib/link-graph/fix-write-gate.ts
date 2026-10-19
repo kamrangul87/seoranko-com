@@ -31,5 +31,5 @@ export function fixRequiresConnectingHost(opts: {
 }
 
 export function fixRequiresConnectingMessage(host: string): string {
-  return `This fix requires connecting ${host} — go to Settings to connect it.`
+  return `Connect ${host} to fix this`
 }

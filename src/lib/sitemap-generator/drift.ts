@@ -99,12 +99,14 @@ export async function detectSitemapDrift(input: SitemapCrawlInput): Promise<Site
       ? findNoindexInSitemapContradictions(live.urls, input.pages, input.coverage)
       : []
 
+  // Only report drift when we can name the URLs (or health/noindex evidence).
+  // A bare set-size mismatch without missing/dead lists is noise — never claim
+  // "N dead/stale" without listing them.
   const hasDrift =
     missingFromLive.length > 0 ||
     deadInLive.length > 0 ||
     liveHealthFailures.length > 0 ||
     noindexContradictions.length > 0 ||
-    (live.urls.length > 0 && expectedSet.size !== liveSet.size) ||
     (live.urls.length === 0 && expectedSitemapUrls.length > 0)
 
   return {
