@@ -46,6 +46,16 @@ export default function DashboardPage() {
   const [stepsKnown, setStepsKnown] = useState(false)
   const [doneById, setDoneById] = useState<Partial<Record<StepId, boolean>>>({})
   const [crawlSummary, setCrawlSummary] = useState<CrawlSummary | null>(null)
+  const [passwordUpdated, setPasswordUpdated] = useState(false)
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('password_updated') === '1') {
+      setPasswordUpdated(true)
+      // Drop the query so a refresh doesn't keep the banner forever.
+      window.history.replaceState({}, '', '/dashboard')
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -96,6 +106,15 @@ export default function DashboardPage() {
           <div className="mb-8">
             <h1 className="text-2xl font-bold text-[#0F0F0F] mb-2">{copy.title}</h1>
             <p className="text-[#6B6B6B] text-sm">{copy.lead}</p>
+            {passwordUpdated && (
+              <p
+                className="mt-3 text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2"
+                role="status"
+                data-testid="password-updated"
+              >
+                Password updated
+              </p>
+            )}
           </div>
 
           <div className="bg-white border border-[#E8E8E4] rounded-[12px] overflow-hidden mb-8">

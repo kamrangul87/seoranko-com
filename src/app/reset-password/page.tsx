@@ -22,7 +22,8 @@ export default function ResetPasswordPage() {
     let cancelled = false
 
     async function establishSession() {
-      // PKCE: ?code=… from the recovery email link.
+      // Prefer session already set by /auth/callback; still accept a stray
+      // ?code= here if the middleware safety net was bypassed.
       const url = new URL(window.location.href)
       const code = url.searchParams.get('code')
       if (code) {
@@ -35,7 +36,6 @@ export default function ResetPasswordPage() {
           }
           return
         }
-        // Drop the code from the address bar.
         window.history.replaceState({}, '', '/reset-password')
       }
 
@@ -92,7 +92,7 @@ export default function ResetPasswordPage() {
       return
     }
 
-    router.push('/dashboard')
+    router.push('/dashboard?password_updated=1')
     router.refresh()
   }
 
