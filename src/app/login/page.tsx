@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { SeorankoWordmark } from "@/components/SeorankoLogo";
+import { TurnstileField, turnstileRequired } from "@/components/TurnstileField";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,16 +13,29 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
 
   async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError("");
+
+    if (turnstileRequired() && !captchaToken) {
+      setError("Please complete the security check.");
+      setLoading(false);
+      return;
+    }
+
     const supabase = createClient();
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+      options: captchaToken ? { captchaToken } : undefined,
+    });
     if (signInError) {
       setError(signInError.message);
       setLoading(false);
+      setCaptchaToken(null);
     } else {
       router.push("/dashboard");
       router.refresh();
@@ -69,6 +83,8 @@ export default function LoginPage() {
               />
             </div>
 
+            <TurnstileField onToken={setCaptchaToken} />
+
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-[8px] px-4 py-3">
                 <p className="text-red-600 text-sm">{error}</p>
@@ -77,7 +93,7 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || (turnstileRequired() && !captchaToken)}
               className="w-full bg-[#FF6B2C] hover:bg-[#E85A1E] disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold text-sm py-3 rounded-[8px] transition-colors"
             >
               {loading ? "Signing in…" : "Sign In"}

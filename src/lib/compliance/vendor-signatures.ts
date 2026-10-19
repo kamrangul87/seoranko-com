@@ -217,7 +217,7 @@ export const VENDOR_SIGNATURES: readonly VendorSignature[] = [
     privacyUrl: 'https://www.cloudflare.com/privacypolicy/',
     nameAliases: ['cloudflare'],
     patterns: [
-      { kind: 'script_src', pattern: /cdn-cgi\/challenge|cloudflareinsights\.com/i },
+      { kind: 'script_src', pattern: /cdn-cgi\/challenge|cloudflareinsights\.com|challenges\.cloudflare\.com\/turnstile/i },
       { kind: 'cookie_name', pattern: /^__cf/i },
       { kind: 'cookie_name', pattern: /^cf_/i },
     ],

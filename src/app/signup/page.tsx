@@ -6,12 +6,16 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { SEORANKO_PLANS, SEORANKO_FREE_PLAN } from "@/lib/stripe/plans";
 import { SeorankoWordmark } from "@/components/SeorankoLogo";
+import { TurnstileField, turnstileRequired } from "@/components/TurnstileField";
 
 // Email confirmation is ON (Supabase Dashboard → Authentication → Settings →
-// Email). signUp() below returns session: null until the user clicks the
+// Email). The signup API returns session: null until the user clicks the
 // confirmation link — see the confirmationSent branch in handleSignUp.
 // Requires a working SMTP config (docs/AUTH_EMAIL.md) or confirmation
 // emails never arrive and every signup is silently stuck.
+//
+// Bot gate: Cloudflare Turnstile (captchaToken → Supabase Auth) + server-side
+// display-name / per-IP checks in POST /api/auth/signup.
 
 const PLANS = [
   { id: SEORANKO_FREE_PLAN.id, label: SEORANKO_FREE_PLAN.label, price: SEORANKO_FREE_PLAN.priceDisplay, description: SEORANKO_FREE_PLAN.tagline },
@@ -29,11 +33,10 @@ export default function SignupPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [confirmationSent, setConfirmationSent] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    console.log('Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL);
-    console.log('Supabase Key exists:', !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
@@ -44,52 +47,66 @@ export default function SignupPage() {
     setLoading(true);
     setError("");
 
+    if (turnstileRequired() && !captchaToken) {
+      setError("Please complete the security check.");
+      setLoading(false);
+      return;
+    }
+
     timeoutRef.current = setTimeout(() => {
       setError("Taking too long? Check your connection and try again.");
       setLoading(false);
     }, TIMEOUT_MS);
 
     try {
-      const supabase = createClient();
-
-      const { data, error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { name, plan },
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          email,
+          password,
+          plan,
+          captchaToken: captchaToken || undefined,
           emailRedirectTo: `${window.location.origin}/dashboard`,
-        },
+        }),
       });
 
-      if (signUpError) {
-        console.log('Supabase signup error:', signUpError);
-        setError(signUpError.message);
+      const payload = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        session?: { access_token: string; refresh_token?: string } | null;
+      };
+
+      if (!res.ok) {
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        setError(payload.error || "Sign-up failed. Please try again.");
         setLoading(false);
+        setCaptchaToken(null);
         return;
       }
 
-      console.log('Supabase signup success:', data);
-
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
 
-      if (!data.session) {
-        // Confirmation required — signUp() made no session. user_profiles is
-        // populated by the handle_new_user() trigger (including the picked
-        // plan), not this client, since there's no session yet to write with.
+      if (!payload.session) {
         setConfirmationSent(true);
         setLoading(false);
         return;
       }
 
-      // Confirmation is off, or this account was pre-confirmed — session
-      // exists immediately, so the row from the trigger already has the
-      // right name/plan and nothing else to write here.
+      // Confirmation off / pre-confirmed — establish browser session from API tokens.
+      if (payload.session.access_token && payload.session.refresh_token) {
+        const supabase = createClient();
+        await supabase.auth.setSession({
+          access_token: payload.session.access_token,
+          refresh_token: payload.session.refresh_token,
+        });
+      }
       router.push("/dashboard");
-
     } catch {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       setError("Something went wrong. Please try again.");
       setLoading(false);
+      setCaptchaToken(null);
     }
   }
 
@@ -184,6 +201,8 @@ export default function SignupPage() {
               </div>
             </div>
 
+            <TurnstileField onToken={setCaptchaToken} />
+
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-[8px] px-4 py-3">
                 <p className="text-red-600 text-sm">{error}</p>
@@ -192,7 +211,7 @@ export default function SignupPage() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || (turnstileRequired() && !captchaToken)}
               className="w-full bg-[#FF6B2C] hover:bg-[#E85A1E] disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold text-sm py-3 rounded-[8px] transition-colors flex items-center justify-center gap-2"
             >
               {loading && (
