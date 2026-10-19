@@ -68,7 +68,7 @@ export default function SignupPage() {
           password,
           plan,
           captchaToken: captchaToken || undefined,
-          emailRedirectTo: `${window.location.origin}/dashboard`,
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent('/dashboard')}`,
         }),
       });
 

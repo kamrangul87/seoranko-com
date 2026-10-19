@@ -41,24 +41,22 @@ either. Check Resend → Domains yourself before relying on this.
 
 **Authentication → URL Configuration → Site URL.** The confirmation email's
 link is built from this setting whenever the signup call doesn't override it.
-`signup/page.tsx` now passes `emailRedirectTo: window.location.origin +
-'/dashboard'` explicitly, so the link should be correct regardless of this
-setting — but if Site URL is still `http://localhost:3000`, add
-`https://seoranko.com/dashboard` (or `https://seoranko.com/**`) to **Redirect
-URLs** too, or Supabase will reject the explicit `emailRedirectTo` as
-unlisted and fall back to Site URL anyway.
+`signup/page.tsx` passes `emailRedirectTo` through `/auth/callback?next=/dashboard`.
+Add the callback URLs below (or `https://*.seoranko.com/**`) to **Redirect
+URLs**, or Supabase rejects the explicit redirect and falls back to Site URL.
 
-**Password recovery Redirect URLs (required).** Add both (exact paths):
+**Auth callback Redirect URLs (required).** Add both:
 
-- `https://www.seoranko.com/reset-password`
-- `https://seoranko.com/reset-password`
+- `https://www.seoranko.com/auth/callback`
+- `https://seoranko.com/auth/callback`
 
 Forgot-password calls `resetPasswordForEmail` with
-`redirectTo: https://www.seoranko.com/reset-password`. Without these
-allow-list entries Supabase falls back to Site URL and the reset form never
-receives the recovery session. These cannot be set from app migrations —
-add them in the dashboard (or via Management API
-`PATCH /v1/projects/{ref}/config/auth` `uri_allow_list`).
+`redirectTo: ${origin}/auth/callback?next=/reset-password`. Middleware also
+rewrites any stray `?code=` landing (Site URL fallback) to `/auth/callback`.
+Without the allow-list entries Supabase still falls back to Site URL — the
+middleware safety net then catches `/?code=` and routes through the callback.
+These cannot be set from app migrations — add them in the dashboard (or via
+Management API `PATCH /v1/projects/{ref}/config/auth` `uri_allow_list`).
 
 ## What changed in code (this PR)
 

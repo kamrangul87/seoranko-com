@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { SeorankoWordmark } from '@/components/SeorankoLogo'
 import { TurnstileField, turnstileRequired } from '@/components/TurnstileField'
-import { PASSWORD_RESET_REDIRECT_WWW } from '@/lib/auth/password-recovery'
+import { passwordResetRedirectTo } from '@/lib/auth/password-recovery'
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('')
@@ -26,12 +26,12 @@ export default function ForgotPasswordPage() {
     }
 
     const supabase = createClient()
-    // Exact production URL — must be in Supabase Auth → Redirect URLs
-    // (also allowlist apex twin: https://seoranko.com/reset-password).
+    // `${origin}/auth/callback?next=/reset-password` — allowlist
+    // https://www.seoranko.com/auth/callback (+ apex) in Supabase Redirect URLs.
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(
       email.trim(),
       {
-        redirectTo: PASSWORD_RESET_REDIRECT_WWW,
+        redirectTo: passwordResetRedirectTo(window.location.origin),
         captchaToken: captchaToken || undefined,
       },
     )
