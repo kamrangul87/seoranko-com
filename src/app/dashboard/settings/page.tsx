@@ -7,6 +7,7 @@ import { InternalLinksPanel } from '@/components/InternalLinksPanel'
 import { LinkRegistryManager } from '@/components/LinkRegistryManager'
 import { BrandLogoManager } from '@/components/BrandLogoManager'
 import { SitesManager } from '@/components/SitesManager'
+import { ChangePasswordPanel } from '@/components/ChangePasswordPanel'
 import { createClient } from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
 import type { InternalLink } from '@/lib/article-master'
@@ -104,6 +105,12 @@ export default function SettingsPage() {
             </div>
           ) : (
             <div className="space-y-6">
+              <div
+                id="account"
+                className="bg-white border border-[#E8E8E4] rounded-[10px] p-6"
+              >
+                <ChangePasswordPanel />
+              </div>
               {/* Connected sites — every diagnostic tool runs against these */}
               <div id="sites" className="bg-white border border-[#E8E8E4] rounded-[10px] p-6">
                 <SitesManager />
