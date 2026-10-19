@@ -47,3 +47,14 @@ export function crawlProgressLabel(crawl: CrawlProgressInput): string {
 
 /** Watchdog window used by heartbeat — exported for UI copy/tests. */
 export const CRAWL_WATCHDOG_MS = WATCHDOG_NO_PROGRESS_MS
+
+/**
+ * Engineering crawl chips (Cap / Chunk / rendered / internal count) are
+ * master-only. Customers see Status, Duration, pages crawled, actionable,
+ * and informational only.
+ */
+export function shouldShowEngineeringCrawlChips(
+  canRunFixAgent: boolean | undefined | null,
+): boolean {
+  return canRunFixAgent === true
+}
