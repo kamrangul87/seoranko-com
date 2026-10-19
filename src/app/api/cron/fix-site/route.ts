@@ -181,7 +181,6 @@ export async function GET(req: NextRequest) {
       run.status === 'awaiting_approval' ||
       run.status === 'failed' ||
       run.status === 'complete' ||
-      run.status === 'cancelled' ||
       Boolean(run.prUrl)
     ) {
       break
