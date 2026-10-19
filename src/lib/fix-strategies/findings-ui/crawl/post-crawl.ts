@@ -868,6 +868,56 @@ async function runGscTopics(ctx: PhaseCtx): Promise<DetectorEmit[]> {
     }),
     out,
   )
+
+  // Google's view — PROBLEM not-indexed rows also land in the findings list
+  try {
+    const {
+      buildGooglesView,
+      collectLiveEvidenceForInspections,
+      googlesViewProblemFindings,
+      isExplainedNotIndexedReason,
+    } = await import('@/lib/gsc/googles-view')
+    const inspections = gsc.inspections
+      .filter((r) => isExplainedNotIndexedReason(r.coverageState))
+      .map((r) => ({
+        url: r.url,
+        coverageState: r.coverageState,
+        googleCanonical: r.googleCanonical,
+        userCanonical: r.userCanonical,
+      }))
+    if (inspections.length > 0) {
+      const liveByUrl = await collectLiveEvidenceForInspections(inspections, {
+        fetch,
+      })
+      const sitemapUrls = new Set<string>()
+      for (const loc of ctx.inspection?.allLocsNormalized ?? []) {
+        sitemapUrls.add(loc)
+      }
+      const linkedInternallyUrls = new Set<string>()
+      for (const e of ctx.graph.edges) {
+        if (e.crawlable) linkedInternallyUrls.add(e.toNormalized)
+      }
+      const table = buildGooglesView({
+        siteId: gsc.siteId,
+        inspections,
+        liveByUrl,
+        sitemapUrls,
+        linkedInternallyUrls,
+      })
+      takeBuckets(
+        'gsc-view',
+        'gsc/googles-view-problem',
+        { findings: googlesViewProblemFindings(table) },
+        out,
+      )
+    }
+  } catch (err) {
+    console.warn(
+      '[post-crawl] googles-view findings skipped',
+      err instanceof Error ? err.message : err,
+    )
+  }
+
   return out
 }
 
