@@ -214,9 +214,12 @@ export function createLiveGithubOps(): GithubOps {
       const token = creds.accessToken
       const encoded = path.split('/').map(encodeURIComponent).join('/')
       const current = await this.readFile({ creds, path, ref: branchName })
-      if (!current.ok) return current
-      if (current.content === content) {
+      // Missing file → create (SPA per-page static HTML). Existing → update.
+      if (current.ok && current.content === content) {
         return { ok: true, commitSha: current.sha }
+      }
+      if (!current.ok && !/HTTP 404/i.test(current.error)) {
+        return current
       }
       const put = await ghJson<{ commit?: { sha?: string } }>(
         token,
@@ -226,7 +229,7 @@ export function createLiveGithubOps(): GithubOps {
           body: JSON.stringify({
             message,
             content: Buffer.from(content, 'utf-8').toString('base64'),
-            sha: current.sha,
+            ...(current.ok ? { sha: current.sha } : {}),
             branch: branchName,
           }),
         },

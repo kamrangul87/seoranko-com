@@ -10,6 +10,7 @@
  */
 
 import { addHeadCanonical } from '@/lib/fix-strategies/topic-13/fix-add-canonical'
+import { buildSelfCanonicalStaticHtml } from '@/lib/fix-strategies/findings-ui/fix-run/create-source'
 
 export function setHeadCanonicalHref(
   html: string,
@@ -51,6 +52,14 @@ export function ensurePageSelfCanonical(
     lower.endsWith('.ts') ||
     lower.endsWith('.jsx') ||
     lower.endsWith('.js')
+
+  // New static page (SPA route with no per-page HTML yet).
+  if (!fileContent.trim() && /\.html?$/i.test(lower)) {
+    return {
+      content: buildSelfCanonicalStaticHtml({ selfCanonicalUrl }),
+      updated: 1,
+    }
+  }
 
   if (isScript) {
     return ensureNextPageMetadataCanonical(fileContent, selfCanonicalUrl)
