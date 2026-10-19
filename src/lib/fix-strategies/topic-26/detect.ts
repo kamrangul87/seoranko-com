@@ -41,6 +41,7 @@ export type Topic26Verdict =
   | 'route-topic-3-transient-5xx'
   | 'human-review-5xx-stableAcrossRefetch'
   | 'human-review-canonical-elsewhere'
+  | 'suppress-page-canonical-elsewhere-topic-14'
   | 'human-review-indeterminate-noindex'
   | 'route-topic-4-redirect-chain'
   | 'ok'
@@ -287,10 +288,12 @@ async function classifyLoc(
 
   const canonical = extractHtmlCanonical(hops.finalBody, loc, contentType)
   if (!isSelfCanonical(loc, canonical) && canonical != null) {
+    // Page-level self-canonical is topic 14 (auto-self-canonical). Do not
+    // double-count as a sitemap human-review — suppress here.
     return {
       loc,
-      verdict: 'human-review-canonical-elsewhere',
-      detail: `Canonicalises elsewhere → ${canonical}`,
+      verdict: 'suppress-page-canonical-elsewhere-topic-14',
+      detail: `Canonicalises elsewhere → ${canonical} — fix via topic 14 self-canonical on the page file`,
     }
   }
 

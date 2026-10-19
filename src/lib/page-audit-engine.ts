@@ -299,6 +299,41 @@ export async function runPageAudit(
       crawlNotes.push(
         `Index Diagnosis persist failed: ${persisted.error} — apply index_diagnosis_runs migration if the table is missing.`,
       )
+    } else {
+      // Link Graph re-runs with every Index Diagnosis crawl so Diagnostics
+      // never shows an older link audit as current. Fire-and-forget; prune
+      // keeps the last 3 audits per domain.
+      void (async () => {
+        try {
+          const { linkGraphInputFromDiagnosis } = await import(
+            '@/lib/link-graph/from-diagnosis'
+          )
+          const { runLinkGraphAudit } = await import('@/lib/link-graph/run')
+          const { persistLinkGraphResult } = await import(
+            '@/lib/link-graph/persist'
+          )
+          const { createServiceRoleClient } = await import(
+            '@/lib/supabase/service-role'
+          )
+          const input = linkGraphInputFromDiagnosis(indexDiagnosis)
+          const result = await runLinkGraphAudit(input, {
+            resolveExternal: false,
+          })
+          const supabase = createServiceRoleClient()
+          await persistLinkGraphResult(supabase, {
+            userId: opts.userId!,
+            domain: indexDiagnosis.coverage.domain,
+            seedUrl: indexDiagnosis.coverage.seedUrl,
+            indexDiagnosisRunId: indexDiagnosisRunId,
+            result,
+          })
+        } catch (err) {
+          console.warn(
+            '[page-audit] link graph auto-run failed',
+            err instanceof Error ? err.message : err,
+          )
+        }
+      })()
     }
   }
 

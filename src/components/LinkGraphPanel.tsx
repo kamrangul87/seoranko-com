@@ -549,6 +549,13 @@ export function LinkGraphPanel({
                                         resolvedDomain ||
                                         'this host',
                                     )}
+                                    {' · '}
+                                    <a
+                                      href="/dashboard/settings"
+                                      className="underline text-[#FF6B2C]"
+                                    >
+                                      Settings
+                                    </a>
                                   </p>
                                 ) : null}
                               </div>

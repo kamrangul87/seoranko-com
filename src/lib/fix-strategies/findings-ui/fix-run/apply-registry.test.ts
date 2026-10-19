@@ -68,6 +68,8 @@ describe('apply-registry registration gate', () => {
         { topicId: 'fixture', verdict: 'auto-fixture-patch' },
         { topicId: '1', verdict: 'auto-fixable' },
         { topicId: '14', verdict: 'auto-self-canonical' },
+        { topicId: '43', verdict: 'auto-add-nav-link' },
+        { topicId: 'related', verdict: 'auto-add-related-articles' },
         { topicId: '17', verdict: 'auto-collapse-redundant' },
         { topicId: '17', verdict: 'auto-remove-body-misplaced' },
         { topicId: '22', verdict: 'auto-remove-crawl-delay' },

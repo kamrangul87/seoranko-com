@@ -442,7 +442,14 @@ export function IndexDiagnosisPanel({
               </>
             )}
             {sitemapDrift.deadInLive.length > 0 && (
-              <> {sitemapDrift.deadInLive.length} dead/stale URL(s) still listed.</>
+              <>
+                {' '}
+                {sitemapDrift.deadInLive.length} dead/stale URL(s) still listed
+                {sitemapDrift.deadInLive.length <= 8
+                  ? `: ${sitemapDrift.deadInLive.join(', ')}`
+                  : ` (e.g. ${sitemapDrift.deadInLive.slice(0, 3).join(', ')}…)`}
+                .
+              </>
             )}
             {sitemapDrift.liveHealthFailures.length > 0 && (
               <> {sitemapDrift.liveHealthFailures.length} deployed URL(s) not returning HTTP 200.</>
@@ -457,6 +464,15 @@ export function IndexDiagnosisPanel({
               {sitemapDrift.missingFromLive.map((u) => (
                 <li key={u} className="break-all">
                   {u}
+                </li>
+              ))}
+            </ul>
+          )}
+          {sitemapDrift.deadInLive.length > 0 && (
+            <ul className="text-xs font-mono text-amber-900 mb-2 max-h-24 overflow-y-auto space-y-0.5">
+              {sitemapDrift.deadInLive.map((u) => (
+                <li key={`dead-${u}`} className="break-all">
+                  dead/stale: {u}
                 </li>
               ))}
             </ul>

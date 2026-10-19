@@ -66,6 +66,16 @@ export function evaluateAutoMergeVerdictGate(
       reason: `verdict ${finding.verdict} is not auto-merge eligible`,
     }
   }
+  // Footer/nav + Related articles are approval-required PRs — never auto-merge.
+  if (
+    finding.verdict === 'auto-add-nav-link' ||
+    finding.verdict === 'auto-add-related-articles'
+  ) {
+    return {
+      allowed: false,
+      reason: `${finding.verdict} requires human approval — never auto-merge`,
+    }
+  }
   return { allowed: true }
 }
 

@@ -42,7 +42,7 @@ describe('fix-write-gate', () => {
 
   it('message matches product copy', () => {
     expect(fixRequiresConnectingMessage('mot.autodun.com')).toBe(
-      'This fix requires connecting mot.autodun.com — go to Settings to connect it.',
+      'Connect mot.autodun.com to fix this',
     )
   })
 })

@@ -1072,6 +1072,36 @@ async function runFullSnapshotPhase(
     topicEmits.push({ topicId: '43', emits: out, mode: 'replace' })
   }
 
+  // Related articles — blog pages with zero outbound internal content links
+  {
+    const out: DetectorEmit[] = []
+    const { detectMissingOutboundInternalLinks } = await import(
+      '@/lib/fix-strategies/related-articles/detect'
+    )
+    takeBuckets(
+      'related',
+      'internal-links/no-outbound-content-links',
+      detectMissingOutboundInternalLinks({
+        pages: ctx.usableHtml.map((p) => {
+          const html = p.html || ''
+          const title =
+            html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]
+              ?.replace(/<[^>]+>/g, '')
+              .replace(/\s+/g, ' ')
+              .trim() || null
+          const h1 =
+            html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1]
+              ?.replace(/<[^>]+>/g, '')
+              .replace(/\s+/g, ' ')
+              .trim() || null
+          return { url: p.url, html, title, h1 }
+        }),
+      }),
+      out,
+    )
+    topicEmits.push({ topicId: 'related', emits: out, mode: 'replace' })
+  }
+
   // Topic 45
   {
     const out: DetectorEmit[] = []

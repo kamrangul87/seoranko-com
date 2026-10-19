@@ -126,8 +126,8 @@ export function classifyGoogleChoice(input: GoogleChoiceInput): {
 } {
   const base =
     input.kind === 'crawled_not_indexed'
-      ? "Google crawled this URL and chose not to index it. That is Google's choice, not a technical error."
-      : "Google discovered this URL but has not crawled it yet. That is Google's choice, not a technical error."
+      ? "Google's choice, not a technical error — SEORANKO can't force indexing. Google crawled this URL and has not indexed it."
+      : "Google's choice, not a technical error — SEORANKO can't force indexing. Google discovered this URL but has not crawled it yet."
   const causes =
     input.indexDiagnosisCauses.length > 0
       ? ` Index Diagnosis signals for these URLs: ${input.indexDiagnosisCauses.join('; ')}.`

@@ -12,6 +12,7 @@ host `https://seoranko-fixture.vercel.app`.
 | **49** | `<img src="/images/hero.jpg">` missing width/height + CSS `height: auto` | `auto-set-dimensions` | `blog/index.html` |
 | **1** | `<a href="/gone.html">` — target 404 | `human-review` / `no-action` (dossier: auto-remove only with git deletion or 410) | `index.html` |
 | **14** | `<link rel="canonical" href="/dead-canonical.html">` — target not 200 | `auto-self-canonical` | `about.html` |
+| **14** | `/privacy.html` canonical → `/` (autodun /privacy pattern) | `auto-self-canonical` | `privacy.html` |
 | **17** | Two identical `<link rel="canonical" href="/">` in head | `auto-collapse-redundant` | `index.html` |
 | **22** | `Crawl-delay: 10` in robots.txt | `auto-remove-crawl-delay` | `robots.txt` |
 | **26** | Sitemap lists `/gone.html` (4xx) and `/old-blog` (301→`/blog/`) | `auto-remove-confirmed-4xx` / `auto-replace-single-hop-redirect` | `sitemap.xml` |

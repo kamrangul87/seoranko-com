@@ -4,9 +4,11 @@
  * Uses shared `extractCanonicalDeclarations` only.
  */
 
+import { canonicalUrlsEquivalent } from '@/lib/index-diagnosis/canonical-equivalence'
 import {
   extractCanonicalDeclarations,
   hasNoindexDirective,
+  isSelfCanonical,
   normalizeFixStrategyUrl,
   recordRedirectHops,
   resolveFixTarget,
@@ -25,8 +27,11 @@ export type Topic14Finding = {
     | 'canonical/target-not-200'
     | 'canonical/chain'
     | 'canonical/soft-404-target'
+    | 'canonical/points-elsewhere'
   pageUrl: string
   canonicalUrl: string
+  /** Absolute self-canonical the fixer must write (page URL). */
+  selfCanonical: string
   verdict: Topic14Verdict
   detail: string
   targetStatus: number | null
@@ -145,6 +150,7 @@ export async function detectCanonicalTargetNot200(
         kind: 'canonical/target-not-200',
         pageUrl: page.url,
         canonicalUrl: decl!.raw,
+        selfCanonical: selfCanonicalUrl(page.url) || page.url,
         verdict: 'human-review-repoint',
         detail: 'Canonical href unparseable',
         targetStatus: null,
@@ -200,6 +206,12 @@ export async function detectCanonicalTargetNot200(
     // Network failure simulation: status 0 not from fetch API — use catch
     // (handled by try below for TypeError)
 
+    const selfCanon = selfCanonicalUrl(page.url) || page.url
+    const pointsElsewhere =
+      !crossDomain &&
+      !isSelfCanonical(page.url, targetUrl) &&
+      !canonicalUrlsEquivalent(page.url, targetUrl)
+
     const classified = classifyCanonicalTarget({
       multipleHead: false,
       targetStatus: status,
@@ -213,6 +225,7 @@ export async function detectCanonicalTargetNot200(
       pageReturns200: page.pageReturns200 ?? true,
       repoSiteKind: page.repoSiteKind ?? 'page',
       targetIsNonHtml200,
+      canonicalPointsElsewhere: pointsElsewhere,
     })
 
     if (classified.verdict === 'ok') {
@@ -239,12 +252,15 @@ export async function detectCanonicalTargetNot200(
         ? 'canonical/chain'
         : classified.verdict === 'finding-soft-404'
           ? 'canonical/soft-404-target'
-          : 'canonical/target-not-200'
+          : pointsElsewhere
+            ? 'canonical/points-elsewhere'
+            : 'canonical/target-not-200'
 
     findings.push({
       kind,
       pageUrl: page.url,
       canonicalUrl: targetUrl,
+      selfCanonical: selfCanon,
       verdict: classified.verdict,
       detail: classified.detail,
       targetStatus: status,

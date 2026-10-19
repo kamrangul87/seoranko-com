@@ -10,7 +10,8 @@ import {
 import { normalizeCanonicalForGscMatch } from '@/lib/fix-strategies/shared/canonical-normalize'
 import type { IndexDiagnosis } from '@/lib/fix-strategies/shared/index-diagnosis'
 
-export type Topic56Verdict = 'discovered-not-indexed'
+/** Informational — Google's choice, not a technical finding. */
+export type Topic56Verdict = 'informational-discovered-not-indexed'
 
 export type Topic56Finding = {
   verdict: Topic56Verdict
@@ -87,19 +88,19 @@ export function detectDiscoveredNotIndexed(
       : ''
 
     findings.push({
-      verdict: 'discovered-not-indexed',
+      verdict: 'informational-discovered-not-indexed',
       pageUrl: row.url,
       severity: corroborations.length > 0 ? 'moderate' : 'low',
       autoFixable: false,
       detail:
-        `Google reports "Discovered — currently not indexed" for this URL (historical). ` +
-        `Google has not crawled it yet; last crawl date is empty. ` +
+        `Google's choice, not a technical error — SEORANKO can't force indexing. ` +
+        `Google reports "Discovered — currently not indexed" (not crawled yet). ` +
         `Google's "expected overload" wording is typical context, not proof the server is overloaded. ` +
         (corroborations.length
           ? `Independent corroboration: ${corroborations.join(', ')}. `
           : `No independent corroborating defect on our crawl. `) +
         diagnosisLine +
-        ` Inspection coverage may be partial. Never promises indexing.`,
+        ` Inspection coverage may be partial.`,
       evidenceValues: {
         coverageState: row.coverageState,
         lastCrawlTime: null,

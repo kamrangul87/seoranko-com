@@ -22,7 +22,7 @@ export function reasonRowWhatToDo(opts: {
       : 'Google recorded a 404. The URL is not a live indexing problem for your site. No action needed.'
   }
   if (kind === 'crawled_not_indexed' || kind === 'discovered_not_indexed') {
-    return "Google's choice, not a technical error. Improve depth, internal links, and uniqueness where Index Diagnosis shows signals — never promise indexing."
+    return "Google's choice, not a technical error — SEORANKO can't force indexing."
   }
   return problem
     ? `Review URLs with coverage state “${opts.coverageState}”.`
