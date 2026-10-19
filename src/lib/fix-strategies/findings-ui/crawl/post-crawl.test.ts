@@ -172,7 +172,7 @@ describe('post-crawl phase machine', () => {
     expect(blocked.phase).toBe('full_snapshot')
     expect(blocked.complete).toBe(false)
 
-    // Fresh tick → full_snapshot + rollup → resolve_sources (caller finishes)
+    // Fresh tick → full_snapshot + rollup (caller upserts, then advances to resolve_sources)
     const finished = await advancePostCrawlPhases({
       origin: 'https://example.com',
       pages,
@@ -184,7 +184,7 @@ describe('post-crawl phase machine', () => {
       deadlineAt: Date.now() + 120_000,
     })
     expect(finished.complete).toBe(false)
-    expect(finished.phase).toBe('resolve_sources')
+    expect(finished.phase).toBe('rollup')
     expect(finished.didRollup).toBe(true)
   })
 

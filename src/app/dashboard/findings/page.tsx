@@ -936,14 +936,12 @@ export default function FindingsListPage() {
             </section>
           )}
 
-          {loading && (
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="h-20 rounded-[10px] bg-white border border-[#E8E8E4] animate-pulse"
-                />
-              ))}
+          {(loading || crawling) && (
+            <div
+              className="rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-8 text-center text-[#6B6B6B]"
+              data-testid="findings-loading"
+            >
+              {crawling ? 'Loading findings…' : 'Loading…'}
             </div>
           )}
 
@@ -953,7 +951,11 @@ export default function FindingsListPage() {
             </div>
           )}
 
-          {!loading && !error && data && data.findings.length === 0 && (
+          {!loading &&
+            !crawling &&
+            !error &&
+            data &&
+            data.findings.length === 0 && (
             <div className="rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-8 text-center text-[#6B6B6B]">
               {crawl
                 ? 'No findings in this view.'
@@ -963,14 +965,19 @@ export default function FindingsListPage() {
             </div>
           )}
 
-          {!loading && !error && !data && mode === 'detect' && !detectOrigin && (
+          {!loading &&
+            !crawling &&
+            !error &&
+            !data &&
+            mode === 'detect' &&
+            !detectOrigin && (
             <div className="rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-8 text-center text-[#6B6B6B]">
               Enter a public URL to run a detection-only crawl. No site
               connection is created.
             </div>
           )}
 
-          {!loading && data && data.findings.length > 0 && (
+          {!loading && !crawling && data && data.findings.length > 0 && (
             <div className="space-y-8">
               {mode === 'connected' &&
                 shouldShowFixMySiteButton(data.canRunFixAgent === true) && (

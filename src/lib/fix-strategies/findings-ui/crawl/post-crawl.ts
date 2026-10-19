@@ -301,9 +301,10 @@ export async function advancePostCrawlPhases(
       }
 
       if (phase === 'rollup') {
-        // Caller performs list+rollup+upsert; then resolve_sources.
+        // Stay on rollup until the caller finishes list+rollup+upsert.
+        // Advancing to resolve_sources here made the UI look stuck on
+        // resolve_sources while upsert still ran for minutes (batched now).
         didRollup = true
-        phase = 'resolve_sources'
         cursor = {}
         didWork = true
         break

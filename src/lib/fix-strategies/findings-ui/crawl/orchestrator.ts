@@ -91,6 +91,10 @@ export type TickPhaseTimings = {
   detectorsMs: number
   /** Wall ms spent in post-crawl phases this tick. */
   postCrawlMs: number
+  /** Wall ms spent rollup+upserting findings this tick. */
+  upsertMs: number
+  /** Wall ms spent in resolve_sources this tick. */
+  resolveSourcesMs: number
   /** Chunks claimed this tick (multi-chunk drain). */
   chunksClaimed: number
   /** Total wall ms for the tick. */
@@ -374,6 +378,8 @@ export async function processCrawlTick(
   let urlFetchMs = 0
   let detectorsMs = 0
   let postCrawlMs = 0
+  let upsertMs = 0
+  let resolveSourcesMs = 0
   let chunksClaimed = 0
   let processedThisTick = 0
 
@@ -834,9 +840,9 @@ export async function processCrawlTick(
       })
       postCrawlMs += Date.now() - postCrawlStarted
       notes.push(...adv.notes)
-      didRollup = adv.didRollup
+      didRollup = adv.didRollup || adv.phase === 'rollup'
       needsSourceResolve =
-        adv.phase === 'resolve_sources' || didRollup || needsSourceResolve
+        adv.phase === 'resolve_sources' || needsSourceResolve
       postCrawlComplete = adv.complete
       if (adv.notes.some((n) => n.code === 'fetch_failure')) {
         postCrawlFailed = true
@@ -860,8 +866,13 @@ export async function processCrawlTick(
   // Progressive upsert while URLs are still draining. Final rollup after
   // detectors finish (before resolve_sources).
   const shouldUpsert =
-    !frontierDrained || postCrawlComplete || postCrawlFailed || didRollup
+    !frontierDrained ||
+    postCrawlComplete ||
+    postCrawlFailed ||
+    didRollup ||
+    run.postCrawlPhase === 'rollup'
   if (shouldUpsert) {
+    const upsertStarted = Date.now()
     const allEmits = await store.listRunEmits(runId)
     const { findings, internalEvidence } = rollupAndClassify(allEmits)
     await store.clearRunEvidence(runId)
@@ -873,22 +884,64 @@ export async function processCrawlTick(
       findings,
       internalEvidence,
     })
+    upsertMs += Date.now() - upsertStarted
+    // Advance rollup → resolve_sources only after upsert finishes.
+    if (didRollup || run.postCrawlPhase === 'rollup') {
+      await store.updateRun(runId, { postCrawlPhase: 'resolve_sources' })
+      run = (await store.getRun(runId)) ?? run
+      needsSourceResolve = true
+    }
   }
 
-  // GitHub-connected sites: resolveSourceFile for each finding (resumable).
+  // GitHub-connected sites: resolveSourceFile for each finding (budgeted).
   if (frontierDrained && needsSourceResolve && !postCrawlFailed) {
     try {
       const { resolveSourcesAfterCrawl } = await import(
         '../fix-run/resolve-sources-hook'
       )
-      await resolveSourcesAfterCrawl({
+      const { RESOLVE_SOURCES_BUDGET_MS } = await import(
+        '../fix-run/resolve-finding-sources'
+      )
+      const resolveStarted = Date.now()
+      const resolveDeadline = Math.min(
+        deadline,
+        Date.now() + RESOLVE_SOURCES_BUDGET_MS,
+      )
+      const resolveResult = await resolveSourcesAfterCrawl({
         siteId: run.siteId,
         userId: run.userId,
         runId,
+        deadlineAt: resolveDeadline,
+        startAfterFindingId:
+          run.postCrawlCursor?.resolveAfterFindingId ?? null,
       })
-      await store.updateRun(runId, { postCrawlPhase: 'done' })
-      run = (await store.getRun(runId)) ?? run
-      postCrawlComplete = true
+      resolveSourcesMs += Date.now() - resolveStarted
+      if (resolveResult.complete) {
+        await store.updateRun(runId, {
+          postCrawlPhase: 'done',
+          postCrawlCursor: null,
+        })
+        run = (await store.getRun(runId)) ?? run
+        postCrawlComplete = true
+      } else {
+        // Save progress — next tick resumes resolve_sources.
+        await store.updateRun(runId, {
+          postCrawlPhase: 'resolve_sources',
+          postCrawlCursor: {
+            ...(run.postCrawlCursor ?? {}),
+            resolveAfterFindingId:
+              resolveResult.lastProcessedFindingId ??
+              run.postCrawlCursor?.resolveAfterFindingId,
+          },
+        })
+        run = (await store.getRun(runId)) ?? run
+        postCrawlComplete = false
+        console.info('[resolve-source] tick budget — will resume', {
+          runId,
+          resolveSourcesMs,
+          timings: resolveResult.timings,
+        })
+      }
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
       console.info('[resolve-source] post-crawl failed', {
@@ -1031,6 +1084,8 @@ export async function processCrawlTick(
     urlFetchMs,
     detectorsMs,
     postCrawlMs,
+    upsertMs,
+    resolveSourcesMs,
     chunksClaimed,
     totalMs: Date.now() - tickStartedAt,
   }

@@ -129,28 +129,81 @@ async function resolveCredsForSite(input: {
   return { owner, repo, baseBranch, accessToken: String(token) }
 }
 
-/** After crawl rollup/upsert — resolve sources for the site. */
+export type ResolveSourcesAfterCrawlResult = {
+  complete: boolean
+  lastProcessedFindingId: string | null
+  timings?: {
+    treeMs: number
+    resolveMs: number
+    totalMs: number
+    targets: number
+    fileReads: number
+    fileCacheHits: number
+  }
+}
+
+/** After crawl rollup/upsert — resolve sources for the site (budgeted). */
 export async function resolveSourcesAfterCrawl(input: {
   siteId: string | null
   userId: string
   runId: string
-}): Promise<void> {
+  deadlineAt?: number
+  startAfterFindingId?: string | null
+}): Promise<ResolveSourcesAfterCrawlResult> {
   console.info('[resolve-source] after crawl', {
     siteId: input.siteId,
     runId: input.runId,
     branch: 'after-crawl',
   })
+  if (!input.siteId) {
+    return { complete: true, lastProcessedFindingId: null }
+  }
+
+  // Mint GitHub creds only when there is work — token mint was wasted on
+  // sites with zero registered auto-fix transforms.
+  const { getFindingsStore } = await import('../crawl/store')
+  const { isTransformRegistered } = await import('./apply-registry')
+  const { isCurrentlyPresentFindingStatus } = await import('../finding-status')
+  const { evidenceNeedleForResolution } = await import('./apply-evidence')
+  const store = getFindingsStore()
+  const listed = await store.listFindings({
+    siteId: input.siteId,
+    includeInformational: true,
+  })
+  const hasTargets = listed.some(
+    (f) =>
+      isCurrentlyPresentFindingStatus(f.status) &&
+      isTransformRegistered(f.topicId, f.verdict) &&
+      evidenceNeedleForResolution(f) != null,
+  )
+  if (!hasTargets) {
+    console.info('[resolve-source] no targets (pre-creds)', {
+      siteId: input.siteId,
+      runId: input.runId,
+    })
+    return { complete: true, lastProcessedFindingId: null }
+  }
+
   const creds = await resolveCredsForSite({
     siteId: input.siteId,
     userId: input.userId,
   })
-  if (!creds || !input.siteId) return
+  if (!creds) {
+    return { complete: true, lastProcessedFindingId: null }
+  }
 
-  await resolveFindingSourcesForSite({
+  const result = await resolveFindingSourcesForSite({
     siteId: input.siteId,
     userId: input.userId,
     deps: { creds },
+    deadlineAt: input.deadlineAt,
+    startAfterFindingId: input.startAfterFindingId,
   })
+  return {
+    complete: result.complete,
+    lastProcessedFindingId: result.lastProcessedFindingId,
+    timings: result.timings,
+  }
 }
 
 /**

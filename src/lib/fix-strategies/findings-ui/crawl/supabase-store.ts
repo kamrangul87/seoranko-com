@@ -547,32 +547,44 @@ export function createSupabaseFindingsStore(
         detectOrigin: originNorm,
       })
 
-      for (const e of internalEvidence as DetectorEmit[]) {
-        let findingId: string | null = null
-        let matchQuery = db()
+      // Batch internal evidence — 1400+ one-by-one inserts held the crawl
+      // lease for ~3–4 minutes while post_crawl_phase already said resolve_sources.
+      if ((internalEvidence as DetectorEmit[]).length > 0) {
+        const { chunkArray } = await import('./batch-insert')
+        let topicQuery = db()
           .from('fix_strategies_findings')
-          .select('id')
-          .eq('topic_id', e.topicId)
-          .limit(1)
+          .select('id, topic_id')
         if (siteId) {
-          matchQuery = matchQuery.eq('site_id', siteId)
+          topicQuery = topicQuery.eq('site_id', siteId)
         } else {
-          matchQuery = matchQuery
+          topicQuery = topicQuery
             .is('site_id', null)
             .eq('user_id', userId)
             .eq('detect_origin', originNorm)
         }
-        const { data: match } = await matchQuery.maybeSingle()
-        if (match) findingId = String(match.id)
-
-        await db().from('fix_strategies_finding_evidence').insert({
-          finding_id: findingId,
+        const { data: topicRows } = await topicQuery
+        const topicToFindingId = new Map<string, string>()
+        for (const row of topicRows ?? []) {
+          const tid = String((row as { topic_id?: string }).topic_id ?? '')
+          const fid = String((row as { id?: string }).id ?? '')
+          if (tid && fid && !topicToFindingId.has(tid)) {
+            topicToFindingId.set(tid, fid)
+          }
+        }
+        const evidenceRows = (internalEvidence as DetectorEmit[]).map((e) => ({
+          finding_id: topicToFindingId.get(e.topicId) ?? null,
           run_id: runId,
           topic_id: e.topicId,
           verdict: e.verdict,
           detail: e.detail,
           page_url: e.pageUrl || null,
-        })
+        }))
+        for (const chunk of chunkArray(evidenceRows, 200)) {
+          const { error: evErr } = await db()
+            .from('fix_strategies_finding_evidence')
+            .insert(chunk)
+          if (evErr) throw new Error(evErr.message)
+        }
       }
     },
 
