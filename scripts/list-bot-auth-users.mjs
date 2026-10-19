@@ -8,19 +8,19 @@
  *   - random bot display name (15+ letters, no spaces, mixed random case)
  *   - no connected_sites row
  *   - no subscriptions row / no stripe_customer_id
- *   - email is NOT kamran@seoranko.com
+ *   - email is NOT kamrangul87@gmail.com (owner)
  *
  * Usage:
  *   node scripts/list-bot-auth-users.mjs
  *   node scripts/list-bot-auth-users.mjs --delete   # ONLY after human says "delete"
  *
  * Never deletes without --delete. Never touches users with sites/subscriptions
- * or kamran@seoranko.com.
+ * or the owner email.
  */
 import { createClient } from '@supabase/supabase-js'
 import pg from 'pg'
 
-const PROTECTED_EMAIL = 'kamran@seoranko.com'
+const PROTECTED_EMAIL = 'kamrangul87@gmail.com'
 const PROJECT_REF = process.env.SUPABASE_PROJECT_REF || 'ddfboapzwclecbdjoqex'
 const POOLER_HOST =
   process.env.SUPABASE_POOLER_HOST || 'aws-1-eu-west-2.pooler.supabase.com'

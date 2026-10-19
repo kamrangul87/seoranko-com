@@ -30,5 +30,5 @@ node scripts/list-bot-auth-users.mjs
 node scripts/list-bot-auth-users.mjs --delete
 ```
 
-Never deletes `kamran@seoranko.com` or anyone with a site / subscription /
-Stripe customer.
+Never deletes the owner account (`kamrangul87@gmail.com`) or anyone with a
+site / subscription / Stripe customer.
