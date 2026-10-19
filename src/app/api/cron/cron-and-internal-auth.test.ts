@@ -19,6 +19,11 @@ const ROUTES: Array<{
     load: async () => import('./fix-failure-digest/route'),
   },
   {
+    name: 'cron/fix-site',
+    method: 'GET',
+    load: async () => import('./fix-site/route'),
+  },
+  {
     name: 'cron/gsc-sync',
     method: 'GET',
     load: async () => import('./gsc-sync/route'),
