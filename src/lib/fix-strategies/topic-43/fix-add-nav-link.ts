@@ -26,14 +26,48 @@ export function pickAnchorText(opts: {
  * Insert `<a href="{href}">{anchor}</a>` immediately after the last existing
  * anchor inside the first <footer> or <nav>. Falls back to appending before
  * </body> when no footer/nav exists.
+ *
+ * React Footer components that already use `path: "/…"` / `to="…"` arrays are
+ * patched by inserting a new entry next to an existing internal link object.
  */
 export function addNavOrFooterLink(
   html: string,
   opts: { href: string; anchorText: string },
-): { html: string; updated: number; target: 'footer-nav' | 'body-fallback' } {
+): {
+  html: string
+  updated: number
+  target: 'footer-nav' | 'react-nav' | 'body-fallback'
+} {
   const href = opts.href
   const text = opts.anchorText.replace(/</g, '').trim() || 'page'
   const link = `<a href="${href}">${text}</a>`
+
+  // Already present (HTML or React Router).
+  if (
+    html.includes(`href="${href}"`) ||
+    html.includes(`href='${href}'`) ||
+    html.includes(`path: "${href}"`) ||
+    html.includes(`path: '${href}'`) ||
+    html.includes(`to="${href}"`) ||
+    html.includes(`to='${href}'`)
+  ) {
+    return { html, updated: 0, target: 'footer-nav' }
+  }
+
+  // React: internalLinks / similar arrays of { path, label } (skip href: arrays).
+  const reactRe =
+    /const\s+(\w*[Ll]inks?)\s*=\s*\[([\s\S]*?)\]\s*;/g
+  let reactMatch: RegExpExecArray | null
+  while ((reactMatch = reactRe.exec(html)) !== null) {
+    const body = reactMatch[2] || ''
+    if (!/path\s*:/.test(body)) continue
+    const entry = `\n    { path: "${href}", label: ${JSON.stringify(text)} },`
+    const next =
+      html.slice(0, reactMatch.index) +
+      `const ${reactMatch[1]} = [${body}${entry}];` +
+      html.slice(reactMatch.index + reactMatch[0].length)
+    return { html: next, updated: 1, target: 'react-nav' }
+  }
 
   const blockMatch = html.match(FOOTER_OR_NAV)
   if (blockMatch && blockMatch.index != null) {

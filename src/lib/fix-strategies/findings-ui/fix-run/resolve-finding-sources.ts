@@ -14,8 +14,52 @@ import {
   whySourceUnresolved,
   type SourceUnresolvedReason,
 } from './resolve-source-file'
+import { isCreateSourceBlobSha } from './create-source'
 import type { GithubPrCreds } from './github-ops'
 import { recordFixFailureSafe } from './failure-learning'
+
+/** Shared footer/nav files that can receive an orphan inlink. */
+export function candidateNavFooterPaths(treePaths: string[]): string[] {
+  return treePaths
+    .filter((p) => {
+      if (/\.(html?)$/i.test(p) && /(^|\/)public\//i.test(p)) return true
+      if (/(^|\/)(Footer|Header|Nav|Navbar|SiteFooter|SiteHeader)\.(tsx|jsx|html?)$/i.test(p)) {
+        return true
+      }
+      if (/(footer|header|navbar)\.(tsx|jsx|html?)$/i.test(p)) return true
+      return false
+    })
+    .sort((a, b) => {
+      // Prefer React Footer component, then static HTML under public/.
+      const score = (p: string) => {
+        if (/Footer\.(tsx|jsx)$/i.test(p)) return 0
+        if (/footer\.(tsx|jsx|html?)$/i.test(p)) return 1
+        if (/\.html?$/i.test(p)) return 2
+        return 3
+      }
+      const d = score(a) - score(b)
+      return d !== 0 ? d : a.localeCompare(b)
+    })
+}
+
+function orphanHrefFromFinding(finding: PersistedFindingRow): string {
+  try {
+    return new URL(finding.pageUrl || '').pathname || '/'
+  } catch {
+    return '/'
+  }
+}
+
+function pathIsOrphanPageItself(path: string, orphanHref: string): boolean {
+  const norm = orphanHref.replace(/\/+$/, '') || ''
+  const bare = norm.replace(/^\//, '')
+  if (!bare) return /\/index\.html?$/i.test(path) && !path.includes('/')
+  return (
+    path.includes(`/${bare}/index.html`) ||
+    path.endsWith(`/${bare}.html`) ||
+    path.endsWith(`/${bare}`)
+  )
+}
 
 /** Verdicts that may become auto-fixable once a source path+SHA is stored. */
 function verdictLooksAuto(verdict: string): boolean {
@@ -133,6 +177,66 @@ export async function resolveOneFindingSource(input: {
     expectedCount: evidence.expectedCount,
   })
 
+  // Topic 43: edit a shared footer/nav on a *different* page (or Footer.tsx),
+  // never the orphan page itself.
+  if (finding.topicId === '43') {
+    const orphanHref = orphanHrefFromFinding(finding)
+    const navCandidates = candidateNavFooterPaths(tree.map((t) => t.path)).filter(
+      (p) => !pathIsOrphanPageItself(p, orphanHref),
+    )
+    let chosen: { path: string; sha: string } | null = null
+    for (const path of navCandidates) {
+      const body = await readFile(path)
+      if (body == null) continue
+      if (!body.includes(evidence.needle) && !/<footer\b/i.test(body) && !/internalLinks/i.test(body)) {
+        continue
+      }
+      // Prefer a file that does not already link the orphan.
+      const already =
+        body.includes(`href="${orphanHref}"`) ||
+        body.includes(`href='${orphanHref}'`) ||
+        body.includes(`path: "${orphanHref}"`) ||
+        body.includes(`path: '${orphanHref}'`) ||
+        body.includes(`to="${orphanHref}"`) ||
+        body.includes(`to='${orphanHref}'`)
+      const sha = treeShas[path]
+      if (!sha) continue
+      if (!already) {
+        chosen = { path, sha }
+        break
+      }
+      // Keep first already-linked as fallback (transform will noop).
+      if (!chosen) chosen = { path, sha }
+    }
+    if (chosen) {
+      console.info('[resolve-source] resolved', {
+        ...logBase,
+        branch: 'resolved-nav-footer',
+        path: chosen.path,
+        blobSha: chosen.sha,
+      })
+      const ev = { ...(finding.evidenceValues ?? {}) }
+      delete ev.sourceUnresolvedWhy
+      const canAuto = verdictLooksAuto(finding.verdict) && !finding.reportOnly
+      return {
+        sourcePath: chosen.path,
+        sourceBlobSha: chosen.sha,
+        sourceResolvedAt: new Date().toISOString(),
+        sourceUnresolvedReason: null,
+        autoFixable: canAuto ? true : finding.autoFixable,
+        surfaceClass: canAuto ? 'auto-fixable' : finding.surfaceClass,
+        evidenceValues: ev,
+      }
+    }
+    console.info('[resolve-source] unresolved', {
+      ...logBase,
+      branch: 'unresolved-nav-footer',
+      reason: 'no-static-file',
+      candidates: navCandidates.slice(0, 8),
+    })
+    return demoteUnresolved(finding, 'no-static-file')
+  }
+
   const result = await resolveSourceFile({
     url,
     evidence,
@@ -144,12 +248,17 @@ export async function resolveOneFindingSource(input: {
   if (result.status === 'resolved') {
     console.info('[resolve-source] resolved', {
       ...logBase,
-      branch: 'resolved',
+      branch: isCreateSourceBlobSha(result.blobSha)
+        ? 'resolved-create-static'
+        : 'resolved',
       path: result.path,
       blobSha: result.blobSha,
     })
     const ev = { ...(finding.evidenceValues ?? {}) }
     delete ev.sourceUnresolvedWhy
+    if (isCreateSourceBlobSha(result.blobSha)) {
+      ev.createStaticPage = true
+    }
     // Promote when the verdict is an auto-* mechanical fix and not report-only.
     // isCommitableFinding still requires a registered transform + path+SHA.
     const canAuto = verdictLooksAuto(finding.verdict) && !finding.reportOnly

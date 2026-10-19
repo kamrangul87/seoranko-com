@@ -9,6 +9,11 @@
  */
 
 import { normalizeFixStrategyUrl } from '@/lib/fix-strategies/shared/url-normalize'
+import {
+  CREATE_SOURCE_BLOB_SHA,
+  proposedStaticCreatePath,
+  SPA_SHELL_PATHS,
+} from './create-source'
 
 export type SourceUnresolvedReason =
   | 'no-static-file'
@@ -330,6 +335,38 @@ export async function resolveSourceFile(
   )
 
   if (candidates.length === 0) {
+    // SPA rewrite to index.html: broken evidence lives in the shell, but we
+    // must not edit the shell (would change every route). Create a per-page
+    // static file instead (same pattern as autodun public/contact/).
+    const createPath = proposedStaticCreatePath(url, roots)
+    if (createPath && !pathSet.has(createPath)) {
+      const needleVariants = [
+        evidence.needle,
+        evidence.needle.replace(/\/$/, ''),
+        evidence.needle.endsWith('/')
+          ? evidence.needle
+          : `${evidence.needle}/`,
+      ].filter((v, i, arr) => v && arr.indexOf(v) === i)
+      const shellHasNeedle = await (async () => {
+        for (const shell of SPA_SHELL_PATHS) {
+          if (!pathSet.has(shell)) continue
+          const body = await input.readFile(shell)
+          if (body == null) continue
+          for (const n of needleVariants) {
+            if (countEvidenceOccurrences(body, n, url) >= 1) return true
+          }
+        }
+        return false
+      })()
+      if (shellHasNeedle) {
+        return {
+          status: 'resolved',
+          path: createPath,
+          blobSha: CREATE_SOURCE_BLOB_SHA,
+          resolvedAt,
+        }
+      }
+    }
     return {
       status: 'unresolved',
       reason: 'no-static-file',

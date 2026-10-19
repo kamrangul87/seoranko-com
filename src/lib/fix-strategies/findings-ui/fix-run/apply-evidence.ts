@@ -158,6 +158,15 @@ export function evidenceNeedleForResolution(
       const src = evidenceSrcAttr(finding)
       return src ? { needle: src, expectedCount } : null
     }
+    case '43': {
+      // Locate a shared footer/nav that already has sibling links. Prefer an
+      // explicit marker; otherwise match a <footer> (static HTML sites).
+      const marker =
+        str(ev(finding).resolveNeedle) ??
+        str(ev(finding).footerMarker) ??
+        '<footer'
+      return { needle: marker, expectedCount }
+    }
     case 'fixture': {
       // Fixture pages are identified by a stable marker or page body snippet.
       const marker = str(ev(finding).resolveNeedle) ?? '<body'
