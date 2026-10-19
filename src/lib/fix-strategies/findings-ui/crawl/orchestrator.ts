@@ -1,10 +1,10 @@
 /**
  * Chunked crawl orchestrator for Findings UI.
  *
- * Chunk size = CRAWL_URL_CHUNK_SIZE (5). Why: each URL does stream-complete
- * fetch + topic-68 re-fetch + multi-detector work (incl. image probes). Five
- * URLs fit a ~45s soft tick under Vercel Hobby maxDuration=300 with backoff headroom;
- * remaining URLs resume on the next /tick.
+ * Chunk size = CRAWL_URL_CHUNK_SIZE (5). A tick claims multiple chunks while
+ * the soft deadline allows (leaving headroom for detectors + post-crawl) so a
+ * ~15-page site finishes in one invocation. Soft budget ~240s under Hobby
+ * maxDuration=300; remaining URLs resume on the next /tick after lease release.
  *
  * Status:
  * - complete = frontier exhausted (no cap), queue empty, no coverage gaps
@@ -23,7 +23,6 @@
 import {
   CRAWL_ABANDONED_MS,
   CRAWL_MAX_DISCOVERED,
-  CRAWL_POST_CRAWL_DEADLINE_MS,
   CRAWL_STEP_TIMEOUT_MS,
   CRAWL_TICK_DEADLINE_MS,
   CRAWL_URL_CHUNK_SIZE,
@@ -85,6 +84,19 @@ export type StartCrawlInput = {
   trigger?: 'manual' | 'scheduled'
 }
 
+export type TickPhaseTimings = {
+  /** Wall ms spent fetching/rendering URLs this tick. */
+  urlFetchMs: number
+  /** Wall ms spent in per-page detectors this tick. */
+  detectorsMs: number
+  /** Wall ms spent in post-crawl phases this tick. */
+  postCrawlMs: number
+  /** Chunks claimed this tick (multi-chunk drain). */
+  chunksClaimed: number
+  /** Total wall ms for the tick. */
+  totalMs: number
+}
+
 export type TickResult = {
   runId: string
   status: string
@@ -93,6 +105,8 @@ export type TickResult = {
   isPartial: boolean
   coverageNotes: CoverageNote[]
   done: boolean
+  /** Per-phase timings for ops diagnosis (logged + returned). */
+  timings?: TickPhaseTimings
 }
 
 /**
@@ -356,6 +370,13 @@ export async function processCrawlTick(
     ? Math.min(chunkSize, renderChunk)
     : chunkSize
 
+  const tickStartedAt = Date.now()
+  let urlFetchMs = 0
+  let detectorsMs = 0
+  let postCrawlMs = 0
+  let chunksClaimed = 0
+  let processedThisTick = 0
+
   let jobs = await store.claimUrlChunk(runId, adaptiveChunk)
   if (jobs.length === 0) {
     // Reclaim + retry once — concurrent killed ticks can leave a brief gap.
@@ -429,9 +450,22 @@ export async function processCrawlTick(
     })
   }
 
+  // Reserve headroom inside the soft budget for per-page detectors + post-crawl.
+  const CHUNK_CLAIM_HEADROOM_MS = 30_000
+
   try {
+  // Multi-chunk drain: keep claiming while soft budget remains so a 15-page
+  // site finishes in one tick instead of one-chunk-per-lease (~minutes of idle).
+  // Stop when render budget is exhausted (deferred re-queues) so we do not
+  // re-claim the same URLs forever inside one tick.
+  let hitTimeLimit = false
+  let stopClaimingChunks = false
+  while (jobs.length > 0 && !stopClaimingChunks) {
+    chunksClaimed++
+    let terminalThisChunk = 0
   for (const job of jobs) {
     if (Date.now() > deadline) {
+      hitTimeLimit = true
       // Re-queue unprocessed claimed jobs
       await store.updateUrlJob(job.id, { status: 'queued' })
       notes.push({
@@ -441,6 +475,7 @@ export async function processCrawlTick(
       })
       continue
     }
+    processedThisTick++
 
     try {
       const allowRender = rendersThisTick < renderMaxPerTick
@@ -452,6 +487,7 @@ export async function processCrawlTick(
         }),
       )
       const fetchDurationMs = Date.now() - fetchStarted
+      urlFetchMs += fetchDurationMs
 
       // Render needed but tick budget exhausted → re-queue (not render_failed).
       if (
@@ -473,6 +509,7 @@ export async function processCrawlTick(
           url: job.url,
         })
         // Deferred — not a terminal assessment this tick.
+        stopClaimingChunks = true
         continue
       }
 
@@ -502,6 +539,7 @@ export async function processCrawlTick(
         })
         await recordObservation()
         await flushCounters()
+        terminalThisChunk++
         continue
       }
       if (page.crawlerCausedBackoff) {
@@ -522,6 +560,7 @@ export async function processCrawlTick(
         })
         await recordObservation()
         await flushCounters()
+        terminalThisChunk++
         continue
       }
 
@@ -541,6 +580,7 @@ export async function processCrawlTick(
         })
         await recordObservation()
         await flushCounters()
+        terminalThisChunk++
         continue
       }
 
@@ -566,6 +606,7 @@ export async function processCrawlTick(
         })
         await recordObservation()
         await flushCounters()
+        terminalThisChunk++
         continue
       }
 
@@ -585,10 +626,12 @@ export async function processCrawlTick(
         })
         await recordObservation()
         await flushCounters()
+        terminalThisChunk++
         continue
       }
 
       crawledN++
+      terminalThisChunk++
       if (page.renderMode === 'rendered') {
         pagesRenderedN++
         rendersThisTick++
@@ -674,7 +717,15 @@ export async function processCrawlTick(
         durationMs: null,
       })
       await flushCounters()
+      terminalThisChunk++
     }
+  }
+
+    if (hitTimeLimit || stopClaimingChunks) break
+    if (terminalThisChunk === 0) break
+    if (Date.now() >= deadline - CHUNK_CLAIM_HEADROOM_MS) break
+    jobs = await store.claimUrlChunk(runId, adaptiveChunk)
+    if (jobs.length === 0) break
   }
 
   if (crawled.length > 0) {
@@ -685,11 +736,13 @@ export async function processCrawlTick(
     // flushed per job); continue so the run can resume on the next tick.
     try {
       const priorFiveXXByUrl = await buildPriorFiveXXByUrl(store, run)
+      const detectorsStarted = Date.now()
       const emits = await withStepTimeout(
         'detectors',
         stepTimeoutMs * Math.max(1, crawled.length),
         () => runDetectorsOnPages(run.origin, crawled, priorFiveXXByUrl),
       )
+      detectorsMs += Date.now() - detectorsStarted
       const mismatchEmits = crawled.flatMap((p) => {
         if (!p.renderEvidence || p.renderMode !== 'rendered') return []
         const host = (() => {
@@ -757,7 +810,7 @@ export async function processCrawlTick(
   const counts = await store.countJobsByStatus(runId)
   const stillQueued = counts.queued
   const frontierDrained = stillQueued === 0 && counts.running === 0
-  const urlWorkThisTick = jobs.length > 0
+  const urlWorkThisTick = processedThisTick > 0 || crawled.length > 0
 
   // Resumable post-crawl after frontier drain. Never mark complete while
   // phases remain — rollup/upsert then resolve_sources are the last phases.
@@ -771,13 +824,15 @@ export async function processCrawlTick(
       const fresh = (await store.getRun(runId)) ?? run
       const allJobs = await store.listJobsForRun(runId)
       const wholeSitePages = wholeSitePagesFromJobs(allJobs)
+      const postCrawlStarted = Date.now()
       const adv = await applyPostCrawlTick({
         store,
         run: fresh,
         pages: wholeSitePages,
         sharedTickWithUrlWork: urlWorkThisTick,
-        deadlineAt: Date.now() + CRAWL_POST_CRAWL_DEADLINE_MS,
+        deadlineAt: Math.max(deadline, Date.now() + 5_000),
       })
+      postCrawlMs += Date.now() - postCrawlStarted
       notes.push(...adv.notes)
       didRollup = adv.didRollup
       needsSourceResolve =
@@ -965,21 +1020,38 @@ export async function processCrawlTick(
       postCrawlComplete ||
       run.postCrawlPhase != null)
   const advanced =
-    jobs.length > 0 || done || status !== 'running' || postCrawlMoved
+    urlWorkThisTick || done || status !== 'running' || postCrawlMoved
   if (advanced) {
     void import('@/lib/run-heartbeat/touch-progress').then(({ touchLastProgress }) =>
       touchLastProgress('crawl', runId),
     )
   }
 
+  const timings: TickPhaseTimings = {
+    urlFetchMs,
+    detectorsMs,
+    postCrawlMs,
+    chunksClaimed,
+    totalMs: Date.now() - tickStartedAt,
+  }
+  console.info('[crawl-tick]', {
+    runId,
+    processedThisTick,
+    remainingQueued: stillQueued,
+    status,
+    done,
+    ...timings,
+  })
+
   return {
     runId,
     status,
-    processedThisTick: jobs.length,
+    processedThisTick,
     remainingQueued: stillQueued,
     isPartial,
     coverageNotes: dedupeNotes(notes),
     done,
+    timings,
   }
   } catch (err) {
     // Reclaim any claimed jobs still `running` so the next tick can progress.

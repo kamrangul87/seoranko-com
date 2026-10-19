@@ -4,6 +4,7 @@ import {
   CRAWL_WATCHDOG_MS,
   crawlProgressKind,
   crawlProgressLabel,
+  shouldShowEngineeringCrawlChips,
 } from './crawl-progress-ui'
 import {
   CRAWL_TICK_DEADLINE_MS,
@@ -73,5 +74,17 @@ describe('crawlProgressKind / label', () => {
         errorDetail: 'Abandoned — no tick for 30+ minutes',
       }),
     ).toBe('Failed')
+  })
+})
+
+describe('shouldShowEngineeringCrawlChips', () => {
+  it('hides Cap / Chunk / rendered / internal from non-master', () => {
+    expect(shouldShowEngineeringCrawlChips(false)).toBe(false)
+    expect(shouldShowEngineeringCrawlChips(undefined)).toBe(false)
+    expect(shouldShowEngineeringCrawlChips(null)).toBe(false)
+  })
+
+  it('shows engineering chips for master (canRunFixAgent)', () => {
+    expect(shouldShowEngineeringCrawlChips(true)).toBe(true)
   })
 })
