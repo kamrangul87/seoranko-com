@@ -37,6 +37,8 @@ export default function FindingDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [showInternal, setShowInternal] = useState(false)
+  const [acceptBusy, setAcceptBusy] = useState(false)
+  const [acceptError, setAcceptError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -69,6 +71,31 @@ export default function FindingDetailPage() {
   const offerFix = finding
     ? canOfferFix(finding.surfaceClass, { paused: finding.fixTypePaused })
     : false
+
+  async function setAccepted(accepted: boolean) {
+    if (!finding) return
+    setAcceptBusy(true)
+    setAcceptError(null)
+    try {
+      const res = await fetch(`/api/fix-strategies/findings/${finding.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accepted }),
+      })
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string
+        finding?: UiFinding
+      }
+      if (!res.ok) {
+        throw new Error(body.error || `HTTP ${res.status}`)
+      }
+      if (body.finding) setFinding(body.finding)
+    } catch (e) {
+      setAcceptError(e instanceof Error ? e.message : 'Update failed')
+    } finally {
+      setAcceptBusy(false)
+    }
+  }
 
   return (
     <div
@@ -386,7 +413,8 @@ export default function FindingDetailPage() {
 
               {!finding.proposedDiff &&
                 (finding.surfaceClass === 'human-review' ||
-                  finding.surfaceClass === 'finding') && (
+                  finding.surfaceClass === 'finding') &&
+                !finding.acceptedAt && (
                   <section className="rounded-[10px] border border-amber-100 bg-amber-50 p-5">
                     <h2 className="text-sm font-medium mb-2 text-amber-950">
                       Awaiting your decision
@@ -398,6 +426,49 @@ export default function FindingDetailPage() {
                     </p>
                   </section>
                 )}
+
+              {finding.surfaceClass === 'human-review' && (
+                <section className="rounded-[10px] border border-[#E8E8E4] bg-white p-5">
+                  <h2 className="text-sm font-medium mb-2">
+                    {finding.acceptedAt
+                      ? 'Reviewed and accepted'
+                      : 'Human review'}
+                  </h2>
+                  {finding.acceptedAt ? (
+                    <p className="text-sm text-[#6B6B6B] mb-3">
+                      Marked OK
+                      {finding.acceptedAt
+                        ? ` on ${new Date(finding.acceptedAt).toLocaleString()}`
+                        : ''}
+                      . If this page&apos;s observation changes on a later
+                      crawl, it returns to Needs you.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-[#6B6B6B] mb-3">
+                      If this is acceptable for your site, mark it OK. You can
+                      reverse that later.
+                    </p>
+                  )}
+                  {acceptError && (
+                    <p className="text-sm text-red-600 mb-2" role="alert">
+                      {acceptError}
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    disabled={acceptBusy}
+                    onClick={() => void setAccepted(!finding.acceptedAt)}
+                    className="px-4 py-2 rounded-lg bg-[#0F0F0F] text-white text-sm font-medium disabled:opacity-50"
+                    data-testid="mark-as-ok"
+                  >
+                    {acceptBusy
+                      ? 'Saving…'
+                      : finding.acceptedAt
+                        ? 'Undo Mark as OK'
+                        : 'Mark as OK'}
+                  </button>
+                </section>
+              )}
 
               {finding.whyNotAutoFixed && (
                 <section className="rounded-[10px] border border-[#E8E8E4] bg-white p-5">

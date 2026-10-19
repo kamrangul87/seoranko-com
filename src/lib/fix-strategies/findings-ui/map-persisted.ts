@@ -131,6 +131,8 @@ export function persistedToUiFinding(
     verificationAt: row.verificationAt,
     postFixStatus: row.postFixStatus,
     regressionObservedAt: row.regressionObservedAt,
+    acceptedAt: row.acceptedAt,
+    acceptedBy: row.acceptedBy,
     regressionReport: regression
       ? {
           headline: regression.headline,

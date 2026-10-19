@@ -42,6 +42,8 @@ function buildFinding(
     | 'verificationAt'
     | 'postFixStatus'
     | 'regressionObservedAt'
+    | 'acceptedAt'
+    | 'acceptedBy'
     | 'regressionReport'
   > & { reportOnly?: boolean },
 ): UiFinding {
@@ -77,6 +79,8 @@ function buildFinding(
     verificationAt: null,
     postFixStatus: null,
     regressionObservedAt: null,
+    acceptedAt: null,
+    acceptedBy: null,
     regressionReport: null,
     sources: sourcesForTopic(
       partial.topicId,

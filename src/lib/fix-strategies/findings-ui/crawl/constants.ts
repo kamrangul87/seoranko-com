@@ -211,6 +211,10 @@ export type PersistedFindingRow = {
   postFixStatus: PostFixStatus | null
   /** Set on resolved → regressed; preserved across later re-resolve. */
   regressionObservedAt: string | null
+  /** Human "Mark as OK" — present finding leaves Needs you until fingerprint drifts. */
+  acceptedAt: string | null
+  acceptedBy: string | null
+  acceptedFingerprint: string | null
 }
 
 export type PersistedEvidenceRow = {

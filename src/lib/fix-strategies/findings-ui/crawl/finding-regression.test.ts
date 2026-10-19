@@ -290,6 +290,9 @@ describe('Change Monitoring 3.2 — regression fields (acceptance)', () => {
         fixedAt: '2026-09-22T06:41:58.000Z',
         postFixStatus: 'regressed',
         regressionObservedAt: '2026-09-28T00:00:00.000Z',
+    acceptedAt: null,
+    acceptedBy: null,
+    acceptedFingerprint: null,
       },
       { outcomeMarkdown: md },
     )

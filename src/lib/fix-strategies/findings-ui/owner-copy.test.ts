@@ -113,6 +113,9 @@ describe('map-persisted owner fields', () => {
       verificationAt: null,
       postFixStatus: null,
       regressionObservedAt: null,
+    acceptedAt: null,
+    acceptedBy: null,
+    acceptedFingerprint: null,
     }
     const ui = persistedToUiFinding(row, [
       {
