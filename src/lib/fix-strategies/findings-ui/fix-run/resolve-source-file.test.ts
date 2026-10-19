@@ -71,7 +71,7 @@ function finding(
     regressionObservedAt: null,
     acceptedAt: null,
     acceptedBy: null,
-    acceptedFingerprint: null
+    acceptedFingerprint: null,
     ...partial,
   }
 }

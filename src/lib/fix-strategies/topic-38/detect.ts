@@ -260,8 +260,10 @@ function typeKey(t: string): string {
  */
 export function isPrimaryPageEntityForUrlCheck(
   node: StructuredDataNode,
-  _allNodes: StructuredDataNode[],
+  // Kept for call-site compatibility (previously used for about-page Org fallback).
+  _allNodes?: StructuredDataNode[],
 ): boolean {
+  void _allNodes
   const keys = node.types.map(typeKey)
   if (keys.some((k) => LIST_MEMBER_TYPES.includes(k))) return false
   if (keys.some((k) => NEVER_PAGE_URL_ENTITY_TYPES.includes(k))) return false
