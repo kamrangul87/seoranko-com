@@ -14,6 +14,7 @@ import {
   CRAWL_STATUS_POLL_MS,
   crawlProgressKind,
   crawlProgressLabel,
+  shouldShowEngineeringCrawlChips,
 } from '@/lib/fix-strategies/findings-ui/crawl/crawl-progress-ui'
 import { itemUiStep } from '@/lib/fix-strategies/findings-ui/fix-run/phases'
 import { shouldShowFixMySiteButton } from '@/lib/fix-strategies/findings-ui/fix-run/master-gate'
@@ -692,26 +693,30 @@ export default function FindingsListPage() {
                   ? ` · ${crawl.urlsDiscovered} enqueued`
                   : ''}
               </span>
-              <span
-                className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]"
-                title="Headless render coverage — only pages where raw HTML lacked links/content"
-              >
-                {crawl.pagesRendered ?? 0} rendered
-                {(crawl.pagesRenderFailed ?? 0) > 0
-                  ? ` · ${crawl.pagesRenderFailed} render failed`
-                  : ''}
-                {(crawl.totalRenderTimeMs ?? 0) > 0
-                  ? ` · ${Math.round((crawl.totalRenderTimeMs ?? 0) / 100) / 10}s render`
-                  : ''}
-              </span>
-              {crawl.urlCap != null && (
-                <span className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]">
-                  Cap {crawl.urlCap}
-                </span>
+              {shouldShowEngineeringCrawlChips(data?.canRunFixAgent) && (
+                <>
+                  <span
+                    className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]"
+                    title="Headless render coverage — only pages where raw HTML lacked links/content"
+                  >
+                    {crawl.pagesRendered ?? 0} rendered
+                    {(crawl.pagesRenderFailed ?? 0) > 0
+                      ? ` · ${crawl.pagesRenderFailed} render failed`
+                      : ''}
+                    {(crawl.totalRenderTimeMs ?? 0) > 0
+                      ? ` · ${Math.round((crawl.totalRenderTimeMs ?? 0) / 100) / 10}s render`
+                      : ''}
+                  </span>
+                  {crawl.urlCap != null && (
+                    <span className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]">
+                      Cap {crawl.urlCap}
+                    </span>
+                  )}
+                  <span className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]">
+                    Chunk {crawl.chunkSize}
+                  </span>
+                </>
               )}
-              <span className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]">
-                Chunk {crawl.chunkSize}
-              </span>
               {mode === 'detect' && (
                 <span className="px-2.5 py-1 rounded-md border border-dashed border-[#E8E8E4] text-[#9B9B9B]">
                   Detect-only
@@ -855,7 +860,8 @@ export default function FindingsListPage() {
               <span className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]">
                 {data.counts.informational} informational
               </span>
-              {data.counts.internal > 0 ? (
+              {shouldShowEngineeringCrawlChips(data.canRunFixAgent) &&
+              data.counts.internal > 0 ? (
                 <span
                   className="px-2.5 py-1 rounded-md bg-[#F4F4F2] border border-[#E8E8E4] text-[#9B9B9B]"
                   title="Internal audit trail — master only"

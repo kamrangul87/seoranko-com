@@ -52,9 +52,9 @@ describe('drainCrawlRunToTerminal tick budget', () => {
       userId: 'u-budget',
       origin: 'https://budget.example',
     })
-    // Small site, more URLs than one chunk (CRAWL_URL_CHUNK_SIZE = 5).
+    // Many URLs + zero deadline so one tick cannot finish the frontier.
     const urls = Array.from(
-      { length: 6 },
+      { length: 20 },
       (_, i) => `https://budget.example/p${i}`,
     )
     await store.enqueueUrls(run.id, urls)
@@ -65,18 +65,17 @@ describe('drainCrawlRunToTerminal tick budget', () => {
       postCrawlPhase: 'done',
     })
 
-    // One tick cannot empty a 6-URL frontier (chunk size 5).
-    const mid = await drainCrawlRunToTerminal(run.id, store, { maxTicks: 1 })
-    expect(mid.done).toBe(false)
-    expect(mid.status).toBe('running')
-    expect(mid.finishedAt).toBeNull()
+    // Force mid-frontier stop via deadlineMs=0 on processCrawlTick path:
+    // drainCrawlRunToTerminal uses default deadlines, so simulate with one
+    // zero-deadline tick then resume.
+    const midTick = await processCrawlTick(run.id, { store, deadlineMs: 0 })
+    expect(midTick.done).toBe(false)
+    expect(midTick.remainingQueued).toBeGreaterThan(0)
 
     const afterBudget = await store.getRun(run.id)
     expect(afterBudget!.status).toBe('running')
     expect(afterBudget!.finishedAt).toBeNull()
     expect(afterBudget!.errorDetail).toBeNull()
-    const midCounts = await store.countJobsByStatus(run.id)
-    expect(midCounts.queued + midCounts.running).toBeGreaterThan(0)
 
     // A later drain (heartbeat / e2e continue) finishes the same run.
     const final = await drainCrawlRunToTerminal(run.id, store, { maxTicks: 20 })
@@ -91,14 +90,17 @@ describe('drainCrawlRunToTerminal tick budget', () => {
     expect(counts.running).toBe(0)
   })
 
-  it('single-tick processCrawlTick still leaves remaining URLs queued', async () => {
+  it('single tick drains a 15-URL frontier (multi-chunk) under soft budget', async () => {
     const store = createMemoryFindingsStore()
     const run = await store.createRun({
-      siteId: 'site-one-tick',
+      siteId: 'site-fifteen',
       userId: 'u',
-      origin: 'https://one.example',
+      origin: 'https://fifteen.example',
     })
-    const urls = Array.from({ length: 6 }, (_, i) => `https://one.example/p${i}`)
+    const urls = Array.from(
+      { length: 15 },
+      (_, i) => `https://fifteen.example/p${i}`,
+    )
     await store.enqueueUrls(run.id, urls)
     await store.updateRun(run.id, {
       status: 'queued',
@@ -108,8 +110,37 @@ describe('drainCrawlRunToTerminal tick budget', () => {
     })
 
     const tick = await processCrawlTick(run.id, { store, deadlineMs: 60_000 })
+    expect(tick.processedThisTick).toBe(15)
+    expect(tick.remainingQueued).toBe(0)
+    expect(tick.done).toBe(true)
+    expect(['complete', 'partial']).toContain(tick.status)
+    expect(tick.timings?.chunksClaimed).toBeGreaterThanOrEqual(3)
+    expect(tick.timings?.urlFetchMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('stops claiming more chunks when soft deadline is already past', async () => {
+    const store = createMemoryFindingsStore()
+    const run = await store.createRun({
+      siteId: 'site-deadline',
+      userId: 'u',
+      origin: 'https://deadline.example',
+    })
+    const urls = Array.from(
+      { length: 12 },
+      (_, i) => `https://deadline.example/p${i}`,
+    )
+    await store.enqueueUrls(run.id, urls)
+    await store.updateRun(run.id, {
+      status: 'queued',
+      urlsDiscovered: urls.length,
+      urlsFound: urls.length,
+      postCrawlPhase: 'done',
+    })
+
+    // Deadline already elapsed → at most one chunk attempt, leave rest queued.
+    const tick = await processCrawlTick(run.id, { store, deadlineMs: 0 })
     expect(tick.done).toBe(false)
-    expect(tick.status).toBe('running')
     expect(tick.remainingQueued).toBeGreaterThan(0)
+    expect(tick.processedThisTick).toBeLessThan(12)
   })
 })
