@@ -136,8 +136,10 @@ SEORANKO now runs a **render guard** on the fetch layer:
 **What did change:** a raw-only signal that disappears after render is a
 **measurement artefact**, not an actionable fix. Emit informational
 `RAW_RENDER_MISMATCH` (never actionable). When `render_mode = render_failed`,
-suppress headline actionable verdicts for that URL and report coverage
-(pages crawled / rendered / render failures).
+**raw-HTML detectors still run** on the fetched body; only render-dependent
+checks are marked `render_unavailable` (never discard all findings). Report
+coverage (pages crawled / rendered / render failures). First render attempt
+uses 5s; one retry uses 15s with third-party scripts/fonts/ads blocked.
 
 ## what this guard invalidates
 

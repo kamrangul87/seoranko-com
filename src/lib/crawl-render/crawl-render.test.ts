@@ -38,11 +38,12 @@ describe('detectRenderNeeded', () => {
     expect(r.reasons).toContain('zero_crawlable_anchors')
   })
 
-  it('timeout product decision sits well inside the 12s budget', () => {
+  it('first-attempt timeout sits inside the 12s budget; retry is 15s', () => {
     expect(FIX_STRATEGY_PRODUCT_DECISIONS.crawlRenderTimeoutMs).toBeLessThan(
       FIX_STRATEGY_PRODUCT_DECISIONS.crawlRenderBudgetMs,
     )
     expect(FIX_STRATEGY_PRODUCT_DECISIONS.crawlRenderTimeoutMs).toBe(5_000)
+    expect(FIX_STRATEGY_PRODUCT_DECISIONS.crawlRenderRetryTimeoutMs).toBe(15_000)
     expect(FIX_STRATEGY_PRODUCT_DECISIONS.crawlRenderChunkSize).toBe(2)
     expect(FIX_STRATEGY_PRODUCT_DECISIONS.crawlRenderMaxPerTick).toBe(2)
   })

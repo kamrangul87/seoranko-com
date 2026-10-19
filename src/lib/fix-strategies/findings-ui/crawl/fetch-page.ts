@@ -20,6 +20,7 @@ import {
   type PageRenderEvidence,
   type RenderMode,
 } from '@/lib/crawl-render'
+import { clientOnlyAfterRender } from '@/lib/crawl-render/render-fail-policy'
 
 export type CrawledPage = {
   requestedUrl: string
@@ -249,9 +250,12 @@ export async function crawlOneUrl(
       renderedHtmlHash = renderEvidence.renderedHtmlHash
     }
 
-    // clientOnly only when we could not obtain a rendered DOM to judge.
-    const clientOnly =
-      shellLooksClientOnly && renderMode !== 'rendered'
+    // Permanent: render_failed must never discard raw-HTML findings.
+    // Only true client_only shells (no render attempt / http mode) skip.
+    const clientOnly = clientOnlyAfterRender({
+      shellLooksClientOnly,
+      renderMode,
+    })
 
     return {
       requestedUrl: url,

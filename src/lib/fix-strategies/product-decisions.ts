@@ -191,15 +191,21 @@ export const FIX_STRATEGY_PRODUCT_DECISIONS = {
   crawlRenderMinBodyTextChars: 200 as number,
 
   /**
-   * Per-page headless render hard timeout (ms). Must sit well inside the
-   * former 12s soft budget so a hung Chromium cannot exhaust the tick.
-   * Chosen 2026-09-24: 5_000.
+   * Per-page headless render hard timeout (ms) for the first attempt.
+   * Must sit well inside the tick so a hung Chromium cannot exhaust it.
+   * Chosen 2026-09-24: 5_000. Retry uses crawlRenderRetryTimeoutMs.
    */
   crawlRenderTimeoutMs: 5_000 as number,
 
   /**
+   * Second-attempt headless render timeout (ms) after the first fails.
+   * Chosen 2026-10-19: 15_000 — once per URL, with third-party scripts blocked.
+   */
+  crawlRenderRetryTimeoutMs: 15_000 as number,
+
+  /**
    * Soft ceiling for render wall-clock per page (ms) — documentation /
-   * planning budget. Timeout (crawlRenderTimeoutMs) must stay below this.
+   * planning budget for the first attempt. Retry may exceed this once.
    * Chosen 2026-09-24: 12_000.
    */
   crawlRenderBudgetMs: 12_000 as number,
