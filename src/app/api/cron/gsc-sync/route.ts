@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { requireCronSecret } from '@/lib/cron-auth'
-import { createClient } from '@supabase/supabase-js'
 import { syncAllActiveGscConnections } from '@/lib/gsc/sync'
 import { syncAllUrlInspections } from '@/lib/gsc/inspection-scheduler'
 
+
+export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 /**
@@ -14,7 +16,7 @@ export async function GET(req: NextRequest) {
   const denied = requireCronSecret(req)
   if (denied) return denied
 
-  const supabase = createClient(
+  const supabase = createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   )

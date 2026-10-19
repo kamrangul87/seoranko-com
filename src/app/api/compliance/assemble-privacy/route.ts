@@ -4,11 +4,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { assemblePrivacyPage } from '@/lib/compliance/assembler'
 import { buildSiteInventory } from '@/lib/compliance/inventory'
 import type { PrivacyOwnerFields } from '@/lib/compliance/assembler'
 
+
+export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 const DASHBOARD_NOTE =
@@ -26,7 +28,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Server misconfigured' }, { status: 500 })
   }
 
-  const userClient = createClient(url, anon, {
+  const userClient = createSupabaseJsClient(url, anon, {
     global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { persistSession: false, autoRefreshToken: false },
   })

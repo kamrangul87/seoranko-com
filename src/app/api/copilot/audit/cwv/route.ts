@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
 import { cookies } from 'next/headers'
 import { fetchCoreWebVitals } from '@/lib/core-web-vitals'
 import { buildExplainableScore } from '@/lib/quality-score-dimensions'
 import { isSafePublicUrl } from '@/lib/fetch-page-content'
 
+
+export const dynamic = 'force-dynamic'
 /** PSI Lighthouse runs can exceed 60s — allow up to 120s on this dedicated route. */
 export const maxDuration = 180
 
 export async function POST(req: NextRequest) {
   try {
     const cookieStore = cookies()
-    const supabase = createServerClient(
+    const supabase = createSupabaseSsrClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { cookies: { get(name: string) { return cookieStore.get(name)?.value } } },

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { cookies } from 'next/headers'
 import { getSiteConnectionStatus } from '@/lib/site-connection-lookup'
 
@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic'
 export async function GET(req: NextRequest) {
   try {
     const cookieStore = cookies()
-    const authClient = createServerClient(
+    const authClient = createSupabaseSsrClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { cookies: { get: (name: string) => cookieStore.get(name)?.value } },
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     const url = req.nextUrl.searchParams.get('url') || ''
     if (!url) return NextResponse.json({ error: 'url is required' }, { status: 400 })
 
-    const supabase = createClient(
+    const supabase = createSupabaseJsClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )

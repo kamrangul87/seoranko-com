@@ -9,6 +9,7 @@
  */
 
 import { fetchPageSignals, scorePage, type AuditIssue, type PageSignals } from '@/lib/site-audit/scorer'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { detectSiteType, type SiteTypeDetection } from '@/lib/site-type-detector'
 import { runEcommerceAuditChecks, type EcommerceAuditIssue } from '@/lib/ecommerce-audit-checks'
 import {
@@ -22,7 +23,6 @@ import {
   normalizeUrl,
   upsertAuditResults,
 } from '@/lib/supabase/audit-db'
-import { createClient } from '@supabase/supabase-js'
 import { isSafePublicUrl } from '@/lib/fetch-page-content'
 import { runIndexDiagnosis } from '@/lib/index-diagnosis/run'
 import { persistIndexDiagnosisRun } from '@/lib/index-diagnosis/persist'
@@ -178,7 +178,7 @@ async function fetchRawHtml(url: string): Promise<{ html: string; status: number
 
 async function loadScoreHistory(pageUrl: string): Promise<Array<{ auditedAt: string; score: number }>> {
   try {
-    const supabase = createClient(
+    const supabase = createSupabaseJsClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { auth: { persistSession: false } },

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
 import { cookies } from 'next/headers'
-import { createServerClient } from '@supabase/ssr'
 import {
   exchangeOauthCodeForUserToken,
   userHasInstallation,
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
   }
 
   const cookieStore = cookies()
-  const authClient = createServerClient(supabaseUrl, anon, {
+  const authClient = createSupabaseSsrClient(supabaseUrl, anon, {
     cookies: {
       get(name: string) {
         return cookieStore.get(name)?.value

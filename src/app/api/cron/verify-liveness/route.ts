@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { requireCronSecret } from '@/lib/cron-auth'
-import { createClient } from '@supabase/supabase-js'
 import { runVerificationSweep } from '@/lib/publisher-verification-runner'
 import { auditRegistryLinkRows } from '@/lib/registry-url-health'
 
+
+export const dynamic = 'force-dynamic'
 // Same auth pattern as the other cron routes (weekly-jobs,
 // scheduled-recrawl) — Authorization: Bearer ${CRON_SECRET}, checked by
 // Vercel Cron's own request against this env var.
@@ -13,7 +15,7 @@ export async function GET(req: NextRequest) {
   const denied = requireCronSecret(req)
   if (denied) return denied
 
-  const supabase = createClient(
+  const supabase = createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   )

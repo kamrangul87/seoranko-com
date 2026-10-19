@@ -4,8 +4,8 @@
  * Records a score snapshot to score_history and computes trend vs prior snapshots.
  * Used by: site-audit, article-v2, article-improve, article-competitor, ranking-agent, discovery.
  */
-import { createClient } from '@supabase/supabase-js';
 import { normalizeUrl } from '@/lib/supabase/audit-db';
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 
 export type DriftSource =
   | 'site_audit'
@@ -24,7 +24,7 @@ export interface ScoreDrift {
 }
 
 function getSupabase() {
-  return createClient(
+  return createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }

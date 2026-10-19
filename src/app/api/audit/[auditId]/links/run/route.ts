@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
 import { cookies } from 'next/headers'
 import { normalizeDomain } from '@/lib/supabase/audit-db'
 import { runIndexDiagnosis } from '@/lib/index-diagnosis/run'
@@ -9,11 +9,13 @@ import { persistLinkGraphResult } from '@/lib/link-graph/persist'
 import { selectDiagnosisForLinkGraphRun } from '@/lib/link-graph/select-diagnosis'
 import type { IndexDiagnosisResult } from '@/lib/index-diagnosis/types'
 
+
+export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
 function authClient() {
   const cookieStore = cookies()
-  return createServerClient(
+  return createSupabaseSsrClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { cookies: { get(name: string) { return cookieStore.get(name)?.value } } },

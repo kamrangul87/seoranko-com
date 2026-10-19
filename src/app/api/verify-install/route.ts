@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { requireSignedInUser } from '@/lib/require-signed-in-user'
-import { createClient } from '@supabase/supabase-js';
 
+
+export const dynamic = 'force-dynamic'
 type Reason = 'script_not_found' | 'wrong_site_id' | 'site_unreachable';
 
 function normalizeSiteId(domain: string): string {
@@ -63,7 +65,7 @@ function checkScript(html: string, siteId: string): { hasScript: boolean; hasCor
 
 async function markVerified(siteId: string): Promise<void> {
   try {
-    const supabase = createClient(
+    const supabase = createSupabaseJsClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { auth: { persistSession: false } }

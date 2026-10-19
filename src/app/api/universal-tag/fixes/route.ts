@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 
+export const dynamic = 'force-dynamic'
 // Public endpoint hit by the Universal Tag in the browser.
 // Keyed by the site's secret token rather than an enumerable site UUID.
 
@@ -21,7 +22,7 @@ export async function GET(req: NextRequest) {
   const empty = NextResponse.json({ fixes: [] }, { headers: CORS })
   if (!token || !url) return empty
 
-  const supabase = createClient(
+  const supabase = createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )

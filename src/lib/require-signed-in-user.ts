@@ -4,7 +4,7 @@
  */
 
 import { cookies } from 'next/headers'
-import { createServerClient } from '@supabase/ssr'
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
 import { NextResponse } from 'next/server'
 import type { User } from '@supabase/supabase-js'
 
@@ -26,7 +26,7 @@ export async function requireSignedInUser(): Promise<SignedInAuth> {
   }
 
   const cookieStore = cookies()
-  const authClient = createServerClient(url, anon, {
+  const authClient = createSupabaseSsrClient(url, anon, {
     cookies: {
       get(name: string) {
         return cookieStore.get(name)?.value

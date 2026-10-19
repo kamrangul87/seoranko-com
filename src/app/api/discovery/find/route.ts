@@ -1,11 +1,13 @@
 import { NextRequest } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
 import { cookies } from "next/headers";
 import Anthropic from "@anthropic-ai/sdk";
 import { parseJsonResponse } from "@/lib/anthropic";
 import { getCachedEntityPresence } from "@/lib/entity-checker";
 import { MODEL_FOR } from "@/lib/model-router";
 
+
+export const dynamic = 'force-dynamic'
 const anthropic = new Anthropic();
 
 function sse(data: object): Uint8Array {
@@ -132,7 +134,7 @@ async function fetchNews(niche: string): Promise<string[]> {
 async function checkAuth(): Promise<boolean> {
   const cookieStore = await cookies();
 
-  const supabase = createServerClient(
+  const supabase = createSupabaseSsrClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { cookies: { get(name: string) { return cookieStore.get(name)?.value; } } }

@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { cookies } from 'next/headers'
 import { runCitationCheck } from '@/lib/ai-visibility/run-citation-check'
 import { AI_VISIBILITY_PHASE_NOTE } from '@/lib/ai-visibility/config'
 
+
+export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
 async function authUser() {
   const cookieStore = cookies()
-  const authClient = createServerClient(
+  const authClient = createSupabaseSsrClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { cookies: { get: (name: string) => cookieStore.get(name)?.value } },
@@ -19,7 +21,7 @@ async function authUser() {
 }
 
 function serviceClient() {
-  return createClient(
+  return createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   )

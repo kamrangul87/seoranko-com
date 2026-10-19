@@ -1,8 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { requireSignedInUser } from '@/lib/require-signed-in-user'
-import { createClient } from '@supabase/supabase-js';
 
+
+export const dynamic = 'force-dynamic'
 const KNOWN_FIX_TYPES = [
   'meta_title', 'meta_description', 'canonical', 'h1',
   'og_title', 'og_description', 'og_image', 'twitter_card',
@@ -54,7 +56,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const supabase = createClient(
+    const supabase = createSupabaseJsClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { auth: { persistSession: false } }

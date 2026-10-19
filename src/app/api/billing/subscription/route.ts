@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
 import { cookies } from 'next/headers'
 import { DEFAULT_SEORANKO_PLAN_ID, getSeorankoPlan } from '@/lib/stripe/plans'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
@@ -15,7 +15,7 @@ export const runtime = 'nodejs'
 export async function GET() {
   try {
     const cookieStore = cookies()
-    const authClient = createServerClient(
+    const authClient = createSupabaseSsrClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { cookies: { get: (name: string) => cookieStore.get(name)?.value } },

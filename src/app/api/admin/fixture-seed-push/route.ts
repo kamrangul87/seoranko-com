@@ -6,10 +6,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { requireCronSecret } from '@/lib/cron-auth'
-import { createClient } from '@supabase/supabase-js'
 import { resolveGithubAppRepoCreds } from '@/lib/github-app/resolve-repo-creds'
 
 export const dynamic = 'force-dynamic'
@@ -32,7 +32,7 @@ async function assertMasterOrCron(req: NextRequest): Promise<Response | null> {
   const auth = req.headers.get('authorization') || ''
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : ''
   if (!token || token === process.env.CRON_SECRET) return denied
-  const sb = createClient(url, anon, {
+  const sb = createSupabaseJsClient(url, anon, {
     global: { headers: { Authorization: `Bearer ${token}` } },
   })
   const { data } = await sb.auth.getUser()
@@ -43,7 +43,7 @@ async function assertMasterOrCron(req: NextRequest): Promise<Response | null> {
 async function masterUserId(): Promise<string> {
   const email = process.env.MASTER_EMAIL?.trim()
   if (!email) throw new Error('MASTER_EMAIL not configured')
-  const sb = createClient(
+  const sb = createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   )

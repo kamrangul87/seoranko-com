@@ -1,8 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { requireSignedInUser } from '@/lib/require-signed-in-user'
-import { createClient } from '@supabase/supabase-js';
 
+
+export const dynamic = 'force-dynamic'
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -31,7 +33,7 @@ function normSite(raw: string): string {
 }
 
 function db() {
-  return createClient(
+  return createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }

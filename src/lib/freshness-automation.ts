@@ -1,8 +1,8 @@
 // src/lib/freshness-automation.ts
 // Auto-refresh logic for Ranking Agent weekly job
 
-import { createClient } from '@supabase/supabase-js'
 import { improveArticle } from './article-improver'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { decayMonitoringEligible } from './rank-warming-up'
 
 export interface FreshnessRefreshResult {
@@ -55,7 +55,7 @@ export async function runFreshnessRefreshPass(
 
 // Weekly job runner — called by Vercel cron
 export async function runWeeklyFreshnessJobs() {
-  const supabase = createClient(
+  const supabase = createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )

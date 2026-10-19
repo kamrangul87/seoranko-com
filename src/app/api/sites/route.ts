@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { requireSignedInUser } from '@/lib/require-signed-in-user'
-import { createClient } from '@supabase/supabase-js';
 
+
+export const dynamic = 'force-dynamic'
 // GET /api/sites?domain=example.com
 // Returns { verified: boolean } for the given domain.
 // Used by the audit dashboard to gate the Quick Fix button.
@@ -13,7 +15,7 @@ export async function GET(req: NextRequest) {
   if (!domain) return NextResponse.json({ verified: false });
 
   try {
-    const supabase = createClient(
+    const supabase = createSupabaseJsClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { auth: { persistSession: false } }

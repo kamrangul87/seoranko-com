@@ -1,10 +1,9 @@
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 /**
  * In-process concurrency + hourly rate limit for public scans.
  * DB-backed when public_scans exists; in-memory fallback so launch-day
  * rate limits still work if the table is briefly missing.
  */
-
-import { createClient } from '@supabase/supabase-js'
 
 export const PUBLIC_SCAN_RATE_LIMIT_PER_HOUR = 1
 
@@ -45,7 +44,7 @@ export function recordMemoryScan(ipHash: string): void {
 }
 
 function serviceClient() {
-  return createClient(
+  return createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false } },

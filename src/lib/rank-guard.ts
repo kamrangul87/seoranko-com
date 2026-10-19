@@ -8,7 +8,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { improveArticle } from './article-improver'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { evaluateTrigger, type RankObservation, type TriggerDecision } from './rank-trigger'
 import { checkWashout, logPageTreatment } from './treatment-log'
 
@@ -81,7 +81,7 @@ export async function handleRankDrop(
 
   const target = chooseImproveTarget(event.drop, currentScores)
 
-  const supabaseEarly = createClient(
+  const supabaseEarly = createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )

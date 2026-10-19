@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import {
   customerWriteGateUserMessage,
   isCustomerWriteGateError,
@@ -26,7 +26,7 @@ async function resolveCredsForRun(
   userId: string,
   domain: string,
 ): Promise<GithubPrCreds | null> {
-  const supabase = createClient(
+  const supabase = createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   )
@@ -99,7 +99,7 @@ export async function POST(
     const run = await store.getRun(runId, user.id)
     if (!run) return NextResponse.json({ error: 'Run not found' }, { status: 404 })
 
-    const supabase = createClient(
+    const supabase = createSupabaseJsClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
 import { cookies } from 'next/headers'
 import { normalizeDomain } from '@/lib/supabase/audit-db'
 import { loadOrRunCrawlForSitemap } from '@/lib/sitemap-generator/load-crawl'
@@ -8,12 +8,14 @@ import { driftReportToSitemapChecks } from '@/lib/sitemap-generator/drift-checks
 import { generateSitemap } from '@/lib/sitemap-generator/generate'
 import { persistIndexDiagnosisRun } from '@/lib/index-diagnosis/persist'
 
+
+export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
 export async function POST(req: NextRequest) {
   try {
     const cookieStore = cookies()
-    const supabase = createServerClient(
+    const supabase = createSupabaseSsrClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { cookies: { get(name: string) { return cookieStore.get(name)?.value } } },

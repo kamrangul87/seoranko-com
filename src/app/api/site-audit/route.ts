@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
 import Anthropic from '@anthropic-ai/sdk';
-import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { upsertAuditResults, insertAuditHistory, getAuditResults, normalizeUrl, normalizeDomain } from '@/lib/supabase/audit-db';
 import { AuditIssue, PageSignals, DomainSignals, fetchPageSignals, scorePage } from '@/lib/site-audit/scorer';
@@ -10,6 +10,8 @@ import { ingestAuditIssues } from '@/lib/seo-workshop/issue-ingest';
 
 import { MODEL_FOR } from '@/lib/model-router';
 
+
+export const dynamic = 'force-dynamic'
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 3 });
 export const maxDuration = 300;
 
@@ -376,7 +378,7 @@ function issueToKey(message: string): string {
 // Fix Agent it will eventually call into (PR3).
 async function syncSeoWorkshopIssues(domain: string, results: any[]): Promise<void> {
   const cookieStore = cookies();
-  const authClient = createServerClient(
+  const authClient = createSupabaseSsrClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { cookies: { get: (name: string) => cookieStore.get(name)?.value } }

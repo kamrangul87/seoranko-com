@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { cookies } from 'next/headers'
-import { createClient } from '@supabase/supabase-js'
 import { findOwnedSiteConnection } from '@/lib/site-connection-lookup'
 import { assertFixWriteEntitled } from '@/lib/stripe/entitlements'
 import {
@@ -16,7 +16,7 @@ export const maxDuration = 60
 
 async function authUser() {
   const cookieStore = cookies()
-  const authClient = createServerClient(
+  const authClient = createSupabaseSsrClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { cookies: { get: (name: string) => cookieStore.get(name)?.value } },
@@ -28,7 +28,7 @@ async function authUser() {
 }
 
 async function isGithubConnected(userId: string, siteDomain: string): Promise<boolean> {
-  const supabase = createClient(
+  const supabase = createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   )
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'siteId is required' }, { status: 400 })
     }
 
-    const supabase = createClient(
+    const supabase = createSupabaseJsClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )

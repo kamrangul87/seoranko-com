@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
 import { cookies } from 'next/headers'
 import {
   CRAWL_URL_CHUNK_SIZE,
@@ -26,7 +26,7 @@ export const dynamic = 'force-dynamic'
 
 function authClient() {
   const cookieStore = cookies()
-  return createServerClient(
+  return createSupabaseSsrClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {

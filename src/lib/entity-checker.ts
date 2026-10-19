@@ -6,7 +6,7 @@
  * Used by: site-audit, article-competitor, ranking-agent, discovery, dashboard.
  */
 import Anthropic from '@anthropic-ai/sdk';
-import { createClient } from '@supabase/supabase-js';
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { MODEL_FOR } from '@/lib/model-router';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 2 });
@@ -21,7 +21,7 @@ export interface EntityPresence {
 }
 
 function getSupabase() {
-  return createClient(
+  return createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }

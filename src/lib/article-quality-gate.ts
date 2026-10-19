@@ -10,9 +10,9 @@
 // ============================================================
 
 import { validateSchema } from './schema-validator'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { verifyLogoUrlReachable } from './logo-reachability'
 import { validateArticleStructure } from './structure-validator'
-import { createClient } from '@supabase/supabase-js'
 import { lintProse } from './prose-linter'
 import { checkTopicAlignment } from '@/lib/topic-alignment'
 import { countArticleWords } from '@/lib/word-count'
@@ -1297,7 +1297,7 @@ export function scoreFloorIssues(opts: {
 async function logQualityGateRun(userId: string | undefined, articleId: string | undefined, issues: QualityIssue[]): Promise<void> {
   if (!userId || issues.length === 0) return
   try {
-    const supabase = createClient(
+    const supabase = createSupabaseJsClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )

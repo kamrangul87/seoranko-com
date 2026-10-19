@@ -5,7 +5,7 @@
 // This engine uses a Supabase whitelist as the source of truth.
 
 import Anthropic from '@anthropic-ai/sdk'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { describeInternalLinkRegistryGap } from '@/lib/bare-domain-url'
 import {
   applyKnownRegistryUrlCorrection,
@@ -124,7 +124,7 @@ export async function getEligibleLinks(
 ): Promise<EligibleLinksResult> {
   if (!userId || !articleBrand) return { links: [], registryRowCount: 0, registeredUrls: [] }
 
-  const supabase = createClient(
+  const supabase = createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )

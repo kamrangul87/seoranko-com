@@ -1,9 +1,8 @@
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 // src/lib/brand-settings.ts
 // Server-side reads of brand_settings — mirrors internal-link-engine.ts's
 // getEligibleLinks: service-role client (RLS bypassed by design, this
 // route already knows and controls which user_id/brand it's querying for).
-
-import { createClient } from '@supabase/supabase-js'
 
 export interface BrandSettingsLookup {
   /** Row exists at all for this (user, brand) — distinct from "logoUrl is
@@ -70,7 +69,7 @@ export function brandLookupCandidates(brand: string): string[] {
 export async function getBrandSettings(userId: string, brand: string): Promise<BrandSettingsLookup> {
   if (!userId || !brand) return { configured: false, logoUrl: null }
 
-  const supabase = createClient(
+  const supabase = createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
