@@ -14,7 +14,7 @@ import {
   releaseCrawlStart,
 } from '@/lib/fix-strategies/findings-ui/crawl/rate-limit'
 import { crawlDailyLimitForUser, crawlPageQuotaForUser } from '@/lib/stripe/entitlements'
-import { claimTickLease } from '@/lib/run-heartbeat'
+import { claimTickLease, releaseTickLease } from '@/lib/run-heartbeat'
 
 export const dynamic = 'force-dynamic'
 /** Hobby Fluid Compute ceiling is 300s; whole-site finalize needs ~2min on small sites. */
@@ -153,8 +153,12 @@ export async function POST(request: Request) {
           origin: run.origin,
         })
       }
-      const tick = await processCrawlTick(body.runId, { store })
-      return NextResponse.json({ ...tick, detectOnly: true, origin: run.origin })
+      try {
+        const tick = await processCrawlTick(body.runId, { store })
+        return NextResponse.json({ ...tick, detectOnly: true, origin: run.origin })
+      } finally {
+        await releaseTickLease('crawl', body.runId)
+      }
     }
 
     return NextResponse.json(
@@ -252,8 +256,12 @@ export async function POST(request: Request) {
         reason: 'lease_held',
       })
     }
-    const tick = await processCrawlTick(body.runId, { store })
-    return NextResponse.json(tick)
+    try {
+      const tick = await processCrawlTick(body.runId, { store })
+      return NextResponse.json(tick)
+    } finally {
+      await releaseTickLease('crawl', body.runId)
+    }
   }
 
   return NextResponse.json(

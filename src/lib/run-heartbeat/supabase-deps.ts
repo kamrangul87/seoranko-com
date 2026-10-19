@@ -351,6 +351,11 @@ export function createSupabaseHeartbeatDeps(): HeartbeatDeps {
         e2eStep: stepName,
       })
     },
+
+    async releaseRun(kind, id) {
+      const { releaseTickLease } = await import('./release-tick-lease')
+      await releaseTickLease(kind, id)
+    },
   }
 }
 

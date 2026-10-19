@@ -183,14 +183,14 @@ describe('runHeartbeat', () => {
     expect(HEARTBEAT_STALE_MS).toBe(60_000)
   })
 
-  it('uses a long crawl lease under Hobby 300s (SPA / post-crawl safe)', () => {
-    expect(CRAWL_TICK_LEASE_MS).toBe(280_000)
+  it('uses a crawl lease under Hobby 300s (SPA / post-crawl safe)', () => {
+    expect(CRAWL_TICK_LEASE_MS).toBe(260_000)
     expect(CRAWL_TICK_LEASE_MS).toBeGreaterThan(TICK_LEASE_MS)
     expect(CRAWL_TICK_LEASE_MS).toBeLessThan(300_000)
     expect(tickLeaseMsForKind('crawl')).toBe(CRAWL_TICK_LEASE_MS)
     expect(tickLeaseMsForKind('fix')).toBe(TICK_LEASE_MS)
     expect(tickLeaseMsForKind('e2e')).toBe(E2E_TICK_LEASE_MS)
-    expect(E2E_TICK_LEASE_MS).toBe(280_000)
+    expect(E2E_TICK_LEASE_MS).toBe(260_000)
   })
 
   it('drives an unfinished crawl with heartbeat ticks alone (SPA multi-tick)', async () => {

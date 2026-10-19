@@ -13,18 +13,18 @@
 export const CRAWL_URL_CHUNK_SIZE = 5
 
 /**
- * Soft wall-clock budget for URL claiming/processing within a tick (ms).
- * Leave headroom under maxDuration=300 so a drain tick can still enter
- * post-crawl. URL work stops at this soft deadline and resumes;
- * post-crawl phases run on their own ticks after the frontier is empty.
+ * Soft wall-clock budget for one crawl tick (ms) — URL claiming/processing
+ * and post-crawl phases. Stop early, flush progress, release the lease, then
+ * resume on the next tick. Must sit under Hobby maxDuration=300s.
+ * Chosen 2026-10-19: 240_000 (was 45s URL / 240s post-crawl split).
  */
-export const CRAWL_TICK_DEADLINE_MS = 45_000
+export const CRAWL_TICK_DEADLINE_MS = 240_000
 
 /**
  * Soft wall-clock budget for one post-crawl tick (ms).
- * Under maxDuration=300 with headroom for DB flush + response.
+ * Same as CRAWL_TICK_DEADLINE_MS — kept as an alias for call sites.
  */
-export const CRAWL_POST_CRAWL_DEADLINE_MS = 240_000
+export const CRAWL_POST_CRAWL_DEADLINE_MS = CRAWL_TICK_DEADLINE_MS
 
 /**
  * Topic 26 loc chunk soft floor — process at least this many locs per
@@ -41,18 +41,18 @@ export const CRAWL_TOPIC26_LOC_CHUNK = 40
 export const CRAWL_ABANDONED_MS = 30 * 60 * 1000
 
 /**
- * UI stall threshold — Findings shows "Crawl stalled" + Retry when a
- * queued/running run's `updatedAt` is older than this. Shorter than
- * CRAWL_ABANDONED_MS so owners can resume before the hard abandon.
+ * @deprecated Stall UI is now tied to the 15m heartbeat watchdog fail
+ * (see crawl-progress-ui.ts). Kept for any leftover imports.
  */
-export const CRAWL_STALL_UI_MS = 5 * 60 * 1000
+export const CRAWL_STALL_UI_MS = 15 * 60 * 1000
 
 /**
  * Hard per-step budget (ms) for fetch / render / image probe / detector
- * batches. Must sit well inside CRAWL_TICK_DEADLINE_MS so one hung URL
- * cannot consume the whole tick.
+ * batches. Must cover first render (5s) + one retry (15s) + HTTP fetch
+ * headroom, and sit inside CRAWL_TICK_DEADLINE_MS.
+ * Chosen 2026-10-19: 30_000 (was 15_000 — shorter than render retry).
  */
-export const CRAWL_STEP_TIMEOUT_MS = 15_000
+export const CRAWL_STEP_TIMEOUT_MS = 30_000
 
 /** Peer-probe / image-header fetch AbortSignal budget (ms). */
 export const CRAWL_PROBE_FETCH_TIMEOUT_MS = 8_000

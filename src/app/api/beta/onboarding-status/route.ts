@@ -3,6 +3,7 @@ import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
 import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { cookies } from 'next/headers'
 import { getFindingsStore } from '@/lib/fix-strategies/findings-ui/crawl'
+import { countsForViewer } from '@/lib/fix-strategies/findings-ui/customer-counts'
 
 export const dynamic = 'force-dynamic'
 
@@ -192,7 +193,10 @@ export async function GET() {
           const runs = await store.listRunsForSite(siteId)
           const latest = runs[0] ?? null
           if (latest) {
-            const openFindings = await store.counts({ siteId })
+            const openFindings = countsForViewer(
+              await store.counts({ siteId }),
+              user.email,
+            )
             crawlSummary = {
               lastCrawlAt: latest.finishedAt ?? latest.startedAt ?? null,
               openFindings,

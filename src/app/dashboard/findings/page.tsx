@@ -10,6 +10,11 @@ import type {
 } from '@/lib/fix-strategies/findings-ui/client'
 import { formatCrawlDuration } from '@/lib/fix-strategies/findings-ui/crawl/format-crawl-duration'
 import { summarizePartialCoverage } from '@/lib/fix-strategies/findings-ui/crawl/partial-coverage'
+import {
+  CRAWL_STATUS_POLL_MS,
+  crawlProgressKind,
+  crawlProgressLabel,
+} from '@/lib/fix-strategies/findings-ui/crawl/crawl-progress-ui'
 import { itemUiStep } from '@/lib/fix-strategies/findings-ui/fix-run/phases'
 import { shouldShowFixMySiteButton } from '@/lib/fix-strategies/findings-ui/fix-run/master-gate'
 import { whyNotFixedOrFallback } from '@/lib/fix-strategies/findings-ui/owner-copy'
@@ -75,31 +80,6 @@ function surfaceLabel(f: UiFinding): string {
     default:
       return f.surfaceClass
   }
-}
-
-function crawlStatusLabel(status: string | null | undefined): string {
-  if (!status) return 'No crawl yet'
-  if (status === 'partial') return 'Partial coverage'
-  if (status === 'complete') return 'Complete'
-  if (status === 'running') return 'Running'
-  if (status === 'queued') return 'Queued'
-  if (status === 'failed') return 'Failed'
-  return status
-}
-
-/** 5 minutes — matches CRAWL_STALL_UI_MS (kept inline so the client bundle
- *  does not import the crawl server module). */
-const CRAWL_STALL_UI_MS = 5 * 60 * 1000
-
-function isCrawlStalled(crawl: {
-  status: string | null
-  updatedAt?: string | null
-}): boolean {
-  if (crawl.status !== 'running' && crawl.status !== 'queued') return false
-  if (!crawl.updatedAt) return false
-  const updated = Date.parse(crawl.updatedAt)
-  if (!Number.isFinite(updated)) return false
-  return Date.now() - updated > CRAWL_STALL_UI_MS
 }
 
 export default function FindingsListPage() {
@@ -206,21 +186,48 @@ export default function FindingsListPage() {
     }
   }, [mode, siteId, detectOrigin, includeInformational, loadConnected, loadDetect])
 
-  // Resume ticking on load when the selected site has a run still in flight
-  // (unless it is already past the stall threshold — that needs Retry).
+  // Resume ticking on load when the selected site has a run still in flight.
+  // Watchdog-failed runs stay failed until the user starts a new crawl.
   useEffect(() => {
     const crawl = data?.crawl
     if (!crawl?.runId || crawling) return
     if (crawl.status !== 'running' && crawl.status !== 'queued') return
     if (resumedRunId.current === crawl.runId) return
-    if (isCrawlStalled(crawl)) {
-      console.info('[crawl] stalled', { runId: crawl.runId })
+    if (crawlProgressKind(crawl) === 'stalled') {
+      console.info('[crawl] stalled (watchdog)', { runId: crawl.runId })
       return
     }
     void drainCrawlTicks(crawl.runId, { detectOnly: mode === 'detect' })
     // Intentionally omit drainCrawlTicks from deps — stable enough for resume-once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.crawl?.runId, data?.crawl?.status, data?.crawl?.updatedAt, mode, crawling])
+
+  // While a crawl is in flight, poll status every 5s so counters stay fresh
+  // even when a tick holds the lease (render / post-crawl).
+  useEffect(() => {
+    if (!crawling) return
+    const runId = data?.crawl?.runId ?? resumedRunId.current
+    if (!runId) return
+    const tick = () => {
+      if (mode === 'detect') {
+        const origin = detectOrigin
+        if (origin) void loadDetect(origin, includeInformational)
+      } else if (siteId) {
+        void loadConnected(siteId, includeInformational)
+      }
+    }
+    const id = setInterval(tick, CRAWL_STATUS_POLL_MS)
+    return () => clearInterval(id)
+  }, [
+    crawling,
+    data?.crawl?.runId,
+    mode,
+    detectOrigin,
+    siteId,
+    includeInformational,
+    loadConnected,
+    loadDetect,
+  ])
 
   useEffect(() => {
     if (mode !== 'connected' || !siteId) {
@@ -518,7 +525,9 @@ export default function FindingsListPage() {
     crawl && crawl.urlsFound > crawl.urlsCrawled
       ? crawl.urlsFound - crawl.urlsCrawled
       : 0
-  const crawlStalled = Boolean(crawl && isCrawlStalled(crawl))
+  const progressKind = crawl ? crawlProgressKind(crawl) : 'normal'
+  const crawlStalled = progressKind === 'stalled'
+  const crawlStillWorking = progressKind === 'still_working'
 
   const canRun =
     mode === 'connected'
@@ -625,9 +634,15 @@ export default function FindingsListPage() {
             </button>
           </div>
 
+          {crawlStillWorking && (
+            <div className="mb-4 rounded-md border border-[#E8E8E4] bg-white px-3 py-2 text-sm text-[#6B6B6B]">
+              Still working… crawl progress updates every few seconds.
+            </div>
+          )}
+
           {crawlStalled && crawl?.runId && (
             <div className="mb-4 rounded-md border border-[#E8C4B8] bg-[#FFF6F2] px-3 py-2 text-sm text-[#0F0F0F] flex flex-wrap items-center gap-3">
-              <span>Crawl stalled — no tick for 5+ minutes.</span>
+              <span>Crawl stalled — no progress for 15 minutes (watchdog).</span>
               <button
                 type="button"
                 onClick={() => void retryStalledCrawl()}
@@ -642,8 +657,7 @@ export default function FindingsListPage() {
           {crawl && (
             <div className="mb-4 text-sm text-[#6B6B6B] flex flex-wrap gap-2 items-center">
               <span className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]">
-                Status:{' '}
-                {crawlStalled ? 'Crawl stalled' : crawlStatusLabel(crawl.status)}
+                Status: {crawlProgressLabel(crawl)}
               </span>
               {(() => {
                 const duration = formatCrawlDuration({
@@ -841,12 +855,14 @@ export default function FindingsListPage() {
               <span className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4]">
                 {data.counts.informational} informational
               </span>
-              <span
-                className="px-2.5 py-1 rounded-md bg-[#F4F4F2] border border-[#E8E8E4] text-[#9B9B9B]"
-                title="Internal audit trail — not shown in this list"
-              >
-                {data.counts.internal} internal (hidden)
-              </span>
+              {data.counts.internal > 0 ? (
+                <span
+                  className="px-2.5 py-1 rounded-md bg-[#F4F4F2] border border-[#E8E8E4] text-[#9B9B9B]"
+                  title="Internal audit trail — master only"
+                >
+                  {data.counts.internal} internal
+                </span>
+              ) : null}
               {data.origin && (
                 <span className="px-2.5 py-1 rounded-md border border-dashed border-[#E8E8E4] text-[#9B9B9B]">
                   {data.origin}

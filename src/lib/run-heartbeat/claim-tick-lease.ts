@@ -31,3 +31,4 @@ export async function claimTickLease(
 }
 
 export { CRAWL_TICK_LEASE_MS }
+export { releaseTickLease } from './release-tick-lease'

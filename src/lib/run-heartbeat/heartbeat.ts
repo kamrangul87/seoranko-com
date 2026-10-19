@@ -8,18 +8,17 @@ export const WATCHDOG_NO_PROGRESS_MS = 15 * 60_000
 /** Default lease for fix ticks (short mechanical steps). */
 export const TICK_LEASE_MS = 55_000
 /**
- * Crawl ticks (esp. SPA headless render + post-crawl) can run tens of seconds
- * under Hobby maxDuration=300. A 55s lease let the next heartbeat claim while
- * the previous tick was still writing jobs/cursors — progress stalled, then
- * the 15m watchdog failed the run. Hold the lease for almost the full
- * invocation budget so browser drain and heartbeat serialize on one tick.
+ * Crawl ticks (SPA headless render + post-crawl) use a ~240s soft budget under
+ * Hobby maxDuration=300. Lease must be <300s so a SIGKILL'd invocation cannot
+ * block the next claim beyond the platform kill. Always clear the lease in
+ * finally (release_run_tick) after a normal return.
+ * Chosen 2026-10-19: 260_000 (was 280_000).
  */
-export const CRAWL_TICK_LEASE_MS = 280_000
+export const CRAWL_TICK_LEASE_MS = 260_000
 /**
- * E2e ticks use a ~240s soft budget. A 55s lease let heartbeat reclaim mid-tick;
- * combined with a second claim inside tickE2eRun, wait_seed_production starved.
+ * E2e ticks use a ~240s soft budget. Lease under Hobby maxDuration; release in finally.
  */
-export const E2E_TICK_LEASE_MS = 280_000
+export const E2E_TICK_LEASE_MS = 260_000
 
 export type RunKind = 'crawl' | 'fix' | 'e2e'
 
@@ -50,6 +49,8 @@ export type HeartbeatDeps = {
   tickE2e: (id: string) => Promise<{ advanced: boolean }>
   markProgress: (kind: RunKind, id: string, atIso: string) => Promise<void>
   failStalled: (run: ScheduledRun, reason: string) => Promise<void>
+  /** Clear tick_lease_until after the tick (finally). Optional for older tests. */
+  releaseRun?: (kind: RunKind, id: string) => Promise<void>
 }
 
 export type HeartbeatResult = {
@@ -154,6 +155,16 @@ export async function runHeartbeat(deps: HeartbeatDeps): Promise<HeartbeatResult
         id: run.id,
         error: err instanceof Error ? err.message : 'tick failed',
       })
+    } finally {
+      // Always clear the lease so a hung/killed sibling cannot inherit delay.
+      // HeartbeatDeps may omit releaseRun in unit tests — then no-op.
+      if (deps.releaseRun) {
+        try {
+          await deps.releaseRun(run.kind, run.id)
+        } catch {
+          /* best-effort */
+        }
+      }
     }
   }
 
