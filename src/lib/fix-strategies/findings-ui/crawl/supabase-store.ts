@@ -752,13 +752,24 @@ export function createSupabaseFindingsStore(
     },
 
     async listRunEmits(runId) {
-      const { data, error } = await db()
-        .from('fix_strategies_run_emits')
-        .select('payload')
-        .eq('run_id', runId)
-        .order('created_at', { ascending: true })
-      if (error) throw new Error(error.message)
-      return (data ?? []).map((r) => r.payload as DetectorEmit)
+      // PostgREST defaults to max 1000 rows — autodun-sized crawls emit
+      // 1500+ rows and previously truncated full_snapshot topics (43/related).
+      const pageSize = 1000
+      const out: DetectorEmit[] = []
+      for (let from = 0; ; from += pageSize) {
+        const to = from + pageSize - 1
+        const { data, error } = await db()
+          .from('fix_strategies_run_emits')
+          .select('payload')
+          .eq('run_id', runId)
+          .order('created_at', { ascending: true })
+          .range(from, to)
+        if (error) throw new Error(error.message)
+        const chunk = data ?? []
+        for (const r of chunk) out.push(r.payload as DetectorEmit)
+        if (chunk.length < pageSize) break
+      }
+      return out
     },
 
     async clearRunEvidence(runId) {
