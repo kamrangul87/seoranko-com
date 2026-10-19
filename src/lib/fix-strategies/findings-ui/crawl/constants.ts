@@ -106,6 +106,8 @@ export type PostCrawlCursor = {
   locIndex?: number
   /** Topic 15 — next usableHtml page index. */
   pageIndex?: number
+  /** resolve_sources — last finding id processed (resume after budget). */
+  resolveAfterFindingId?: string
 }
 
 export type CrawlRunStatus =

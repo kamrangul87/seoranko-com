@@ -220,10 +220,32 @@ export function blobShaChanged(
   return tip !== finding.sourceBlobSha
 }
 
+/** Soft budget for resolve_sources inside a crawl tick (target <20s). */
+export const RESOLVE_SOURCES_BUDGET_MS = 18_000
+
+export type ResolveSourcesTimings = {
+  treeMs: number
+  resolveMs: number
+  totalMs: number
+  targets: number
+  fileReads: number
+  fileCacheHits: number
+}
+
+export type ResolveFindingSourcesResult = {
+  resolved: number
+  unresolved: number
+  skipped: number
+  /** False when the soft deadline stopped the loop early — caller resumes. */
+  complete: boolean
+  lastProcessedFindingId: string | null
+  timings: ResolveSourcesTimings
+}
+
 /**
  * Resolve (or re-resolve) findings for a site after crawl / at run start.
- * Only findings with a registered transform (or topic 49 path) are attempted;
- * others with locatable evidence still get a resolution attempt when listed.
+ * Fetches the repo tree once, caches file contents by path, and stops when
+ * `deadlineAt` elapses so the crawl tick can release its lease.
  */
 export async function resolveFindingSourcesForSite(input: {
   siteId: string
@@ -232,7 +254,23 @@ export async function resolveFindingSourcesForSite(input: {
   deps: ResolveFindingSourcesDeps
   /** When true, skip findings whose tip blob SHA still matches. */
   onlyIfShaChanged?: boolean
-}): Promise<{ resolved: number; unresolved: number; skipped: number }> {
+  /** Soft wall-clock deadline (Date.now() ms). */
+  deadlineAt?: number
+  /** Resume after a prior partial tick (finding ids already handled). */
+  startAfterFindingId?: string | null
+}): Promise<ResolveFindingSourcesResult> {
+  const startedAt = Date.now()
+  const deadlineAt =
+    input.deadlineAt ?? Date.now() + RESOLVE_SOURCES_BUDGET_MS
+  const emptyTimings = (): ResolveSourcesTimings => ({
+    treeMs: 0,
+    resolveMs: 0,
+    totalMs: Date.now() - startedAt,
+    targets: 0,
+    fileReads: 0,
+    fileCacheHits: 0,
+  })
+
   const store = getFindingsStore()
   const all = await store.listFindings({
     siteId: input.siteId,
@@ -243,17 +281,45 @@ export async function resolveFindingSourcesForSite(input: {
   const { isTransformRegistered } = await import('./apply-registry')
   const { isCurrentlyPresentFindingStatus } = await import('../finding-status')
 
-  const targets = all.filter((f) => {
+  let targets = all.filter((f) => {
     if (idSet && !idSet.has(f.id)) return false
     if (!isCurrentlyPresentFindingStatus(f.status)) return false
     // Only registered transforms — unresolved stay human-task after demotion.
     if (!isTransformRegistered(f.topicId, f.verdict)) return false
     return evidenceNeedleForResolution(f) != null
   })
+  // Stable order so startAfterFindingId resumes deterministically.
+  targets = targets.sort((a, b) => a.id.localeCompare(b.id))
+  if (input.startAfterFindingId) {
+    const idx = targets.findIndex((f) => f.id === input.startAfterFindingId)
+    if (idx >= 0) targets = targets.slice(idx + 1)
+  }
 
   if (targets.length === 0) {
     console.info('[resolve-source] no targets', { siteId: input.siteId })
-    return { resolved: 0, unresolved: 0, skipped: 0 }
+    return {
+      resolved: 0,
+      unresolved: 0,
+      skipped: 0,
+      complete: true,
+      lastProcessedFindingId: input.startAfterFindingId ?? null,
+      timings: emptyTimings(),
+    }
+  }
+
+  if (Date.now() >= deadlineAt) {
+    console.info('[resolve-source] deadline before tree', {
+      siteId: input.siteId,
+      targets: targets.length,
+    })
+    return {
+      resolved: 0,
+      unresolved: 0,
+      skipped: 0,
+      complete: false,
+      lastProcessedFindingId: input.startAfterFindingId ?? null,
+      timings: { ...emptyTimings(), targets: targets.length },
+    }
   }
 
   const listTree = input.deps.listTree ?? fetchRepoTree
@@ -261,18 +327,48 @@ export async function resolveFindingSourcesForSite(input: {
     input.deps.readFile ??
     ((creds, path, ref) => readRepoFileContent(creds, path, ref))
 
+  const treeStarted = Date.now()
   const tree = await listTree(input.deps.creds)
+  const treeMs = Date.now() - treeStarted
   const treeShas: Record<string, string> = {}
   for (const e of tree) {
     if (e.sha) treeShas[e.path] = e.sha
   }
   const ref = input.deps.creds.baseBranch || 'main'
 
+  // Cache file bodies for the run — many findings share the same static path.
+  const fileCache = new Map<string, string | null>()
+  let fileReads = 0
+  let fileCacheHits = 0
+  const cachedRead = async (path: string): Promise<string | null> => {
+    if (fileCache.has(path)) {
+      fileCacheHits++
+      return fileCache.get(path) ?? null
+    }
+    fileReads++
+    const body = await readFileFn(input.deps.creds, path, ref)
+    fileCache.set(path, body)
+    return body
+  }
+
   let resolved = 0
   let unresolved = 0
   let skipped = 0
+  let complete = true
+  let lastProcessedId: string | null = null
+  const resolveStarted = Date.now()
 
   for (const finding of targets) {
+    if (Date.now() >= deadlineAt) {
+      complete = false
+      console.info('[resolve-source] deadline mid-batch', {
+        siteId: input.siteId,
+        lastProcessedId,
+        remaining: targets.length - (resolved + unresolved + skipped),
+      })
+      break
+    }
+
     if (
       input.onlyIfShaChanged &&
       finding.sourcePath &&
@@ -286,6 +382,7 @@ export async function resolveFindingSourcesForSite(input: {
         path: finding.sourcePath,
       })
       skipped++
+      lastProcessedId = finding.id
       continue
     }
 
@@ -306,7 +403,7 @@ export async function resolveFindingSourcesForSite(input: {
       finding,
       tree,
       treeShas,
-      readFile: (path) => readFileFn(input.deps.creds, path, ref),
+      readFile: cachedRead,
     })
 
     await store.updateFindingSourceResolution({
@@ -316,6 +413,16 @@ export async function resolveFindingSourcesForSite(input: {
 
     if (patch.sourcePath && patch.sourceBlobSha) resolved++
     else unresolved++
+    lastProcessedId = finding.id
+  }
+
+  const timings: ResolveSourcesTimings = {
+    treeMs,
+    resolveMs: Date.now() - resolveStarted,
+    totalMs: Date.now() - startedAt,
+    targets: targets.length,
+    fileReads,
+    fileCacheHits,
   }
 
   console.info('[resolve-source] site complete', {
@@ -323,6 +430,16 @@ export async function resolveFindingSourcesForSite(input: {
     resolved,
     unresolved,
     skipped,
+    complete,
+    lastProcessedId,
+    ...timings,
   })
-  return { resolved, unresolved, skipped }
+  return {
+    resolved,
+    unresolved,
+    skipped,
+    complete,
+    lastProcessedFindingId: lastProcessedId,
+    timings,
+  }
 }
