@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import type { IndexDiagnosisResult, InboundLinkEvidence } from '@/lib/index-diagnosis/types'
 import { CRAWLER_JS_LIMITATION } from '@/lib/index-diagnosis/fix-agent-issues'
 import { lookupManualFixForUrl, resolveManualFixForTask } from '@/lib/index-diagnosis/manual-fixes'
 import { ManualFixPanel } from '@/components/ManualFixPanel'
 import { deltaReasonLabel, type InspectionDelta } from '@/lib/gsc/inspection-deltas'
+import type { GooglesViewTable } from '@/lib/gsc/googles-view'
 
 const EXCLUDE_LABELS: Record<string, string> = {
   ROBOTS_DISALLOWED: 'Robots.txt disallowed',
@@ -136,6 +137,10 @@ export function IndexDiagnosisPanel({
   const [deferredPending, setDeferredPending] = useState(0)
   const [inspectionBusy, setInspectionBusy] = useState(false)
   const [inspectionMessage, setInspectionMessage] = useState<string | null>(null)
+  const [googlesView, setGooglesView] = useState<GooglesViewTable | null>(null)
+  const [googlesViewMsg, setGooglesViewMsg] = useState<string | null>(null)
+  const [googlesViewBusy, setGooglesViewBusy] = useState(false)
+  const [expandedGvReason, setExpandedGvReason] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     if (!siteId) return
@@ -168,6 +173,39 @@ export function IndexDiagnosisPanel({
         setDeferredPending(Number(json.deferredPending ?? 0))
       } catch {
         /* non-fatal */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [siteId])
+
+  useEffect(() => {
+    if (!siteId) return
+    let cancelled = false
+    ;(async () => {
+      setGooglesViewBusy(true)
+      try {
+        const res = await fetch(
+          `/api/gsc/googles-view?siteId=${encodeURIComponent(siteId)}`,
+        )
+        const json = await res.json().catch(() => ({}))
+        if (cancelled) return
+        if (!res.ok) {
+          setGooglesViewMsg(json.error || 'Could not load Google\'s view')
+          return
+        }
+        if (!json.connected) {
+          setGooglesViewMsg(json.framing || 'Connect Google Search Console.')
+          setGooglesView(null)
+          return
+        }
+        setGooglesView(json.table || null)
+        setGooglesViewMsg(null)
+      } catch {
+        if (!cancelled) setGooglesViewMsg('Could not load Google\'s view')
+      } finally {
+        if (!cancelled) setGooglesViewBusy(false)
       }
     })()
     return () => {
@@ -275,6 +313,122 @@ export function IndexDiagnosisPanel({
           <span>· {coverage.fetchedCount} pages crawled</span>
         </div>
       </div>
+
+      {siteId && (
+        <div className="border border-[#E5E5E5] rounded-xl p-4 bg-white">
+          <h2 className="font-medium mb-1">Google&apos;s view</h2>
+          <p className="text-xs text-[#6B6B6B] mb-3 max-w-2xl">
+            {googlesView?.framing ||
+              "Why Google Search Console lists pages as not indexed — healthy rows are informational."}
+          </p>
+          {googlesViewBusy && (
+            <p className="text-xs text-[#9B9B9B]">Loading Google&apos;s view…</p>
+          )}
+          {googlesViewMsg && (
+            <p className="text-xs text-[#6B6B6B]">{googlesViewMsg}</p>
+          )}
+          {googlesView && googlesView.rows.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-[#9B9B9B] border-b">
+                    <th className="py-1 pr-2">Reason</th>
+                    <th className="py-1 pr-2">Pages</th>
+                    <th className="py-1 pr-2">Problem?</th>
+                    <th className="py-1 pr-2">What to do</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {googlesView.rows.map((row) => {
+                    const open = expandedGvReason[row.reason] ?? false
+                    return (
+                      <Fragment key={row.reason}>
+                        <tr className="border-b border-[#F0F0F0] align-top">
+                          <td className="py-2 pr-2">
+                            <button
+                              type="button"
+                              className="text-left hover:text-[#0F0F0F] flex gap-1"
+                              onClick={() =>
+                                setExpandedGvReason((prev) => ({
+                                  ...prev,
+                                  [row.reason]: !open,
+                                }))
+                              }
+                            >
+                              <span className="text-[#9B9B9B] w-3 shrink-0">
+                                {open ? '▾' : '▸'}
+                              </span>
+                              <span className="font-medium text-[#0F0F0F]">
+                                {row.reason}
+                              </span>
+                            </button>
+                          </td>
+                          <td className="py-2 pr-2 whitespace-nowrap">
+                            {row.pageCount}
+                          </td>
+                          <td className="py-2 pr-2 whitespace-nowrap">
+                            <span
+                              className={`px-1.5 py-0.5 rounded ${
+                                row.problem
+                                  ? 'text-red-800 bg-red-50'
+                                  : 'text-green-800 bg-green-50'
+                              }`}
+                            >
+                              {row.problem ? 'Yes' : 'No'}
+                            </span>
+                          </td>
+                          <td className="py-2 text-[#6B6B6B] max-w-md">
+                            {row.whatToDo}
+                          </td>
+                        </tr>
+                        {open &&
+                          row.urls.map((u) => (
+                            <tr
+                              key={`${row.reason}-${u.url}`}
+                              className="border-b border-[#F5F5F5] bg-[#FAFAFA]"
+                            >
+                              <td colSpan={4} className="py-2 pl-6 pr-2">
+                                <div className="font-mono text-[11px] break-all text-[#0F0F0F]">
+                                  {u.url}
+                                  {' → '}
+                                  {u.destinationOrStatus}
+                                </div>
+                                <div className="text-[11px] text-[#6B6B6B] mt-0.5">
+                                  <span
+                                    className={
+                                      u.problem
+                                        ? 'text-red-700 font-medium'
+                                        : 'text-green-800 font-medium'
+                                    }
+                                  >
+                                    {u.verdict}
+                                  </span>
+                                  {' — '}
+                                  {u.detail}
+                                  {u.relatedTopics && u.relatedTopics.length > 0 && (
+                                    <span className="ml-1">
+                                      (topics {u.relatedTopics.join(', ')})
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {googlesView && googlesView.rows.length === 0 && !googlesViewBusy && (
+            <p className="text-xs text-[#6B6B6B]">
+              No explained not-indexed reasons in the latest URL Inspection batch yet.
+              Sync Google&apos;s last recorded view to populate coverage states.
+            </p>
+          )}
+        </div>
+      )}
 
       {sitemapDrift?.hasDrift && (
         <div className="border border-amber-300 rounded-xl p-4 bg-amber-50">
