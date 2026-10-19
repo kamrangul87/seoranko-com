@@ -109,6 +109,11 @@ import { sourcesForDossier } from '../sources'
 import { dossierSlugForTopic } from '../topic-registry'
 import type { CrawledPage } from './fetch-page'
 import { htmlForTopic } from '@/lib/crawl-render'
+import {
+  isRenderDependentTopicUnavailable,
+  renderUnavailableEmit,
+  RENDER_DEPENDENT_CHUNK_TOPIC_IDS,
+} from '@/lib/crawl-render/render-fail-policy'
 import { CRAWL_INTER_REQUEST_GAP_MS } from './constants'
 import type { FetchDeps, FetchOutcome } from '@/lib/fix-strategies/fetch/types'
 
@@ -632,18 +637,25 @@ export async function runDetectorsOnPages(
       ),
       out,
     )
-    takeBuckets(
-      '42',
-      'internal-links/through-redirects',
-      await detectLinksThroughRedirects(
-        usable.map((p) => ({
-          url: p.finalUrl,
-          html: pageBodyForTopic('42', p),
-        })),
-        { deps: fetchDeps },
-      ),
-      out,
+    // Topic 42 is render-dependent — exclude render_failed pages (shell would
+    // invent empty-link graphs). Those pages get render_unavailable below.
+    const usableFor42 = usable.filter(
+      (p) => !isRenderDependentTopicUnavailable('42', p.renderMode),
     )
+    if (usableFor42.length > 0) {
+      takeBuckets(
+        '42',
+        'internal-links/through-redirects',
+        await detectLinksThroughRedirects(
+          usableFor42.map((p) => ({
+            url: p.finalUrl,
+            html: pageBodyForTopic('42', p),
+          })),
+          { deps: fetchDeps },
+        ),
+        out,
+      )
+    }
   }
 
   // Topic 73/74: include client-only SPA shells (raw HTML is the signal).
@@ -681,12 +693,9 @@ export async function runDetectorsOnPages(
 
   for (const p of usable) {
     const pageUrl = p.finalUrl
-    const contentHtml = pageBodyForTopic('35', p)
-    const extraction = extractStructuredData(contentHtml, pageUrl)
-    const head = inspectDocumentHead(contentHtml)
-    void extractCanonicalDeclarations
+    const renderFailed = p.renderMode === 'render_failed'
 
-    // Topic 1: broken internal links (network)
+    // Topic 1: broken internal links (network) — raw
     takeBuckets(
       '1',
       'internal-links/broken',
@@ -697,7 +706,7 @@ export async function runDetectorsOnPages(
       pageUrl,
     )
 
-    // Topic 2b: potential soft 404
+    // Topic 2b: potential soft 404 — raw
     takeBuckets(
       '2b',
       'indexability/potential-soft-404',
@@ -711,7 +720,7 @@ export async function runDetectorsOnPages(
       pageUrl,
     )
 
-    // Topic 3: 5xx — only with ≥2 fetch attempts
+    // Topic 3: 5xx — only with ≥2 fetch attempts — raw
     if (p.evidence.attempts.length >= 2) {
       takeBuckets(
         '3',
@@ -726,6 +735,23 @@ export async function runDetectorsOnPages(
         pageUrl,
       )
     }
+
+    // Render-dependent checks: mark unavailable; do not judge the empty shell.
+    if (renderFailed) {
+      out.push(
+        renderUnavailableEmit({
+          pageUrl,
+          renderError: p.renderEvidence?.renderError ?? p.errorDetail,
+          skippedTopicIds: [...RENDER_DEPENDENT_CHUNK_TOPIC_IDS],
+        }),
+      )
+      continue
+    }
+
+    const contentHtml = pageBodyForTopic('35', p)
+    const extraction = extractStructuredData(contentHtml, pageUrl)
+    const head = inspectDocumentHead(contentHtml)
+    void extractCanonicalDeclarations
 
     takeBuckets(
       '29',

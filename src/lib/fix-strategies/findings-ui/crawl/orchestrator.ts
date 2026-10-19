@@ -559,19 +559,11 @@ export async function processCrawlTick(
           errorDetail: page.errorDetail,
         })
         notes.push({
-          code:
-            page.renderMode === 'render_failed' ? 'render_failed' : 'client_only',
+          code: 'client_only',
           detail:
-            page.renderMode === 'render_failed'
-              ? `render_needed but headless render failed (${page.renderEvidence?.renderError || 'unknown'}) — no headline verdict for this URL`
-              : 'Served HTML looks client_only and render did not produce a DOM — content detectors skipped',
+            'Served HTML looks client_only and render did not produce a DOM — content detectors skipped',
           url: job.url,
         })
-        if (page.renderMode === 'render_failed') {
-          pagesRenderFailedN++
-          rendersThisTick++
-          totalRenderTimeMsN += page.renderEvidence?.renderTookMs ?? 0
-        }
         await recordObservation()
         await flushCounters()
         continue
@@ -612,7 +604,7 @@ export async function processCrawlTick(
         totalRenderTimeMsN += page.renderEvidence?.renderTookMs ?? 0
         notes.push({
           code: 'render_failed',
-          detail: `render_needed but headless render failed (${page.renderEvidence?.renderError || 'unknown'}) — no headline verdict for this URL`,
+          detail: `render_needed but headless render failed (${page.renderEvidence?.renderError || 'unknown'}) — raw-HTML detectors still ran; render-dependent checks marked render_unavailable`,
           url: page.finalUrl,
         })
       }
@@ -687,8 +679,8 @@ export async function processCrawlTick(
 
   if (crawled.length > 0) {
     // PER-PAGE detectors only — WHOLE-SITE runs after frontier drain.
-    // Prefer rendered HTML already on CrawledPage.html; skip headline
-    // detectors for pages that needed render but failed (handled as client_only).
+    // Prefer rendered HTML on CrawledPage.html. On render_failed, raw-HTML
+    // detectors still run; render-dependent topics emit render_unavailable.
     // Detector/peer-probe failures must not abort the tick (counters already
     // flushed per job); continue so the run can resume on the next tick.
     try {

@@ -11,6 +11,11 @@ export {
   representationForTopic,
   htmlForTopic,
 } from './detector-representation'
+export {
+  clientOnlyAfterRender,
+  isRenderDependentTopicUnavailable,
+  renderUnavailableEmit,
+} from './render-fail-policy'
 export type {
   RenderMode,
   DetectorRepresentation,
