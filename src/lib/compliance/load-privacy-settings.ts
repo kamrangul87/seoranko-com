@@ -1,9 +1,8 @@
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 /**
  * Load privacy controller / jurisdiction settings for topic 72.
  * Missing jurisdiction → detector emits human-review-jurisdiction-not-set.
  */
-
-import { createClient } from '@supabase/supabase-js'
 
 export type PrivacySiteSettings = {
   jurisdiction: string | null
@@ -23,7 +22,7 @@ export async function loadPrivacySiteSettings(
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) return null
 
-  const supabase = createClient(url, key, {
+  const supabase = createSupabaseJsClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   })
   const { data, error } = await supabase

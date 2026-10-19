@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { getFindingsStore } from '@/lib/fix-strategies/findings-ui/crawl'
 import {
   buildShareableReport,
@@ -23,7 +23,7 @@ export async function GET(
     return NextResponse.json({ error: 'Missing token' }, { status: 400 })
   }
 
-  const supabase = createClient(
+  const supabase = createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   )

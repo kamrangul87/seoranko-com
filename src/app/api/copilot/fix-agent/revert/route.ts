@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { cookies } from 'next/headers'
 import { revertFixAttempt } from '@/lib/fix-agent'
 
+
+export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 /** POST { attemptId } — one-click revert of an auto-applied Fix Agent change. */
@@ -22,7 +24,7 @@ export async function POST(req: NextRequest) {
     }
 
     const cookieStore = cookies()
-    const authClient = createServerClient(
+    const authClient = createSupabaseSsrClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { cookies: { get: (name: string) => cookieStore.get(name)?.value } },
@@ -34,7 +36,7 @@ export async function POST(req: NextRequest) {
     const attemptId = typeof body.attemptId === 'string' ? body.attemptId : ''
     if (!attemptId) return NextResponse.json({ error: 'attemptId is required' }, { status: 400 })
 
-    const supabase = createClient(
+    const supabase = createSupabaseJsClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )

@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
 import { cookies } from 'next/headers'
 import { runPageAudit } from '@/lib/page-audit-engine'
 
+
+export const dynamic = 'force-dynamic'
 /** PSI + domain index crawl can run 60–120s on larger sites. */
 export const maxDuration = 300
 
 export async function POST(req: NextRequest) {
   try {
     const cookieStore = cookies()
-    const supabase = createServerClient(
+    const supabase = createSupabaseSsrClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { cookies: { get(name: string) { return cookieStore.get(name)?.value } } },

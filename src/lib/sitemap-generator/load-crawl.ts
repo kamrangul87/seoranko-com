@@ -1,5 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
 import { normalizeDomain } from '@/lib/supabase/audit-db'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { runIndexDiagnosis } from '@/lib/index-diagnosis/run'
 import type { CrawlCoverage, IndexDiagnosisResult, PageIndexability } from '@/lib/index-diagnosis/types'
 import type { SitemapCrawlInput } from './types'
@@ -35,7 +35,7 @@ interface StoredRunRow {
 
 async function loadRecentCrawl(userId: string, domain: string): Promise<StoredRunRow | null> {
   try {
-    const supabase = createClient(
+    const supabase = createSupabaseJsClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       { auth: { persistSession: false } },

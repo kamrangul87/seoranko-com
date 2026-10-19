@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { createClient } from '@supabase/supabase-js';
 import { normalizeDomain, normalizeUrl } from './audit-db';
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 
 function getClient() {
-  return createClient(
+  return createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }

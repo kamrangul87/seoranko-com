@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
+
+export const dynamic = 'force-dynamic'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { requireCronSecret } from '@/lib/cron-auth'
-import { createClient } from '@supabase/supabase-js'
 import { checkBatchRanks } from '@/lib/rank-tracker'
 import { handleRankDrop } from '@/lib/rank-guard'
 import { runWeeklyFreshnessJobs } from '@/lib/freshness-automation'
 import { runTemporalClaimsFreshnessCheck } from '@/lib/temporal-claims-freshness'
 import { checkArticleCitation } from '@/lib/citation-tracker'
 import {
+
   persistVelocityMetrics,
   recomputeFreshnessForTracked,
 } from '@/lib/rank-monitor-pass'
@@ -17,7 +20,7 @@ export async function GET(req: NextRequest) {
   const denied = requireCronSecret(req)
   if (denied) return denied
 
-  const supabase = createClient(
+  const supabase = createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )

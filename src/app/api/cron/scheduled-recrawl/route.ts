@@ -6,8 +6,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { requireCronSecret } from '@/lib/cron-auth'
-import { createClient } from '@supabase/supabase-js'
 import {
   runScheduledRecrawlForSite,
   runScheduledRecrawlPass,
@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
     )
   }
 
-  const supabase = createClient(url, key)
+  const supabase = createSupabaseJsClient(url, key)
   const { data: sites, error } = await supabase
     .from('connected_sites')
     .select('id, user_id, domain')

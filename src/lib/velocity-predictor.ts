@@ -1,8 +1,8 @@
 // Predicts how long to reach target position using rank history trajectory
 // Gap: no open source or affordable tool forecasts position over time
 
-import { createClient } from '@supabase/supabase-js'
 import { fittedSlopePerWeek } from './rank-trigger'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 
 export interface VelocityPrediction {
   keyword: string
@@ -48,7 +48,7 @@ export async function predictRankingVelocity(
   currentScores?: { eeat?: number; readability?: number; humanScore?: number; factDensity?: number }
 ): Promise<VelocityPrediction> {
 
-  const supabase = createClient(
+  const supabase = createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )

@@ -1,8 +1,8 @@
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { createClient } from '@supabase/supabase-js';
 
 function getClient() {
-  return createClient(
+  return createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }
@@ -68,7 +68,7 @@ export async function upsertAuditResults(
   // (anon client has auth.uid() = null and cannot satisfy WITH CHECK).
   const supabase =
     opts?.userId && process.env.SUPABASE_SERVICE_ROLE_KEY
-      ? createClient(
+      ? createSupabaseJsClient(
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
           process.env.SUPABASE_SERVICE_ROLE_KEY!,
           { auth: { persistSession: false } },

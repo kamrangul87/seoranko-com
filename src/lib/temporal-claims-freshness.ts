@@ -6,7 +6,8 @@
 // which rewrites whole-article prose for ranking decay; this only checks
 // that a specific cited claim's source is still reachable.
 
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { type SupabaseClient } from '@supabase/supabase-js'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 
 export interface TemporalClaimDueRow {
   id: string
@@ -102,7 +103,7 @@ export async function runTemporalClaimsFreshnessCheck(
 
 /** Convenience wrapper matching the other weekly cron jobs' service-role pattern. */
 export async function runTemporalClaimsFreshnessJob(): Promise<TemporalClaimsFreshnessResult> {
-  const supabase = createClient(
+  const supabase = createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   )

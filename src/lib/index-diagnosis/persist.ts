@@ -1,5 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
 import { normalizeDomain } from '@/lib/supabase/audit-db'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { buildSiteFollowUpTasks } from './follow-up-tasks'
 import { buildManualFixesForResult } from './manual-fixes'
 import { isUsableIndexDiagnosis } from './saved-validity'
@@ -28,7 +28,7 @@ export type IndexDiagnosisRunRow = {
 }
 
 function serviceClient() {
-  return createClient(
+  return createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false } },

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
 import { cookies } from 'next/headers'
 import { getFindingsStore } from '@/lib/fix-strategies/findings-ui/crawl'
 import { persistedToUiFinding } from '@/lib/fix-strategies/findings-ui/map-persisted'
@@ -19,7 +19,7 @@ export const maxDuration = 300
 
 function authClient() {
   const cookieStore = cookies()
-  return createServerClient(
+  return createSupabaseSsrClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {

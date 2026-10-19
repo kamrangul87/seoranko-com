@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { requireCronSecret } from '@/lib/cron-auth'
-import { createClient } from '@supabase/supabase-js'
 import { runPublicationsVerificationSweep } from '@/lib/publish-verification'
 
+
+export const dynamic = 'force-dynamic'
 // Step 4's post-publish verification job. Same auth pattern as the other
 // cron routes (weekly-jobs, verify-liveness) — Authorization:
 // Bearer ${CRON_SECRET}. Once-daily schedule only (vercel.json) — this
@@ -15,7 +17,7 @@ export async function GET(req: NextRequest) {
   const denied = requireCronSecret(req)
   if (denied) return denied
 
-  const supabase = createClient(
+  const supabase = createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )

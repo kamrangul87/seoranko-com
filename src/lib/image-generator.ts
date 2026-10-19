@@ -1,6 +1,6 @@
 import sharp from 'sharp';
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { randomUUID } from 'crypto';
-import { createClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenAI } from '@google/genai';
 import { parse, HTMLElement } from 'node-html-parser';
@@ -81,7 +81,7 @@ export interface ImageFailure {
 // ── Supabase client (server-side only) ───────────────────────────────────────
 
 function getSupabase() {
-  return createClient(
+  return createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } },

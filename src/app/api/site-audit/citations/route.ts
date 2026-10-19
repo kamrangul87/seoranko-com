@@ -1,16 +1,18 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { requireSignedInUser } from '@/lib/require-signed-in-user'
 import Anthropic from '@anthropic-ai/sdk';
-import { createClient } from '@supabase/supabase-js';
 import { normalizeDomain } from '@/lib/supabase/audit-db';
 
 import { MODEL_FOR } from '@/lib/model-router';
 
+
+export const dynamic = 'force-dynamic'
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, maxRetries: 2 });
 
 function getSupabase() {
-  return createClient(
+  return createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } }

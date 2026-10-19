@@ -12,9 +12,12 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+
+export const dynamic = 'force-dynamic'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { requireCronSecret } from '@/lib/cron-auth'
-import { createClient } from '@supabase/supabase-js'
 import {
+
   auditRegistryLinkRows,
   rewriteKnownWrongRegistryHrefsInHtml,
 } from '@/lib/registry-url-health'
@@ -26,7 +29,7 @@ export async function GET(req: NextRequest) {
   if (denied) return denied
 
   const dryRun = req.nextUrl.searchParams.get('dry_run') === '1'
-  const supabase = createClient(
+  const supabase = createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   )

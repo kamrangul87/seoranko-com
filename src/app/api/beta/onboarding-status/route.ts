@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { cookies } from 'next/headers'
 import { getFindingsStore } from '@/lib/fix-strategies/findings-ui/crawl'
 
@@ -16,7 +16,7 @@ type StepId = 'site' | 'github' | 'gsc' | 'crawl' | 'finding' | 'verified'
 export async function GET() {
   try {
     const cookieStore = cookies()
-    const authClient = createServerClient(
+    const authClient = createSupabaseSsrClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { cookies: { get: (name: string) => cookieStore.get(name)?.value } },
@@ -26,7 +26,7 @@ export async function GET() {
     } = await authClient.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const supabase = createClient(
+    const supabase = createSupabaseJsClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       { auth: { persistSession: false } },

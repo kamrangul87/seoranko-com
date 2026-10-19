@@ -32,6 +32,8 @@ jobs:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
       - name: Lint
         run: npm run lint
+      - name: Supabase clients must use no-store fetch
+        run: npm run check:supabase-no-store
       - name: Typecheck (production sources, mirrors next build)
         run: npm run typecheck
       - name: Production build

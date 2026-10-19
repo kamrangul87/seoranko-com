@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import {
   encryptGscRefreshToken,
   exchangeGscAuthCode,
@@ -7,6 +7,8 @@ import {
 } from '@/lib/gsc/oauth'
 import { decideGscRefreshTokenApply } from '@/lib/gsc/callback-token'
 
+
+export const dynamic = 'force-dynamic'
 function appOrigin(req: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL
   if (env) return env.replace(/\/$/, '')
@@ -44,7 +46,7 @@ export async function GET(req: NextRequest) {
   try {
     const parsed = verifyGscOAuthState(state)
     const tokens = await exchangeGscAuthCode(code)
-    const supabase = createClient(
+    const supabase = createSupabaseJsClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )

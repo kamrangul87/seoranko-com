@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 
+export const dynamic = 'force-dynamic'
 // Serves the one-line script the user pastes into their <head>.
 // Keyed by the site's secret universal_tag_token — never the raw site UUID.
 
@@ -8,7 +9,7 @@ export async function GET(
   req: NextRequest,
   { params }: { params: { siteToken: string } }
 ) {
-  const supabase = createClient(
+  const supabase = createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )

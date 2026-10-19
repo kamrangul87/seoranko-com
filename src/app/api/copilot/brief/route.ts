@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
 import { cookies } from 'next/headers'
 import { generateContentBrief, type BriefMode, type ContentBrief } from '@/lib/content-brief-generator'
 import {
@@ -10,9 +10,11 @@ import {
 import type { DuplicateCohortBriefContext } from '@/lib/index-diagnosis/types'
 import { duplicateCohortBriefBadgeText } from '@/lib/index-diagnosis/duplicate-cohort-brief'
 
+
+export const dynamic = 'force-dynamic'
 function authClient() {
   const cookieStore = cookies()
-  return createServerClient(
+  return createSupabaseSsrClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { cookies: { get(name: string) { return cookieStore.get(name)?.value } } },

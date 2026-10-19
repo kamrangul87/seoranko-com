@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
 import { cookies } from 'next/headers'
-import { createServerClient } from '@supabase/ssr'
 import { getGithubAppPublicMeta } from '@/lib/github-app/store'
 import { GITHUB_APP_URLS } from '@/lib/github-app/urls'
 
@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   if (supabaseUrl && anon) {
     const cookieStore = cookies()
-    const authClient = createServerClient(supabaseUrl, anon, {
+    const authClient = createSupabaseSsrClient(supabaseUrl, anon, {
       cookies: {
         get(name: string) {
           return cookieStore.get(name)?.value

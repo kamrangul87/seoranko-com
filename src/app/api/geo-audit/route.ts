@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { requireSignedInUser } from '@/lib/require-signed-in-user'
-import { createClient } from '@supabase/supabase-js'
 import { runGEOAudit } from '@/lib/geo-auditor'
 
+
+export const dynamic = 'force-dynamic'
 export const maxDuration = 120
 
 export async function POST(req: NextRequest) {
@@ -16,7 +18,7 @@ export async function POST(req: NextRequest) {
     const result = await runGEOAudit(url)
 
     if (saveResult) {
-      const supabase = createClient(
+      const supabase = createSupabaseJsClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!
       )

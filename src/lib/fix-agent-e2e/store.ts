@@ -1,4 +1,5 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { type SupabaseClient } from '@supabase/supabase-js'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import type { E2eStepName } from './constants'
 import {
   maxReachedStepIndex,
@@ -38,29 +39,12 @@ export type E2eRunRow = {
   write_version?: number
 }
 
-/**
- * Next.js App Router caches `fetch` GETs by default. Supabase-js uses fetch,
- * so CAS retries would keep reading a stale write_version (always 0) after the
- * first successful write in the same invocation — see e2e 8108f0dd / 269047f9.
- */
-function noStoreFetch(
-  input: RequestInfo | URL,
-  init?: RequestInit,
-): Promise<Response> {
-  return fetch(input, {
-    ...init,
-    cache: 'no-store',
-  })
-}
-
 function sb(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) throw new Error('Supabase service role not configured')
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { fetch: noStoreFetch },
-  })
+  // createSupabaseJsClient always installs no-store fetch (Next.js GET cache bust).
+  return createSupabaseJsClient(url, key)
 }
 
 /** Coerce PostgREST bigint (number | string) to a finite integer. */

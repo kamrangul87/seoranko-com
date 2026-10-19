@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { cookies } from 'next/headers'
 import { normalizeUrl } from '@/lib/supabase/audit-db'
 import { syncUrlInspectionsForConnection } from '@/lib/gsc/inspection-scheduler'
 import { buildGscInspectionFixAgentIssues } from '@/lib/gsc/inspection-fix-issues'
 
+
+export const dynamic = 'force-dynamic'
 function serviceClient() {
-  return createClient(
+  return createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   )
@@ -15,7 +17,7 @@ function serviceClient() {
 
 async function requireUser() {
   const cookieStore = cookies()
-  const authClient = createServerClient(
+  const authClient = createSupabaseSsrClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { cookies: { get: (name: string) => cookieStore.get(name)?.value } },

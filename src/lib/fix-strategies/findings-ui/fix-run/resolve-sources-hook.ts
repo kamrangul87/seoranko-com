@@ -3,8 +3,8 @@
  * Logs site id at every branch. No-ops when the site is not GitHub-connected.
  */
 
-import { createClient } from '@supabase/supabase-js'
 import { findOwnedSiteConnection } from '@/lib/site-connection-lookup'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { resolveGithubAppRepoCreds } from '@/lib/github-app/resolve-repo-creds'
 import { resolveFindingSourcesForSite } from './resolve-finding-sources'
 import type { GithubPrCreds } from './github-ops'
@@ -32,7 +32,7 @@ async function resolveCredsForSite(input: {
     return null
   }
 
-  const supabase = createClient(url, key)
+  const supabase = createSupabaseJsClient(url, key)
   const { data: site } = await supabase
     .from('connected_sites')
     .select('id, domain')

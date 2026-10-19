@@ -6,11 +6,11 @@
 // nothing; these are public pages by design, gated on publications.state
 // instead of ownership).
 
-import { createClient } from '@supabase/supabase-js'
 import { cache } from 'react'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 
 function getPublicSupabase() {
-  return createClient(
+  return createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false } },

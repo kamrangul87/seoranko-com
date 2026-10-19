@@ -14,16 +14,18 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { createServerClient } from "@supabase/ssr";
+import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
+import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { cookies } from "next/headers";
 
+
+export const dynamic = 'force-dynamic'
 export const maxDuration = 60;
 
 const RETENTION_DAYS = 30;
 
 function getSupabase() {
-  return createClient(
+  return createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { persistSession: false } },
@@ -39,7 +41,7 @@ export async function POST(req: NextRequest) {
   }
 
   const cookieStore = cookies();
-  const authClient = createServerClient(
+  const authClient = createSupabaseSsrClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { cookies: { get(name: string) { return cookieStore.get(name)?.value; } } },
