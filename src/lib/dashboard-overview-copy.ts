@@ -42,6 +42,7 @@ export const DASHBOARD_OVERVIEW_COPY = {
   bucketLabels: {
     actionable: 'Actionable',
     informational: 'Informational',
+    /** Master-only — never shown to customers (API zeros the count). */
     internal: 'Internal',
   },
   lastCrawlLabel: 'Last crawl',

@@ -193,12 +193,15 @@ export type FindingsListResponse = {
     startedAt?: string | null
     /** Crawl wall-clock end when terminal (ISO); null while running. */
     finishedAt?: string | null
+    /** Terminal failure detail — used to detect 15m watchdog stalls. */
+    errorDetail?: string | null
   } | null
   /** Present when the latest run is terminal — CM Stage 4. */
   whatChanged?: WhatChangedDigestUi | null
   counts: {
     actionable: number
     informational: number
+    /** Omitted / zero for non-master customers. */
     internal: number
   }
   findings: UiFinding[]

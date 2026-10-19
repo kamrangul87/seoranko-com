@@ -13,3 +13,4 @@ export {
 export { createSupabaseHeartbeatDeps } from './supabase-deps'
 export { touchLastProgress } from './touch-progress'
 export { claimTickLease } from './claim-tick-lease'
+export { releaseTickLease } from './release-tick-lease'

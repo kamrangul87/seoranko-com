@@ -21,6 +21,7 @@ import {
   fixTypeKey,
   loadPausedFixTypeSet,
 } from '@/lib/fix-strategies/findings-ui/fix-run/failure-learning'
+import { countsForViewer } from '@/lib/fix-strategies/findings-ui/customer-counts'
 
 export const dynamic = 'force-dynamic'
 
@@ -129,10 +130,11 @@ export async function GET(request: Request) {
             updatedAt: latest.updatedAt ?? null,
             startedAt: latest.startedAt ?? null,
             finishedAt: latest.finishedAt ?? null,
+            errorDetail: latest.errorDetail ?? null,
           }
         : null,
       whatChanged,
-      counts,
+      counts: countsForViewer(counts, user.email),
       findings,
       leftAlone: aggregateLeftAlone(findings),
     }
@@ -213,10 +215,11 @@ export async function GET(request: Request) {
           updatedAt: latest.updatedAt ?? null,
           startedAt: latest.startedAt ?? null,
           finishedAt: latest.finishedAt ?? null,
+          errorDetail: latest.errorDetail ?? null,
         }
       : null,
     whatChanged,
-    counts,
+    counts: countsForViewer(counts, user.email),
     findings,
     leftAlone: aggregateLeftAlone(findings),
   }

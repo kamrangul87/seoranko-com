@@ -12,7 +12,10 @@ import {
   getE2eRun,
 } from '@/lib/fix-agent-e2e'
 import { scheduleE2eContinue } from '@/lib/fix-agent-e2e/schedule-continue'
-import { claimTickLease } from '@/lib/run-heartbeat/claim-tick-lease'
+import {
+  claimTickLease,
+  releaseTickLease,
+} from '@/lib/run-heartbeat/claim-tick-lease'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -58,23 +61,27 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    const result = await tickE2eRun({ runId })
+    try {
+      const result = await tickE2eRun({ runId })
 
-    // Chain continue while still running (waitUntil keeps the delayed fetch alive).
-    if (result.run.status === 'running') {
-      scheduleE2eContinue({
-        runId: result.run.id,
+      // Chain continue while still running (waitUntil keeps the delayed fetch alive).
+      if (result.run.status === 'running') {
+        scheduleE2eContinue({
+          runId: result.run.id,
+          advanced: result.advanced,
+        })
+      }
+
+      return NextResponse.json({
+        ok: true,
+        run: result.run,
         advanced: result.advanced,
+        done: result.done,
+        detail: result.detail,
       })
+    } finally {
+      await releaseTickLease('e2e', runId)
     }
-
-    return NextResponse.json({
-      ok: true,
-      run: result.run,
-      advanced: result.advanced,
-      done: result.done,
-      detail: result.detail,
-    })
   } catch (err) {
     console.error('[cron/fix-agent-e2e]', err)
     return NextResponse.json(

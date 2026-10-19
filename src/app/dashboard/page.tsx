@@ -162,7 +162,10 @@ export default function DashboardPage() {
                   [
                     'actionable',
                     'informational',
-                    'internal',
+                    // internal only when API returned a non-zero count (master)
+                    ...(crawlSummary.openFindings.internal > 0
+                      ? (['internal'] as const)
+                      : []),
                   ] as const
                 ).map((bucket) => (
                   <Link
