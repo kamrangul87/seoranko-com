@@ -2,7 +2,16 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { isLegacyDashboardPath } from '@/lib/legacy-dashboard-routes'
 
 // Public routes — never require auth
-const PUBLIC_PATHS = ['/', '/pricing', '/login', '/signup', '/blog', '/tools']
+const PUBLIC_PATHS = [
+  '/',
+  '/pricing',
+  '/login',
+  '/signup',
+  '/forgot-password',
+  '/reset-password',
+  '/blog',
+  '/tools',
+]
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -13,6 +22,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/tools') ||
     pathname.startsWith('/login') ||
     pathname.startsWith('/signup') ||
+    pathname.startsWith('/forgot-password') ||
+    pathname.startsWith('/reset-password') ||
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/api/public') ||
     pathname.startsWith('/_next') ||
@@ -47,5 +58,7 @@ export const config = {
     '/dashboard/:path*',
     '/login',
     '/signup',
+    '/forgot-password',
+    '/reset-password',
   ],
 }

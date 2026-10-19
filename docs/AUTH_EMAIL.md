@@ -48,6 +48,18 @@ setting — but if Site URL is still `http://localhost:3000`, add
 URLs** too, or Supabase will reject the explicit `emailRedirectTo` as
 unlisted and fall back to Site URL anyway.
 
+**Password recovery Redirect URLs (required).** Add both (exact paths):
+
+- `https://www.seoranko.com/reset-password`
+- `https://seoranko.com/reset-password`
+
+Forgot-password calls `resetPasswordForEmail` with
+`redirectTo: https://www.seoranko.com/reset-password`. Without these
+allow-list entries Supabase falls back to Site URL and the reset form never
+receives the recovery session. These cannot be set from app migrations —
+add them in the dashboard (or via Management API
+`PATCH /v1/projects/{ref}/config/auth` `uri_allow_list`).
+
 ## What changed in code (this PR)
 
 - `handle_new_user()` trigger (migration `20260928120000`) now reads the
