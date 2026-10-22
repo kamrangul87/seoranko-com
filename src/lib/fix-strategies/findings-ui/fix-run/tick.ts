@@ -1487,12 +1487,46 @@ export function defaultTickDeps(partial: Partial<TickDeps> & {
     fetchPage:
       partial.fetchPage ||
       (async (url) => {
-        const res = await fetch(url, {
+        const headers: Record<string, string> = {
+          'User-Agent': 'SEORANKO-FixRun/1.0',
+        }
+        // Bypass Vercel Deployment Protection on customer preview URLs when
+        // configured (Protection Bypass for Automation).
+        // Prefer fix-run-specific bypass (customer preview SSO); fall back to
+        // the platform automation bypass when present.
+        const bypass =
+          process.env.FIX_RUN_VERCEL_PROTECTION_BYPASS?.trim() ||
+          process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim()
+        let fetchUrl = url
+        if (bypass && /\.vercel\.app(?::|\/|$)/i.test(url)) {
+          headers['x-vercel-protection-bypass'] = bypass
+          headers['x-vercel-set-bypass-cookie'] = 'true'
+          // Query param survives redirects; header alone can 307-loop.
+          try {
+            const u = new URL(url)
+            if (!u.searchParams.has('x-vercel-protection-bypass')) {
+              u.searchParams.set('x-vercel-protection-bypass', bypass)
+              fetchUrl = u.toString()
+            }
+          } catch {
+            /* keep url */
+          }
+        }
+        const res = await fetch(fetchUrl, {
           signal: AbortSignal.timeout(20000),
-          headers: { 'User-Agent': 'SEORANKO-FixRun/1.0' },
+          headers,
+          redirect: 'follow',
         })
         const body = await res.text()
-        return { ok: res.ok, body, status: res.status }
+        const authWall =
+          res.ok &&
+          body.length < 50_000 &&
+          /Authentication Required|vercel\.com\/sso-api|\/_vercel\//i.test(body)
+        return {
+          ok: res.ok && !authWall,
+          body,
+          status: authWall ? 401 : res.status,
+        }
       }),
     autoMergeEnabledOverride: partial.autoMergeEnabledOverride ?? null,
     deadlineMs: partial.deadlineMs,

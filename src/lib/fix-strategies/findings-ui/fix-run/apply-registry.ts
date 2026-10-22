@@ -403,10 +403,52 @@ const verifyTopic43NavLink: TransformVerifier = async (ctx) => {
   } catch {
     /* keep */
   }
-  if (!ctx.body.includes(`href="${href}"`) && !ctx.body.includes(`href='${href}'`)) {
+  if (
+    /Authentication Required|vercel\.com\/sso-api|\/_vercel\//i.test(ctx.body) &&
+    ctx.body.length < 50_000
+  ) {
+    return {
+      ok: false,
+      detail:
+        'Your preview is protected by a login; turn off Vercel Authentication for previews',
+    }
+  }
+  // Raw SPA shells often omit hydrated footer markup — also accept React Router
+  // path/label entries when the verified body is a component source mirror.
+  const present =
+    ctx.body.includes(`href="${href}"`) ||
+    ctx.body.includes(`href='${href}'`) ||
+    ctx.body.includes(`path: "${href}"`) ||
+    ctx.body.includes(`path: '${href}'`) ||
+    ctx.body.includes(`to="${href}"`) ||
+    ctx.body.includes(`to='${href}'`)
+  if (!present) {
     return { ok: false, detail: `live HTML missing nav link to ${href}` }
   }
   return { ok: true, detail: `nav/footer link to ${href} present` }
+}
+
+/** Verify topic 43 against the page that received the footer/nav edit. */
+function topic43VerifyUrl(
+  finding: PersistedFindingRow,
+  baseOriginOrPreview: string,
+): string | null {
+  const path = finding.sourcePath || ''
+  // public/about/index.html → /about on the preview origin
+  const m = path.match(/(?:^|\/)public\/(.+?)\/index\.html?$/i)
+  if (m?.[1]) {
+    return joinOrigin(baseOriginOrPreview, `/${m[1]}/`)
+  }
+  const m2 = path.match(/(?:^|\/)public\/(.+?)\.html?$/i)
+  if (m2?.[1]) {
+    return joinOrigin(baseOriginOrPreview, `/${m2[1]}`)
+  }
+  // React Footer.tsx — any site page will do; prefer homepage.
+  if (/Footer\.(tsx|jsx)$/i.test(path)) {
+    return joinOrigin(baseOriginOrPreview, '/')
+  }
+  if (!finding.pageUrl) return baseOriginOrPreview
+  return joinOrigin(baseOriginOrPreview, finding.pageUrl)
 }
 
 const topicRelatedArticles: TransformHandler = async (ctx) => {
@@ -510,6 +552,18 @@ const verifyTopic14: TransformVerifier = async (ctx) => {
 }
 
 const verifyTopic14SpaShellStrip: TransformVerifier = async (ctx) => {
+  // Protected previews often return a Vercel SSO interstitial (200) with no
+  // app markup — fail with a clear protection message, not a false stub claim.
+  if (
+    /Authentication Required|vercel\.com\/sso-api|\/_vercel\//i.test(ctx.body) &&
+    ctx.body.length < 50_000
+  ) {
+    return {
+      ok: false,
+      detail:
+        'Your preview is protected by a login; turn off Vercel Authentication for previews',
+    }
+  }
   let homepage = 'https://example.com'
   try {
     homepage = new URL(ctx.finding.pageUrl || ctx.liveUrl).origin
@@ -524,20 +578,13 @@ const verifyTopic14SpaShellStrip: TransformVerifier = async (ctx) => {
       /* keep */
     }
   }
-  const strip = verifySpaShellStripLive({
+  // Stub vs SPA shell is handled inside verifySpaShellStripLive (short Privacy
+  // stub without root). Do not require id=root — some hosts minify/omit it in
+  // edge HTML while still serving the shared shell.
+  return verifySpaShellStripLive({
     rawHtml: ctx.body,
     homepageCanonical: homepage,
   })
-  if (!strip.ok) return strip
-  // SPA must still be the shell (not a static stub). Policy copy is client-rendered;
-  // assert the shell root remains so we did not shadow /privacy with a stub.
-  if (!/id=["']root["']/i.test(ctx.body) && !/<div\s+id=["']app["']/i.test(ctx.body)) {
-    return {
-      ok: false,
-      detail: 'raw HTML missing SPA root — possible static stub shadowing the route',
-    }
-  }
-  return { ok: true, detail: strip.detail }
 }
 
 const verifyTopic17: TransformVerifier = async (ctx) => {
@@ -747,6 +794,7 @@ const REGISTRY: RegistryEntry[] = [
     verdict: 'auto-add-nav-link',
     handler: topic43AddNavLink,
     resolvePath: storedSourcePath,
+    resolveVerifyUrl: topic43VerifyUrl,
     previewVerifier: verifyTopic43NavLink,
     productionVerifier: verifyTopic43NavLink,
   },
