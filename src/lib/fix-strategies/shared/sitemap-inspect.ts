@@ -308,7 +308,7 @@ async function fetchSitemapDocument(
 
     if (hops.finalStatus >= 500) {
       if (confirm5xx) {
-        const second = await deps.fetch(url, { redirect: 'follow' })
+        const second = await deps.fetch(url, { redirect: 'manual' })
         if (second.status < 500) {
           return emptyDoc(url, origin, {
             fetchOutcome: 'transient-5xx',
@@ -337,7 +337,7 @@ async function fetchSitemapDocument(
     }
 
     const finalUrl = hops.finalUrl || url
-    const res = await deps.fetch(finalUrl, { redirect: 'follow' })
+    const res = await deps.fetch(finalUrl, { redirect: 'manual' })
     const ct = res.headers.get('content-type')
     const buf = Buffer.from(await res.arrayBuffer())
     const compressedByteLength = buf.byteLength

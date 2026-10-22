@@ -1,10 +1,14 @@
 /**
  * Safe fetch for findings crawl: resolve+IP check on every hop, crawler UA,
  * manual redirect following (refuse public→private).
+ *
+ * Never uses redirect:'follow' — undici throws on loops. Max 10 hops; URL
+ * seen twice in the chain → redirect-loop (full chain in error).
  */
 
 import { assertSafePublicUrlResolved } from '@/lib/assert-safe-public-url-resolved'
 import { isSafePublicUrl } from '@/lib/fetch-page-content'
+import { normalizeFixStrategyUrl } from '@/lib/fix-strategies/shared/url-normalize'
 import { SEORANKO_CRAWLER_HEADERS } from './crawler-identity'
 
 export type SafeFetchResult =
@@ -24,7 +28,8 @@ export type SafeFetchResult =
       redirectHops: string[]
     }
 
-const MAX_REDIRECTS = 8
+/** Googlebot hard limit — match hop-recording-fetch default. */
+const MAX_REDIRECTS = 10
 
 /**
  * GET with redirect:manual; each Location target must pass
@@ -35,6 +40,7 @@ export async function safeCrawlFetch(
   opts?: { timeoutMs?: number; headers?: HeadersInit },
 ): Promise<SafeFetchResult> {
   const hops: string[] = []
+  const visited = new Set<string>()
   let current = startUrl
 
   if (!isSafePublicUrl(current) || !(await assertSafePublicUrlResolved(current))) {
@@ -47,7 +53,19 @@ export async function safeCrawlFetch(
   }
 
   for (let i = 0; i <= MAX_REDIRECTS; i++) {
+    const key = normalizeFixStrategyUrl(current) ?? current.toLowerCase()
+    if (visited.has(key)) {
+      hops.push(current)
+      return {
+        ok: false,
+        error: `Redirect loop: ${hops.join(' → ')}`,
+        url: startUrl,
+        redirectHops: hops,
+      }
+    }
+    visited.add(key)
     hops.push(current)
+
     try {
       const res = await fetch(current, {
         method: 'GET',
@@ -67,11 +85,39 @@ export async function safeCrawlFetch(
             redirectHops: hops,
           }
         }
-        const next = new URL(loc, current).toString()
+        let next: string
+        try {
+          next = new URL(loc, current).toString()
+        } catch {
+          return {
+            ok: false,
+            error: `Redirect ${res.status} with unparseable Location`,
+            url: startUrl,
+            redirectHops: hops,
+          }
+        }
+        const nextKey = normalizeFixStrategyUrl(next) ?? next.toLowerCase()
+        if (visited.has(nextKey)) {
+          hops.push(next)
+          return {
+            ok: false,
+            error: `Redirect loop: ${hops.join(' → ')}`,
+            url: startUrl,
+            redirectHops: hops,
+          }
+        }
         if (!isSafePublicUrl(next) || !(await assertSafePublicUrlResolved(next))) {
           return {
             ok: false,
             error: `Redirect hop refused by assertSafePublicUrlResolved: ${next}`,
+            url: startUrl,
+            redirectHops: [...hops, next],
+          }
+        }
+        if (i === MAX_REDIRECTS) {
+          return {
+            ok: false,
+            error: `Too many redirects (>${MAX_REDIRECTS}): ${[...hops, next].join(' → ')}`,
             url: startUrl,
             redirectHops: [...hops, next],
           }
@@ -102,7 +148,7 @@ export async function safeCrawlFetch(
 
   return {
     ok: false,
-    error: `Too many redirects (>${MAX_REDIRECTS})`,
+    error: `Too many redirects (>${MAX_REDIRECTS}): ${hops.join(' → ')}`,
     url: startUrl,
     redirectHops: hops,
   }

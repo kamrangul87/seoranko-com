@@ -52,6 +52,9 @@ import {
   recordFixFailureSafe,
   type FixFailureStage,
 } from './failure-learning'
+import type { FetchPageResult } from './fetch-preview-page'
+
+export type { FetchPageResult }
 
 /** Branch / commit / PR writes — same purpose as per-finding fix-flow. */
 function withFixRunPrGate<T>(fn: () => Promise<T>): Promise<T> {
@@ -70,8 +73,8 @@ function withFixRunMergeGate<T>(fn: () => Promise<T>): Promise<T> {
 export type TickDeps = {
   ops: GithubOps
   creds: GithubPrCreds
-  /** Fetch HTML for preview/production verify. */
-  fetchPage: (url: string) => Promise<{ ok: boolean; body: string; status: number }>
+  /** Fetch HTML for preview/production verify (never throws on redirect loops). */
+  fetchPage: (url: string) => Promise<FetchPageResult>
   /** Production site origin e.g. https://autodun.com */
   siteOrigin: string
   autoMergeEnabledOverride?: boolean | null
@@ -953,14 +956,44 @@ export async function tickFixRun(input: {
     let body = ''
     let fetchOk = false
     let fetchStatus = 0
+    let redirectFailure: FetchPageResult['redirectFailure']
     if (next.path && input.deps.fetchPage) {
       const fetched = await input.deps.fetchPage(url)
       fetchStatus = fetched.status
       fetchOk = fetched.ok && fetched.status >= 200 && fetched.status < 400
       body = fetched.body
+      redirectFailure = fetched.redirectFailure
     }
 
     if (!fetchOk) {
+      // Redirect loop / max-hops: fail this step cleanly with full chain evidence.
+      // Do not throw; do not revert sibling commits (loop is often site config).
+      if (
+        redirectFailure &&
+        (redirectFailure.kind === 'redirect-loop' ||
+          redirectFailure.kind === 'max-hops' ||
+          redirectFailure.kind === 'missing-location')
+      ) {
+        const idx = run.items.findIndex((i) => i.id === next.id)
+        run.items[idx] = markItemFailed(next, redirectFailure.detail, now)
+        noteFail({
+          stage: 'preview_verify',
+          reason: redirectFailure.detail,
+          findingId: next.findingId,
+          url,
+          httpStatus: fetchStatus,
+          filePath: next.path,
+          htmlSnippet: JSON.stringify({
+            kind: redirectFailure.kind,
+            chain: redirectFailure.chain,
+          }),
+        })
+        advanced = true
+        detail = `preview ${redirectFailure.kind} ${next.findingId}`
+        await save()
+        return finish({ advanced, detail })
+      }
+
       const protectedPreview =
         fetchStatus === 401 ||
         fetchStatus === 403 ||
@@ -969,9 +1002,7 @@ export async function tickFixRun(input: {
       const failReason = protectedPreview
         ? 'Your preview is protected by a login; turn off Vercel Authentication for previews'
         : `Preview re-fetch failed for ${url}`
-      // Protection / redirect-loop: do NOT revert commits — leave PR for human
-      // review (SPA shell strip is approval-required anyway). Soft-fail would
-      // destroy good diffs when SSO bypass mis-fires.
+      // SSO / protection: do NOT revert — leave PR for human review.
       if (protectedPreview) {
         run.autoMergeBlockedReason = failReason
         run.phase = 'await_approval'
@@ -1287,7 +1318,15 @@ export async function tickFixRun(input: {
     const fetched = await input.deps.fetchPage(url)
     if (!fetched.ok) {
       const idx = run.items.findIndex((i) => i.id === next.id)
-      const prodFail = `Production re-fetch failed for ${url}`
+      const prodFail = fetched.redirectFailure
+        ? fetched.redirectFailure.detail
+        : `Production re-fetch failed for ${url}`
+      const evidenceSnippet = fetched.redirectFailure
+        ? JSON.stringify({
+            kind: fetched.redirectFailure.kind,
+            chain: fetched.redirectFailure.chain,
+          })
+        : fetched.body?.slice(0, 4000)
       run.items[idx] = markItemFailed(next, prodFail, now)
       noteFail({
         stage: 'production_verify',
@@ -1296,10 +1335,12 @@ export async function tickFixRun(input: {
         url,
         httpStatus: fetched.status,
         filePath: next.path,
-        htmlSnippet: fetched.body?.slice(0, 4000),
+        htmlSnippet: evidenceSnippet,
       })
       advanced = true
-      detail = `prod fetch failed ${next.findingId}`
+      detail = fetched.redirectFailure
+        ? `prod ${fetched.redirectFailure.kind} ${next.findingId}`
+        : `prod fetch failed ${next.findingId}`
       await save()
       return finish({ advanced, detail })
     }
@@ -1512,9 +1553,9 @@ export function defaultTickDeps(partial: Partial<TickDeps> & {
     fetchPage:
       partial.fetchPage ||
       (async (url) => {
-        // Prefer fix-run-specific bypass (customer preview SSO); fall back to
-        // the platform automation bypass when present. Never throw — SSO
-        // redirect loops used to 500 the whole fix-site cron.
+        // Never redirect:'follow' — loops throw TypeError (Sentry on fix-site
+        // after autodun #60 /privacy ↔ /privacy/). Manual hops + loop detect.
+        // Also covers Vercel SSO bypass via FIX_RUN_VERCEL_PROTECTION_BYPASS.
         const { fetchPreviewPage } = await import('./fetch-preview-page')
         const bypass =
           process.env.FIX_RUN_VERCEL_PROTECTION_BYPASS?.trim() ||

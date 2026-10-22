@@ -148,6 +148,13 @@ describe('topics 4–7 — one chain walk, four classifiers', () => {
         return redirect(301, 'https://example.com/page/')
       }
       if (url === 'https://example.com/page/') return html('<p>ok</p>')
+      // autodun-ai #60 class: trailing-slash bounce both ways = 2-URL loop
+      if (url === 'https://example.com/privacy') {
+        return redirect(308, 'https://example.com/privacy/')
+      }
+      if (url === 'https://example.com/privacy/') {
+        return redirect(308, 'https://example.com/privacy')
+      }
       return new Response('no', { status: 404 })
     })
     const deps = { fetch: fetchMock as unknown as typeof fetch }
@@ -160,6 +167,7 @@ describe('topics 4–7 — one chain walk, four classifiers', () => {
         { url: 'https://example.com/long-1' },
         { url: 'https://example.com/noloc' },
         { url: 'https://example.com/page' },
+        { url: 'https://example.com/privacy' },
       ],
       { deps },
     )
@@ -183,6 +191,18 @@ describe('topics 4–7 — one chain walk, four classifiers', () => {
     )
     expect(by('https://example.com/page').topic5.verdict).toBe('ok')
     expect(by('https://example.com/page').topic4.verdict).toBe('ok-single-hop')
+    // 2-URL slash loop — must be finding-loop with full cycle evidence
+    expect(by('https://example.com/privacy').topic5.verdict).toBe(
+      'finding-loop',
+    )
+    expect(by('https://example.com/privacy').topic5.cycle).toEqual([
+      'https://example.com/privacy',
+      'https://example.com/privacy/',
+      'https://example.com/privacy',
+    ])
+    expect(by('https://example.com/privacy').topic5.detail).toMatch(
+      /Redirect loop \(visited-set\)/,
+    )
   })
 
   it('topic 6 dossier: permanence evidence required; always human-review', async () => {

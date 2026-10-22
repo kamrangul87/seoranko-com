@@ -176,7 +176,7 @@ export async function fetchAndInspectRobotsTxt(
   try {
     first = await deps.fetch(robotsUrl, {
       method: 'GET',
-      redirect: 'follow',
+      redirect: 'manual',
       signal: AbortSignal.timeout(8_000),
     })
   } catch {
@@ -193,7 +193,7 @@ export async function fetchAndInspectRobotsTxt(
       try {
         const second = await deps.fetch(robotsUrl, {
           method: 'GET',
-          redirect: 'follow',
+          redirect: 'manual',
           signal: AbortSignal.timeout(8_000),
         })
         if (second.status < 500) {
