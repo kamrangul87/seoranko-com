@@ -223,7 +223,7 @@ function resolveImportToTreePath(
   spec: string,
   pathSet: Set<string>,
 ): string | null {
-  let bare = spec.replace(/^@\//, 'src/').replace(/^\.\//, 'src/')
+  const bare = spec.replace(/^@\//, 'src/').replace(/^\.\//, 'src/')
   if (bare.startsWith('../')) return null
   const candidates = [
     bare,
