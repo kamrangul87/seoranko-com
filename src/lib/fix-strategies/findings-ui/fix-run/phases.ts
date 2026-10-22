@@ -93,14 +93,16 @@ export function canMergeRun(input: {
   autoMergeGatesPass: boolean
   allPreviewVerified: boolean
 }): { allowed: boolean; reason: string } {
+  // Human approval wins even when preview SSO blocked automated verify
+  // (commits left intact for manual review).
+  if (input.approvedAt) {
+    return { allowed: true, reason: 'Human approved' }
+  }
   if (!input.allPreviewVerified) {
     return {
       allowed: false,
       reason: 'Not all remaining items are preview-verified',
     }
-  }
-  if (input.approvedAt) {
-    return { allowed: true, reason: 'Human approved' }
   }
   if (input.autoMergeEnabled && input.autoMergeGatesPass) {
     return { allowed: true, reason: 'auto_merge_enabled and all gates passed' }

@@ -961,11 +961,36 @@ export async function tickFixRun(input: {
     }
 
     if (!fetchOk) {
+      const protectedPreview =
+        fetchStatus === 401 ||
+        fetchStatus === 403 ||
+        fetchStatus === 310 ||
+        fetchStatus === 0
+      const failReason = protectedPreview
+        ? 'Your preview is protected by a login; turn off Vercel Authentication for previews'
+        : `Preview re-fetch failed for ${url}`
+      // Protection / redirect-loop: do NOT revert commits — leave PR for human
+      // review (SPA shell strip is approval-required anyway). Soft-fail would
+      // destroy good diffs when SSO bypass mis-fires.
+      if (protectedPreview) {
+        run.autoMergeBlockedReason = failReason
+        run.phase = 'await_approval'
+        run.status = 'awaiting_approval'
+        noteFail({
+          stage: 'preview_verify',
+          reason: failReason,
+          findingId: next.findingId,
+          url,
+          httpStatus: fetchStatus,
+          filePath: next.path,
+          htmlSnippet: body.slice(0, 4000),
+        })
+        advanced = true
+        detail = `preview protected — await approval ${next.findingId}`
+        await save()
+        return finish({ advanced, detail })
+      }
       const idx = run.items.findIndex((i) => i.id === next.id)
-      const failReason =
-        fetchStatus === 401 || fetchStatus === 403
-          ? 'Your preview is protected by a login; turn off Vercel Authentication for previews'
-          : `Preview re-fetch failed for ${url}`
       run.items[idx] = markItemFailed(next, failReason, now)
       noteFail({
         stage: 'preview_verify',
@@ -1487,46 +1512,14 @@ export function defaultTickDeps(partial: Partial<TickDeps> & {
     fetchPage:
       partial.fetchPage ||
       (async (url) => {
-        const headers: Record<string, string> = {
-          'User-Agent': 'SEORANKO-FixRun/1.0',
-        }
-        // Bypass Vercel Deployment Protection on customer preview URLs when
-        // configured (Protection Bypass for Automation).
         // Prefer fix-run-specific bypass (customer preview SSO); fall back to
-        // the platform automation bypass when present.
+        // the platform automation bypass when present. Never throw — SSO
+        // redirect loops used to 500 the whole fix-site cron.
+        const { fetchPreviewPage } = await import('./fetch-preview-page')
         const bypass =
           process.env.FIX_RUN_VERCEL_PROTECTION_BYPASS?.trim() ||
           process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim()
-        let fetchUrl = url
-        if (bypass && /\.vercel\.app(?::|\/|$)/i.test(url)) {
-          headers['x-vercel-protection-bypass'] = bypass
-          headers['x-vercel-set-bypass-cookie'] = 'true'
-          // Query param survives redirects; header alone can 307-loop.
-          try {
-            const u = new URL(url)
-            if (!u.searchParams.has('x-vercel-protection-bypass')) {
-              u.searchParams.set('x-vercel-protection-bypass', bypass)
-              fetchUrl = u.toString()
-            }
-          } catch {
-            /* keep url */
-          }
-        }
-        const res = await fetch(fetchUrl, {
-          signal: AbortSignal.timeout(20000),
-          headers,
-          redirect: 'follow',
-        })
-        const body = await res.text()
-        const authWall =
-          res.ok &&
-          body.length < 50_000 &&
-          /Authentication Required|vercel\.com\/sso-api|\/_vercel\//i.test(body)
-        return {
-          ok: res.ok && !authWall,
-          body,
-          status: authWall ? 401 : res.status,
-        }
+        return fetchPreviewPage(url, { bypass })
       }),
     autoMergeEnabledOverride: partial.autoMergeEnabledOverride ?? null,
     deadlineMs: partial.deadlineMs,

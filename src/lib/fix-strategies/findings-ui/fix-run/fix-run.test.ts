@@ -306,6 +306,16 @@ describe('fix-run phase helpers', () => {
         allPreviewVerified: true,
       }).allowed,
     ).toBe(true)
+
+    // Human may approve when preview SSO blocked automated verify.
+    expect(
+      canMergeRun({
+        approvedAt: '2026-10-06T00:00:00.000Z',
+        autoMergeEnabled: false,
+        autoMergeGatesPass: false,
+        allPreviewVerified: false,
+      }).allowed,
+    ).toBe(true)
   })
 
   it('partial-failure isolation: one failed item does not block others', () => {
