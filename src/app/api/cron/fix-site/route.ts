@@ -166,7 +166,8 @@ export async function GET(req: NextRequest) {
     siteDomain: domain,
     githubConnected,
   })
-  if (!started.ok) {
+  // Continue ticking an in-progress run (cron retries / wait_preview).
+  if (!started.ok && started.code !== 'already_in_progress') {
     return NextResponse.json(
       {
         ok: false,
@@ -174,7 +175,13 @@ export async function GET(req: NextRequest) {
         code: started.code,
         run: started.run,
       },
-      { status: started.code === 'already_in_progress' ? 409 : 400 },
+      { status: 400 },
+    )
+  }
+  if (!started.ok && !started.run) {
+    return NextResponse.json(
+      { ok: false, error: started.error, code: started.code },
+      { status: 409 },
     )
   }
 
@@ -193,7 +200,7 @@ export async function GET(req: NextRequest) {
     siteOrigin: `https://${domain}`,
   })
 
-  let run = started.run
+  let run = started.run!
   const ticks: Array<{ phase: string; status: string; detail?: string }> = []
   for (let i = 0; i < maxTicks; i++) {
     const t = await tickFixRun({
@@ -207,12 +214,12 @@ export async function GET(req: NextRequest) {
       status: run.status,
       detail: t.detail,
     })
+    // Do not stop merely because prUrl is set — preview verify still needed.
     if (
       run.phase === 'await_approval' ||
       run.status === 'awaiting_approval' ||
       run.status === 'failed' ||
-      run.status === 'complete' ||
-      Boolean(run.prUrl)
+      run.status === 'complete'
     ) {
       break
     }
