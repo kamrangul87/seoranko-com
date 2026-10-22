@@ -894,6 +894,7 @@ export function createSupabaseFindingsStore(
       if (input.evidenceValues !== undefined) {
         patch.evidence_values = input.evidenceValues
       }
+      if (input.verdict !== undefined) patch.verdict = input.verdict
       const { error } = await db()
         .from('fix_strategies_findings')
         .update(patch)

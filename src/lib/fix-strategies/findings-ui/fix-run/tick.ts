@@ -450,31 +450,23 @@ export async function tickFixRun(input: {
       path,
       ref: run.branchName,
     })
-    const { isCreateSourceBlobSha } = await import('./create-source')
-    const allowCreate =
-      isCreateSourceBlobSha(finding.sourceBlobSha) ||
-      Boolean(
-        (finding.evidenceValues as Record<string, unknown> | null)
-          ?.createStaticPage,
-      )
+    // Never create new static page files (shadows SPA routes on Vercel).
     if (!read.ok) {
-      if (!(allowCreate && /HTTP 404/i.test(read.error))) {
-        run.items[idx] = markItemFailed(run.items[idx]!, read.error, now)
-        run.itemCursor = bumpItemCursorAfterApply(run.itemCursor, next, 'failed')
-        noteFail({
-          stage: 'apply',
-          reason: read.error,
-          findingId: next.findingId,
-          filePath: path,
-        })
-        advanced = true
-        detail = `item ${next.findingId} failed read: ${read.error}`
-        await save()
-        return finish({ advanced, detail })
-      }
+      run.items[idx] = markItemFailed(run.items[idx]!, read.error, now)
+      run.itemCursor = bumpItemCursorAfterApply(run.itemCursor, next, 'failed')
+      noteFail({
+        stage: 'apply',
+        reason: read.error,
+        findingId: next.findingId,
+        filePath: path,
+      })
+      advanced = true
+      detail = `item ${next.findingId} failed read: ${read.error}`
+      await save()
+      return finish({ advanced, detail })
     }
 
-    const previousContent = read.ok ? read.content : ''
+    const previousContent = read.content
     const applied = await applyRegisteredTransform({
       fileContent: previousContent,
       path,

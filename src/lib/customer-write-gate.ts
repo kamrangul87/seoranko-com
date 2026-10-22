@@ -246,6 +246,7 @@ export const CUSTOMER_WRITE_LOW_LEVEL_WRITERS = [
   'fix-run.commitFile',
   'fix-run.ensurePullRequest',
   'fix-run.mergePullRequest',
+  'fix-run.closePullRequest',
   'site-audit/fix.pushToGithub',
 ] as const
 

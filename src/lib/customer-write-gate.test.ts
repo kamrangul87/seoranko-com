@@ -149,6 +149,8 @@ describe('customer write gate', () => {
         'src/lib/fix-strategies/findings-ui/fix-run/github-ops.ts',
       'fix-run.mergePullRequest':
         'src/lib/fix-strategies/findings-ui/fix-run/github-ops.ts',
+      'fix-run.closePullRequest':
+        'src/lib/fix-strategies/findings-ui/fix-run/github-ops.ts',
       'site-audit/fix.pushToGithub': 'src/app/api/site-audit/fix/route.ts',
     }
 

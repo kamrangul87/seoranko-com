@@ -66,10 +66,12 @@ export function evaluateAutoMergeVerdictGate(
       reason: `verdict ${finding.verdict} is not auto-merge eligible`,
     }
   }
-  // Footer/nav + Related articles are approval-required PRs — never auto-merge.
+  // Footer/nav + Related articles + SPA shell canonical strip are
+  // approval-required PRs — never auto-merge.
   if (
     finding.verdict === 'auto-add-nav-link' ||
-    finding.verdict === 'auto-add-related-articles'
+    finding.verdict === 'auto-add-related-articles' ||
+    finding.verdict === 'auto-strip-spa-shell-canonical'
   ) {
     return {
       allowed: false,

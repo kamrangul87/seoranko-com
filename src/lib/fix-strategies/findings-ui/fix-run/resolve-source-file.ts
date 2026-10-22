@@ -10,10 +10,14 @@
 
 import { normalizeFixStrategyUrl } from '@/lib/fix-strategies/shared/url-normalize'
 import {
-  CREATE_SOURCE_BLOB_SHA,
+  listSpaRouteFilesFromApp,
+  planSpaShellCanonicalStrip,
+} from '@/lib/fix-strategies/topic-14/spa-shell-canonical'
+import {
   proposedStaticCreatePath,
   SPA_SHELL_PATHS,
 } from './create-source'
+import { assertSafeToCreateFileAtLiveRoute } from './live-route-create-guard'
 
 export type SourceUnresolvedReason =
   | 'no-static-file'
@@ -46,6 +50,11 @@ export type ResolveSourceFileResult =
       path: string
       blobSha: string
       resolvedAt: string
+      /**
+       * Evidence lived in the SPA shell — fix by stripping shell canonical/og:url,
+       * never by creating a static page that would shadow a live route.
+       */
+      spaShellStrip?: boolean
     }
   | {
       status: 'unresolved'
@@ -335,38 +344,155 @@ export async function resolveSourceFile(
   )
 
   if (candidates.length === 0) {
-    // SPA rewrite to index.html: broken evidence lives in the shell, but we
-    // must not edit the shell (would change every route). Create a per-page
-    // static file instead (same pattern as autodun public/contact/).
-    const createPath = proposedStaticCreatePath(url, roots)
-    if (createPath && !pathSet.has(createPath)) {
-      const needleVariants = [
-        evidence.needle,
-        evidence.needle.replace(/\/$/, ''),
-        evidence.needle.endsWith('/')
-          ? evidence.needle
-          : `${evidence.needle}/`,
-      ].filter((v, i, arr) => v && arr.indexOf(v) === i)
-      const shellHasNeedle = await (async () => {
-        for (const shell of SPA_SHELL_PATHS) {
-          if (!pathSet.has(shell)) continue
-          const body = await input.readFile(shell)
-          if (body == null) continue
-          for (const n of needleVariants) {
-            if (countEvidenceOccurrences(body, n, url) >= 1) return true
-          }
-        }
-        return false
-      })()
-      if (shellHasNeedle) {
-        return {
-          status: 'resolved',
-          path: createPath,
-          blobSha: CREATE_SOURCE_BLOB_SHA,
-          resolvedAt,
+    // SPA shell holds the broken homepage canonical. Never create a static
+    // page that would shadow a live route (Vercel filesystem > rewrites).
+    // Resolve to the shell for topic 14 spa-shell strip instead.
+    const needleVariants = [
+      evidence.needle,
+      evidence.needle.replace(/\/$/, ''),
+      evidence.needle.endsWith('/')
+        ? evidence.needle
+        : `${evidence.needle}/`,
+    ].filter((v, i, arr) => v && arr.indexOf(v) === i)
+
+    let shellPath: string | null = null
+    let shellBody: string | null = null
+    for (const shell of SPA_SHELL_PATHS) {
+      if (!pathSet.has(shell)) continue
+      const body = await input.readFile(shell)
+      if (body == null) continue
+      for (const n of needleVariants) {
+        if (countEvidenceOccurrences(body, n, url) >= 1) {
+          shellPath = shell
+          shellBody = body
+          break
         }
       }
+      if (shellPath) break
     }
+
+    if (shellPath && shellBody != null) {
+      const createPath = proposedStaticCreatePath(url, roots)
+      let vercelJson: {
+        rewrites?: Array<{ source?: string; destination?: string }>
+        routes?: Array<{ src?: string; dest?: string; handle?: string }>
+      } | null = null
+      if (pathSet.has('vercel.json')) {
+        try {
+          const raw = await input.readFile('vercel.json')
+          if (raw) vercelJson = JSON.parse(raw) as typeof vercelJson
+        } catch {
+          vercelJson = null
+        }
+      }
+
+      // Hard rule: refuse any create that would serve/shadow a live route.
+      if (createPath && !pathSet.has(createPath)) {
+        let liveStatus = 0
+        let liveBodySnippet = ''
+        try {
+          const live = await fetch(url, {
+            method: 'GET',
+            redirect: 'follow',
+            signal: AbortSignal.timeout(12_000),
+          })
+          liveStatus = live.status
+          liveBodySnippet = (await live.text()).slice(0, 4000)
+        } catch {
+          liveStatus = 0
+          liveBodySnippet = ''
+        }
+        const guard = assertSafeToCreateFileAtLiveRoute({
+          createPath,
+          pageUrl: url,
+          treePaths: input.treePaths,
+          vercelJson,
+          liveStatus,
+          liveBodySnippet,
+        })
+        if (!guard.allowed) {
+          console.info('[resolve-source] refuse create over live route', {
+            createPath,
+            url,
+            reason: guard.reason,
+          })
+        }
+        // Whether or not create would be "allowed", never invent page body.
+        // Always prefer SPA shell strip when the shell owns the needle.
+      }
+
+      const blobSha = input.treeShas?.[shellPath]
+      if (!blobSha) {
+        return {
+          status: 'unresolved',
+          reason: 'no-static-file',
+          resolvedAt,
+          candidates: [],
+        }
+      }
+
+      // Every SPA route must set client-side canonical before we strip the shell.
+      let routeFiles: string[] = []
+      for (const appPath of ['src/App.tsx', 'src/App.jsx', 'App.tsx', 'App.jsx']) {
+        if (!pathSet.has(appPath)) continue
+        const appSource = await input.readFile(appPath)
+        if (!appSource) continue
+        routeFiles = listSpaRouteFilesFromApp({
+          appSource,
+          treePaths: input.treePaths,
+          vercelJson,
+        })
+        break
+      }
+      if (routeFiles.length === 0) {
+        // Fallback when App.tsx is absent: page modules except NotFound.
+        routeFiles = input.treePaths.filter(
+          (p) =>
+            /^src\/pages\/[^/]+\.(tsx|jsx)$/i.test(p) &&
+            !/NotFound\.(tsx|jsx)$/i.test(p),
+        )
+      }
+
+      const fileCache = new Map<string, string | null>()
+      const readSync = (p: string): string | null => {
+        if (fileCache.has(p)) return fileCache.get(p) ?? null
+        return null
+      }
+      for (const rf of routeFiles) {
+        fileCache.set(rf, await input.readFile(rf))
+      }
+      // Warm cache for sync planner (reads are already loaded).
+      const plan = planSpaShellCanonicalStrip({
+        shellPath,
+        shellHtml: shellBody,
+        brokenCanonical: evidence.needle,
+        routeFiles,
+        readFile: (p) => fileCache.get(p) ?? readSync(p),
+      })
+      if (plan.action !== 'strip-shell') {
+        console.info('[resolve-source] spa shell strip blocked', {
+          url,
+          action: plan.action,
+          reason: 'reason' in plan ? plan.reason : '',
+          missing: 'missing' in plan ? plan.missing : [],
+        })
+        return {
+          status: 'unresolved',
+          reason: 'no-static-file',
+          resolvedAt,
+          candidates: [shellPath],
+        }
+      }
+
+      return {
+        status: 'resolved',
+        path: shellPath,
+        blobSha,
+        resolvedAt,
+        spaShellStrip: true,
+      }
+    }
+
     return {
       status: 'unresolved',
       reason: 'no-static-file',
