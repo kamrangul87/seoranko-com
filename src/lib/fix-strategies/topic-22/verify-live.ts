@@ -12,7 +12,7 @@ export async function verifyLiveRobotsTxt(
   fetchImpl: typeof fetch,
 ): Promise<LiveRobotsTxtVerification> {
   const origin = new URL(originUrl).origin
-  const res = await fetchImpl(`${origin}/robots.txt`, { redirect: 'follow' })
+  const res = await fetchImpl(`${origin}/robots.txt`, { redirect: 'manual' })
 
   if (res.status >= 400 && res.status < 500) {
     // 404 is normal — "ok" for postcondition when we didn't require a file

@@ -390,17 +390,15 @@ export async function resolveSourceFile(
       if (createPath && !pathSet.has(createPath)) {
         let liveStatus = 0
         let liveBodySnippet = ''
-        try {
-          const live = await fetch(url, {
-            method: 'GET',
-            redirect: 'follow',
-            signal: AbortSignal.timeout(12_000),
-          })
-          liveStatus = live.status
-          liveBodySnippet = (await live.text()).slice(0, 4000)
-        } catch {
+        // Never redirect:'follow' — loops throw and abort resolve. Manual hops.
+        const { fetchPreviewPage } = await import('./fetch-preview-page')
+        const live = await fetchPreviewPage(url, { timeoutMs: 12_000 })
+        if (live.redirectFailure) {
           liveStatus = 0
-          liveBodySnippet = ''
+          liveBodySnippet = live.redirectFailure.detail.slice(0, 4000)
+        } else {
+          liveStatus = live.status
+          liveBodySnippet = live.body.slice(0, 4000)
         }
         const guard = assertSafeToCreateFileAtLiveRoute({
           createPath,

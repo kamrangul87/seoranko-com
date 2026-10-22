@@ -1,10 +1,14 @@
 /**
  * Live verify after deploy — calls each topic's registry verifier against
  * the served response. Never stub-passes.
+ *
+ * Uses fetchPreviewPage (redirect:'manual', max 10, loop detect) so
+ * /privacy ↔ /privacy/ style loops fail cleanly instead of throwing.
  */
 
 import type { PersistedFindingRow } from '../crawl/constants'
 import { verifyRegisteredTransform } from '../fix-run/apply-registry'
+import { fetchPreviewPage } from '../fix-run/fetch-preview-page'
 
 export type LiveVerifyResult = {
   ok: boolean
@@ -27,26 +31,21 @@ export async function verifyFindingLive(input: {
   const fetchImpl = input.fetchImpl ?? fetch
   const liveUrl = input.liveUrl
 
-  let res: Response
-  try {
-    res = await fetchImpl(liveUrl, {
-      headers: {
-        'User-Agent': 'SEORANKO-Findings-Verifier/1.0',
-        'Cache-Control': 'no-cache',
-      },
-      redirect: 'follow',
-      signal: AbortSignal.timeout(30000),
-    })
-  } catch (e) {
+  const fetched = await fetchPreviewPage(liveUrl, {
+    fetchImpl,
+    timeoutMs: 30_000,
+  })
+
+  if (fetched.redirectFailure) {
     return {
       ok: false,
       verifiedUrl: liveUrl,
-      detail: `Live fetch failed: ${e instanceof Error ? e.message : String(e)}`,
+      detail: fetched.redirectFailure.detail,
     }
   }
 
-  if (!res.ok) {
-    if (res.status === 401 || res.status === 403) {
+  if (!fetched.ok) {
+    if (fetched.status === 401 || fetched.status === 403) {
       return {
         ok: false,
         verifiedUrl: liveUrl,
@@ -57,11 +56,12 @@ export async function verifyFindingLive(input: {
     return {
       ok: false,
       verifiedUrl: liveUrl,
-      detail: `Live fetch HTTP ${res.status} for ${liveUrl}`,
+      detail: `Live fetch HTTP ${fetched.status || 'failed'} for ${liveUrl}`,
     }
   }
 
-  const html = await res.text()
+  const html = fetched.body
+  const responseHeaders = fetched.headers ?? new Headers()
 
   // Vercel Authentication / SSO interstitial — never treat as a successful
   // postcondition (empty img set / logo-only page would vacuous-pass).
@@ -100,7 +100,7 @@ export async function verifyFindingLive(input: {
         liveUrl,
         stage: 'production',
         fetchImpl,
-        responseHeaders: res.headers,
+        responseHeaders,
       })
       return { ok: v.ok, verifiedUrl: liveUrl, detail: v.detail }
     }
@@ -117,7 +117,7 @@ export async function verifyFindingLive(input: {
     liveUrl,
     stage: 'production',
     fetchImpl,
-    responseHeaders: res.headers,
+    responseHeaders,
   })
   return { ok: v.ok, verifiedUrl: liveUrl, detail: v.detail }
 }

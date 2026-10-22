@@ -228,6 +228,7 @@ export async function GET(req: NextRequest) {
       if (fresh) run = fresh
     }
   } catch (err) {
+    // Last resort: redirect loops / transport bugs must never 500 without JSON.
     return NextResponse.json(
       {
         ok: false,
