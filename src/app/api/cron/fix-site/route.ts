@@ -202,29 +202,52 @@ export async function GET(req: NextRequest) {
 
   let run = started.run!
   const ticks: Array<{ phase: string; status: string; detail?: string }> = []
-  for (let i = 0; i < maxTicks; i++) {
-    const t = await tickFixRun({
-      runId: run.id,
-      userId,
-      deps,
-    })
-    run = t.run
-    ticks.push({
-      phase: run.phase,
-      status: run.status,
-      detail: t.detail,
-    })
-    // Do not stop merely because prUrl is set — preview verify still needed.
-    if (
-      run.phase === 'await_approval' ||
-      run.status === 'awaiting_approval' ||
-      run.status === 'failed' ||
-      run.status === 'complete'
-    ) {
-      break
+  try {
+    for (let i = 0; i < maxTicks; i++) {
+      const t = await tickFixRun({
+        runId: run.id,
+        userId,
+        deps,
+      })
+      run = t.run
+      ticks.push({
+        phase: run.phase,
+        status: run.status,
+        detail: t.detail,
+      })
+      // Do not stop merely because prUrl is set — preview verify still needed.
+      if (
+        run.phase === 'await_approval' ||
+        run.status === 'awaiting_approval' ||
+        run.status === 'failed' ||
+        run.status === 'complete'
+      ) {
+        break
+      }
+      const fresh = await store.getRun(run.id, userId)
+      if (fresh) run = fresh
     }
-    const fresh = await store.getRun(run.id, userId)
-    if (fresh) run = fresh
+  } catch (err) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+        siteId,
+        domain,
+        closedPr,
+        run: {
+          id: run.id,
+          phase: run.phase,
+          status: run.status,
+          prUrl: run.prUrl,
+          prNumber: run.prNumber,
+          branchName: run.branchName,
+        },
+        ticks: ticks.slice(-12),
+        note: 'Tick loop aborted; PR left open for human approval — not merged',
+      },
+      { status: 500 },
+    )
   }
 
   return NextResponse.json({
