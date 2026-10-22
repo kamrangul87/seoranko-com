@@ -2,6 +2,16 @@
 
 Run lint + build locally before every push.
 
+## New `public` tables — RLS + grants in the same migration
+
+From 30 Oct 2026 Supabase stopped auto-granting Data API privileges on new
+`public` tables. Every `CREATE TABLE` in `public` must enable RLS and
+`GRANT` to `service_role` in the **same** migration file. Grant
+`authenticated` only for user-session access (with policies); leave `anon`
+ungranted unless publicly readable (comment why). Template:
+`supabase/migration-templates/new_public_table.sql`. CI:
+`npm run check:migration-grants`. Do not backfill grants onto existing tables.
+
 ## Regression tests for production bugs
 
 Every production bug fix **must** include a regression test in the **same PR**

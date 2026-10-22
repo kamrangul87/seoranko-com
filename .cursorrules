@@ -52,6 +52,15 @@ pipeline, schema generation, image generation, or publisher adapters.
    tables/columns, truncates, or rewrites production rows — verified
    interventions and GSC history now exist on hosted Supabase.
 
+9. **New public tables need explicit Data API grants.** From 30 Oct 2026,
+   Supabase no longer auto-grants privileges on new `public` tables. Every
+   migration that `CREATE TABLE`s in `public` must, **in the same file**:
+   enable RLS; `GRANT` select/insert/update/delete (or `ALL`) to
+   `service_role`; grant `authenticated` only if the app uses the user
+   session (with RLS policies); grant `anon` nothing unless genuinely
+   public (comment why). Copy `supabase/migration-templates/new_public_table.sql`.
+   Do not backfill grants onto existing tables. CI: `npm run check:migration-grants`.
+
 ## Known open issues (check before assuming these are fixed)
 
 - Paragraph splitter (src/lib/paragraph-splitter.ts) is written but not
