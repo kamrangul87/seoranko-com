@@ -24,6 +24,23 @@ After every change:
 
 Never push commits straight to `main`. All work lands through a branch and PR so changes are reviewable and deploys stay predictable.
 
+## Migrations — public table Data API grants
+
+From **30 Oct 2026**, Supabase no longer auto-grants Data API privileges on
+new tables in `public`. Every migration that creates a table in `public` must,
+**in the same migration file**:
+
+1. `ALTER TABLE … ENABLE ROW LEVEL SECURITY`
+2. `GRANT SELECT, INSERT, UPDATE, DELETE` (or `ALL`) **to `service_role`**
+3. **`authenticated`**: grant the same only if the app reads/writes with the
+   user session — and add RLS policies. Otherwise `REVOKE` from authenticated.
+4. **`anon`**: no grants unless the table is genuinely public (state why in a
+   SQL comment).
+
+Template: `supabase/migration-templates/new_public_table.sql`  
+CI: `npm run check:migration-grants` (wired in `.github/workflows/test.yml`).  
+Do **not** rewrite historical migrations to backfill grants on existing tables.
+
 ## Competitor & gap analysis
 
 **Never copy competitor content or name third parties in user-facing UI.**

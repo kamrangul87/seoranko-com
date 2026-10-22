@@ -101,3 +101,30 @@ one as already applied and refuse the other unless `--include-all` is used
 renamed. Prefer a new unique timestamp when adding migrations. Do **not** rely on
 `--include-all` in CI — unique timestamps are the fix; the duplicate-timestamp
 CI check enforces this.
+
+## New public tables — RLS + Data API grants (required)
+
+From **30 Oct 2026**, Supabase no longer grants Data API privileges
+automatically on new tables in `public`. A `CREATE TABLE` without an explicit
+`GRANT` is invisible to PostgREST for `service_role` / session clients.
+
+**In the same migration file** that creates `public.X`:
+
+| Role | Required |
+|------|----------|
+| — | `ALTER TABLE public.X ENABLE ROW LEVEL SECURITY` |
+| `service_role` | `GRANT SELECT, INSERT, UPDATE, DELETE` (or `ALL`) |
+| `authenticated` | Only if the app uses the user JWT against this table; add RLS policies. Otherwise `REVOKE ALL … FROM authenticated`. |
+| `anon` | Nothing, unless genuinely public — comment why. |
+
+Template: [`supabase/migration-templates/new_public_table.sql`](../supabase/migration-templates/new_public_table.sql)
+
+CI gate (Test workflow):
+
+```bash
+npm run check:migration-grants -- --self-test
+npm run check:migration-grants
+```
+
+Migrations with version &lt; `20261022100000` are grandfathered. **Do not** add
+grant backfills for existing tables unless a human explicitly asks.

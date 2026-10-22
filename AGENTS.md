@@ -12,6 +12,7 @@ Deployed on Vercel. Product context lives in `docs/SEORANKO.md`.
 - `npm run build` / `npm run start` — production build / serve
 - `npm run lint` — ESLint via `next lint`
 - `npm test` — Vitest unit tests
+- `npm run check:migration-grants` — new `public` CREATE TABLE must enable RLS + grant `service_role` in the same migration (see `supabase/migration-templates/new_public_table.sql`)
 
 `npm run lint` and `npm test` need no external services or secrets — the tests cover pure
 `src/lib` content-processing logic. The npm dependencies are refreshed automatically by the
