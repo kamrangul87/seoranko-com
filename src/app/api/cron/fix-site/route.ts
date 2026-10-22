@@ -19,6 +19,7 @@ import {
   type GithubPrCreds,
 } from '@/lib/fix-strategies/findings-ui/fix-run'
 import { resolveSourcesAfterCrawl } from '@/lib/fix-strategies/findings-ui/fix-run/resolve-sources-hook'
+import { withCustomerWriteGate } from '@/lib/customer-write-gate'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -83,6 +84,7 @@ export async function GET(req: NextRequest) {
   if (denied) return denied
 
   const siteId = req.nextUrl.searchParams.get('siteId')
+  const closePrNumber = Number(req.nextUrl.searchParams.get('closePr') || 0)
   const maxTicks = Math.min(
     80,
     Math.max(1, Number(req.nextUrl.searchParams.get('maxTicks') || 40)),
@@ -128,6 +130,35 @@ export async function GET(req: NextRequest) {
 
   const creds = await resolveCredsForSite(userId, domain)
   const githubConnected = Boolean(creds?.accessToken)
+
+  let closedPr: { ok: boolean; prNumber?: number; error?: string } | null = null
+  if (closePrNumber > 0 && creds) {
+    const ops = createLiveGithubOps()
+    if (ops.closePullRequest) {
+      try {
+        const closed = await withCustomerWriteGate(
+          'findings-pr-branch',
+          { approved: true },
+          () =>
+            ops.closePullRequest!({
+              creds,
+              prNumber: closePrNumber,
+              comment:
+                'Closing without merge: prior fix created a static page that would shadow a live SPA route (Vercel filesystem before rewrites). Superseded by SPA shell canonical strip.',
+            }),
+        )
+        closedPr = closed.ok
+          ? { ok: true, prNumber: closePrNumber }
+          : { ok: false, prNumber: closePrNumber, error: closed.error }
+      } catch (err) {
+        closedPr = {
+          ok: false,
+          prNumber: closePrNumber,
+          error: err instanceof Error ? err.message : String(err),
+        }
+      }
+    }
+  }
 
   const started = await startFixRun({
     userId,
@@ -193,6 +224,7 @@ export async function GET(req: NextRequest) {
     ok: true,
     siteId,
     domain,
+    closedPr,
     run: {
       id: run.id,
       phase: run.phase,

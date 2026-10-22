@@ -18,6 +18,18 @@ export {
   ensurePageSelfCanonical,
   ensureNextPageMetadataCanonical,
 } from './fix-repoint-canonical'
+export {
+  stripSpaShellCanonicalAndOgUrl,
+  verifySpaRoutesSetClientCanonical,
+  planSpaShellCanonicalStrip,
+  listSpaRouteFilesFromApp,
+  verifySpaShellStripLive,
+  fileSetsClientCanonical,
+} from './spa-shell-canonical'
+export type {
+  SpaRouteCanonicalCheck,
+  SpaShellStripPlan,
+} from './spa-shell-canonical'
 export { verifyLiveCanonicalTarget200 } from './verify-live-target'
 export type { LiveCanonicalTargetVerification } from './verify-live-target'
 

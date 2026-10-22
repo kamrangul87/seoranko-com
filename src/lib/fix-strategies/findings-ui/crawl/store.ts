@@ -158,6 +158,7 @@ export type FindingsStore = {
     autoFixable?: boolean
     surfaceClass?: string
     evidenceValues?: Record<string, unknown> | null
+    verdict?: string
   }): Promise<void>
   /**
    * Mark / un-mark a human-review finding as OK (Needs you ↔ Reviewed).
@@ -827,6 +828,7 @@ export function createMemoryFindingsStore(): FindingsStore {
             input.evidenceValues !== undefined
               ? input.evidenceValues
               : f.evidenceValues,
+          verdict: input.verdict !== undefined ? input.verdict : f.verdict,
         })
         return
       }

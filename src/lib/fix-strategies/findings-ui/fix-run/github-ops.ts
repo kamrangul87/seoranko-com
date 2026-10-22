@@ -58,6 +58,13 @@ export type GithubOps = {
     prNumber: number
   }): Promise<{ ok: true; mergeSha: string } | { ok: false; error: string }>
 
+  /** Close a PR without merging (e.g. supersede a destructive fix-run PR). */
+  closePullRequest?(input: {
+    creds: GithubPrCreds
+    prNumber: number
+    comment?: string
+  }): Promise<{ ok: true } | { ok: false; error: string }>
+
   /**
    * Resolve the preview deployment URL for the PR head (one poll).
    * Production must implement this via checkPreviewOnce — never a placeholder.
@@ -293,12 +300,60 @@ export function createLiveGithubOps(): GithubOps {
         },
       )
       if (!pr.ok || !pr.data.html_url || pr.data.number == null) {
+        // 422 A pull request already exists — re-list and return it.
+        if (/already exists|422/i.test(pr.text)) {
+          const again = await ghJson<
+            Array<{ html_url: string; number: number }>
+          >(
+            token,
+            `${GH}/repos/${creds.owner}/${creds.repo}/pulls?state=open&head=${encodeURIComponent(
+              `${creds.owner}:${branchName}`,
+            )}&base=${encodeURIComponent(base)}`,
+          )
+          if (again.ok && again.data[0]) {
+            return {
+              ok: true,
+              prNumber: again.data[0].number,
+              prUrl: again.data[0].html_url,
+            }
+          }
+        }
         return {
           ok: false,
           error: `PR open failed: ${pr.text.slice(0, 400)}`,
         }
       }
       return { ok: true, prNumber: pr.data.number, prUrl: pr.data.html_url }
+    },
+
+    async closePullRequest({ creds, prNumber, comment }) {
+      const { requireActiveCustomerWriteGate } = await import(
+        '@/lib/customer-write-gate'
+      )
+      requireActiveCustomerWriteGate('fix-run.closePullRequest')
+      const token = creds.accessToken
+      if (comment?.trim()) {
+        await ghJson(
+          token,
+          `${GH}/repos/${creds.owner}/${creds.repo}/issues/${prNumber}/comments`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ body: comment }),
+          },
+        )
+      }
+      const res = await ghJson(
+        token,
+        `${GH}/repos/${creds.owner}/${creds.repo}/pulls/${prNumber}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ state: 'closed' }),
+        },
+      )
+      if (!res.ok) {
+        return { ok: false, error: `PR close failed: ${res.text.slice(0, 400)}` }
+      }
+      return { ok: true }
     },
 
     async mergePullRequest({ creds, prNumber }) {

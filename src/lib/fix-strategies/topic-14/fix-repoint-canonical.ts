@@ -10,7 +10,6 @@
  */
 
 import { addHeadCanonical } from '@/lib/fix-strategies/topic-13/fix-add-canonical'
-import { buildSelfCanonicalStaticHtml } from '@/lib/fix-strategies/findings-ui/fix-run/create-source'
 
 export function setHeadCanonicalHref(
   html: string,
@@ -53,12 +52,9 @@ export function ensurePageSelfCanonical(
     lower.endsWith('.jsx') ||
     lower.endsWith('.js')
 
-  // New static page (SPA route with no per-page HTML yet).
+  // Never invent a new static HTML page body — that shadows SPA routes on Vercel.
   if (!fileContent.trim() && /\.html?$/i.test(lower)) {
-    return {
-      content: buildSelfCanonicalStaticHtml({ selfCanonicalUrl }),
-      updated: 1,
-    }
+    return { content: fileContent, updated: 0 }
   }
 
   if (isScript) {

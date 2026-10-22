@@ -14,13 +14,25 @@ describe('addNavOrFooterLink', () => {
     expect(next).toMatch(/About<\/a>\s*<a href="\/contact">Contact<\/a>/)
   })
 
-  it('pickAnchorText prefers title', () => {
+  it('pickAnchorText uses Title-Case path segment to match footer siblings', () => {
     expect(
       pickAnchorText({
         pageTitle: 'Contact us',
         pageUrl: 'https://example.com/contact',
       }),
-    ).toBe('Contact us')
+    ).toBe('Contact')
+  })
+
+  it('inserts with the same · separator as sibling footer links', () => {
+    const html = `<footer style="x"><a href="/privacy">Privacy</a> · <a href="#" data-cookie-settings>Cookie settings</a></footer>`
+    const { html: next, updated } = addNavOrFooterLink(html, {
+      href: '/contact',
+      anchorText: 'Contact',
+    })
+    expect(updated).toBe(1)
+    expect(next).toContain(
+      '<a href="/privacy">Privacy</a> · <a href="#" data-cookie-settings>Cookie settings</a> · <a href="/contact">Contact</a>',
+    )
   })
 
   it('noops when href already present', () => {

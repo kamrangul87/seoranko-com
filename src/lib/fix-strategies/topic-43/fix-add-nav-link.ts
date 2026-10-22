@@ -7,19 +7,55 @@
 const FOOTER_OR_NAV =
   /<(footer|nav)\b[^>]*>[\s\S]*?<\/\1>/i
 
+function titleCaseWords(s: string): string {
+  return s
+    .replace(/[-_]+/g, ' ')
+    .replace(/\.\w+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 export function pickAnchorText(opts: {
   pageTitle?: string | null
   pageUrl: string
+  /**
+   * When true (default for footer siblings like "Privacy"), prefer a short
+   * Title-Case path segment over a long page title ("Contact us" → "Contact").
+   */
+  preferPathSegment?: boolean
 }): string {
-  const t = (opts.pageTitle || '').replace(/\s+/g, ' ').trim()
-  if (t && t.length <= 80) return t
   try {
     const path = new URL(opts.pageUrl).pathname.replace(/\/+$/, '')
     const seg = path.split('/').filter(Boolean).pop() || 'page'
-    return seg.replace(/[-_]+/g, ' ').replace(/\.\w+$/, '')
+    const fromPath = titleCaseWords(seg) || 'Page'
+    if (opts.preferPathSegment !== false) {
+      // Single-segment orphans: match sibling casing ("Privacy", "Contact").
+      if (!seg.includes('-') && !seg.includes('_') && fromPath.length <= 24) {
+        return fromPath
+      }
+    }
+    const t = (opts.pageTitle || '').replace(/\s+/g, ' ').trim()
+    if (t && t.length <= 80) return t
+    return fromPath
   } catch {
-    return 'page'
+    const t = (opts.pageTitle || '').replace(/\s+/g, ' ').trim()
+    return t && t.length <= 80 ? t : 'Page'
   }
+}
+
+/** Detect the separator used between existing footer/nav anchors (e.g. " · "). */
+export function detectNavLinkSeparator(block: string): string {
+  const between = block.match(/<\/a>([^<]{0,12})<a\b/i)
+  if (between && between[1] != null) {
+    const sep = between[1]
+    // Prefer explicit middle-dot / bullet separators; else keep as-is if non-empty.
+    if (/[·•|]/.test(sep) || sep.includes(' · ')) return sep
+    if (sep.trim() === '·') return ' · '
+    if (sep.length > 0 && sep.length <= 8) return sep
+  }
+  if (block.includes(' · ')) return ' · '
+  return ' '
 }
 
 /**
@@ -74,8 +110,9 @@ export function addNavOrFooterLink(
     const block = blockMatch[0]
     const lastA = block.lastIndexOf('</a>')
     if (lastA >= 0) {
+      const sep = detectNavLinkSeparator(block)
       const patchedBlock =
-        block.slice(0, lastA + 4) + ` ${link}` + block.slice(lastA + 4)
+        block.slice(0, lastA + 4) + `${sep}${link}` + block.slice(lastA + 4)
       const next =
         html.slice(0, blockMatch.index) +
         patchedBlock +

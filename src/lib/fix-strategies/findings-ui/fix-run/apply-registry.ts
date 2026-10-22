@@ -19,6 +19,11 @@ import { verifyAnchorAbsent } from '@/lib/fix-strategies/topic-1/verify-anchor-a
 import { ensurePageSelfCanonical } from '@/lib/fix-strategies/topic-14/fix-repoint-canonical'
 import { verifyLiveCanonicalTarget200 } from '@/lib/fix-strategies/topic-14/verify-live-target'
 import {
+  stripSpaShellCanonicalAndOgUrl,
+  verifySpaShellStripLive,
+} from '@/lib/fix-strategies/topic-14/spa-shell-canonical'
+import { SPA_SHELL_PATHS } from './create-source'
+import {
   addNavOrFooterLink,
   pickAnchorText,
 } from '@/lib/fix-strategies/topic-43/fix-add-nav-link'
@@ -207,6 +212,18 @@ const topic14RepointCanonical: TransformHandler = async (ctx) => {
         'Refusing to edit layout for topic 14 — resolve the page file and add a page-level self-canonical',
     }
   }
+  // SPA shell must use auto-strip-spa-shell-canonical — never rewrite shell
+  // canonical to a single page (would break every other route).
+  if (
+    (SPA_SHELL_PATHS as readonly string[]).includes(ctx.path) ||
+    /(^|\/)index\.html$/i.test(ctx.path)
+  ) {
+    return {
+      ok: false,
+      error:
+        'Refusing to edit SPA shell via auto-self-canonical — use auto-strip-spa-shell-canonical',
+    }
+  }
   const { content, updated } = ensurePageSelfCanonical(
     ctx.fileContent,
     ctx.path,
@@ -222,6 +239,29 @@ const topic14RepointCanonical: TransformHandler = async (ctx) => {
     }
   }
   return { ok: true, path: ctx.path, newContent: content, updated }
+}
+
+const topic14StripSpaShell: TransformHandler = async (ctx) => {
+  if (
+    !(SPA_SHELL_PATHS as readonly string[]).includes(ctx.path) &&
+    !/(^|\/)index\.html$/i.test(ctx.path)
+  ) {
+    return {
+      ok: false,
+      error: `SPA shell strip only applies to index.html shell, not ${ctx.path}`,
+    }
+  }
+  const { html, updated } = stripSpaShellCanonicalAndOgUrl(ctx.fileContent)
+  if (!updated) {
+    return {
+      ok: true,
+      path: ctx.path,
+      newContent: ctx.fileContent,
+      updated: 0,
+      noop: true,
+    }
+  }
+  return { ok: true, path: ctx.path, newContent: html, updated }
 }
 
 const topic17Collapse: TransformHandler = async (ctx) => {
@@ -469,6 +509,37 @@ const verifyTopic14: TransformVerifier = async (ctx) => {
   )
 }
 
+const verifyTopic14SpaShellStrip: TransformVerifier = async (ctx) => {
+  let homepage = 'https://example.com'
+  try {
+    homepage = new URL(ctx.finding.pageUrl || ctx.liveUrl).origin
+  } catch {
+    /* keep */
+  }
+  const ev = (ctx.finding.evidenceValues || {}) as Record<string, unknown>
+  if (typeof ev.canonicalUrl === 'string' && ev.canonicalUrl) {
+    try {
+      homepage = new URL(ev.canonicalUrl).origin
+    } catch {
+      /* keep */
+    }
+  }
+  const strip = verifySpaShellStripLive({
+    rawHtml: ctx.body,
+    homepageCanonical: homepage,
+  })
+  if (!strip.ok) return strip
+  // SPA must still be the shell (not a static stub). Policy copy is client-rendered;
+  // assert the shell root remains so we did not shadow /privacy with a stub.
+  if (!/id=["']root["']/i.test(ctx.body) && !/<div\s+id=["']app["']/i.test(ctx.body)) {
+    return {
+      ok: false,
+      detail: 'raw HTML missing SPA root — possible static stub shadowing the route',
+    }
+  }
+  return { ok: true, detail: strip.detail }
+}
+
 const verifyTopic17: TransformVerifier = async (ctx) => {
   const headers = ctx.responseHeaders ?? new Headers({ 'content-type': 'text/html' })
   const pageUrl = ctx.finding.pageUrl || ctx.liveUrl
@@ -585,6 +656,14 @@ const REGISTRY: RegistryEntry[] = [
     resolvePath: storedSourcePath,
     previewVerifier: verifyTopic14,
     productionVerifier: verifyTopic14,
+  },
+  {
+    topicId: '14',
+    verdict: 'auto-strip-spa-shell-canonical',
+    handler: topic14StripSpaShell,
+    resolvePath: storedSourcePath,
+    previewVerifier: verifyTopic14SpaShellStrip,
+    productionVerifier: verifyTopic14SpaShellStrip,
   },
   {
     topicId: '17',

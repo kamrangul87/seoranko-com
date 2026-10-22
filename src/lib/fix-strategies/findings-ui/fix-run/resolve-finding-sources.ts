@@ -141,6 +141,8 @@ export type FindingSourcePatch = {
   autoFixable?: boolean
   surfaceClass?: string
   evidenceValues?: Record<string, unknown> | null
+  /** Rewrite verdict when resolve selects a different strategy (SPA shell strip). */
+  verdict?: string
 }
 
 /**
@@ -246,22 +248,31 @@ export async function resolveOneFindingSource(input: {
   })
 
   if (result.status === 'resolved') {
+    const spaShellStrip = Boolean(result.spaShellStrip)
     console.info('[resolve-source] resolved', {
       ...logBase,
-      branch: isCreateSourceBlobSha(result.blobSha)
-        ? 'resolved-create-static'
-        : 'resolved',
+      branch: spaShellStrip
+        ? 'resolved-spa-shell-strip'
+        : isCreateSourceBlobSha(result.blobSha)
+          ? 'resolved-create-static-blocked'
+          : 'resolved',
       path: result.path,
       blobSha: result.blobSha,
     })
     const ev = { ...(finding.evidenceValues ?? {}) }
     delete ev.sourceUnresolvedWhy
-    if (isCreateSourceBlobSha(result.blobSha)) {
-      ev.createStaticPage = true
+    delete ev.createStaticPage
+    // Never create static pages over live SPA routes.
+    if (spaShellStrip) {
+      ev.spaShellStrip = true
     }
+    const nextVerdict =
+      spaShellStrip && finding.topicId === '14'
+        ? 'auto-strip-spa-shell-canonical'
+        : finding.verdict
     // Promote when the verdict is an auto-* mechanical fix and not report-only.
     // isCommitableFinding still requires a registered transform + path+SHA.
-    const canAuto = verdictLooksAuto(finding.verdict) && !finding.reportOnly
+    const canAuto = verdictLooksAuto(nextVerdict) && !finding.reportOnly
     return {
       sourcePath: result.path,
       sourceBlobSha: result.blobSha,
@@ -270,6 +281,7 @@ export async function resolveOneFindingSource(input: {
       autoFixable: canAuto ? true : finding.autoFixable,
       surfaceClass: canAuto ? 'auto-fixable' : finding.surfaceClass,
       evidenceValues: ev,
+      verdict: nextVerdict !== finding.verdict ? nextVerdict : undefined,
     }
   }
 
