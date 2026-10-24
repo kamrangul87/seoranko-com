@@ -14,8 +14,8 @@
       "observed": "All present; after source resolve they are auto-fixable when registered"
     },
     {
-      "readme": "No mention of topic 26 human-review-canonical-elsewhere",
-      "observed": "Detector also emits human-review-canonical-elsewhere on about.html (side finding)"
+      "readme": "No mention of topic 26 canonical-elsewhere suppression",
+      "observed": "Detector now suppresses page-level canonical-elsewhere under topic 14: verdict suppress-page-canonical-elsewhere-topic-14 on about.html"
     },
     {
       "readme": "No mention of 28/31/45/8/72 side-findings",
@@ -77,11 +77,11 @@
     },
     {
       "topicId": "26",
-      "verdict": "human-review-canonical-elsewhere",
+      "verdict": "suppress-page-canonical-elsewhere-topic-14",
       "pageUrl": "https://seoranko-fixture.vercel.app/about.html",
-      "surfaceClass": "human-review",
+      "surfaceClass": "internal",
       "autoFixable": false,
-      "bucket": "actionable"
+      "bucket": "internal"
     },
     {
       "topicId": "28",
