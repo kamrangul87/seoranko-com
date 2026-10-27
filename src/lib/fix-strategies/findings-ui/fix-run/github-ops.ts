@@ -400,8 +400,8 @@ export function createLiveGithubOps(): GithubOps {
       }>(token, `${GH}/repos/${creds.owner}/${creds.repo}/pulls/${prNumber}`)
       if (!res.ok) return { ok: false, error: `PR read failed: ${res.text.slice(0, 400)}` }
       const state = String(res.data.state || 'open') as 'open' | 'closed'
-      const mergedAt = (res.data as any).merged_at || null
-      const mergedSha = (res.data as any).merge_commit_sha || null
+      const mergedAt = res.data.merged_at ?? null
+      const mergedSha = res.data.merge_commit_sha ?? null
       const merged = Boolean(mergedAt || mergedSha)
       return {
         ok: true,
