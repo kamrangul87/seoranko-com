@@ -22,6 +22,7 @@ export type FixtureGithubRepo = {
       url: string
       branch: string
       merged: boolean
+      closed?: boolean
       mergeSha: string | null
     }
   >
@@ -106,7 +107,7 @@ export function createFixtureGithubRepo(
 
     async ensurePullRequest({ branchName }) {
       for (const pr of state.prs.values()) {
-        if (pr.branch === branchName && !pr.merged) {
+        if (pr.branch === branchName && !pr.merged && !pr.closed) {
           return { ok: true, prNumber: pr.number, prUrl: pr.url }
         }
       }
@@ -117,6 +118,7 @@ export function createFixtureGithubRepo(
         url,
         branch: branchName,
         merged: false,
+        closed: false,
         mergeSha: null,
       })
       return { ok: true, prNumber: number, prUrl: url }
@@ -136,6 +138,25 @@ export function createFixtureGithubRepo(
       pr.merged = true
       pr.mergeSha = mergeSha
       return { ok: true, mergeSha }
+    },
+
+    async closePullRequest({ prNumber }) {
+      const pr = state.prs.get(prNumber)
+      if (!pr) return { ok: false, error: 'PR not found' }
+      pr.closed = true
+      return { ok: true }
+    },
+
+    async getPullRequest({ prNumber }) {
+      const pr = state.prs.get(prNumber)
+      if (!pr) return { ok: false, error: 'PR not found' }
+      return {
+        ok: true,
+        state: pr.closed || pr.merged ? 'closed' : 'open',
+        merged: pr.merged,
+        mergedSha: pr.mergeSha,
+        mergedAt: pr.merged ? new Date().toISOString() : null,
+      }
     },
 
     async waitForPreview({ prNumber, commitSha }) {

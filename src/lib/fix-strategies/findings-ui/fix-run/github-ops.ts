@@ -58,6 +58,21 @@ export type GithubOps = {
     prNumber: number
   }): Promise<{ ok: true; mergeSha: string } | { ok: false; error: string }>
 
+  /** Read PR state to detect manual merges/closures. */
+  getPullRequest?(input: {
+    creds: GithubPrCreds
+    prNumber: number
+  }): Promise<
+    | {
+        ok: true
+        state: 'open' | 'closed'
+        merged: boolean
+        mergedSha?: string | null
+        mergedAt?: string | null
+      }
+    | { ok: false; error: string }
+  >
+
   /** Close a PR without merging (e.g. supersede a destructive fix-run PR). */
   closePullRequest?(input: {
     creds: GithubPrCreds
@@ -374,6 +389,27 @@ export function createLiveGithubOps(): GithubOps {
         return { ok: false, error: `Merge failed: ${res.text.slice(0, 400)}` }
       }
       return { ok: true, mergeSha: res.data.sha || 'merged' }
+    },
+
+    async getPullRequest({ creds, prNumber }) {
+      const token = creds.accessToken
+      const res = await ghJson<{
+        state?: string
+        merged_at?: string | null
+        merge_commit_sha?: string | null
+      }>(token, `${GH}/repos/${creds.owner}/${creds.repo}/pulls/${prNumber}`)
+      if (!res.ok) return { ok: false, error: `PR read failed: ${res.text.slice(0, 400)}` }
+      const state = String(res.data.state || 'open') as 'open' | 'closed'
+      const mergedAt = res.data.merged_at ?? null
+      const mergedSha = res.data.merge_commit_sha ?? null
+      const merged = Boolean(mergedAt || mergedSha)
+      return {
+        ok: true,
+        state,
+        merged,
+        mergedSha: mergedSha || null,
+        mergedAt: mergedAt || null,
+      }
     },
 
     /**

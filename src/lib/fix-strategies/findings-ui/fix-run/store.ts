@@ -272,6 +272,13 @@ function rowToRun(
     prUrl: (row.pr_url as string | null) ?? null,
     previewUrl: (row.preview_url as string | null) ?? null,
     mergeSha: (row.merge_sha as string | null) ?? null,
+    mergedByCustomer: Boolean(
+      (row as Partial<Record<'merged_by_customer', boolean>>).merged_by_customer ?? false,
+    ),
+    closedByCustomer: Boolean(
+      (row as Partial<Record<'closed_by_customer', boolean>>).closed_by_customer ?? false,
+    ),
+    mergedAt: (row as Partial<Record<'merged_at', string | null>>).merged_at ?? null,
     approvedAt: (row.approved_at as string | null) ?? null,
     autoMergeAttempted: Boolean(row.auto_merge_attempted),
     autoMergeBlockedReason:
@@ -384,6 +391,9 @@ export function createSupabaseFixRunStore(): FixRunStore {
         pr_url: merged.prUrl,
         preview_url: merged.previewUrl,
         merge_sha: merged.mergeSha,
+        merged_by_customer: Boolean(merged.mergedByCustomer ?? false),
+        closed_by_customer: Boolean(merged.closedByCustomer ?? false),
+        merged_at: merged.mergedAt ?? null,
         approved_at: merged.approvedAt,
         auto_merge_attempted: merged.autoMergeAttempted,
         auto_merge_blocked_reason: merged.autoMergeBlockedReason,
@@ -393,14 +403,32 @@ export function createSupabaseFixRunStore(): FixRunStore {
         updated_at: nowIso(),
       }
       // Never lower item_cursor (lost-update guard for overlapping ticks).
-      const { data: bumped, error } = await supabase
-        .from('fix_strategies_runs')
-        .update(runPatch)
-        .eq('id', merged.id)
-        .eq('user_id', merged.userId)
-        .lte('item_cursor', merged.itemCursor)
-        .select('id')
-      if (error) throw new Error(error.message)
+      const attemptUpdate = async (patch: Record<string, unknown>) => {
+        return supabase
+          .from('fix_strategies_runs')
+          .update(patch)
+          .eq('id', merged.id)
+          .eq('user_id', merged.userId)
+          .lte('item_cursor', merged.itemCursor)
+          .select('id')
+      }
+
+      let { data: bumped, error } = await attemptUpdate(runPatch)
+      if (error) {
+        const msg = String(error.message || '')
+        const looksLikeMissingColumns =
+          /column .* does not exist|unknown column|invalid input syntax/i.test(msg)
+        if (looksLikeMissingColumns) {
+          const fp: Record<string, unknown> = { ...runPatch }
+          delete fp['merged_by_customer']
+          delete fp['closed_by_customer']
+          delete fp['merged_at']
+          const retry = await attemptUpdate(fp)
+          bumped = retry.data
+          error = retry.error
+        }
+      }
+      if (error) throw new Error(String(error.message))
       if (!bumped?.length) {
         // DB cursor already ahead — still persist other fields, keep DB cursor.
         const { item_cursor: _drop, ...rest } = runPatch
