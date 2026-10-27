@@ -14,7 +14,16 @@ type Props = {
  * should treat captcha as optional until Attack Protection is enabled.
  */
 export function TurnstileField({ onToken, className }: Props) {
-  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() || "";
+  // Public fallback: commit a real Site Key here if the env is unavailable.
+  // Obtain from Cloudflare Dashboard → Turnstile → your widget → Site key.
+  // DO NOT commit the Secret Key anywhere — Supabase Auth Attack Protection
+  // stores and verifies the secret server-side.
+  const FALLBACK_TURNSTILE_SITE_KEY = "0x4AAAAAAFn2rv8EbeClZUX4" as const;
+
+  const siteKey =
+    process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() ||
+    FALLBACK_TURNSTILE_SITE_KEY ||
+    "";
   const ref = useRef<TurnstileInstance | null>(null);
 
   if (!siteKey) return null;
@@ -37,5 +46,7 @@ export function TurnstileField({ onToken, className }: Props) {
 }
 
 export function turnstileRequired(): boolean {
-  return Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim());
+  const envKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim();
+  const FALLBACK_TURNSTILE_SITE_KEY = "0x4AAAAAAFn2rv8EbeClZUX4" as const;
+  return Boolean(envKey || FALLBACK_TURNSTILE_SITE_KEY);
 }
