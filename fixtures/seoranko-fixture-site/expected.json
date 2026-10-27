@@ -14,10 +14,6 @@
       "observed": "All present; after source resolve they are auto-fixable when registered"
     },
     {
-      "readme": "No mention of topic 26 canonical-elsewhere suppression",
-      "observed": "Detector now suppresses page-level canonical-elsewhere under topic 14: verdict suppress-page-canonical-elsewhere-topic-14 on about.html"
-    },
-    {
       "readme": "No mention of 28/31/45/8/72 side-findings",
       "observed": "Whole-site/informational detectors emit these on seed — included for exact match"
     },
@@ -74,14 +70,6 @@
       "surfaceClass": "auto-fixable",
       "autoFixable": true,
       "bucket": "actionable"
-    },
-    {
-      "topicId": "26",
-      "verdict": "suppress-page-canonical-elsewhere-topic-14",
-      "pageUrl": "https://seoranko-fixture.vercel.app/about.html",
-      "surfaceClass": "internal",
-      "autoFixable": false,
-      "bucket": "internal"
     },
     {
       "topicId": "28",
