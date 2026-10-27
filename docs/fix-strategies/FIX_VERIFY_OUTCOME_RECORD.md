@@ -365,12 +365,12 @@ Production fixes for #13–#15 stand. Resolution-driven closure was not availabl
 | Verdict | `auto-fixture-patch` |
 | Page | https://fixture.example/a.html |
 | Kind | `fixture/patch` |
-| Detected | 2026-10-27T09:36:37.868Z |
-| Fixed | 2026-10-27T09:36:37.873Z |
+| Detected | 2026-10-27T08:57:16.595Z |
+| Fixed | 2026-10-27T08:57:16.601Z |
 | PR | [https://github.com/fixture/repo/pull/1](https://github.com/fixture/repo/pull/1) (#1) |
 | Merge SHA | `sha4` |
 | auto_merged | **false** |
-| Production verify | **OK** — 2026-10-27T09:36:37.873Z |
+| Production verify | **OK** — 2026-10-27T08:57:16.601Z |
 | Production detail | Fixture marker present in fetched body |
 | Outcome | **closed** |
 
@@ -385,12 +385,12 @@ Production fixes for #13–#15 stand. Resolution-driven closure was not availabl
 | Verdict | `auto-fixture-patch` |
 | Page | https://fixture.example/b.html |
 | Kind | `fixture/patch` |
-| Detected | 2026-10-27T09:36:37.868Z |
-| Fixed | 2026-10-27T09:36:37.874Z |
+| Detected | 2026-10-27T08:57:16.595Z |
+| Fixed | 2026-10-27T08:57:16.602Z |
 | PR | [https://github.com/fixture/repo/pull/1](https://github.com/fixture/repo/pull/1) (#1) |
 | Merge SHA | `sha4` |
 | auto_merged | **false** |
-| Production verify | **OK** — 2026-10-27T09:36:37.874Z |
+| Production verify | **OK** — 2026-10-27T08:57:16.602Z |
 | Production detail | Fixture marker present in fetched body |
 | Outcome | **closed** |
 
@@ -405,12 +405,12 @@ Production fixes for #13–#15 stand. Resolution-driven closure was not availabl
 | Verdict | `auto-fixture-patch` |
 | Page | https://fixture.example/c.html |
 | Kind | `fixture/patch` |
-| Detected | 2026-10-27T09:36:37.868Z |
-| Fixed | 2026-10-27T09:36:37.875Z |
+| Detected | 2026-10-27T08:57:16.595Z |
+| Fixed | 2026-10-27T08:57:16.603Z |
 | PR | [https://github.com/fixture/repo/pull/1](https://github.com/fixture/repo/pull/1) (#1) |
 | Merge SHA | `sha4` |
 | auto_merged | **false** |
-| Production verify | **OK** — 2026-10-27T09:36:37.875Z |
+| Production verify | **OK** — 2026-10-27T08:57:16.603Z |
 | Production detail | Fixture marker present in fetched body |
 | Outcome | **closed** |
 
@@ -425,12 +425,12 @@ Production fixes for #13–#15 stand. Resolution-driven closure was not availabl
 | Verdict | `auto-fixture-patch` |
 | Page | https://fixture.example/a.html |
 | Kind | `fixture/patch` |
-| Detected | 2026-10-27T09:36:37.876Z |
-| Fixed | 2026-10-27T09:36:37.879Z |
+| Detected | 2026-10-27T08:57:16.604Z |
+| Fixed | 2026-10-27T08:57:16.609Z |
 | PR | [https://github.com/fixture/repo/pull/1](https://github.com/fixture/repo/pull/1) (#1) |
 | Merge SHA | `sha4` |
 | auto_merged | **false** |
-| Production verify | **OK** — 2026-10-27T09:36:37.879Z |
+| Production verify | **OK** — 2026-10-27T08:57:16.609Z |
 | Production detail | Fixture marker present in fetched body |
 | Outcome | **closed** |
 
@@ -445,12 +445,12 @@ Production fixes for #13–#15 stand. Resolution-driven closure was not availabl
 | Verdict | `auto-fixture-patch` |
 | Page | https://fixture.example/b.html |
 | Kind | `fixture/patch` |
-| Detected | 2026-10-27T09:36:37.876Z |
-| Fixed | 2026-10-27T09:36:37.880Z |
+| Detected | 2026-10-27T08:57:16.604Z |
+| Fixed | 2026-10-27T08:57:16.611Z |
 | PR | [https://github.com/fixture/repo/pull/1](https://github.com/fixture/repo/pull/1) (#1) |
 | Merge SHA | `sha4` |
 | auto_merged | **false** |
-| Production verify | **OK** — 2026-10-27T09:36:37.880Z |
+| Production verify | **OK** — 2026-10-27T08:57:16.611Z |
 | Production detail | Fixture marker present in fetched body |
 | Outcome | **closed** |
 
@@ -465,12 +465,12 @@ Production fixes for #13–#15 stand. Resolution-driven closure was not availabl
 | Verdict | `auto-fixture-patch` |
 | Page | https://fixture.example/c.html |
 | Kind | `fixture/patch` |
-| Detected | 2026-10-27T09:36:37.876Z |
-| Fixed | 2026-10-27T09:36:37.880Z |
+| Detected | 2026-10-27T08:57:16.604Z |
+| Fixed | 2026-10-27T08:57:16.611Z |
 | PR | [https://github.com/fixture/repo/pull/1](https://github.com/fixture/repo/pull/1) (#1) |
 | Merge SHA | `sha4` |
 | auto_merged | **false** |
-| Production verify | **OK** — 2026-10-27T09:36:37.880Z |
+| Production verify | **OK** — 2026-10-27T08:57:16.611Z |
 | Production detail | Fixture marker present in fetched body |
 | Outcome | **closed** |
 
@@ -485,12 +485,12 @@ Production fixes for #13–#15 stand. Resolution-driven closure was not availabl
 | Verdict | `auto-fixture-patch` |
 | Page | https://fixture.example/a.html |
 | Kind | `fixture/patch` |
-| Detected | 2026-10-27T09:36:37.883Z |
-| Fixed | 2026-10-27T09:36:37.887Z |
+| Detected | 2026-10-27T08:57:16.615Z |
+| Fixed | 2026-10-27T08:57:16.619Z |
 | PR | [https://github.com/fixture/repo/pull/1](https://github.com/fixture/repo/pull/1) (#1) |
 | Merge SHA | `sha3` |
 | auto_merged | **false** |
-| Production verify | **OK** — 2026-10-27T09:36:37.887Z |
+| Production verify | **OK** — 2026-10-27T08:57:16.619Z |
 | Production detail | Fixture marker present in fetched body |
 | Outcome | **closed** |
 
@@ -505,11 +505,11 @@ Production fixes for #13–#15 stand. Resolution-driven closure was not availabl
 | Verdict | `auto-fixture-patch` |
 | Page | https://fixture.example/c.html |
 | Kind | `fixture/patch` |
-| Detected | 2026-10-27T09:36:37.883Z |
-| Fixed | 2026-10-27T09:36:37.888Z |
+| Detected | 2026-10-27T08:57:16.615Z |
+| Fixed | 2026-10-27T08:57:16.620Z |
 | PR | [https://github.com/fixture/repo/pull/1](https://github.com/fixture/repo/pull/1) (#1) |
 | Merge SHA | `sha3` |
 | auto_merged | **false** |
-| Production verify | **OK** — 2026-10-27T09:36:37.888Z |
+| Production verify | **OK** — 2026-10-27T08:57:16.620Z |
 | Production detail | Fixture marker present in fetched body |
 | Outcome | **closed** |

@@ -301,6 +301,56 @@ describe('checkPreviewOnce', () => {
     expect(once.pending).toBe(true)
     expect(once.error).toMatch(/deployments_by_sha HTTP 403/)
   })
+
+  it('falls back to vercel[bot] PR comment when deployments 403 and commit statuses are absent', async () => {
+    const payload = Buffer.from(
+      JSON.stringify({
+        projects: [
+          {
+            previewUrl: 'widget-cb33dqkht-team.vercel.app',
+            nextCommitStatus: 'DEPLOYED',
+          },
+        ],
+      }),
+      'utf8',
+    ).toString('base64')
+    const commentBody = `[vc]: #sig=${payload}\nReady`
+
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/git/ref/heads/')) return refOk()
+      if (url.includes('/deployments?')) {
+        return jsonResponse({ message: 'Resource not accessible by integration' }, 403)
+      }
+      if (url.includes('/commits/') && url.endsWith('/statuses?per_page=100')) {
+        return jsonResponse([]) // absent statuses
+      }
+      if (url.includes('/commits/') && url.endsWith('/status')) {
+        return jsonResponse({ state: 'pending', statuses: [] })
+      }
+      if (url.includes('/check-runs')) {
+        return jsonResponse({ total_count: 0, check_runs: [] })
+      }
+      if (url.includes('/issues/1/comments')) {
+        return jsonResponse([{ id: 1, user: { login: 'vercel[bot]' }, body: commentBody }])
+      }
+      if (url.startsWith(PREVIEW)) return new Response('<html>ok</html>', { status: 200 })
+      return jsonResponse({}, 404)
+    }) as unknown as typeof fetch
+
+    const once = await checkPreviewOnce({
+      owner: OWNER,
+      repo: REPO,
+      branchName: BRANCH,
+      accessToken: 't',
+      prNumber: 1,
+      fetchImpl,
+    })
+    expect(once.ok).toBe(true)
+    if (!once.ok) return
+    expect(once.previewUrl).toBe(PREVIEW)
+    expect(once.source).toBe('pr_comment')
+  })
 })
 
 describe('waitForPrPreviewDeploy timeout copy', () => {
