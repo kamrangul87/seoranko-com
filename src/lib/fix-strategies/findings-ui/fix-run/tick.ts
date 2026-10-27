@@ -91,6 +91,39 @@ export type TickResult = {
   detail: string
 }
 
+async function maybeAdvanceOnPrState(
+  run: FixRun,
+  deps: TickDeps,
+  now: string,
+): Promise<{ advanced: boolean; detail?: string }> {
+  if (!run.prNumber || !deps.ops.getPullRequest) {
+    return { advanced: false }
+  }
+  const pr = await deps.ops.getPullRequest({ creds: deps.creds, prNumber: run.prNumber })
+  if (!pr.ok) return { advanced: false }
+  if (pr.merged) {
+    run.mergedByCustomer = true
+    run.mergedAt = pr.mergedAt || now
+    run.mergeSha = pr.mergedSha || run.mergeSha
+    // Skip preview path entirely — proceed to production verification.
+    run.prevContents = {
+      ...run.prevContents,
+      [PROD_DEPLOY_WAIT_STARTED_KEY]: now,
+    }
+    run.phase = 'verify_production_next'
+    run.status = 'running'
+    return { advanced: true, detail: `customer-merged ${String(run.mergeSha || '').slice(0,7)}` }
+  }
+  if (pr.state === 'closed') {
+    run.closedByCustomer = true
+    run.phase = 'done'
+    // End cleanly with no generic failure.
+    run.status = 'complete'
+    return { advanced: true, detail: 'pr closed by customer' }
+  }
+  return { advanced: false }
+}
+
 function toPublic(run: FixRun): FixRunPublicState {
   const allPreview = allRemainingPreviewVerified(run.items)
   return {
@@ -698,6 +731,17 @@ export async function tickFixRun(input: {
       return finish({ advanced: true, detail: 'missing pr' })
     }
 
+    // Customer may have merged/closed the PR manually — handle immediately.
+    {
+      const res = await maybeAdvanceOnPrState(run, input.deps, now)
+      if (res.advanced) {
+        advanced = true
+        detail = res.detail || 'pr state change'
+        await save()
+        return finish({ advanced, detail })
+      }
+    }
+
     // Never keep a fixture/placeholder preview URL from a prior bad tick.
     if (isPlaceholderPreviewUrl(run.previewUrl)) {
       console.info('[fix-run] clearing placeholder preview_url', {
@@ -837,6 +881,16 @@ export async function tickFixRun(input: {
 
   // ── verify_preview_next ─────────────────────────────────────────
   if (run.phase === 'verify_preview_next') {
+    // Re-check PR state in case the customer merged/closed while verifying.
+    {
+      const res = await maybeAdvanceOnPrState(run, input.deps, now)
+      if (res.advanced) {
+        advanced = true
+        detail = res.detail || 'pr state change'
+        await save()
+        return finish({ advanced, detail })
+      }
+    }
     // Resume path: placeholder stored by older builds → re-enter wait_preview.
     if (isPlaceholderPreviewUrl(run.previewUrl)) {
       console.info('[fix-run] placeholder preview on verify — back to wait', {
@@ -1093,6 +1147,16 @@ export async function tickFixRun(input: {
 
   // ── await_approval ──────────────────────────────────────────────
   if (run.phase === 'await_approval') {
+    // Owner may have merged/closed via GitHub UI.
+    {
+      const res = await maybeAdvanceOnPrState(run, input.deps, now)
+      if (res.advanced) {
+        advanced = true
+        detail = res.detail || 'pr state change'
+        await save()
+        return finish({ advanced, detail })
+      }
+    }
     const auto = await resolveSiteAutoMergeEnabled({
       userId: input.userId,
       siteId: run.siteId,
@@ -1153,6 +1217,16 @@ export async function tickFixRun(input: {
 
   // ── merge ───────────────────────────────────────────────────────
   if (run.phase === 'merge') {
+    // If already merged by customer, skip merge and proceed to production verify.
+    {
+      const res = await maybeAdvanceOnPrState(run, input.deps, now)
+      if (res.advanced) {
+        advanced = true
+        detail = res.detail || 'pr state change'
+        await save()
+        return finish({ advanced, detail })
+      }
+    }
     if (run.prNumber == null) {
       run.phase = 'done'
       run.status = 'failed'

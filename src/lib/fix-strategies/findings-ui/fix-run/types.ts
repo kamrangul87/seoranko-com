@@ -76,6 +76,12 @@ export type FixRun = {
   prUrl: string | null
   previewUrl: string | null
   mergeSha: string | null
+  /** True when the PR was merged manually by the customer (not auto-merge). */
+  mergedByCustomer?: boolean
+  /** True when the PR was closed without merge by the customer. */
+  closedByCustomer?: boolean
+  /** Timestamp when the PR was merged (if known). */
+  mergedAt?: string | null
   approvedAt: string | null
   autoMergeAttempted: boolean
   autoMergeBlockedReason: string | null
