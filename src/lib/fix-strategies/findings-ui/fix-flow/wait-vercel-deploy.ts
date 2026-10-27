@@ -686,7 +686,10 @@ export async function checkPreviewOnce(input: {
   if (fromChecks && !fromChecks.ok) signals.push(fromChecks.error)
   else signals.push('no vercel.app URL on check-runs for this SHA')
 
-  // ── 4. vercel[bot] PR comment (only when this SHA's Vercel status is success)
+  // ── 4. vercel[bot] PR comment ───────────────────────────────────
+  // Prefer comments when commit status is success OR entirely absent.
+  // Many repos have deployments permission gaps or skip classic statuses;
+  // vercel[bot] comments still include the real preview origin.
   if (input.prNumber != null && input.prNumber > 0) {
     const vercelReady = await vercelCommitStatusReady(
       fetchImpl,
@@ -695,9 +698,10 @@ export async function checkPreviewOnce(input: {
       sha,
       accessToken,
     )
+    const allowCommentFallback = vercelReady === 'success' || vercelReady === 'absent'
     if (vercelReady === 'pending') {
       signals.push('Vercel commit status still pending for this SHA')
-    } else if (vercelReady === 'success') {
+    } else if (allowCommentFallback) {
       const fromComment = await previewUrlFromPrComments(
         fetchImpl,
         owner,
@@ -720,6 +724,7 @@ export async function checkPreviewOnce(input: {
         return maybeProbe({ ...fromComment, sha }, fetchImpl, probeAuth)
       }
       if (fromComment && !fromComment.ok) signals.push(fromComment.error)
+      if (!fromComment) signals.push('no vercel[bot] PR comment with a preview URL yet')
     } else {
       signals.push('no successful Vercel commit status for this SHA (PR comment skipped)')
     }
