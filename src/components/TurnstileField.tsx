@@ -18,7 +18,7 @@ export function TurnstileField({ onToken, className }: Props) {
   // Obtain from Cloudflare Dashboard → Turnstile → your widget → Site key.
   // DO NOT commit the Secret Key anywhere — Supabase Auth Attack Protection
   // stores and verifies the secret server-side.
-  const FALLBACK_TURNSTILE_SITE_KEY = "" as const;
+  const FALLBACK_TURNSTILE_SITE_KEY = "0x4AAAAAAFn2rv8EbeClZUX4" as const;
 
   const siteKey =
     process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() ||
@@ -47,6 +47,6 @@ export function TurnstileField({ onToken, className }: Props) {
 
 export function turnstileRequired(): boolean {
   const envKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim();
-  const FALLBACK_TURNSTILE_SITE_KEY = "" as const;
+  const FALLBACK_TURNSTILE_SITE_KEY = "0x4AAAAAAFn2rv8EbeClZUX4" as const;
   return Boolean(envKey || FALLBACK_TURNSTILE_SITE_KEY);
 }
