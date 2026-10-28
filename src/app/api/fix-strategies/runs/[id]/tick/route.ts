@@ -158,6 +158,7 @@ export async function POST(
         run.mergeSha = pr.mergedSha || run.mergeSha
         run.phase = 'verify_production_next'
         run.status = 'running'
+        run.errorDetail = null
         await store.saveRun(run, { caller: 'tick:recover' })
 
         // Drain production verification to completion (bounded).

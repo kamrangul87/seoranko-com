@@ -155,6 +155,7 @@ describe('recover receipt for customer-merged failed run', () => {
     recovering.mergeSha = (pr as any).mergedSha || recovering.mergeSha
     recovering.phase = 'verify_production_next'
     recovering.status = 'running'
+    recovering.errorDetail = null
     await store.saveRun(recovering, { caller: 'test:recover' })
 
     // Drain verification until done.
