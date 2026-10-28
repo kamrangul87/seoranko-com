@@ -1285,7 +1285,20 @@ export async function tickFixRun(input: {
 
   // ── verify_production_next ──────────────────────────────────────
   if (run.phase === 'verify_production_next') {
-    const next = itemsNeedingProductionVerify(run.items)[0]
+    // Normal path: verify items that were preview-verified.
+    const previewVerifiedQueue = itemsNeedingProductionVerify(run.items)
+    // Recovery path: if the PR was merged by the customer before preview verify
+    // (older builds), treat committed items as production-ready once the merge
+    // deploy is READY — this lets us generate Fix Receipts for already-live fixes.
+    const committedQueue =
+      run.mergedByCustomer || run.mergedAt
+        ? run.items
+            .filter((i) => i.status === 'committed')
+            .sort((a, b) => a.position - b.position)
+        : []
+    const next = (previewVerifiedQueue[0] ?? committedQueue[0]) as
+      | typeof previewVerifiedQueue[number]
+      | undefined
     if (!next) {
       run.phase = 'recrawl'
       advanced = true
