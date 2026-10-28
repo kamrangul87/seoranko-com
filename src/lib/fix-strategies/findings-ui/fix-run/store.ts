@@ -90,12 +90,12 @@ export function mergeRunForSave(
     null
 
   const status =
-    incoming.status === 'failed'
+    (incoming.status as string) === 'failed'
       ? 'failed'
       : // Allow explicit recovery from a historical terminal failure when the
         // run is being resumed (e.g. merged_by_customer) — do not pin 'failed'.
         dbStatus === 'failed' &&
-          incoming.status !== 'failed' &&
+          (incoming.status as string) !== 'failed' &&
           incoming.phase !== 'done' &&
           (incoming.mergedByCustomer === true ||
             (incoming.mergedAt != null && String(incoming.mergedAt).length > 0))
