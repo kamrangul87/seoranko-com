@@ -102,6 +102,11 @@ export default function FindingsListPage() {
   const [fixRun, setFixRun] = useState<FixRunView | null>(null)
   const [fixRunning, setFixRunning] = useState(false)
   const [fixError, setFixError] = useState<string | null>(null)
+  const [recoverableRuns, setRecoverableRuns] = useState<
+    Array<{ id: string; prNumber: number | null; prUrl: string | null; createdAt: string; errorDetail?: string | null }>
+  >([])
+  const [recoveringRunId, setRecoveringRunId] = useState<string | null>(null)
+  const [recoverMessage, setRecoverMessage] = useState<string | null>(null)
   const [githubConnected, setGithubConnected] = useState<boolean | null>(null)
   const fixTickAbort = useRef(false)
 
@@ -268,17 +273,30 @@ export default function FindingsListPage() {
   useEffect(() => {
     if (mode !== 'connected' || !siteId) {
       setFixRun(null)
+      setRecoverableRuns([])
       return
     }
     let cancelled = false
     ;(async () => {
       try {
         const res = await fetch(
-          `/api/fix-strategies/runs?siteId=${encodeURIComponent(siteId)}`,
+          `/api/fix-strategies/runs?siteId=${encodeURIComponent(siteId)}&includeLastFailed=1`,
         )
         if (!res.ok) return
-        const json = (await res.json()) as { run?: FixRunView | null }
-        if (!cancelled && json.run) setFixRun(json.run)
+        const json = (await res.json()) as {
+          run?: FixRunView | null
+          recoverable?: Array<{
+            id: string
+            prNumber: number | null
+            prUrl: string | null
+            createdAt: string
+            errorDetail?: string | null
+          }>
+        }
+        if (!cancelled) {
+          if (json.run) setFixRun(json.run)
+          setRecoverableRuns(json.recoverable || [])
+        }
       } catch {
         /* ignore */
       }
@@ -382,6 +400,35 @@ export default function FindingsListPage() {
       await pollFixRun(json.run.id)
     } catch (e) {
       setFixError(e instanceof Error ? e.message : 'Approve failed')
+    }
+  }
+
+  async function recoverRun(runId: string) {
+    if (!runId || recoveringRunId) return
+    setRecoverMessage(null)
+    setFixError(null)
+    setRecoveringRunId(runId)
+    try {
+      const res = await fetch(`/api/fix-strategies/runs/${runId}/tick`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'recover' }),
+      })
+      const json = (await res.json()) as {
+        error?: string
+        run?: FixRunView
+      }
+      if (!res.ok || !json.run) {
+        throw new Error(json.error || 'Recover failed')
+      }
+      setRecoverMessage('Checked again — any live fixes will appear in Receipts.')
+      // Refresh audit data and consider updating run state
+      if (siteId) await loadConnected(siteId, includeInformational)
+      if (json.run) setFixRun(json.run)
+    } catch (e) {
+      setFixError(e instanceof Error ? e.message : 'Recover failed')
+    } finally {
+      setRecoveringRunId(null)
     }
   }
 
@@ -1108,6 +1155,44 @@ export default function FindingsListPage() {
                   )}
                 </div>
               )}
+
+          {/* Recovery UI shown when there is no active run but a failed run with a PR exists */}
+          {mode === 'connected' && !fixRun && recoverableRuns.length > 0 && (
+            <div className="rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-4">
+              <p className="text-sm font-medium text-[#0F0F0F]">Recover receipts</p>
+              <p className="text-xs text-[#6B6B6B] mt-1">
+                We found a previous Fix PR for this site. If you merged it already, check again to verify live and get a receipt.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void recoverRun(recoverableRuns[0]!.id)}
+                  disabled={Boolean(recoveringRunId)}
+                  className="px-3 py-1.5 rounded bg-[#0F0F0F] text-white text-xs disabled:opacity-50"
+                >
+                  {recoveringRunId ? 'Checking…' : 'PR merged? Check again & get receipt'}
+                </button>
+                {recoverMessage && (
+                  <span className="text-xs text-[#6B6B6B]">{recoverMessage}</span>
+                )}
+                {recoverableRuns[0]!.prNumber != null && recoverableRuns[0]!.prUrl && (
+                  <a
+                    href={recoverableRuns[0]!.prUrl!}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-[#FF6B2C] underline"
+                  >
+                    PR #{recoverableRuns[0]!.prNumber}
+                  </a>
+                )}
+              </div>
+              {recoverableRuns[0]!.errorDetail && (
+                <p className="mt-2 text-[11px] text-[#9B9B9B]">
+                  Last run finished with: {recoverableRuns[0]!.errorDetail}
+                </p>
+              )}
+            </div>
+          )}
 
               {(
                 [
