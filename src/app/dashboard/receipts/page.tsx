@@ -19,6 +19,11 @@ export default function FixReceiptsPage() {
   const [receipts, setReceipts] = useState<ReceiptRow[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [recoverableRuns, setRecoverableRuns] = useState<
+    Array<{ id: string; prNumber: number | null; prUrl: string | null; createdAt: string; errorDetail?: string | null }>
+  >([])
+  const [recoveringRunId, setRecoveringRunId] = useState<string | null>(null)
+  const [recoverMsg, setRecoverMsg] = useState<string | null>(null)
 
   useEffect(() => {
     const sb = createBrowserClient(
@@ -69,6 +74,57 @@ export default function FixReceiptsPage() {
     if (siteId) void load(siteId)
   }, [siteId, load])
 
+  useEffect(() => {
+    if (!siteId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(
+          `/api/fix-strategies/runs?siteId=${encodeURIComponent(siteId)}&includeLastFailed=1`,
+        )
+        const json = (await res.json()) as {
+          recoverable?: Array<{
+            id: string
+            prNumber: number | null
+            prUrl: string | null
+            createdAt: string
+            errorDetail?: string | null
+          }>
+        }
+        if (!cancelled) setRecoverableRuns(json.recoverable || [])
+      } catch {
+        /* ignore */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [siteId])
+
+  async function recover(runId: string) {
+    if (!runId || recoveringRunId) return
+    setRecoverMsg(null)
+    setRecoveringRunId(runId)
+    try {
+      const res = await fetch(`/api/fix-strategies/runs/${runId}/tick`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'recover' }),
+      })
+      const ok = res.ok
+      if (!ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string }
+        throw new Error(body.error || 'Recover failed')
+      }
+      setRecoverMsg('Checked again — reloading receipts…')
+      if (siteId) await load(siteId)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Recover failed')
+    } finally {
+      setRecoveringRunId(null)
+    }
+  }
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 space-y-6">
       <div>
@@ -83,13 +139,51 @@ export default function FixReceiptsPage() {
       {error && <p className="text-sm text-red-700">{error}</p>}
 
       {!loading && !error && receipts.length === 0 && (
-        <p className="text-sm text-[#6B6B6B]">
-          No verified fixes yet. Run an audit and Fix my site from{' '}
-          <Link href="/dashboard/findings" className="underline text-orange-700">
-            Audit
-          </Link>
-          .
-        </p>
+        <div className="space-y-3">
+          <p className="text-sm text-[#6B6B6B]">
+            No verified fixes yet. Run an audit and Fix my site from{' '}
+            <Link href="/dashboard/findings" className="underline text-orange-700">
+              Audit
+            </Link>
+            .
+          </p>
+          {recoverableRuns.length > 0 && (
+            <div className="rounded-lg border border-[#E8E8E4] bg-white p-4">
+              <p className="text-sm font-medium text-[#0F0F0F]">Recover receipts</p>
+              <p className="text-xs text-[#6B6B6B] mt-1">
+                We found a previous Fix PR for this site. If you merged it already, check again to verify live and get a receipt.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void recover(recoverableRuns[0]!.id)}
+                  disabled={Boolean(recoveringRunId)}
+                  className="px-3 py-1.5 rounded bg-[#0F0F0F] text-white text-xs disabled:opacity-50"
+                >
+                  {recoveringRunId ? 'Checking…' : 'PR merged? Check again & get receipt'}
+                </button>
+                {recoverMsg && (
+                  <span className="text-xs text-[#6B6B6B]">{recoverMsg}</span>
+                )}
+                {recoverableRuns[0]!.prNumber != null && recoverableRuns[0]!.prUrl && (
+                  <a
+                    href={recoverableRuns[0]!.prUrl!}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-[#FF6B2C] underline"
+                  >
+                    PR #{recoverableRuns[0]!.prNumber}
+                  </a>
+                )}
+              </div>
+              {recoverableRuns[0]!.errorDetail && (
+                <p className="mt-2 text-[11px] text-[#9B9B9B]">
+                  Last run finished with: {recoverableRuns[0]!.errorDetail}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       <ul className="space-y-3">

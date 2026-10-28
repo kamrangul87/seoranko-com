@@ -130,6 +130,9 @@ export async function GET(req: NextRequest) {
 
     const runId = req.nextUrl.searchParams.get('runId')
     const siteId = req.nextUrl.searchParams.get('siteId')
+    const includeLastFailed =
+      req.nextUrl.searchParams.get('includeLastFailed') === '1' ||
+      req.nextUrl.searchParams.get('includeLastFailed') === 'true'
     const store = getFixRunStore()
 
     if (runId) {
@@ -139,7 +142,35 @@ export async function GET(req: NextRequest) {
     }
     if (siteId) {
       const run = await store.listActiveForSite(siteId, user.id)
-      return NextResponse.json({ ok: true, run })
+      if (!includeLastFailed) {
+        return NextResponse.json({ ok: true, run })
+      }
+      const supabase = createSupabaseJsClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      )
+      const { data: rows, error } = await supabase
+        .from('fix_strategies_runs')
+        .select('id, user_id, site_id, status, phase, pr_number, pr_url, error_detail, created_at')
+        .eq('site_id', siteId)
+        .eq('user_id', user.id)
+        .eq('status', 'failed')
+        .not('pr_number', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(5)
+      if (error) {
+        return NextResponse.json({ ok: true, run, recoverable: [] })
+      }
+      const recoverable = (rows || []).map((r) => ({
+        id: String(r.id),
+        prNumber: r.pr_number == null ? null : Number(r.pr_number),
+        prUrl: (r.pr_url as string | null) ?? null,
+        status: String(r.status || ''),
+        phase: String(r.phase || ''),
+        errorDetail: (r.error_detail as string | null) ?? null,
+        createdAt: String(r.created_at),
+      }))
+      return NextResponse.json({ ok: true, run, recoverable })
     }
     return NextResponse.json(
       { error: 'runId or siteId is required' },

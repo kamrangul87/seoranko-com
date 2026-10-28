@@ -91,7 +91,7 @@ export async function POST(
 
     const runId = ctx.params.id
     const body = (await req.json().catch(() => ({}))) as {
-      action?: 'tick' | 'approve'
+      action?: 'tick' | 'approve' | 'recover'
     }
     const action = body.action || 'tick'
 
@@ -116,6 +116,88 @@ export async function POST(
     if (action === 'approve') {
       const approved = await approveFixRun({ runId, userId: user.id })
       return NextResponse.json({ ok: true, run: approved })
+    }
+
+    if (action === 'recover') {
+      // Owner-only recovery: for a terminal failed run whose PR was manually merged,
+      // re-enter production verification so receipts can be issued for live fixes.
+      if (run.prNumber == null) {
+        return NextResponse.json(
+          { error: 'No PR recorded for this run — nothing to recover' },
+          { status: 400 },
+        )
+      }
+      const creds = await resolveCredsForRun(user.id, site.domain)
+      if (!creds) {
+        return NextResponse.json(
+          { error: 'GitHub credentials unavailable for this site' },
+          { status: 400 },
+        )
+      }
+      const ops = createLiveGithubOps()
+      if (!ops.getPullRequest) {
+        return NextResponse.json(
+          { error: 'GitHub PR read is not configured' },
+          { status: 500 },
+        )
+      }
+      const pr = await ops.getPullRequest({
+        creds,
+        prNumber: run.prNumber!,
+      })
+      if (!pr.ok) {
+        return NextResponse.json(
+          { error: `PR lookup failed: ${pr.error}` },
+          { status: 502 },
+        )
+      }
+      if (pr.merged) {
+        // Update run state to resume at production verification.
+        run.mergedByCustomer = true
+        run.mergedAt = pr.mergedAt || new Date().toISOString()
+        run.mergeSha = pr.mergedSha || run.mergeSha
+        run.phase = 'verify_production_next'
+        run.status = 'running'
+        run.errorDetail = null
+        await store.saveRun(run, { caller: 'tick:recover' })
+
+        // Drain production verification to completion (bounded).
+        let current = run
+        for (let i = 0; i < 80; i++) {
+          const t = await tickFixRun({
+            runId: current.id,
+            userId: user.id,
+            deps: defaultTickDeps({
+              ops,
+              creds,
+              siteOrigin: `https://${site.domain}`,
+            }),
+          })
+          current = t.run
+          if (
+            current.phase === 'done' ||
+            current.status === 'complete' ||
+            current.status === 'failed'
+          ) {
+            break
+          }
+        }
+        return NextResponse.json({ ok: true, run: current })
+      }
+      if (pr.state === 'closed') {
+        run.closedByCustomer = true
+        run.phase = 'done'
+        run.status = 'complete'
+        await store.saveRun(run, { caller: 'tick:recover_closed' })
+        return NextResponse.json({ ok: true, run })
+      }
+      return NextResponse.json(
+        {
+          error:
+            'PR is not merged — recovery only applies to runs whose PR was merged by the customer',
+        },
+        { status: 409 },
+      )
     }
 
     const creds = await resolveCredsForRun(user.id, site.domain)
