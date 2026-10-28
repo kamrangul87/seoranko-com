@@ -67,13 +67,18 @@ export function mergeRunForSave(
   const dbPhase = fresh.phase as FixRunPhase | undefined
   const dbPreview = (fresh.preview_url as string | null) ?? null
   const dbStatus = fresh.status as FixRunStatus | undefined
+  const recovering =
+    incoming.mergedByCustomer === true ||
+    (incoming.mergedAt != null && String(incoming.mergedAt).length > 0)
 
   let phase = incoming.phase
   if (
     dbPhase &&
     PHASE_RANK[dbPhase] > PHASE_RANK[incoming.phase] &&
-    // Allow intentional terminal failure from any phase.
-    incoming.status !== 'failed'
+    // Allow intentional terminal failure from any phase,
+    // but do NOT override forward progress during explicit recovery.
+    incoming.status !== 'failed' &&
+    !recovering
   ) {
     phase = dbPhase
   }
