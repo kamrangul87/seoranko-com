@@ -2,10 +2,6 @@ import { describe, it, expect } from 'vitest'
 import { aggregateWindowForQueryPage, pickWindowDates, type QueryPageDaily } from './opportunities'
 
 describe('Page-2 opportunities scoring/filtering', () => {
-  const base: Omit<QueryPageDaily, 'url' | 'query' | 'date' | 'avg_position' | 'clicks' | 'impressions'> = {
-    is_final: true,
-  }
-
   it('filters to avg position 8–20 and impressions above floor', () => {
     const rows: QueryPageDaily[] = [
       { url: 'https://e.com/a', query: 'q1', date: '2026-10-01', clicks: 10, impressions: 100, ctr: 0.1, avg_position: 9.0, is_final: true },

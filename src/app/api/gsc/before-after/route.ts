@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import { normalizeUrl } from '@/lib/supabase/audit-db'
 import { computeBeforeAfterForUrl } from '@/lib/gsc/before-after'
+import type { DailyUrlMetric } from '@/lib/gsc/baseline-readiness'
 
 export async function GET(req: Request): Promise<Response> {
   const { searchParams } = new URL(req.url)
@@ -33,7 +34,7 @@ export async function GET(req: Request): Promise<Response> {
     if (error) throw new Error(error.message)
     const out = computeBeforeAfterForUrl({
       url: norm,
-      rows: (data || []) as any,
+      rows: (data || []) as DailyUrlMetric[],
       appliedAt,
       baselineDays: 28,
       observationDays: 28,

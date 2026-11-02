@@ -26,7 +26,21 @@ export async function GET(req: Request): Promise<Response> {
       .gte('date', start120)
       .order('date', { ascending: true })
 
-    if (error) throw new Error(error.message)
+    if (error) {
+      const msg = String(error.message || '')
+      const relationMissing =
+        /gsc_query_page_daily/.test(msg) && (/does not exist/.test(msg) || /relation/.test(msg))
+      if (relationMissing) {
+        return NextResponse.json({
+          siteId,
+          windowDays: 0,
+          opportunities: [],
+          message:
+            'Search Console query+page data not stored yet. Deploy needs to apply the new migration; until then this section stays empty.',
+        })
+      }
+      throw new Error(error.message)
+    }
     const rows = (data || []) as QueryPageDaily[]
     const window = pickWindowDates(rows.map((r) => r.date), 28, 90)
     if (!window) {

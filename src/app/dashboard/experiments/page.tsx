@@ -255,7 +255,13 @@ function ExperimentsPageInner() {
           opportunities: data.opportunities || [],
         })
       } catch {
-        setOpportunities(null)
+        // Safe empty state on error (e.g. migration not applied yet)
+        setOpportunities({
+          startDate: '',
+          endDate: '',
+          windowDays: 0,
+          opportunities: [],
+        })
       }
     })()
   }, [siteId])
