@@ -156,6 +156,12 @@ export function meanOfPresent(points: DailyMetricPoint[]): number | null {
   return vals.reduce((a, b) => a + b, 0) / vals.length
 }
 
+export function sumOfPresent(points: DailyMetricPoint[]): number {
+  const vals = points.map((p) => p.value).filter((v): v is number => v !== null)
+  if (vals.length === 0) return 0
+  return vals.reduce((a, b) => a + b, 0)
+}
+
 /** True when every day in the observation window has a final GSC row. */
 export function observationWindowComplete(series: UrlWindowSeries): boolean {
   return series.missingObservationDays === 0 && series.observation.length > 0

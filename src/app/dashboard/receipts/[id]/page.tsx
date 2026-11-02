@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation'
 
 type Receipt = {
   itemId: string
+  siteId?: string
   pageUrl: string | null
   plainEnglish: string
   path: string | null
@@ -27,6 +28,15 @@ export default function FixReceiptDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [beforeAfter, setBeforeAfter] = useState<{
+    baseline: { impressions: number; clicks: number; avg_position: number | null }
+    observation: { impressions: number; clicks: number; avg_position: number | null }
+    missingObservationDays: number
+    totalObservationDays: number
+    requiredObservationDays: number
+    label: string
+    message: string
+  } | null>(null)
 
   const load = useCallback(async () => {
     setError(null)
@@ -47,6 +57,26 @@ export default function FixReceiptDetailPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (!receipt?.siteId || !receipt.pageUrl) return
+    const appliedAt = receipt.productionVerifiedAt
+    if (!appliedAt) return
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/gsc/before-after?siteId=${encodeURIComponent(
+            receipt.siteId!,
+          )}&url=${encodeURIComponent(receipt.pageUrl!)}&appliedAt=${encodeURIComponent(appliedAt)}`,
+        )
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Could not load Search Console change')
+        setBeforeAfter(data)
+      } catch {
+        setBeforeAfter(null)
+      }
+    })()
+  }, [receipt])
 
   async function shareAction(action: 'share' | 'revoke') {
     setBusy(true)
@@ -151,6 +181,40 @@ export default function FixReceiptDetailPage() {
           </div>
         )}
       </dl>
+
+      {receipt.pageUrl && beforeAfter && (
+        <div className="space-y-2 border border-[#E8E8E4] rounded-lg bg-white p-4">
+          <p className="text-sm font-medium text-[#0F0F0F]">Search Console — observed change</p>
+          <p className="text-xs text-[#6B6B6B]">{beforeAfter.label}</p>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <div className="text-xs text-[#9B9B9B]">Before (28 days)</div>
+              <div className="text-[#0F0F0F]">
+                Impr. {beforeAfter.baseline.impressions.toLocaleString()} · Clicks{' '}
+                {beforeAfter.baseline.clicks.toLocaleString()} · Avg pos{' '}
+                {beforeAfter.baseline.avg_position != null
+                  ? beforeAfter.baseline.avg_position.toFixed(1)
+                  : '—'}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-[#9B9B9B]">After (since merge)</div>
+              <div className="text-[#0F0F0F]">
+                Impr. {beforeAfter.observation.impressions.toLocaleString()} · Clicks{' '}
+                {beforeAfter.observation.clicks.toLocaleString()} · Avg pos{' '}
+                {beforeAfter.observation.avg_position != null
+                  ? beforeAfter.observation.avg_position.toFixed(1)
+                  : '—'}
+              </div>
+            </div>
+          </div>
+          {beforeAfter.missingObservationDays > 0 ? (
+            <p className="text-xs text-[#9B9B9B]">{beforeAfter.message}</p>
+          ) : (
+            <p className="text-xs text-[#9B9B9B]">{beforeAfter.message}</p>
+          )}
+        </div>
+      )}
 
       <div className="space-y-3 border border-[#E8E8E4] rounded-lg bg-white p-4">
         <p className="text-sm font-medium text-[#0F0F0F]">Share link</p>
