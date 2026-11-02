@@ -9,6 +9,7 @@ import {
 } from '@/lib/gsc/oauth'
 import {
   fetchSearchAnalyticsPageDate,
+  fetchSearchAnalyticsQueryPageDate,
   gscAvailableEndDate,
   gscBackfillDateRange,
   GscApiError,
@@ -16,6 +17,7 @@ import {
 import { evaluateBaselineReadiness } from '@/lib/gsc/baseline-readiness'
 import { filterRowsToKnownUrls, loadKnownUrlsForSite } from '@/lib/gsc/known-urls'
 import { buildDedupedUrlMetricsUpserts } from '@/lib/gsc/dedupe-metrics'
+import { buildDedupedQueryPageUpserts } from '@/lib/gsc/dedupe-query-metrics'
 
 export type GscSyncResult = {
   siteId: string
@@ -237,6 +239,36 @@ export async function syncGscConnection(
       throw new Error(`url_metrics_daily upsert failed: ${error.message}`)
     }
     rowsUpserted += batch.length
+  }
+
+  // Also fetch query+page+date top rows for Page-2 opportunities and per-query diagnostics.
+  try {
+    const qpRows = await fetchSearchAnalyticsQueryPageDate(
+      accessToken,
+      conn.property_url,
+      range.startDate,
+      range.endDate,
+    )
+    const { kept: qpKept } = filterRowsToKnownUrls(
+      qpRows.filter((r) => r.page && r.date && r.query),
+      known.urls,
+    )
+    const qpUpserts = buildDedupedQueryPageUpserts(conn.site_id, qpKept, nowIso)
+    for (const batch of chunk(qpUpserts, 500)) {
+      const { error } = await supabase.from('gsc_query_page_daily').upsert(batch, {
+        onConflict: 'site_id,url,query,date',
+      })
+      if (error) {
+        await supabase
+          .from('gsc_connections')
+          .update({ last_error: error.message })
+          .eq('id', conn.id)
+        throw new Error(`gsc_query_page_daily upsert failed: ${error.message}`)
+      }
+    }
+  } catch (err) {
+    // Do not fail the whole sync if query+page upsert fails — metrics + readiness are primary.
+    console.warn('[gsc/sync] query+page upsert error:', err instanceof Error ? err.message : String(err))
   }
 
   // Load final metrics for readiness (full available final history for site).

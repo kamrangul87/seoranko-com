@@ -17,6 +17,16 @@ export type GscSearchAnalyticsRow = {
   position: number
 }
 
+export type GscSearchAnalyticsQueryPageRow = {
+  query: string
+  page: string
+  date: string
+  clicks: number
+  impressions: number
+  ctr: number
+  position: number
+}
+
 export class GscApiError extends Error {
   status: number
   retryable: boolean
@@ -129,6 +139,71 @@ export async function fetchSearchAnalyticsPageDate(
         return {
           page: String(keys[0] || ''),
           date: String(keys[1] || ''),
+          clicks: Number(r.clicks || 0),
+          impressions: Number(r.impressions || 0),
+          ctr: Number(r.ctr || 0),
+          position: Number(r.position || 0),
+        }
+      })
+      break
+    }
+
+    opts?.onPage?.(pageRows, startRow)
+    all.push(...pageRows)
+    if (pageRows.length < ROW_LIMIT) break
+    startRow += ROW_LIMIT
+  }
+
+  return all
+}
+
+export async function fetchSearchAnalyticsQueryPageDate(
+  accessToken: string,
+  propertyUrl: string,
+  startDate: string,
+  endDate: string,
+  opts?: { onPage?: (rows: GscSearchAnalyticsQueryPageRow[], startRow: number) => void },
+): Promise<GscSearchAnalyticsQueryPageRow[]> {
+  if (!propertyUrl) throw new Error('propertyUrl is required')
+  if (!startDate || !endDate) throw new Error('startDate and endDate are required')
+
+  const encoded = encodeURIComponent(propertyUrl)
+  const endpoint = `https://www.googleapis.com/webmasters/v3/sites/${encoded}/searchAnalytics/query`
+  const all: GscSearchAnalyticsQueryPageRow[] = []
+  let startRow = 0
+
+  for (;;) {
+    let attempt = 0
+    let pageRows: GscSearchAnalyticsQueryPageRow[] = []
+    for (;;) {
+      attempt += 1
+      const res = await gscFetch(endpoint, accessToken, {
+        method: 'POST',
+        body: JSON.stringify({
+          startDate,
+          endDate,
+          dimensions: ['query', 'page', 'date'],
+          rowLimit: ROW_LIMIT,
+          startRow,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const err = classifyGscHttpError(res.status, data)
+        if (err.retryable && attempt < 5) {
+          const delayMs = Math.min(30_000, 1000 * 2 ** (attempt - 1))
+          await new Promise((r) => setTimeout(r, delayMs))
+          continue
+        }
+        throw err
+      }
+      const rows = Array.isArray(data.rows) ? data.rows : []
+      pageRows = rows.map((r: { keys?: string[]; clicks?: number; impressions?: number; ctr?: number; position?: number }) => {
+        const keys = Array.isArray(r.keys) ? r.keys : []
+        return {
+          query: String(keys[0] || ''),
+          page: String(keys[1] || ''),
+          date: String(keys[2] || ''),
           clicks: Number(r.clicks || 0),
           impressions: Number(r.impressions || 0),
           ctr: Number(r.ctr || 0),

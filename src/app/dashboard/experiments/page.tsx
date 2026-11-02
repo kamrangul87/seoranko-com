@@ -146,6 +146,24 @@ function ExperimentsPageInner() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [opportunities, setOpportunities] = useState<
+    | {
+        startDate: string
+        endDate: string
+        windowDays: number
+        opportunities: Array<{
+          url: string
+          query: string
+          clicks: number
+          impressions: number
+          ctr: number
+          avg_position: number
+          opportunity_score: number
+          suggested_actions: string[]
+        }>
+      }
+    | null
+  >(null)
 
   const reloadSites = useCallback(async () => {
     const supabase = createClient()
@@ -221,6 +239,32 @@ function ExperimentsPageInner() {
   useEffect(() => {
     if (siteId) void loadStatus(siteId)
   }, [siteId, loadStatus])
+
+  useEffect(() => {
+    setOpportunities(null)
+    if (!siteId) return
+    void (async () => {
+      try {
+        const res = await fetch(`/api/gsc/opportunities?siteId=${encodeURIComponent(siteId)}`)
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Could not load opportunities')
+        setOpportunities({
+          startDate: data.startDate,
+          endDate: data.endDate,
+          windowDays: data.windowDays,
+          opportunities: data.opportunities || [],
+        })
+      } catch {
+        // Safe empty state on error (e.g. migration not applied yet)
+        setOpportunities({
+          startDate: '',
+          endDate: '',
+          windowDays: 0,
+          opportunities: [],
+        })
+      }
+    })()
+  }, [siteId])
 
   useEffect(() => {
     const gscError = searchParams.get('gsc_error')
@@ -907,6 +951,66 @@ function ExperimentsPageInner() {
                         })}
                       </tbody>
                     </table>
+                  </div>
+                )}
+              </div>
+
+              <div className="border border-[#E5E5E5] rounded-lg px-4 py-4 bg-white space-y-3">
+                <div className="flex flex-wrap justify-between gap-2 items-start">
+                  <div>
+                    <h2 className="font-medium">Page‑2 opportunities</h2>
+                    <p className="text-sm text-[#6B6B6B]">
+                      Queries and pages with average position 8–20 in the last{' '}
+                      {opportunities?.windowDays ?? 28} days, sorted by opportunity
+                      (impressions × closeness to top 5).
+                    </p>
+                  </div>
+                </div>
+                {!opportunities ? (
+                  <p className="text-sm text-[#6B6B6B]">Loading…</p>
+                ) : opportunities.opportunities.length === 0 ? (
+                  <p className="text-sm text-[#6B6B6B]">
+                    No finalized Search Console data in range. Connect Search Console above, then
+                    check back after the next sync.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="text-xs text-[#6B6B6B] border-b border-[#E5E5E5]">
+                        <tr>
+                          <th className="py-2 pr-3 font-medium">Query</th>
+                          <th className="py-2 pr-3 font-medium">Page</th>
+                          <th className="py-2 pr-3 font-medium">Avg. position</th>
+                          <th className="py-2 pr-3 font-medium">Impr.</th>
+                          <th className="py-2 pr-3 font-medium">Clicks</th>
+                          <th className="py-2 pr-3 font-medium">CTR</th>
+                          <th className="py-2 font-medium">Suggested actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {opportunities.opportunities.slice(0, 20).map((row, idx) => (
+                          <tr key={`${row.query}\0${row.url}\0${idx}`} className="border-b border-[#F0F0F0] align-top">
+                            <td className="py-2 pr-3 max-w-[280px] break-words">{row.query}</td>
+                            <td className="py-2 pr-3 max-w-[360px] break-all text-[#0F0F0F]">{row.url}</td>
+                            <td className="py-2 pr-3">{row.avg_position.toFixed(1)}</td>
+                            <td className="py-2 pr-3">{row.impressions.toLocaleString()}</td>
+                            <td className="py-2 pr-3">{row.clicks.toLocaleString()}</td>
+                            <td className="py-2 pr-3">{(row.ctr * 100).toFixed(1)}%</td>
+                            <td className="py-2">
+                              <ul className="list-disc pl-5 space-y-0.5">
+                                {row.suggested_actions.map((a, i) => (
+                                  <li key={i} className="text-[#0F0F0F]">{a}</li>
+                                ))}
+                              </ul>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <p className="text-xs text-[#9B9B9B] mt-2">
+                      Observational guidance only — no ranking promises. Based on finalized Search Console
+                      data from {opportunities.startDate} to {opportunities.endDate}.
+                    </p>
                   </div>
                 )}
               </div>
