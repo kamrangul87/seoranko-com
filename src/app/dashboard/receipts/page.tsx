@@ -176,7 +176,7 @@ export default function FixReceiptsPage() {
                   </a>
                 )}
               </div>
-              {recoverableRuns[0]!.errorDetail && (
+              {recoverableRuns[0]!.errorDetail && recoverableRuns[0]!.status === 'failed' && (
                 <p className="mt-2 text-[11px] text-[#9B9B9B]">
                   Last run finished with: {recoverableRuns[0]!.errorDetail}
                 </p>

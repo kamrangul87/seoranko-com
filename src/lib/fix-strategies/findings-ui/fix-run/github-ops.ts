@@ -402,7 +402,9 @@ export function createLiveGithubOps(): GithubOps {
       const state = String(res.data.state || 'open') as 'open' | 'closed'
       const mergedAt = res.data.merged_at ?? null
       const mergedSha = res.data.merge_commit_sha ?? null
-      const merged = Boolean(mergedAt || mergedSha)
+      // Do NOT treat merge_commit_sha as proof of merge — GitHub populates a test
+      // merge SHA on open PRs. Only merged_at non-null is definitive here.
+      const merged = Boolean(mergedAt)
       return {
         ok: true,
         state,

@@ -218,6 +218,22 @@ export async function tickFixRun(input: {
   if (!run) {
     throw new Error('Run not found')
   }
+  // Self-heal contradictory states created by historical pins: if phase is done
+  // but the run is not complete and was merged by customer, re-enter production verify.
+  if (
+    run.phase === 'done' &&
+    run.status !== 'complete' &&
+    (run.mergedByCustomer || (run.mergedAt && String(run.mergedAt).length > 0)) &&
+    run.items.some((i) => i.status === 'committed' || i.status === 'preview_verified')
+  ) {
+    run.phase = 'verify_production_next'
+    run.status = 'running'
+    run.prevContents = {
+      ...run.prevContents,
+      [PROD_DEPLOY_WAIT_STARTED_KEY]: input.deps.now?.() ?? new Date().toISOString(),
+    }
+    await store.saveRun(run, { caller: 'tick:self_heal_done_recovery' })
+  }
   if (run.phase === 'done') {
     return { run: toPublic(run), advanced: false, detail: 'already done' }
   }
