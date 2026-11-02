@@ -151,25 +151,51 @@ export async function GET(req: NextRequest) {
       )
       const { data: rows, error } = await supabase
         .from('fix_strategies_runs')
-        .select('id, user_id, site_id, status, phase, pr_number, pr_url, error_detail, created_at')
+        .select('id, user_id, site_id, status, phase, pr_number, pr_url, error_detail, created_at, merged_by_customer, merged_at, summary')
         .eq('site_id', siteId)
         .eq('user_id', user.id)
-        .eq('status', 'failed')
         .not('pr_number', 'is', null)
+        .in('status', ['failed', 'running', 'awaiting_approval', 'merging'])
         .order('created_at', { ascending: false })
-        .limit(5)
+        .limit(10)
       if (error) {
         return NextResponse.json({ ok: true, run, recoverable: [] })
       }
-      const recoverable = (rows || []).map((r) => ({
-        id: String(r.id),
-        prNumber: r.pr_number == null ? null : Number(r.pr_number),
-        prUrl: (r.pr_url as string | null) ?? null,
-        status: String(r.status || ''),
-        phase: String(r.phase || ''),
-        errorDetail: (r.error_detail as string | null) ?? null,
-        createdAt: String(r.created_at),
-      }))
+      type DbRow = {
+        id?: string | number
+        status?: string | null
+        phase?: string | null
+        pr_number?: number | null
+        pr_url?: string | null
+        error_detail?: string | null
+        created_at: string
+        merged_by_customer?: boolean | null
+        merged_at?: string | null
+        summary?: { verifiedLive?: number; committed?: number } | null
+      }
+      const recoverable = ((rows || []) as DbRow[])
+        .filter((r: DbRow) => {
+          const status = String(r.status || '')
+          const phase = String(r.phase || '')
+          const mergedFlag = Boolean(r.merged_by_customer) || Boolean(r.merged_at)
+          const s = r.summary || {}
+          const verifiedLive = Number(s.verifiedLive ?? 0)
+          const committed = Number(s.committed ?? 0)
+          const needsRecovery =
+            status === 'failed' ||
+            (mergedFlag && verifiedLive === 0 && committed > 0)
+          const contradictory = status !== 'complete' && phase === 'done'
+          return needsRecovery || contradictory
+        })
+        .map((r: DbRow) => ({
+          id: String(r.id),
+          prNumber: r.pr_number == null ? null : Number(r.pr_number),
+          prUrl: (r.pr_url as string | null) ?? null,
+          status: String(r.status || ''),
+          phase: String(r.phase || ''),
+          errorDetail: (r.error_detail as string | null) ?? null,
+          createdAt: String(r.created_at),
+        }))
       return NextResponse.json({ ok: true, run, recoverable })
     }
     return NextResponse.json(
