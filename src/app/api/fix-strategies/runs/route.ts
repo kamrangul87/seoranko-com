@@ -162,6 +162,7 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ ok: true, run, recoverable: [] })
       }
       type DbRow = {
+        id?: string | number
         status?: string | null
         phase?: string | null
         pr_number?: number | null
