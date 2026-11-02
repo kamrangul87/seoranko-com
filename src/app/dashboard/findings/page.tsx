@@ -103,7 +103,15 @@ export default function FindingsListPage() {
   const [fixRunning, setFixRunning] = useState(false)
   const [fixError, setFixError] = useState<string | null>(null)
   const [recoverableRuns, setRecoverableRuns] = useState<
-    Array<{ id: string; prNumber: number | null; prUrl: string | null; createdAt: string; errorDetail?: string | null }>
+    Array<{
+      id: string
+      prNumber: number | null
+      prUrl: string | null
+      createdAt: string
+      status?: string
+      phase?: string
+      errorDetail?: string | null
+    }>
   >([])
   const [recoveringRunId, setRecoveringRunId] = useState<string | null>(null)
   const [recoverMessage, setRecoverMessage] = useState<string | null>(null)
@@ -290,6 +298,8 @@ export default function FindingsListPage() {
             prNumber: number | null
             prUrl: string | null
             createdAt: string
+            status?: string
+            phase?: string
             errorDetail?: string | null
           }>
         }
@@ -1186,7 +1196,7 @@ export default function FindingsListPage() {
                   </a>
                 )}
               </div>
-              {recoverableRuns[0]!.errorDetail && (
+              {recoverableRuns[0]!.errorDetail && recoverableRuns[0]!.status === 'failed' && (
                 <p className="mt-2 text-[11px] text-[#9B9B9B]">
                   Last run finished with: {recoverableRuns[0]!.errorDetail}
                 </p>

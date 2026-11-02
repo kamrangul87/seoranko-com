@@ -20,7 +20,15 @@ export default function FixReceiptsPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [recoverableRuns, setRecoverableRuns] = useState<
-    Array<{ id: string; prNumber: number | null; prUrl: string | null; createdAt: string; errorDetail?: string | null }>
+    Array<{
+      id: string
+      prNumber: number | null
+      prUrl: string | null
+      createdAt: string
+      status?: string
+      phase?: string
+      errorDetail?: string | null
+    }>
   >([])
   const [recoveringRunId, setRecoveringRunId] = useState<string | null>(null)
   const [recoverMsg, setRecoverMsg] = useState<string | null>(null)
@@ -88,6 +96,8 @@ export default function FixReceiptsPage() {
             prNumber: number | null
             prUrl: string | null
             createdAt: string
+            status?: string
+            phase?: string
             errorDetail?: string | null
           }>
         }
@@ -176,7 +186,7 @@ export default function FixReceiptsPage() {
                   </a>
                 )}
               </div>
-              {recoverableRuns[0]!.errorDetail && (
+              {recoverableRuns[0]!.errorDetail && recoverableRuns[0]!.status === 'failed' && (
                 <p className="mt-2 text-[11px] text-[#9B9B9B]">
                   Last run finished with: {recoverableRuns[0]!.errorDetail}
                 </p>
