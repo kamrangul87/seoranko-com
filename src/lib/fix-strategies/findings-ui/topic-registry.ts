@@ -33,6 +33,7 @@ export const TOPIC_DOSSIER_SLUG: Record<string, string> = {
   '29': 'head__tags_outside_head',
   '30': 'head__missing_or_malformed_title',
   '31': 'head__missing_meta_description',
+  '32': 'content__client_rendered_shell_thin_or_missing_headings',
   '33': 'head__duplicate_titles_descriptions',
   '34': 'head__missing_or_wrong_lang',
   '35': 'structured-data__required_properties_absent',
