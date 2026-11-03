@@ -47,6 +47,7 @@ import { rewriteAnchorHref } from '@/lib/fix-strategies/topic-42/fix-rewrite-hre
 import { verifyLiveHrefRewritten } from '@/lib/fix-strategies/topic-42/verify-live-href'
 import { unwrapOriginPrefixedHref } from '@/lib/fix-strategies/topic-74/fix-unwrap-href'
 import { verifyLiveImgDimensions } from '@/lib/fix-strategies/topic-49/verify-live-dimensions'
+import { addJsonLdScript } from '@/lib/fix-strategies/structured-data/fix-add-json-ld'
 import {
   evidenceCollapseTo,
   evidenceHref,
@@ -166,6 +167,56 @@ const topic49Handler: TransformHandler = async (ctx) => {
     newContent: applied.html,
     updated: applied.updated,
   }
+}
+
+const topic40AddArticleJsonLd: TransformHandler = async (ctx) => {
+  const ev = (ctx.finding.proposedDiff?.proposed ||
+    (ctx.finding.evidenceValues as any)?.proposed) as
+    | { jsonLd?: Record<string, unknown> }
+    | undefined
+  const jsonLd = ev?.jsonLd
+  if (!jsonLd || typeof jsonLd !== 'object') {
+    return { ok: false, error: 'Missing proposed JSON-LD for topic 40' }
+  }
+  const { html, updated } = addJsonLdScript(ctx.fileContent, jsonLd)
+  return { ok: true, path: ctx.path, newContent: html, updated: updated ?? 0 }
+}
+
+const topic41AddFaqJsonLd: TransformHandler = async (ctx) => {
+  const ev = (ctx.finding.proposedDiff?.proposed ||
+    (ctx.finding.evidenceValues as any)?.proposed) as
+    | { jsonLd?: Record<string, unknown> }
+    | undefined
+  const jsonLd = ev?.jsonLd
+  if (!jsonLd || typeof jsonLd !== 'object') {
+    return { ok: false, error: 'Missing proposed JSON-LD for topic 41' }
+  }
+  const { html, updated } = addJsonLdScript(ctx.fileContent, jsonLd)
+  return { ok: true, path: ctx.path, newContent: html, updated: updated ?? 0 }
+}
+
+const verifyJsonLdPresence: TransformVerifier = async (ctx) => {
+  // Protected previews: return actionable message
+  if (
+    /Authentication Required|vercel\.com\/sso-api|\/_vercel\//i.test(ctx.body) &&
+    ctx.body.length < 50_000
+  ) {
+    return {
+      ok: false,
+      detail:
+        'Your preview is protected by a login; turn off Vercel Authentication for previews',
+    }
+  }
+  const type =
+    ctx.finding.topicId === '40'
+      ? '"@type":"Article"'
+      : ctx.finding.topicId === '41'
+        ? '"@type":"FAQPage"'
+        : ''
+  if (type && ctx.body.includes(type)) {
+    return { ok: true, detail: `Found ${type} JSON-LD on the live page` }
+  }
+  return { ok: false, detail: `Live page missing expected JSON-LD ${type}` }
 }
 
 const fixturePatchHandler: TransformHandler = async (ctx) => {
@@ -679,6 +730,22 @@ const REGISTRY: RegistryEntry[] = [
     resolvePath: storedSourcePath,
     previewVerifier: verifyTopic49,
     productionVerifier: verifyTopic49,
+  },
+  {
+    topicId: '40',
+    verdict: 'auto-add-article-json-ld',
+    handler: topic40AddArticleJsonLd,
+    resolvePath: storedSourcePath,
+    previewVerifier: verifyJsonLdPresence,
+    productionVerifier: verifyJsonLdPresence,
+  },
+  {
+    topicId: '41',
+    verdict: 'auto-add-faq-json-ld',
+    handler: topic41AddFaqJsonLd,
+    resolvePath: storedSourcePath,
+    previewVerifier: verifyJsonLdPresence,
+    productionVerifier: verifyJsonLdPresence,
   },
   {
     topicId: 'fixture',

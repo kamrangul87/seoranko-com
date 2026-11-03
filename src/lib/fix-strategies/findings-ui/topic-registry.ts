@@ -41,6 +41,8 @@ export const TOPIC_DOSSIER_SLUG: Record<string, string> = {
   '37': 'structured-data__invalid_or_mismatched_type',
   '38': 'structured-data__contradicts_visible_page',
   '39': 'structured-data__deprecated_types',
+  '40': 'structured-data__missing_article_json_ld',
+  '41': 'structured-data__missing_faq_json_ld',
   '42': 'internal-links__pointing_at_redirects',
   '43': 'internal-links__orphan_pages',
   '45': 'internal-links__excessive_crawl_depth',

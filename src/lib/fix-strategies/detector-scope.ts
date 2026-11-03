@@ -39,6 +39,8 @@ import { DETECTOR_SCOPE as t31 } from './topic-31'
 import { DETECTOR_SCOPE as t32 } from './topic-32'
 import { DETECTOR_SCOPE as t33 } from './topic-33'
 import { DETECTOR_SCOPE as t34 } from './topic-34'
+import { DETECTOR_SCOPE as t40 } from './topic-40'
+import { DETECTOR_SCOPE as t41 } from './topic-41'
 import { DETECTOR_SCOPE as t35 } from './topic-35'
 import { DETECTOR_SCOPE as t36 } from './topic-36'
 import { DETECTOR_SCOPE as t37 } from './topic-37'
@@ -97,6 +99,8 @@ export const DETECTOR_SCOPE_BY_TOPIC: Readonly<Record<string, DetectorScope>> = 
   '32': t32,
   '33': t33,
   '34': t34,
+  '40': t40,
+  '41': t41,
   '35': t35,
   '36': t36,
   '37': t37,
@@ -143,17 +147,19 @@ export const CHUNK_LOOP_TOPIC_IDS = [
   '14',
   '16',
   '17',
-  '32',
   '20',
   '29',
   '30',
   '31',
+  '32',
   '34',
   '35',
   '36',
   '37',
   '38',
   '39',
+  '40',
+  '41',
   '42',
   '49',
   '73',
