@@ -173,6 +173,12 @@ function ExperimentsPageInner() {
     loading?: boolean
     error?: string | null
   }>>({})
+  const [linkSuggestions, setLinkSuggestions] = useState<Record<string, {
+    anchorText: string
+    sources: Array<{ sourceUrl: string; insertion: 'related-list' }>
+    loading?: boolean
+    error?: string | null
+  }>>({})
 
   const reloadSites = useCallback(async () => {
     const supabase = createClient()
@@ -460,6 +466,56 @@ function ExperimentsPageInner() {
         title: sug.suggestedTitle,
         description: sug.suggestedDescription,
         queries: sug.targetedQueries,
+      }),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      setError(data.error || 'Could not open PR')
+      return
+    }
+    setMessage('Proposed PR branch prepared — open the Findings tab to approve and commit.')
+  }
+
+  async function fetchInternalLinkSuggestions(targetUrl: string) {
+    if (!siteId) return
+    setLinkSuggestions((s) => ({ ...s, [targetUrl]: { ...(s[targetUrl] || { anchorText: '', sources: [] }), loading: true, error: null } }))
+    try {
+      const res = await fetch(`/api/gsc/internal-links/suggest?siteId=${encodeURIComponent(siteId)}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Could not build suggestions')
+      const entry = (data.suggestions as Array<{
+        targetUrl: string
+        anchorText: string
+        sources: Array<{ sourceUrl: string; insertion: 'related-list' }>
+      }> | []).find((e) => e.targetUrl === targetUrl)
+      if (!entry) {
+        setLinkSuggestions((s) => ({ ...s, [targetUrl]: { anchorText: '', sources: [], loading: false, error: 'No suggestions' } }))
+        return
+      }
+      setLinkSuggestions((s) => ({
+        ...s,
+        [targetUrl]: { anchorText: entry.anchorText, sources: entry.sources, loading: false, error: null },
+      }))
+    } catch (err) {
+      setLinkSuggestions((s) => ({
+        ...s,
+        [targetUrl]: { anchorText: '', sources: [], loading: false, error: err instanceof Error ? err.message : 'Failed' },
+      }))
+    }
+  }
+
+  async function openInternalLinksPr(targetUrl: string, sourceUrl: string) {
+    const entry = linkSuggestions[targetUrl]
+    if (!entry || entry.sources.length === 0) return
+    const target = entry.sources.find((s) => s.sourceUrl === sourceUrl)
+    if (!target) return
+    const res = await fetch('/api/gsc/internal-links/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        siteId,
+        sourceUrl,
+        targets: [{ href: targetUrl, anchorText: linkSuggestions[targetUrl].anchorText }],
       }),
     })
     const data = await res.json()
@@ -1056,6 +1112,44 @@ function ExperimentsPageInner() {
                             <td className="py-2 pr-3">{row.clicks.toLocaleString()}</td>
                             <td className="py-2 pr-3">{(row.ctr * 100).toFixed(1)}%</td>
                           <td className="py-2 align-top">
+                            <div className="mt-2">
+                              <button
+                                className="text-xs px-2 py-1 border rounded hover:bg-[#F5F5F2]"
+                                onClick={() => fetchInternalLinkSuggestions(row.url)}
+                                disabled={Boolean(linkSuggestions[row.url]?.loading)}
+                              >
+                                {linkSuggestions[row.url]?.loading ? 'Finding link opportunities…' : 'Get internal link suggestions'}
+                              </button>
+                            </div>
+                            {linkSuggestions[row.url] && !linkSuggestions[row.url]?.loading && (
+                              <div className="mt-2 text-xs">
+                                {linkSuggestions[row.url]?.error ? (
+                                  <div className="text-red-600">{linkSuggestions[row.url]?.error}</div>
+                                ) : linkSuggestions[row.url]?.sources.length === 0 ? (
+                                  <div>No suggestions.</div>
+                                ) : (
+                                  <div className="space-y-1">
+                                    <div>
+                                      <span className="font-medium text-[#0F0F0F]">Anchor:</span> {linkSuggestions[row.url]?.anchorText}
+                                    </div>
+                                    <div className="font-medium text-[#0F0F0F]">Suggested sources:</div>
+                                    <ul className="list-disc pl-5 space-y-1">
+                                      {linkSuggestions[row.url]?.sources.map((s, i) => (
+                                        <li key={i}>
+                                          <span className="break-all">{s.sourceUrl}</span>{' '}
+                                          <button
+                                            className="ml-2 text-xs px-2 py-0.5 border rounded bg-[#0F0F0F] text-white hover:opacity-90"
+                                            onClick={() => openInternalLinksPr(row.url, s.sourceUrl)}
+                                          >
+                                            Create PR
+                                          </button>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                               <ul className="list-disc pl-5 space-y-0.5">
                                 {row.suggested_actions.map((a, i) => (
                                   <li key={i} className="text-[#0F0F0F]">{a}</li>
