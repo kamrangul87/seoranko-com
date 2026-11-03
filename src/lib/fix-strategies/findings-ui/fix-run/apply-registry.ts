@@ -48,6 +48,7 @@ import { verifyLiveHrefRewritten } from '@/lib/fix-strategies/topic-42/verify-li
 import { unwrapOriginPrefixedHref } from '@/lib/fix-strategies/topic-74/fix-unwrap-href'
 import { verifyLiveImgDimensions } from '@/lib/fix-strategies/topic-49/verify-live-dimensions'
 import { addJsonLdScript } from '@/lib/fix-strategies/structured-data/fix-add-json-ld'
+import { inspectDocumentHead } from '@/lib/fix-strategies/shared'
 import {
   evidenceCollapseTo,
   evidenceHref,
@@ -188,6 +189,69 @@ function proposedJsonLdFromFinding(
     }
   }
   return null
+}
+
+const updateTitleMeta: TransformHandler = async (ctx) => {
+  const ev = (ctx.finding.proposedDiff || {}) as Record<string, unknown>
+  const proposed =
+    (ev.proposed as { title?: string | null; description?: string | null } | undefined) ||
+    ((ctx.finding.evidenceValues || {}) as Record<string, unknown>).proposed
+  const p = (proposed || {}) as { title?: string | null; description?: string | null }
+  if (!p.title && !p.description) {
+    return { ok: false, error: 'Missing title/description proposal' }
+  }
+  let updated = 0
+  let html = ctx.fileContent
+  // Replace <title>
+  if (p.title) {
+    if (/<title[\s>]/i.test(html)) {
+      const before = html
+      html = html.replace(/<title[^>]*>[\s\S]*?<\/title>/i, `<title>${p.title}</title>`)
+      if (html !== before) updated++
+    } else if (/<\/head>/i.test(html)) {
+      html = html.replace(/<\/head>/i, `<title>${p.title}</title>\n</head>`)
+      updated++
+    }
+  }
+  // Replace meta[name=description]
+  if (p.description) {
+    if (/<meta[^>]+name=["']description["'][^>]*>/i.test(html)) {
+      const before = html
+      html = html.replace(
+        /<meta[^>]+name=["']description["'][^>]*>/i,
+        `<meta name="description" content="${p.description}">`,
+      )
+      if (html !== before) updated++
+    } else if (/<\/head>/i.test(html)) {
+      html = html.replace(
+        /<\/head>/i,
+        `<meta name="description" content="${p.description}">\n</head>`,
+      )
+      updated++
+    }
+  }
+  return { ok: true, path: ctx.path, newContent: html, updated, noop: updated === 0 }
+}
+
+const verifyTitleMeta: TransformVerifier = async (ctx) => {
+  const ev = (ctx.finding.proposedDiff || {}) as Record<string, unknown>
+  const proposed =
+    (ev.proposed as { title?: string | null; description?: string | null } | undefined) ||
+    ((ctx.finding.evidenceValues || {}) as Record<string, unknown>).proposed
+  const p = (proposed || {}) as { title?: string | null; description?: string | null }
+  const head = inspectDocumentHead(ctx.body)
+  const titleOk = p.title
+    ? (head.titlesInHead[0]?.text || '').includes(p.title) ||
+      ctx.body.includes(`<title>${p.title}</title>`)
+    : true
+  const descOk = p.description
+    ? (head.descriptionsInHead[0]?.content || '').includes(p.description) ||
+      (ctx.body.includes(`name="description"`) && ctx.body.includes(`content="${p.description}"`))
+    : true
+  return {
+    ok: Boolean(titleOk && descOk),
+    detail: `title ${titleOk ? 'ok' : 'missing'}; description ${descOk ? 'ok' : 'missing'}`,
+  }
 }
 
 const topic40AddArticleJsonLd: TransformHandler = async (ctx) => {
@@ -736,6 +800,14 @@ const verifyTopic74: TransformVerifier = async (ctx) => {
 // ── Registry ──────────────────────────────────────────────────────
 
 const REGISTRY: RegistryEntry[] = [
+  {
+    topicId: 'titlemeta',
+    verdict: 'auto-update-title-description',
+    handler: updateTitleMeta,
+    resolvePath: storedSourcePath,
+    previewVerifier: verifyTitleMeta,
+    productionVerifier: verifyTitleMeta,
+  },
   {
     topicId: '49',
     verdict: 'auto-set-dimensions',

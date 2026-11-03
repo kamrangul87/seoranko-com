@@ -1113,3 +1113,203 @@ Production fixes for #13–#15 stand. Resolution-driven closure was not availabl
 | Production verify | **OK** — 2026-11-03T09:43:58.523Z |
 | Production detail | Fixture marker present in fetched body |
 | Outcome | **closed** |
+
+---
+
+## 49. Topic fixture · `auto-fixture-patch` · https://fixture.example/a.html
+
+| Field | Value |
+|-------|-------|
+| Origin | `https://fixture.example` |
+| Topic | fixture |
+| Verdict | `auto-fixture-patch` |
+| Page | https://fixture.example/a.html |
+| Kind | `fixture/patch` |
+| Detected | 2026-11-03T10:14:33.681Z |
+| Fixed | 2026-11-03T10:14:33.689Z |
+| PR | [https://github.com/fixture/repo/pull/1](https://github.com/fixture/repo/pull/1) (#1) |
+| Merge SHA | `sha4` |
+| auto_merged | **false** |
+| Production verify | **OK** — 2026-11-03T10:14:33.689Z |
+| Production detail | Fixture marker present in fetched body |
+| Outcome | **closed** |
+
+---
+
+## 50. Topic fixture · `auto-fixture-patch` · https://fixture.example/b.html
+
+| Field | Value |
+|-------|-------|
+| Origin | `https://fixture.example` |
+| Topic | fixture |
+| Verdict | `auto-fixture-patch` |
+| Page | https://fixture.example/b.html |
+| Kind | `fixture/patch` |
+| Detected | 2026-11-03T10:14:33.681Z |
+| Fixed | 2026-11-03T10:14:33.691Z |
+| PR | [https://github.com/fixture/repo/pull/1](https://github.com/fixture/repo/pull/1) (#1) |
+| Merge SHA | `sha4` |
+| auto_merged | **false** |
+| Production verify | **OK** — 2026-11-03T10:14:33.691Z |
+| Production detail | Fixture marker present in fetched body |
+| Outcome | **closed** |
+
+---
+
+## 51. Topic fixture · `auto-fixture-patch` · https://fixture.example/c.html
+
+| Field | Value |
+|-------|-------|
+| Origin | `https://fixture.example` |
+| Topic | fixture |
+| Verdict | `auto-fixture-patch` |
+| Page | https://fixture.example/c.html |
+| Kind | `fixture/patch` |
+| Detected | 2026-11-03T10:14:33.681Z |
+| Fixed | 2026-11-03T10:14:33.692Z |
+| PR | [https://github.com/fixture/repo/pull/1](https://github.com/fixture/repo/pull/1) (#1) |
+| Merge SHA | `sha4` |
+| auto_merged | **false** |
+| Production verify | **OK** — 2026-11-03T10:14:33.692Z |
+| Production detail | Fixture marker present in fetched body |
+| Outcome | **closed** |
+
+---
+
+## 52. Topic fixture · `auto-fixture-patch` · https://fixture.example/a.html
+
+| Field | Value |
+|-------|-------|
+| Origin | `https://fixture.example` |
+| Topic | fixture |
+| Verdict | `auto-fixture-patch` |
+| Page | https://fixture.example/a.html |
+| Kind | `fixture/patch` |
+| Detected | 2026-11-03T10:14:33.694Z |
+| Fixed | 2026-11-03T10:14:33.705Z |
+| PR | [https://github.com/fixture/repo/pull/1](https://github.com/fixture/repo/pull/1) (#1) |
+| Merge SHA | `sha4` |
+| auto_merged | **false** |
+| Production verify | **OK** — 2026-11-03T10:14:33.705Z |
+| Production detail | Fixture marker present in fetched body |
+| Outcome | **closed** |
+
+---
+
+## 53. Topic fixture · `auto-fixture-patch` · https://fixture.example/b.html
+
+| Field | Value |
+|-------|-------|
+| Origin | `https://fixture.example` |
+| Topic | fixture |
+| Verdict | `auto-fixture-patch` |
+| Page | https://fixture.example/b.html |
+| Kind | `fixture/patch` |
+| Detected | 2026-11-03T10:14:33.694Z |
+| Fixed | 2026-11-03T10:14:33.710Z |
+| PR | [https://github.com/fixture/repo/pull/1](https://github.com/fixture/repo/pull/1) (#1) |
+| Merge SHA | `sha4` |
+| auto_merged | **false** |
+| Production verify | **OK** — 2026-11-03T10:14:33.710Z |
+| Production detail | Fixture marker present in fetched body |
+| Outcome | **closed** |
+
+---
+
+## 54. Topic fixture · `auto-fixture-patch` · https://fixture.example/c.html
+
+| Field | Value |
+|-------|-------|
+| Origin | `https://fixture.example` |
+| Topic | fixture |
+| Verdict | `auto-fixture-patch` |
+| Page | https://fixture.example/c.html |
+| Kind | `fixture/patch` |
+| Detected | 2026-11-03T10:14:33.694Z |
+| Fixed | 2026-11-03T10:14:33.711Z |
+| PR | [https://github.com/fixture/repo/pull/1](https://github.com/fixture/repo/pull/1) (#1) |
+| Merge SHA | `sha4` |
+| auto_merged | **false** |
+| Production verify | **OK** — 2026-11-03T10:14:33.711Z |
+| Production detail | Fixture marker present in fetched body |
+| Outcome | **closed** |
+
+---
+
+## 55. Topic fixture · `auto-fixture-patch` · https://fixture.example/a.html
+
+| Field | Value |
+|-------|-------|
+| Origin | `https://fixture.example` |
+| Topic | fixture |
+| Verdict | `auto-fixture-patch` |
+| Page | https://fixture.example/a.html |
+| Kind | `fixture/patch` |
+| Detected | 2026-11-03T10:14:33.715Z |
+| Fixed | 2026-11-03T10:14:33.727Z |
+| PR | [https://github.com/fixture/repo/pull/1](https://github.com/fixture/repo/pull/1) (#1) |
+| Merge SHA | `sha3` |
+| auto_merged | **false** |
+| Production verify | **OK** — 2026-11-03T10:14:33.727Z |
+| Production detail | Fixture marker present in fetched body |
+| Outcome | **closed** |
+
+---
+
+## 56. Topic fixture · `auto-fixture-patch` · https://fixture.example/c.html
+
+| Field | Value |
+|-------|-------|
+| Origin | `https://fixture.example` |
+| Topic | fixture |
+| Verdict | `auto-fixture-patch` |
+| Page | https://fixture.example/c.html |
+| Kind | `fixture/patch` |
+| Detected | 2026-11-03T10:14:33.715Z |
+| Fixed | 2026-11-03T10:14:33.728Z |
+| PR | [https://github.com/fixture/repo/pull/1](https://github.com/fixture/repo/pull/1) (#1) |
+| Merge SHA | `sha3` |
+| auto_merged | **false** |
+| Production verify | **OK** — 2026-11-03T10:14:33.728Z |
+| Production detail | Fixture marker present in fetched body |
+| Outcome | **closed** |
+
+---
+
+## 57. Topic fixture · `auto-fixture-patch` · https://fixture.example/a.html
+
+| Field | Value |
+|-------|-------|
+| Origin | `https://fixture.example` |
+| Topic | fixture |
+| Verdict | `auto-fixture-patch` |
+| Page | https://fixture.example/a.html |
+| Kind | `fixture/patch` |
+| Detected | 2026-11-03T10:14:39.279Z |
+| Fixed | 2026-11-03T10:14:39.289Z |
+| PR | [https://github.com/fixture/repo/pull/1](https://github.com/fixture/repo/pull/1) (#1) |
+| Merge SHA | `sha2` |
+| auto_merged | **false** |
+| Production verify | **OK** — 2026-11-03T10:14:39.289Z |
+| Production detail | Fixture marker present in fetched body |
+| Outcome | **closed** |
+
+---
+
+## 58. Topic fixture · `auto-fixture-patch` · https://fixture.example/a.html
+
+| Field | Value |
+|-------|-------|
+| Origin | `https://fixture.example` |
+| Topic | fixture |
+| Verdict | `auto-fixture-patch` |
+| Page | https://fixture.example/a.html |
+| Kind | `fixture/patch` |
+| Detected | 2026-11-03T10:14:42.490Z |
+| Fixed | 2026-11-03T10:14:42.492Z |
+| PR | []() (#123) |
+| Merge SHA | `cafebabe` |
+| auto_merged | **false** |
+| Production verify | **OK** — 2026-11-03T10:14:42.492Z |
+| Production detail | Fixture marker present in fetched body |
+| Outcome | **closed** |

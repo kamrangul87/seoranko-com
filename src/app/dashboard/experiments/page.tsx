@@ -164,6 +164,15 @@ function ExperimentsPageInner() {
       }
     | null
   >(null)
+  const [suggestions, setSuggestions] = useState<Record<string, {
+    currentTitle: string | null
+    currentDescription: string | null
+    suggestedTitle: string | null
+    suggestedDescription: string | null
+    targetedQueries: string[]
+    loading?: boolean
+    error?: string | null
+  }>>({})
 
   const reloadSites = useCallback(async () => {
     const supabase = createClient()
@@ -409,6 +418,56 @@ function ExperimentsPageInner() {
     } finally {
       setBusy(false)
     }
+  }
+
+  async function fetchSuggestion(url: string) {
+    if (!siteId) return
+    setSuggestions((s) => ({ ...s, [url]: { ...(s[url] || {}), loading: true, error: null, currentTitle: null, currentDescription: null, suggestedTitle: null, suggestedDescription: null, targetedQueries: [] } }))
+    try {
+      const res = await fetch(`/api/gsc/title-meta/suggest?siteId=${encodeURIComponent(siteId)}&url=${encodeURIComponent(url)}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Could not build suggestion')
+      const sug = data.suggestion
+      setSuggestions((s) => ({
+        ...s,
+        [url]: {
+          currentTitle: sug?.currentTitle ?? null,
+          currentDescription: sug?.currentDescription ?? null,
+          suggestedTitle: sug?.suggestedTitle ?? null,
+          suggestedDescription: sug?.suggestedDescription ?? null,
+          targetedQueries: sug?.targetedQueries ?? [],
+          loading: false,
+          error: null,
+        },
+      }))
+    } catch (err) {
+      setSuggestions((s) => ({
+        ...s,
+        [url]: { ...(s[url] || {}), loading: false, error: err instanceof Error ? err.message : 'Failed', currentTitle: null, currentDescription: null, suggestedTitle: null, suggestedDescription: null, targetedQueries: [] },
+      }))
+    }
+  }
+
+  async function openTitleMetaPr(row: { url: string }) {
+    const sug = suggestions[row.url]
+    if (!sug || (!sug.suggestedTitle && !sug.suggestedDescription)) return
+    const res = await fetch('/api/gsc/title-meta/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        siteId,
+        url: row.url,
+        title: sug.suggestedTitle,
+        description: sug.suggestedDescription,
+        queries: sug.targetedQueries,
+      }),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      setError(data.error || 'Could not open PR')
+      return
+    }
+    setMessage('Proposed PR branch prepared — open the Findings tab to approve and commit.')
   }
 
   async function runSync(action: 'sync' | 'backfill' | 'recheck') {
@@ -996,12 +1055,53 @@ function ExperimentsPageInner() {
                             <td className="py-2 pr-3">{row.impressions.toLocaleString()}</td>
                             <td className="py-2 pr-3">{row.clicks.toLocaleString()}</td>
                             <td className="py-2 pr-3">{(row.ctr * 100).toFixed(1)}%</td>
-                            <td className="py-2">
+                          <td className="py-2 align-top">
                               <ul className="list-disc pl-5 space-y-0.5">
                                 {row.suggested_actions.map((a, i) => (
                                   <li key={i} className="text-[#0F0F0F]">{a}</li>
                                 ))}
                               </ul>
+                            <div className="mt-2">
+                              <button
+                                className="text-xs px-2 py-1 border rounded hover:bg-[#F5F5F2]"
+                                onClick={() => fetchSuggestion(row.url)}
+                                disabled={Boolean(suggestions[row.url]?.loading)}
+                              >
+                                {suggestions[row.url]?.loading ? 'Building…' : 'Get title/description suggestion'}
+                              </button>
+                            </div>
+                            {suggestions[row.url] && !suggestions[row.url]?.loading && (
+                              <div className="mt-2 text-xs">
+                                {suggestions[row.url]?.error ? (
+                                  <div className="text-red-600">{suggestions[row.url]?.error}</div>
+                                ) : (
+                                  <>
+                                    <div>
+                                      <span className="font-medium text-[#0F0F0F]">Title:</span>{' '}
+                                      <span className="line-through decoration-red-400/70">{suggestions[row.url]?.currentTitle || '—'}</span>{' '}
+                                      → <span className="text-[#0F0F0F]">{suggestions[row.url]?.suggestedTitle || '—'}</span>
+                                    </div>
+                                    <div className="mt-1">
+                                      <span className="font-medium text-[#0F0F0F]">Description:</span>{' '}
+                                      <span className="line-through decoration-red-400/70">{suggestions[row.url]?.currentDescription || '—'}</span>{' '}
+                                      → <span className="text-[#0F0F0F]">{suggestions[row.url]?.suggestedDescription || '—'}</span>
+                                    </div>
+                                    <div className="mt-1">
+                                      <span className="font-medium text-[#0F0F0F]">Targets queries:</span> {suggestions[row.url]?.targetedQueries.join(', ') || '—'}
+                                    </div>
+                                    <div className="mt-2">
+                                      <button
+                                        className="text-xs px-2 py-1 border rounded bg-[#0F0F0F] text-white hover:opacity-90 disabled:opacity-50"
+                                        onClick={() => openTitleMetaPr(row)}
+                                        disabled={!suggestions[row.url]?.suggestedTitle && !suggestions[row.url]?.suggestedDescription}
+                                      >
+                                        Create PR
+                                      </button>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            )}
                             </td>
                           </tr>
                         ))}
