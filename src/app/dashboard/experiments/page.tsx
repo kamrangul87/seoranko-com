@@ -179,6 +179,13 @@ function ExperimentsPageInner() {
     loading?: boolean
     error?: string | null
   }>>({})
+  const [contentGaps, setContentGaps] = useState<Record<string, {
+    basis: 'serp' | 'queries-only'
+    gaps: Array<{ gap: string; servesQueries: string[] }>
+    notes: string[]
+    loading?: boolean
+    error?: string | null
+  }>>({})
 
   const reloadSites = useCallback(async () => {
     const supabase = createClient()
@@ -524,6 +531,36 @@ function ExperimentsPageInner() {
       return
     }
     setMessage('Proposed PR branch prepared — open the Findings tab to approve and commit.')
+  }
+
+  async function fetchContentGaps(url: string) {
+    if (!siteId) return
+    setContentGaps((s) => ({ ...s, [url]: { ...(s[url] || { basis: 'queries-only', gaps: [], notes: [] }), loading: true, error: null } }))
+    try {
+      const res = await fetch(`/api/gsc/content-gaps/suggest?siteId=${encodeURIComponent(siteId)}&url=${encodeURIComponent(url)}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Could not build content gaps brief')
+      const brief = data.brief
+      if (!brief) {
+        setContentGaps((s) => ({ ...s, [url]: { basis: 'queries-only', gaps: [], notes: [], loading: false, error: 'No data' } }))
+        return
+      }
+      setContentGaps((s) => ({
+        ...s,
+        [url]: {
+          basis: brief.basis,
+          gaps: brief.gaps || [],
+          notes: brief.notes || [],
+          loading: false,
+          error: null,
+        },
+      }))
+    } catch (err) {
+      setContentGaps((s) => ({
+        ...s,
+        [url]: { ...(s[url] || { basis: 'queries-only', gaps: [], notes: [] }), loading: false, error: err instanceof Error ? err.message : 'Failed' },
+      }))
+    }
   }
 
   async function runSync(action: 'sync' | 'backfill' | 'recheck') {
@@ -1121,6 +1158,15 @@ function ExperimentsPageInner() {
                                 {linkSuggestions[row.url]?.loading ? 'Finding link opportunities…' : 'Get internal link suggestions'}
                               </button>
                             </div>
+                            <div className="mt-2">
+                              <button
+                                className="text-xs px-2 py-1 border rounded hover:bg-[#F5F5F2]"
+                                onClick={() => fetchContentGaps(row.url)}
+                                disabled={Boolean(contentGaps[row.url]?.loading)}
+                              >
+                                {contentGaps[row.url]?.loading ? 'Analysing content gaps…' : 'Content gaps'}
+                              </button>
+                            </div>
                             {linkSuggestions[row.url] && !linkSuggestions[row.url]?.loading && (
                               <div className="mt-2 text-xs">
                                 {linkSuggestions[row.url]?.error ? (
@@ -1146,6 +1192,32 @@ function ExperimentsPageInner() {
                                         </li>
                                       ))}
                                     </ul>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {contentGaps[row.url] && !contentGaps[row.url]?.loading && (
+                              <div className="mt-2 text-xs">
+                                {contentGaps[row.url]?.error ? (
+                                  <div className="text-red-600">{contentGaps[row.url]?.error}</div>
+                                ) : contentGaps[row.url]?.gaps.length === 0 ? (
+                                  <div>No clear gaps detected.</div>
+                                ) : (
+                                  <div className="space-y-1">
+                                    <div className="font-medium text-[#0F0F0F]">What's missing:</div>
+                                    <ul className="list-disc pl-5 space-y-1">
+                                      {contentGaps[row.url]?.gaps.map((g, i) => (
+                                        <li key={i}>
+                                          <span className="text-[#0F0F0F]">{g.gap}</span>
+                                          {g.servesQueries?.length ? (
+                                            <span className="ml-2 text-[#6B6B6B]">({g.servesQueries.join(', ')})</span>
+                                          ) : null}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                    {contentGaps[row.url]?.notes?.length ? (
+                                      <p className="text-[#6B6B6B]">{contentGaps[row.url]?.notes.join(' ')}</p>
+                                    ) : null}
                                   </div>
                                 )}
                               </div>
