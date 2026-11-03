@@ -1338,13 +1338,15 @@ export async function tickFixRun(input: {
           [PROD_DEPLOY_WAIT_STARTED_KEY]: now,
         }
       }
-      const canPollDeploy = !!ops.waitForProductionDeploy
-      const prod = canPollDeploy
-        ? await ops.waitForProductionDeploy({
-            creds,
-            mergeSha: run.mergeSha,
-          })
-        : ({ ok: false, pending: true, error: 'waitForProductionDeploy unavailable' } as const)
+      const waitForProd = ops.waitForProductionDeploy
+      const canPollDeploy = typeof waitForProd === 'function'
+      const prod =
+        canPollDeploy
+          ? await waitForProd({
+              creds,
+              mergeSha: run.mergeSha,
+            })
+          : ({ ok: false, pending: true, error: 'waitForProductionDeploy unavailable' } as const)
       const startedRaw = run.prevContents[PROD_DEPLOY_WAIT_STARTED_KEY]
       const startedMs = startedRaw ? Date.parse(startedRaw) : Date.parse(now)
       const elapsed = Date.now() - (Number.isFinite(startedMs) ? startedMs : Date.parse(now))
@@ -1414,10 +1416,12 @@ export async function tickFixRun(input: {
         ...run.prevContents,
         [PROD_DEPLOY_READY_KEY]: '1',
       }
+      const readyDetail =
+        canPollDeploy && prod.ok ? prod.detail : 'assumed READY by timeout'
       console.info('[fix-run] production deploy ready', {
         runId: run.id,
         mergeSha: run.mergeSha,
-        detail: prod.detail,
+        detail: readyDetail,
       })
       await save()
       // Fall through and verify the first item in this same tick.
