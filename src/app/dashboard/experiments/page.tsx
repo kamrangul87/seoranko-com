@@ -173,6 +173,12 @@ function ExperimentsPageInner() {
     loading?: boolean
     error?: string | null
   }>>({})
+  const [weekly, setWeekly] = useState<null | {
+    weekEnding: string
+    totals: { clicks: { current: number; previous: number; delta: number }, impressions: { current: number; previous: number; delta: number } }
+    wins: Array<{ url: string; query: string; positionChange: number; clicksDelta: number; week2: { avg_position: number } }>
+    nextAction: null | { url: string; query: string; avg_position: number; ctr: number; suggestedFix: 'title_meta' | 'internal_links' | 'content_gaps' | 'schema' }
+  }>(null)
   const [linkSuggestions, setLinkSuggestions] = useState<Record<string, {
     anchorText: string
     sources: Array<{ sourceUrl: string; insertion: 'related-list' }>
@@ -261,6 +267,27 @@ function ExperimentsPageInner() {
   useEffect(() => {
     if (siteId) void loadStatus(siteId)
   }, [siteId, loadStatus])
+
+  useEffect(() => {
+    // Load weekly report (best‑effort; ignore failures)
+    setWeekly(null)
+    if (!siteId) return
+    void (async () => {
+      try {
+        const res = await fetch(`/api/reports/weekly?siteId=${encodeURIComponent(siteId)}`)
+        const data = await res.json()
+        if (!res.ok) return
+        setWeekly({
+          weekEnding: data.weekEnding,
+          totals: data.totals,
+          wins: (data.wins || []).slice(0, 3),
+          nextAction: data.nextAction || null,
+        })
+      } catch {
+        // ignore
+      }
+    })()
+  }, [siteId])
 
   useEffect(() => {
     setOpportunities(null)
@@ -1108,6 +1135,53 @@ function ExperimentsPageInner() {
               </div>
 
               <div className="border border-[#E5E5E5] rounded-lg px-4 py-4 bg-white space-y-3">
+            {weekly ? (
+              <div className="mb-3 border border-[#F0F0F0] rounded-lg p-3 bg-[#FCFCFA]">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h2 className="font-medium">This week</h2>
+                    <p className="text-xs text-[#6B6B6B]">Week ending {weekly.weekEnding} — finalized GSC only</p>
+                  </div>
+                  <div className="flex gap-4">
+                    <div className="text-center">
+                      <div className="text-[18px] font-semibold text-[#0F0F0F]">{weekly.totals.clicks.current.toLocaleString()}</div>
+                      <div className="text-xs text-[#6B6B6B]">Clicks ({weekly.totals.clicks.delta >= 0 ? '+' : ''}{weekly.totals.clicks.delta})</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-[18px] font-semibold text-[#0F0F0F]">{weekly.totals.impressions.current.toLocaleString()}</div>
+                      <div className="text-xs text-[#6B6B6B]">Impr. ({weekly.totals.impressions.delta >= 0 ? '+' : ''}{weekly.totals.impressions.delta})</div>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-2 text-xs">
+                  {weekly.wins.length > 0 ? (
+                    <div>
+                      <span className="font-medium text-[#0F0F0F]">Wins:</span>{' '}
+                      {weekly.wins.map((w, i) => (
+                        <span key={i} className="mr-2">
+                          “{w.query}” pos {w.week2.avg_position.toFixed(1)} ({w.clicksDelta >= 0 ? '+' : ''}{w.clicksDelta} clicks)
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div>No clear week‑over‑week improvements yet.</div>
+                  )}
+                  {weekly.nextAction ? (
+                    <div className="mt-1">
+                      <span className="font-medium text-[#0F0F0F]">Next:</span>{' '}
+                      {weekly.nextAction.suggestedFix === 'title_meta'
+                        ? 'Improve title/description'
+                        : weekly.nextAction.suggestedFix === 'internal_links'
+                          ? 'Add internal links'
+                          : weekly.nextAction.suggestedFix === 'content_gaps'
+                            ? 'Cover missing subtopics'
+                            : 'Add schema'}{' '}
+                      for “{weekly.nextAction.query}”.
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
                 <div className="flex flex-wrap justify-between gap-2 items-start">
                   <div>
                     <h2 className="font-medium">Page‑2 opportunities</h2>
