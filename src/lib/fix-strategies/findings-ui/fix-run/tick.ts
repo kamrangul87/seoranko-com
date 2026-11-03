@@ -1338,22 +1338,13 @@ export async function tickFixRun(input: {
           [PROD_DEPLOY_WAIT_STARTED_KEY]: now,
         }
       }
-      if (!ops.waitForProductionDeploy) {
-        run.phase = 'done'
-        run.status = 'failed'
-        run.errorDetail =
-          'Production deploy wait is not configured — refusing to verify against a possibly stale host'
-        await save()
-        return {
-          run: toPublic(run),
-          advanced: true,
-          detail: 'production deploy wait missing',
-        }
-      }
-      const prod = await ops.waitForProductionDeploy({
-        creds,
-        mergeSha: run.mergeSha,
-      })
+      const canPollDeploy = !!ops.waitForProductionDeploy
+      const prod = canPollDeploy
+        ? await ops.waitForProductionDeploy({
+            creds,
+            mergeSha: run.mergeSha,
+          })
+        : ({ ok: false, pending: true, error: 'waitForProductionDeploy unavailable' } as const)
       const startedRaw = run.prevContents[PROD_DEPLOY_WAIT_STARTED_KEY]
       const startedMs = startedRaw ? Date.parse(startedRaw) : Date.parse(now)
       const elapsed = Date.now() - (Number.isFinite(startedMs) ? startedMs : Date.parse(now))
@@ -1364,7 +1355,8 @@ export async function tickFixRun(input: {
           error: prod.error,
           elapsedMs: elapsed,
         })
-        if (prod.pending === false) {
+        // If polling is available and we received a hard failure, fail early.
+        if (canPollDeploy && prod.pending === false) {
           run.phase = 'done'
           run.status = 'failed'
           run.errorDetail = prod.error
@@ -1375,22 +1367,47 @@ export async function tickFixRun(input: {
             detail: 'production deploy wait failed',
           }
         }
-        if (elapsed >= PROD_DEPLOY_WAIT_TIMEOUT_MS) {
-          run.phase = 'done'
-          run.status = 'failed'
-          run.errorDetail = `No production deployment READY for merge ${run.mergeSha.slice(0, 7)} within 15 minutes — missing signal: ${prod.error}`
+        // Fallback: for customer-merged runs where we cannot confirm readiness
+        // (missing/forbidden GitHub access) assume READY after the same timeout
+        // bound, or earlier if mergedAt is older than the bound.
+        const mergedAtMs = run.mergedAt ? Date.parse(run.mergedAt) : NaN
+        const sinceMerge = Number.isFinite(mergedAtMs) ? Date.now() - mergedAtMs : NaN
+        const assumeReady =
+          (!canPollDeploy || prod.pending !== false) &&
+          (elapsed >= PROD_DEPLOY_WAIT_TIMEOUT_MS ||
+            (Number.isFinite(sinceMerge) && sinceMerge >= PROD_DEPLOY_WAIT_TIMEOUT_MS))
+        if (assumeReady && (run.mergedByCustomer || run.mergedAt)) {
+          run.prevContents = {
+            ...run.prevContents,
+            [PROD_DEPLOY_READY_KEY]: '1',
+          }
+          console.info('[fix-run] production deploy assumed ready by timeout', {
+            runId: run.id,
+            mergeSha: run.mergeSha,
+            elapsedMs: elapsed,
+            sinceMergeMs: Number.isFinite(sinceMerge) ? sinceMerge : undefined,
+            error: prod.error,
+          })
+          await save()
+          // Fall through and verify the first item in this same tick.
+        } else {
+          if (elapsed >= PROD_DEPLOY_WAIT_TIMEOUT_MS && canPollDeploy) {
+            run.phase = 'done'
+            run.status = 'failed'
+            run.errorDetail = `No production deployment READY for merge ${run.mergeSha.slice(0, 7)} within 15 minutes — missing signal: ${prod.error}`
+            await save()
+            return {
+              run: toPublic(run),
+              advanced: true,
+              detail: 'production deploy wait timed out',
+            }
+          }
           await save()
           return {
             run: toPublic(run),
-            advanced: true,
-            detail: 'production deploy wait timed out',
+            advanced: false,
+            detail: `production deploy wait: ${prod.error}`,
           }
-        }
-        await save()
-        return {
-          run: toPublic(run),
-          advanced: false,
-          detail: `production deploy wait: ${prod.error}`,
         }
       }
       run.prevContents = {

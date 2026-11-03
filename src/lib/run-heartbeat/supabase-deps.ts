@@ -223,9 +223,31 @@ export function createSupabaseHeartbeatDeps(): HeartbeatDeps {
       const store = getFixRunStore()
       const run = await store.getRun(id, userId)
       if (!run) return { advanced: false }
-      const resolved = await resolveFixCreds(userId, run.siteId)
-      if (!resolved) {
-        console.error('[heartbeat] tickFix: no github creds', { id, userId })
+      // Resolve GitHub creds if available. If missing (site disconnected or
+      // permissions revoked), still tick the run so self-heal and production
+      // verification fallback can proceed without GitHub API access.
+      const resolved = await resolveFixCreds(userId, run.siteId).catch(() => null)
+      // Always resolve the production origin so live verification can run.
+      let domain = resolved?.domain || ''
+      if (!domain) {
+        try {
+          const sb = createServiceRoleClient()
+          const { data: site } = await sb
+            .from('connected_sites')
+            .select('domain')
+            .eq('id', run.siteId)
+            .maybeSingle()
+          domain = String(site?.domain || '')
+        } catch {
+          /* noop */
+        }
+      }
+      if (!domain) {
+        console.error('[heartbeat] tickFix: missing site domain', {
+          id,
+          userId,
+          siteId: run.siteId,
+        })
         return { advanced: false }
       }
       const result = await tickFixRun({
@@ -233,8 +255,17 @@ export function createSupabaseHeartbeatDeps(): HeartbeatDeps {
         userId,
         deps: defaultTickDeps({
           ops: createLiveGithubOps(),
-          creds: resolved.creds,
-          siteOrigin: `https://${resolved.domain}`,
+          // Pass creds when available; otherwise a blank token. tick.ts contains
+          // a timeout-based production-verify fallback for customer-merged runs
+          // so verification can proceed without GitHub API access.
+          creds:
+            resolved?.creds || {
+              owner: '',
+              repo: '',
+              baseBranch: 'main',
+              accessToken: '',
+            },
+          siteOrigin: `https://${domain}`,
         }),
       })
       return { advanced: result.advanced }
