@@ -52,6 +52,9 @@ export const DETECTOR_REPRESENTATION_BY_TOPIC: Record<string, DetectorRepresenta
   '34': 'rendered',
   // content raw-shell check
   '32': 'raw',
+  // structured-data presence detectors (article/faq missing)
+  '40': 'rendered',
+  '41': 'rendered',
 
   // structured data — rendered when available
   '35': 'rendered',

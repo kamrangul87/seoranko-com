@@ -888,6 +888,39 @@ export async function runDetectorsOnPages(
       out,
       pageUrl,
     )
+    // Topics 40/41 — presence checks: add minimal JSON-LD for Article/FAQ
+    {
+      const { detectArticleSchemaMissing } = await import(
+        '@/lib/fix-strategies/topic-40/detect'
+      )
+      takeBuckets(
+        '40',
+        'structured-data/missing-article',
+        detectArticleSchemaMissing({
+          html: contentHtml,
+          pageUrl,
+          extraction,
+        }),
+        out,
+        pageUrl,
+      )
+    }
+    {
+      const { detectFaqSchemaMissing } = await import(
+        '@/lib/fix-strategies/topic-41/detect'
+      )
+      takeBuckets(
+        '41',
+        'structured-data/missing-faq',
+        detectFaqSchemaMissing({
+          html: contentHtml,
+          pageUrl,
+          extraction,
+        }),
+        out,
+        pageUrl,
+      )
+    }
 
     const img = await detectImgMissingDimensions(
       pageBodyForTopic('49', p),
