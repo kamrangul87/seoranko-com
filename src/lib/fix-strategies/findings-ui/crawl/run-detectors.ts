@@ -671,6 +671,22 @@ export async function runDetectorsOnPages(
       (p.rawHtml || p.html) &&
       !isSitemapXmlDocument(p.rawHtml || p.html || ''),
   )
+  // Topic 32 — client-rendered shell served thin/missing core content (raw)
+  for (const p of rawJudgePages) {
+    const { detectClientRenderedThinOrMissingHeadings } = await import(
+      '@/lib/fix-strategies/topic-32/detect'
+    )
+    takeBuckets(
+      '32',
+      'content/client-rendered-shell',
+      detectClientRenderedThinOrMissingHeadings({
+        html: pageBodyForTopic('32', p),
+        pageUrl: p.finalUrl,
+      }),
+      out,
+      p.finalUrl,
+    )
+  }
   takeBuckets(
     '73',
     'crawlability/zero-raw-crawlable-anchors',
