@@ -1204,7 +1204,7 @@ function ExperimentsPageInner() {
                                   <div>No clear gaps detected.</div>
                                 ) : (
                                   <div className="space-y-1">
-                                    <div className="font-medium text-[#0F0F0F]">What's missing:</div>
+                                    <div className="font-medium text-[#0F0F0F]">What’s missing:</div>
                                     <ul className="list-disc pl-5 space-y-1">
                                       {contentGaps[row.url]?.gaps.map((g, i) => (
                                         <li key={i}>

@@ -91,7 +91,7 @@ export async function buildContentGapsBrief(input: {
   const topQueries = input.queries.slice(0, 3)
 
   // Try SERP-based gap analysis first (best-effort; returns empty on failure).
-  let gaps: ContentGapItem[] = []
+  const gaps: ContentGapItem[] = []
   let basis: ContentGapsBrief['basis'] = 'queries-only'
   try {
     const serp = await analyzeSerpGap(topQueries[0] || '', market)
