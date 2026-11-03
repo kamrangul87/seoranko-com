@@ -15,8 +15,16 @@ describe('topic 41 — FAQPage JSON-LD missing', () => {
     const r = detectFaqSchemaMissing({ html: h, pageUrl: 'https://example.com/faq' })
     expect(r.findings.some((f) => f.verdict === 'auto-add-faq-json-ld')).toBe(true)
     const f = r.findings[0]!
-    expect((f.proposed.jsonLd as any)['@type']).toBe('FAQPage')
-    const me = (f.proposed.jsonLd as any).mainEntity as any[]
+    const jl = f.proposed.jsonLd as {
+      ['@type']?: string
+      mainEntity?: Array<{
+        acceptedAnswer?: { text?: string }
+      }>
+    }
+    expect(jl['@type']).toBe('FAQPage')
+    const me = (jl.mainEntity ?? []) as Array<{
+      acceptedAnswer?: { text?: string }
+    }>
     expect(me.length).toBeGreaterThanOrEqual(2)
     expect(me[0].acceptedAnswer.text).toBe('A1.')
   })

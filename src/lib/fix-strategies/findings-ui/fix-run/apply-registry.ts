@@ -169,12 +169,29 @@ const topic49Handler: TransformHandler = async (ctx) => {
   }
 }
 
+function proposedJsonLdFromFinding(
+  finding: PersistedFindingRow,
+): Record<string, unknown> | null {
+  const fromProposed = finding.proposedDiff && typeof finding.proposedDiff === 'object'
+    ? (finding.proposedDiff as Record<string, unknown>)['proposed']
+    : null
+  if (fromProposed && typeof fromProposed === 'object' && 'jsonLd' in (fromProposed as Record<string, unknown>)) {
+    const jl = (fromProposed as Record<string, unknown>)['jsonLd']
+    return jl && typeof jl === 'object' ? (jl as Record<string, unknown>) : null
+  }
+  const ev = finding.evidenceValues
+  if (ev && typeof ev === 'object' && 'proposed' in ev) {
+    const p = (ev as Record<string, unknown>)['proposed']
+    if (p && typeof p === 'object' && 'jsonLd' in (p as Record<string, unknown>)) {
+      const jl = (p as Record<string, unknown>)['jsonLd']
+      return jl && typeof jl === 'object' ? (jl as Record<string, unknown>) : null
+    }
+  }
+  return null
+}
+
 const topic40AddArticleJsonLd: TransformHandler = async (ctx) => {
-  const ev = (ctx.finding.proposedDiff?.proposed ||
-    (ctx.finding.evidenceValues as any)?.proposed) as
-    | { jsonLd?: Record<string, unknown> }
-    | undefined
-  const jsonLd = ev?.jsonLd
+  const jsonLd = proposedJsonLdFromFinding(ctx.finding)
   if (!jsonLd || typeof jsonLd !== 'object') {
     return { ok: false, error: 'Missing proposed JSON-LD for topic 40' }
   }
@@ -183,11 +200,7 @@ const topic40AddArticleJsonLd: TransformHandler = async (ctx) => {
 }
 
 const topic41AddFaqJsonLd: TransformHandler = async (ctx) => {
-  const ev = (ctx.finding.proposedDiff?.proposed ||
-    (ctx.finding.evidenceValues as any)?.proposed) as
-    | { jsonLd?: Record<string, unknown> }
-    | undefined
-  const jsonLd = ev?.jsonLd
+  const jsonLd = proposedJsonLdFromFinding(ctx.finding)
   if (!jsonLd || typeof jsonLd !== 'object') {
     return { ok: false, error: 'Missing proposed JSON-LD for topic 41' }
   }

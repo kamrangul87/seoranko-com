@@ -54,7 +54,7 @@ function isLikelyArticle(html: string): boolean {
   return false
 }
 
-function extractArticleFacts(html: string, pageUrl: string): {
+function extractArticleFacts(html: string): {
   headline: string | null
   datePublished: string | null
   dateModified: string | null
@@ -100,7 +100,7 @@ export function detectArticleSchemaMissing(input: {
     return { findings, suppressed }
   }
 
-  const facts = extractArticleFacts(input.html, input.pageUrl)
+  const facts = extractArticleFacts(input.html)
   if (!facts.headline) {
     suppressed.push({
       verdict: 'suppress-not-article',
@@ -109,16 +109,24 @@ export function detectArticleSchemaMissing(input: {
     return { findings, suppressed }
   }
 
-  const jsonLd: Record<string, unknown> = {
+  const jsonLd: {
+    '@context': 'https://schema.org'
+    '@type': 'Article'
+    headline: string
+    mainEntityOfPage: string
+    datePublished?: string
+    dateModified?: string
+    author?: { '@type': 'Person'; name: string }
+  } = {
     '@context': 'https://schema.org',
     '@type': 'Article',
     headline: facts.headline,
     mainEntityOfPage: input.pageUrl,
   }
-  if (facts.datePublished) (jsonLd as any).datePublished = facts.datePublished
-  if (facts.dateModified) (jsonLd as any).dateModified = facts.dateModified
+  if (facts.datePublished) jsonLd.datePublished = facts.datePublished
+  if (facts.dateModified) jsonLd.dateModified = facts.dateModified
   if (facts.authorName) {
-    ;(jsonLd as any).author = { '@type': 'Person', name: facts.authorName }
+    jsonLd.author = { '@type': 'Person', name: facts.authorName }
   }
 
   findings.push({

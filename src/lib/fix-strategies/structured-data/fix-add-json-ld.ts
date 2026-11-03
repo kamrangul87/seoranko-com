@@ -8,14 +8,24 @@ export function addJsonLdScript(
   fileContent: string,
   jsonLd: Record<string, unknown>,
 ): { html: string; updated: number } {
-  const type = String((jsonLd as any)['@type'] || '').toLowerCase()
-  const headline: string | null = typeof (jsonLd as any).headline === 'string' ? ((jsonLd as any).headline as string) : null
-  const q0: string | null =
-    Array.isArray((jsonLd as any).mainEntity) &&
-    (jsonLd as any).mainEntity[0] &&
-    typeof (jsonLd as any).mainEntity[0].name === 'string'
-      ? ((jsonLd as any).mainEntity[0].name as string)
-      : null
+  const getString = (obj: unknown, key: string): string | null => {
+    if (!obj || typeof obj !== 'object') return null
+    const v = (obj as Record<string, unknown>)[key]
+    return typeof v === 'string' ? v : null
+  }
+  const getFirstMainEntityName = (obj: unknown): string | null => {
+    if (!obj || typeof obj !== 'object') return null
+    const me = (obj as Record<string, unknown>)['mainEntity']
+    if (!Array.isArray(me)) return null
+    const first = me[0]
+    if (!first || typeof first !== 'object') return null
+    const name = (first as Record<string, unknown>)['name']
+    return typeof name === 'string' ? name : null
+  }
+
+  const type = (getString(jsonLd, '@type') ?? '').toLowerCase()
+  const headline = getString(jsonLd, 'headline')
+  const q0 = getFirstMainEntityName(jsonLd)
 
   // Basic duplicate guard: same @type with same headline/name string already present.
   const needle = headline || q0

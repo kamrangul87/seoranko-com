@@ -14,9 +14,14 @@ describe('topic 40 — article JSON-LD missing', () => {
     const r = detectArticleSchemaMissing({ html: h, pageUrl: 'https://example.com/post' })
     expect(r.findings.some((f) => f.verdict === 'auto-add-article-json-ld')).toBe(true)
     const f = r.findings[0]!
-    expect((f.proposed.jsonLd as any).headline).toBe('Great news')
-    expect((f.proposed.jsonLd as any).author?.name).toBe('Jane Doe')
-    expect((f.proposed.jsonLd as any)['@type']).toBe('Article')
+    const jl = f.proposed.jsonLd as {
+      headline?: string
+      author?: { name?: string }
+      ['@type']?: string
+    }
+    expect(jl.headline).toBe('Great news')
+    expect(jl.author?.name).toBe('Jane Doe')
+    expect(jl['@type']).toBe('Article')
   })
 
   it('suppresses when JSON-LD already present', () => {
