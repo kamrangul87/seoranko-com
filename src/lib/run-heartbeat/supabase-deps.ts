@@ -109,7 +109,8 @@ export function createSupabaseHeartbeatDeps(): HeartbeatDeps {
         .from('fix_strategies_crawl_runs')
         .select('id, site_id, status, updated_at, tick_lease_until, last_progress_at')
         .in('status', [...CRAWL_ACTIVE])
-        .limit(50)
+        .order('last_progress_at', { ascending: true, nullsFirst: true })
+        .limit(200)
       for (const r of crawls || []) {
         out.push({
           kind: 'crawl',
@@ -126,7 +127,9 @@ export function createSupabaseHeartbeatDeps(): HeartbeatDeps {
           'id, user_id, site_id, status, phase, updated_at, tick_lease_until, last_progress_at',
         )
         .in('status', [...FIX_ACTIVE])
-        .limit(50)
+        // Oldest progress first so contradictory phase=done/running rows are not starved.
+        .order('last_progress_at', { ascending: true, nullsFirst: true })
+        .limit(200)
       for (const r of fixes || []) {
         out.push({
           kind: 'fix',
@@ -146,7 +149,8 @@ export function createSupabaseHeartbeatDeps(): HeartbeatDeps {
           'id, user_id, site_id, status, phase, updated_at, tick_lease_until, last_progress_at',
         )
         .eq('status', 'awaiting_approval')
-        .limit(50)
+        .order('last_progress_at', { ascending: true, nullsFirst: true })
+        .limit(200)
       for (const r of awaiting || []) {
         out.push({
           kind: 'fix',
@@ -165,7 +169,8 @@ export function createSupabaseHeartbeatDeps(): HeartbeatDeps {
           'id, site_id, status, updated_at, tick_lease_until, last_progress_at',
         )
         .eq('status', 'running')
-        .limit(20)
+        .order('last_progress_at', { ascending: true, nullsFirst: true })
+        .limit(100)
       for (const r of e2es || []) {
         out.push({
           kind: 'e2e',
