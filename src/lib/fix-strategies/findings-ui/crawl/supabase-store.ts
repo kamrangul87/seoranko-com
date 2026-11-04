@@ -955,6 +955,25 @@ export function createSupabaseFindingsStore(
       return (data ?? []).map((r) => mapEvidence(r as Record<string, unknown>))
     },
 
+    async listEvidenceForFindingIds(findingIds) {
+      if (findingIds.length === 0) return []
+      const out: ReturnType<typeof mapEvidence>[] = []
+      const CHUNK = 100
+      for (let i = 0; i < findingIds.length; i += CHUNK) {
+        const chunk = findingIds.slice(i, i + CHUNK)
+        const { data, error } = await db()
+          .from('fix_strategies_finding_evidence')
+          .select('*')
+          .in('finding_id', chunk)
+          .order('created_at', { ascending: true })
+        if (error) throw new Error(error.message)
+        for (const r of data ?? []) {
+          out.push(mapEvidence(r as Record<string, unknown>))
+        }
+      }
+      return out
+    },
+
     async counts({ siteId, detectOrigin, userId }) {
       let q = db().from('fix_strategies_findings').select('bucket, status')
       if (siteId) {

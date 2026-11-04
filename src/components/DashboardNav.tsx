@@ -3,7 +3,7 @@ import { useState, useEffect, type ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import type { User } from '@supabase/supabase-js'
+import type { Session, User } from '@supabase/supabase-js'
 import { SeorankoWordmark } from '@/components/SeorankoLogo'
 import { NAV_ITEMS } from '@/lib/dashboard-nav-items'
 
@@ -53,9 +53,14 @@ const NAV_ICONS: Record<string, ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
     </svg>
   ),
+  '/dashboard/reports': (
+    <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
+  ),
   '/dashboard/install': (
     <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
     </svg>
   ),
   '/dashboard/billing': (
@@ -71,7 +76,8 @@ export function DashboardNav() {
 
   useEffect(() => {
     const supabase = createClient()
-    supabase.auth.getUser().then(async ({ data: { user } }: { data: { user: User | null } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }: { data: { session: Session | null } }) => {
+      const user = session?.user as User | undefined
       if (!user) return
       const { data } = await supabase.from('user_profiles').select('*').eq('id', user.id).single()
       if (data) setUserProfile(data as UserProfile)
@@ -153,5 +159,18 @@ export function DashboardNav() {
         </button>
       </div>
     </aside>
+  )
+}
+
+/** Shared chrome so every dashboard page gets the same sidebar. */
+export function DashboardChrome({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="flex h-screen bg-[#FAFAF8] text-[#0F0F0F] overflow-hidden"
+      style={{ fontFamily: "'Outfit', sans-serif", fontSize: '15px' }}
+    >
+      <DashboardNav />
+      <main className="flex-1 overflow-y-auto">{children}</main>
+    </div>
   )
 }

@@ -43,4 +43,11 @@ describe('redirectAuthCodeIfNeeded', () => {
       'https://www.seoranko.com/auth/callback?code=xyz&next=%2Fdashboard',
     )
   })
+
+  it('sends signup confirmation codes on / to dashboard, not reset-password', () => {
+    const res = redirectAuthCodeIfNeeded(req('/?code=xyz&type=signup'))
+    expect(res!.headers.get('location')).toBe(
+      'https://www.seoranko.com/auth/callback?code=xyz&next=%2Fdashboard',
+    )
+  })
 })

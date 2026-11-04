@@ -18,7 +18,10 @@ import {
 } from '@/lib/fix-strategies/findings-ui/crawl/crawl-progress-ui'
 import { itemUiStep } from '@/lib/fix-strategies/findings-ui/fix-run/phases'
 import { shouldShowFixMySiteButton } from '@/lib/fix-strategies/findings-ui/fix-run/master-gate'
-import { whyNotFixedOrFallback } from '@/lib/fix-strategies/findings-ui/owner-copy'
+import {
+  ownerFacingVerdictTitle,
+  whyNotFixedOrFallback,
+} from '@/lib/fix-strategies/findings-ui/owner-copy'
 import { isCurrentlyPresentFindingStatus } from '@/lib/fix-strategies/findings-ui/finding-status'
 import { readParamFromUrl, writeParamToUrl } from '@/lib/site-selection-url'
 import type { User } from '@supabase/supabase-js'
@@ -143,9 +146,13 @@ export default function FindingsListPage() {
     )
   }, [])
 
-  const loadConnected = useCallback(async (id: string, informational: boolean) => {
+  const loadConnected = useCallback(async (
+    id: string,
+    informational: boolean,
+    quiet = false,
+  ) => {
     if (!id) return
-    setLoading(true)
+    if (!quiet) setLoading(true)
     setError(null)
     try {
       const q = new URLSearchParams({ siteId: id })
@@ -165,9 +172,9 @@ export default function FindingsListPage() {
   }, [])
 
   const loadDetect = useCallback(
-    async (origin: string, informational: boolean) => {
+    async (origin: string, informational: boolean, quiet = false) => {
       if (!origin) return
-      setLoading(true)
+      if (!quiet) setLoading(true)
       setError(null)
       try {
         const q = new URLSearchParams({ detectOrigin: origin })
@@ -225,9 +232,9 @@ export default function FindingsListPage() {
     const tick = () => {
       if (mode === 'detect') {
         const origin = detectOrigin
-        if (origin) void loadDetect(origin, includeInformational)
+        if (origin) void loadDetect(origin, includeInformational, true)
       } else if (siteId) {
-        void loadConnected(siteId, includeInformational)
+        void loadConnected(siteId, includeInformational, true)
       }
     }
     const id = setInterval(tick, CRAWL_STATUS_POLL_MS)
@@ -498,9 +505,9 @@ export default function FindingsListPage() {
         if (opts?.detectOnly) {
           if (tickBody.origin) setDetectOrigin(tickBody.origin)
           const origin = tickBody.origin ?? detectOrigin
-          if (origin) await loadDetect(origin, includeInformational)
+          if (origin) await loadDetect(origin, includeInformational, true)
         } else if (siteId) {
-          await loadConnected(siteId, includeInformational)
+          await loadConnected(siteId, includeInformational, true)
         }
         if (tickBody.done) break
       }
@@ -877,9 +884,9 @@ export default function FindingsListPage() {
                     <li key={f.id}>
                       <Link
                         href={`/dashboard/findings/${f.id}`}
-                        className="text-[#FF6B2C] hover:underline font-mono text-xs"
+                        className="text-[#FF6B2C] hover:underline text-xs"
                       >
-                        REGRESSION · {f.verdict}
+                        Regression · {ownerFacingVerdictTitle(f.verdict)}
                       </Link>
                       {f.pageUrl ? (
                         <span className="ml-2 font-mono text-xs break-all">
@@ -896,9 +903,9 @@ export default function FindingsListPage() {
                     <li key={f.id}>
                       <Link
                         href={`/dashboard/findings/${f.id}`}
-                        className="hover:underline font-mono text-xs"
+                        className="hover:underline text-xs"
                       >
-                        New · {f.verdict}
+                        New · {ownerFacingVerdictTitle(f.verdict)}
                       </Link>
                     </li>
                   ))}
@@ -997,12 +1004,20 @@ export default function FindingsListPage() {
             </section>
           )}
 
-          {(loading || crawling) && (
+          {(loading || crawling) && !data && (
             <div
               className="rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-8 text-center text-[#6B6B6B]"
               data-testid="findings-loading"
             >
-              {crawling ? 'Loading findings…' : 'Loading…'}
+              {crawling ? 'Crawling your site…' : 'Loading findings…'}
+            </div>
+          )}
+          {(loading || crawling) && data && (
+            <div
+              className="mb-4 rounded-[10px] border border-[#E8E8E4] bg-white px-4 py-3 text-sm text-[#6B6B6B]"
+              data-testid="findings-loading"
+            >
+              {crawling ? 'Crawling — findings update as pages are checked…' : 'Updating findings…'}
             </div>
           )}
 
@@ -1038,7 +1053,7 @@ export default function FindingsListPage() {
             </div>
           )}
 
-          {!loading && !crawling && data && data.findings.length > 0 && (
+          {data && data.findings.length > 0 && (
             <div className="space-y-8">
               {mode === 'connected' &&
                 shouldShowFixMySiteButton(data.canRunFixAgent === true) && (

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
+import { DashboardChrome } from '@/components/DashboardNav'
 
 type Receipt = {
   itemId: string
@@ -109,25 +110,30 @@ export default function FixReceiptDetailPage() {
 
   if (error && !receipt) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-8">
+      <DashboardChrome>
+      <div className="mx-auto max-w-2xl px-8 py-8">
         <p className="text-sm text-red-700">{error}</p>
         <Link href="/dashboard/receipts" className="text-sm underline mt-4 inline-block">
           Back to receipts
         </Link>
       </div>
+      </DashboardChrome>
     )
   }
 
   if (!receipt) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-8">
+      <DashboardChrome>
+      <div className="mx-auto max-w-2xl px-8 py-8">
         <p className="text-sm text-[#6B6B6B]">Loading…</p>
       </div>
+      </DashboardChrome>
     )
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8 space-y-6">
+    <DashboardChrome>
+    <div className="mx-auto max-w-2xl px-8 py-8 space-y-6">
       <Link href="/dashboard/receipts" className="text-xs text-[#6B6B6B] underline">
         All receipts
       </Link>
@@ -256,5 +262,6 @@ export default function FixReceiptDetailPage() {
         {error && <p className="text-xs text-red-700">{error}</p>}
       </div>
     </div>
+    </DashboardChrome>
   )
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { createBrowserClient } from '@supabase/ssr'
+import { DashboardChrome } from '@/components/DashboardNav'
 
 type ReceiptRow = {
   itemId: string
@@ -136,7 +137,8 @@ export default function FixReceiptsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-8 space-y-6">
+    <DashboardChrome>
+    <div className="mx-auto max-w-3xl px-8 py-8 space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-[#0F0F0F]">Fix Receipts</h1>
         <p className="text-sm text-[#6B6B6B] mt-1">
@@ -222,5 +224,6 @@ export default function FixReceiptsPage() {
         ))}
       </ul>
     </div>
+    </DashboardChrome>
   )
 }

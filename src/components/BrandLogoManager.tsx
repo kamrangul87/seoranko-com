@@ -97,7 +97,7 @@ export function BrandLogoManager() {
             <label className="text-xs text-gray-500 mb-1 block">Logo URL</label>
             <input
               type="url"
-              placeholder="https://autodun.com/logo.png"
+              placeholder="https://www.example.com/logo.png"
               value={logoUrlInput}
               onChange={e => { setLogoUrlInput(e.target.value); setSaved(false) }}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400"

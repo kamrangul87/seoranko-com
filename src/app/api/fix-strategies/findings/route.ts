@@ -84,15 +84,19 @@ export async function GET(request: Request) {
     })
 
     const paused = await loadPausedFixTypeSet()
-    const findings = []
-    for (const row of rows) {
-      const evidence = await store.listEvidenceForFinding(row.id)
-      findings.push(
-        persistedToUiFinding(row, evidence, {
-          fixTypePaused: paused.has(fixTypeKey(row.topicId, row.verdict)),
-        }),
-      )
+    const evidenceRows = await store.listEvidenceForFindingIds(rows.map((r) => r.id))
+    const evidenceByFinding = new Map<string, typeof evidenceRows>()
+    for (const ev of evidenceRows) {
+      if (!ev.findingId) continue
+      const list = evidenceByFinding.get(ev.findingId) ?? []
+      list.push(ev)
+      evidenceByFinding.set(ev.findingId, list)
     }
+    const findings = rows.map((row) =>
+      persistedToUiFinding(row, evidenceByFinding.get(row.id) ?? [], {
+        fixTypePaused: paused.has(fixTypeKey(row.topicId, row.verdict)),
+      }),
+    )
 
     const terminal =
       latest &&
@@ -167,15 +171,19 @@ export async function GET(request: Request) {
   const counts = await store.counts({ siteId })
 
   const paused = await loadPausedFixTypeSet()
-  const findings = []
-  for (const row of rows) {
-    const evidence = await store.listEvidenceForFinding(row.id)
-    findings.push(
-      persistedToUiFinding(row, evidence, {
-        fixTypePaused: paused.has(fixTypeKey(row.topicId, row.verdict)),
-      }),
-    )
+  const evidenceRows = await store.listEvidenceForFindingIds(rows.map((r) => r.id))
+  const evidenceByFinding = new Map<string, typeof evidenceRows>()
+  for (const ev of evidenceRows) {
+    if (!ev.findingId) continue
+    const list = evidenceByFinding.get(ev.findingId) ?? []
+    list.push(ev)
+    evidenceByFinding.set(ev.findingId, list)
   }
+  const findings = rows.map((row) =>
+    persistedToUiFinding(row, evidenceByFinding.get(row.id) ?? [], {
+      fixTypePaused: paused.has(fixTypeKey(row.topicId, row.verdict)),
+    }),
+  )
 
   const origin = `https://${String(site.domain).replace(/^www\./, '')}`
 

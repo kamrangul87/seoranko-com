@@ -43,7 +43,7 @@ export default function SettingsPage() {
           org_linkedin: data.org_linkedin || '',
           org_twitter: data.org_twitter || '',
           org_github: data.org_github || '',
-          org_address_country: data.org_address_country || 'GB',
+          org_address_country: data.org_address_country || '',
           org_founding_year: data.org_founding_year ? String(data.org_founding_year) : '',
         })
         if (data.internal_links) {

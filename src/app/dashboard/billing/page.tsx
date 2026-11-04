@@ -181,17 +181,19 @@ function BillingContent() {
 
         {loading ? (
           <p className="text-sm text-[#9B9B9B]">Loading subscription…</p>
-        ) : (
+        ) : manageable ? (
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
             <div>
-              <dt className="text-[#9B9B9B]">Plan id</dt>
-              <dd className="font-mono text-xs mt-0.5">{subscription?.plan_id || '—'}</dd>
+              <dt className="text-[#9B9B9B]">Plan</dt>
+              <dd className="mt-0.5">{planMeta.label}</dd>
             </div>
             <div>
               <dt className="text-[#9B9B9B]">Current period ends</dt>
-              <dd className="mt-0.5">{periodEnd || '—'}</dd>
+              <dd className="mt-0.5">{periodEnd || 'See billing portal'}</dd>
             </div>
           </dl>
+        ) : (
+          <p className="text-sm text-[#6B6B6B]">Free plan, no renewal.</p>
         )}
 
         <div className="flex flex-wrap gap-2 pt-2">
@@ -225,12 +227,6 @@ function BillingContent() {
         </div>
       </section>
 
-      <p className="text-xs text-[#9B9B9B]">
-        Test mode: use Stripe card <span className="font-mono">4242 4242 4242 4242</span> with any
-        future expiry and any CVC. Webhook sync requires{' '}
-        <span className="font-mono">STRIPE_WEBHOOK_SECRET</span> and a Dashboard endpoint pointed at{' '}
-        <span className="font-mono">/api/webhooks/stripe</span>.
-      </p>
     </div>
   )
 }

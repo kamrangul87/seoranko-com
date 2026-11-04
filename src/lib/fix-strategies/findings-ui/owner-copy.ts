@@ -424,6 +424,22 @@ export function ownerPlainEnglish(verdict: string): string | null {
   return OWNER_PLAIN_ENGLISH[verdict] ?? null
 }
 
+/** Fallback when a verdict has no OWNER_PLAIN_ENGLISH sentence. */
+export function humanizeVerdictCode(verdict: string): string {
+  const trimmed = verdict.trim()
+  if (!trimmed) return 'Finding'
+  const words = trimmed.split(/[-_]+/).filter(Boolean)
+  if (words.length === 0) return 'Finding'
+  return words
+    .map((w, i) => (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+    .join(' ')
+}
+
+/** Title for lists (What changed, etc.) — never a raw kebab-case id. */
+export function ownerFacingVerdictTitle(verdict: string): string {
+  return ownerPlainEnglish(verdict) ?? humanizeVerdictCode(verdict)
+}
+
 export function whyNotFixed(verdict: string): string | null {
   return WHY_NOT_FIXED[verdict] ?? null
 }

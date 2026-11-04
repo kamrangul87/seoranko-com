@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 import { useState, useEffect, useRef } from 'react';
+import { DashboardChrome } from '@/components/DashboardNav';
+import { createClient } from '@/lib/supabase/client';
 
 const SNIPPET_BASE = 'https://seoranko.com/seoranko.js';
 
@@ -126,15 +128,39 @@ export default function InstallPage() {
   const detectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem('seoranko_audit_domain') || '';
-    if (saved) {
-      setDomain(saved);
-      setSiteId(normalizeDomain(saved));
-    }
     const savedRepo = localStorage.getItem('seoranko_gh_repo') || '';
     const savedToken = localStorage.getItem('seoranko_gh_token') || '';
     if (savedRepo) setGhRepo(savedRepo);
     if (savedToken) setGhToken(savedToken);
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const supabase = createClient();
+        const { data: sites } = await supabase
+          .from('connected_sites')
+          .select('domain')
+          .order('is_primary', { ascending: false })
+          .limit(1);
+        const connected = sites?.[0]?.domain as string | undefined;
+        const saved = localStorage.getItem('seoranko_audit_domain') || '';
+        const picked = connected || saved;
+        if (!cancelled && picked) {
+          setDomain(picked);
+          setSiteId(normalizeDomain(picked));
+          void runDetect(picked);
+        }
+      } catch {
+        const saved = localStorage.getItem('seoranko_audit_domain') || '';
+        if (!cancelled && saved) {
+          setDomain(saved);
+          setSiteId(normalizeDomain(saved));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   function normalizeDomain(d: string) {
@@ -223,7 +249,8 @@ export default function InstallPage() {
   const showSnippet = !isNextjs || showAllPlatforms;
 
   return (
-    <div style={{ maxWidth: '780px', margin: '0 auto', padding: '40px 20px', fontFamily: 'system-ui, sans-serif' }}>
+    <DashboardChrome>
+    <div style={{ maxWidth: '780px', margin: '0 auto', padding: '40px 32px', fontFamily: "'Outfit', sans-serif" }}>
 
       {/* Header */}
       <div style={{ marginBottom: '32px' }}>
@@ -500,5 +527,6 @@ export default function InstallPage() {
       </div>
 
     </div>
+    </DashboardChrome>
   );
 }

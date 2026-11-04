@@ -22,6 +22,16 @@ export function redirectAuthCodeIfNeeded(
   let next: string
   if (type === 'recovery') {
     next = '/reset-password'
+  } else if (
+    type === 'signup' ||
+    type === 'email' ||
+    type === 'magiclink' ||
+    type === 'invite' ||
+    type === 'email_change'
+  ) {
+    next = existingNext
+      ? safeNextPath(existingNext, '/dashboard')
+      : '/dashboard'
   } else if (existingNext) {
     next = safeNextPath(existingNext, '/dashboard')
   } else if (pathname === '/' || pathname === '') {

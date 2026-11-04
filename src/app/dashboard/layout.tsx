@@ -28,7 +28,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         }
         if (event === 'SIGNED_IN') {
           setChecking(false)
-          router.refresh()
         }
       }
     )
