@@ -4,6 +4,10 @@ import { createSupabaseJsClient } from '@/lib/supabase/js-client'
 import { cookies } from 'next/headers'
 import { getFindingsStore } from '@/lib/fix-strategies/findings-ui/crawl'
 import { countsForViewer } from '@/lib/fix-strategies/findings-ui/customer-counts'
+import {
+  isFirstCrawlComplete,
+  isTerminalFindingsRunStatus,
+} from '@/lib/beta/first-crawl'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,8 +40,10 @@ export async function GET() {
     const [sites, github, gscActive, gscExpired, crawls, verified] = await Promise.all([
       supabase
         .from('connected_sites')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id),
+        .select('id')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: true })
+        .limit(1),
       supabase
         .from('site_connections')
         .select('id', { count: 'exact', head: true })
@@ -77,11 +83,44 @@ export async function GET() {
         .eq('user_id', user.id),
     ])
 
-    const siteDone = (sites.count ?? 0) > 0
+    const firstSiteId = (sites.data?.[0]?.id as string | undefined) ?? null
+    const siteDone = Boolean(firstSiteId)
     const githubDone = (github.count ?? 0) > 0
     const gscDone = (gscActive.count ?? 0) > 0
     const expiredRows = gscExpired.data || []
-    const crawlDone = (crawls.count ?? 0) > 0
+
+    let findingsTerminalRunCount = 0
+    let crawlSummary: {
+      lastCrawlAt: string | null
+      openFindings: { actionable: number; informational: number; internal: number }
+    } | null = null
+    if (firstSiteId) {
+      try {
+        const store = getFindingsStore()
+        const runs = await store.listRunsForSite(firstSiteId)
+        findingsTerminalRunCount = runs.filter((r) =>
+          isTerminalFindingsRunStatus(r.status),
+        ).length
+        const latest = runs[0] ?? null
+        if (latest) {
+          const openFindings = countsForViewer(
+            await store.counts({ siteId: firstSiteId }),
+            user.email,
+          )
+          crawlSummary = {
+            lastCrawlAt: latest.finishedAt ?? latest.startedAt ?? null,
+            openFindings,
+          }
+        }
+      } catch (summaryErr) {
+        console.warn('[beta/onboarding-status] findings crawl lookup skipped', summaryErr)
+      }
+    }
+
+    const crawlDone = isFirstCrawlComplete({
+      indexDiagnosisRunCount: crawls.count ?? 0,
+      findingsTerminalRunCount,
+    })
     const findingDone = (attempts.count ?? 0) > 0 || (linkAudits.count ?? 0) > 0 || crawlDone
     const verifiedDone = (verified.count ?? 0) > 0
 
@@ -172,42 +211,6 @@ export async function GET() {
           : 'Approve a deterministic fix and wait for live re-crawl match.',
       },
     ]
-
-    // Optional Overview summary — only when a findings crawl exists (no guessing).
-    let crawlSummary: {
-      lastCrawlAt: string | null
-      openFindings: { actionable: number; informational: number; internal: number }
-    } | null = null
-
-    if (siteDone) {
-      try {
-        const { data: siteRows } = await supabase
-          .from('connected_sites')
-          .select('id')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: true })
-          .limit(1)
-        const siteId = siteRows?.[0]?.id as string | undefined
-        if (siteId) {
-          const store = getFindingsStore()
-          const runs = await store.listRunsForSite(siteId)
-          const latest = runs[0] ?? null
-          if (latest) {
-            const openFindings = countsForViewer(
-              await store.counts({ siteId }),
-              user.email,
-            )
-            crawlSummary = {
-              lastCrawlAt: latest.finishedAt ?? latest.startedAt ?? null,
-              openFindings,
-            }
-          }
-        }
-      } catch (summaryErr) {
-        console.warn('[beta/onboarding-status] crawlSummary skipped', summaryErr)
-        crawlSummary = null
-      }
-    }
 
     return NextResponse.json({
       ok: true,

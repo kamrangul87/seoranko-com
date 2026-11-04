@@ -2,23 +2,26 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { SeorankoWordmark } from "@/components/SeorankoLogo";
 import { TurnstileField, turnstileRequired } from "@/components/TurnstileField";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState("");
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("error") === "link_expired") {
       setError("This link has expired, request a new one");
+    }
+    if (params.get("confirmed") === "1") {
+      setInfo("Email confirmed. Please sign in.");
     }
   }, []);
 
@@ -33,6 +36,7 @@ export default function LoginPage() {
       return;
     }
 
+    setProgress("Checking your account…");
     const supabase = createClient();
     const { error: signInError } = await supabase.auth.signInWithPassword({
       email,
@@ -42,11 +46,15 @@ export default function LoginPage() {
     if (signInError) {
       setError(signInError.message);
       setLoading(false);
+      setProgress("");
       setCaptchaToken(null);
-    } else {
-      router.push("/dashboard");
-      router.refresh();
+      return;
     }
+    // Hard navigation so this page unmounts immediately. router.push() keeps
+    // "Signing in…" on screen until the dashboard JS + getSession gate finish
+    // (10–14s on a cold dashboard load).
+    setProgress("Opening your dashboard…");
+    window.location.assign("/dashboard");
   }
 
   return (
@@ -102,6 +110,12 @@ export default function LoginPage() {
 
             <TurnstileField onToken={setCaptchaToken} />
 
+            {info && (
+              <div className="bg-green-50 border border-green-200 rounded-[8px] px-4 py-3">
+                <p className="text-green-800 text-sm">{info}</p>
+              </div>
+            )}
+
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-[8px] px-4 py-3">
                 <p className="text-red-600 text-sm">{error}</p>
@@ -113,8 +127,11 @@ export default function LoginPage() {
               disabled={loading || (turnstileRequired() && !captchaToken)}
               className="w-full bg-[#FF6B2C] hover:bg-[#E85A1E] disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold text-sm py-3 rounded-[8px] transition-colors"
             >
-              {loading ? "Signing in…" : "Sign In"}
+              {loading ? progress || "Signing in…" : "Sign In"}
             </button>
+            {loading && progress && (
+              <p className="text-xs text-center text-[#9B9B9B]">{progress}</p>
+            )}
           </form>
 
           <div className="relative my-6">

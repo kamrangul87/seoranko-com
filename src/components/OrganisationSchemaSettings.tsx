@@ -25,7 +25,7 @@ export function OrganisationSchemaSettings({ initial, onSave }: OrganisationSche
     org_linkedin: initial.org_linkedin || '',
     org_twitter: initial.org_twitter || '',
     org_github: initial.org_github || '',
-    org_address_country: initial.org_address_country || 'GB',
+    org_address_country: initial.org_address_country || '',
     org_founding_year: initial.org_founding_year || ''
   })
   const [saving, setSaving] = useState(false)
@@ -68,21 +68,21 @@ export function OrganisationSchemaSettings({ initial, onSave }: OrganisationSche
         <div>
           <label className="text-xs font-medium text-gray-600 block mb-1">Organisation / Brand name</label>
           <input type="text" value={data.org_name} onChange={update('org_name')}
-            placeholder="Autodun"
+            placeholder="Acme"
             className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400" />
         </div>
 
         <div>
           <label className="text-xs font-medium text-gray-600 block mb-1">Website URL</label>
           <input type="url" value={data.org_url} onChange={update('org_url')}
-            placeholder="https://autodun.com"
+            placeholder="https://www.example.com"
             className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400" />
         </div>
 
         <div>
           <label className="text-xs font-medium text-gray-600 block mb-1">Short description (1-2 sentences)</label>
           <textarea value={data.org_description} onChange={update('org_description')}
-            placeholder="Autodun is a UK vehicle intelligence platform helping drivers check MOT status, find EV chargers, and decode warning lights."
+            placeholder="A short description of what your organisation does."
             rows={2}
             className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400 resize-none" />
         </div>
@@ -95,19 +95,19 @@ export function OrganisationSchemaSettings({ initial, onSave }: OrganisationSche
             <div>
               <label className="text-xs text-gray-500 block mb-1">LinkedIn company page</label>
               <input type="url" value={data.org_linkedin} onChange={update('org_linkedin')}
-                placeholder="https://www.linkedin.com/company/autodun"
+                placeholder="https://www.linkedin.com/company/your-company"
                 className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400" />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">Twitter / X profile</label>
               <input type="url" value={data.org_twitter} onChange={update('org_twitter')}
-                placeholder="https://x.com/autodun"
+                placeholder="https://x.com/yourhandle"
                 className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400" />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">GitHub profile or organisation</label>
               <input type="url" value={data.org_github} onChange={update('org_github')}
-                placeholder="https://github.com/kamrangul87"
+                placeholder="https://github.com/your-org"
                 className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400" />
             </div>
           </div>
@@ -117,7 +117,7 @@ export function OrganisationSchemaSettings({ initial, onSave }: OrganisationSche
           <div>
             <label className="text-xs font-medium text-gray-600 block mb-1">Country code</label>
             <input type="text" value={data.org_address_country} onChange={update('org_address_country')}
-              placeholder="GB"
+              placeholder="US"
               className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400" />
           </div>
           <div>

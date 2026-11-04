@@ -24,6 +24,8 @@ export {
 
 export {
   ownerPlainEnglish,
+  ownerFacingVerdictTitle,
+  humanizeVerdictCode,
   whyNotFixed,
   whyNotFixedOrFallback,
   sourceTierForTopic,

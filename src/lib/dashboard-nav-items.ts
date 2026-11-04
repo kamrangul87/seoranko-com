@@ -30,14 +30,19 @@ export const NAV_ITEMS = [
     description: 'What Google sees',
   },
   {
+    href: '/dashboard/reports',
+    label: 'Reports',
+    description: 'Weekly Search Console summary',
+  },
+  {
     href: '/dashboard/audit',
     label: 'Diagnostics',
     description: 'Indexing and link detail',
   },
   {
     href: '/dashboard/install',
-    label: 'History',
-    description: 'Past crawls and connection health',
+    label: 'Install',
+    description: 'Add the script to your site',
   },
   {
     href: '/dashboard/billing',

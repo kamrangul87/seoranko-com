@@ -145,6 +145,8 @@ export type FindingsStore = {
   }): Promise<PersistedFindingRow[]>
   getFinding(id: string): Promise<PersistedFindingRow | null>
   listEvidenceForFinding(findingId: string): Promise<PersistedEvidenceRow[]>
+  /** Batch evidence for list views — avoids N+1 after a crawl. */
+  listEvidenceForFindingIds(findingIds: string[]): Promise<PersistedEvidenceRow[]>
   /**
    * Persist resolveSourceFile result (path + blob SHA or unresolved reason).
    * Also updates autoFixable / surfaceClass when provided.
@@ -866,6 +868,14 @@ export function createMemoryFindingsStore(): FindingsStore {
 
     async listEvidenceForFinding(findingId) {
       return state().evidence.filter((e) => e.findingId === findingId)
+    },
+
+    async listEvidenceForFindingIds(findingIds) {
+      if (findingIds.length === 0) return []
+      const set = new Set(findingIds)
+      return state().evidence.filter(
+        (e) => e.findingId != null && set.has(e.findingId),
+      )
     },
 
     async counts({ siteId, detectOrigin, userId }) {

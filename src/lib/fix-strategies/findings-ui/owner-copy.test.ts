@@ -3,6 +3,8 @@ import {
   OWNER_PLAIN_ENGLISH,
   WHY_NOT_FIXED,
   ownerPlainEnglish,
+  ownerFacingVerdictTitle,
+  humanizeVerdictCode,
   whyNotFixed,
   whyNotFixedOrFallback,
   sourceTierForTopic,
@@ -19,6 +21,18 @@ import { DASHBOARD_OVERVIEW_COPY } from '@/lib/dashboard-overview-copy'
 import { NAV_ITEMS } from '@/lib/dashboard-nav-items'
 
 describe('owner-copy plain English', () => {
+  it('shows human-readable titles instead of raw kebab ids', () => {
+    expect(ownerFacingVerdictTitle('human-review-section-missing-rights')).toMatch(
+      /missing your rights/i,
+    )
+    expect(humanizeVerdictCode('human-review-section-missing-rights')).toBe(
+      'Human review section missing rights',
+    )
+    expect(ownerFacingVerdictTitle('totally-unknown-verdict-xyz')).toBe(
+      'Totally unknown verdict xyz',
+    )
+  })
+
   it('covers user tone examples without ranking claims', () => {
     expect(ownerPlainEnglish('auto-set-dimensions')).toBe(
       'Your page may visibly jump around while images load.',
@@ -184,8 +198,8 @@ describe('homepage claim discipline (docs/POSITIONING.md)', () => {
 describe('dashboard-focus claim discipline', () => {
   it('NAV_ITEMS labels and descriptions avoid banned claim words and legacy content labels', () => {
     const strings = NAV_ITEMS.flatMap((i) => [i.label, i.description])
-    // 8 nav items × (label + description)
-    expect(strings.length).toBe(16)
+    // 9 nav items × (label + description)
+    expect(strings.length).toBe(18)
     for (const s of strings) {
       expect(s).not.toMatch(BANNED_CLAIM_WORDS_RE)
     }

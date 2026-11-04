@@ -8,6 +8,7 @@ const EXPECTED_HREFS = [
   '/dashboard/findings',
   '/dashboard/receipts',
   '/dashboard/experiments',
+  '/dashboard/reports',
   '/dashboard/audit',
   '/dashboard/install',
   '/dashboard/billing',
@@ -19,8 +20,9 @@ const EXPECTED_LABELS = [
   'Audit',
   'Receipts',
   'Google status',
+  'Reports',
   'Diagnostics',
-  'History',
+  'Install',
   'Billing',
 ] as const
 

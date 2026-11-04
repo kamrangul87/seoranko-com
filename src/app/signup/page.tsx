@@ -128,7 +128,7 @@ export default function SignupPage() {
               <h1 className="text-xl font-bold text-[#0F0F0F] mb-2">Check your email</h1>
               <p className="text-[#6B6B6B] text-sm">
                 We sent a confirmation link to <span className="font-medium text-[#0F0F0F]">{email}</span>.
-                Click it to activate your account, then come back and sign in.
+                Click it to activate your account — you should land signed in on your dashboard.
               </p>
               <Link href="/login" className="inline-block mt-6 text-[#FF6B2C] hover:underline text-sm font-medium">
                 Back to sign in

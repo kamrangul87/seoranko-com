@@ -651,11 +651,11 @@ function ExperimentsPageInner() {
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-8 py-8 space-y-6">
           <div>
-            <h1 className="text-2xl font-semibold mb-2">Experiments</h1>
+            <h1 className="text-2xl font-semibold mb-2">Google status</h1>
             <p className="text-[#6B6B6B]">
-              Measure which site fixes actually move Search Console outcomes — and which do nothing.
-              Measurement windows are weeks, not days: only a small share of pages reach the top 10
-              within a year, so short windows will look flat even when the method is working.
+              What Google last recorded for this site, and which fixes actually move Search Console
+              outcomes. Measurement windows are weeks, not days: only a small share of pages reach
+              the top 10 within a year, so short windows will look flat even when the method is working.
             </p>
           </div>
 

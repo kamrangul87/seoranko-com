@@ -223,7 +223,7 @@ export function LinkRegistryManager() {
             <label className="text-xs text-gray-500 mb-1 block">Page URL</label>
             <input
               type="url"
-              placeholder="https://mot.autodun.com"
+              placeholder="https://www.example.com/guides/getting-started"
               value={form.page_url}
               onChange={e => { setUrlHint(null); setForm(f => ({ ...f, page_url: e.target.value })) }}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-orange-400"
