@@ -80,3 +80,6 @@ jobs:
           src/lib/developer-snippet-placements.test.ts
           src/lib/manual-paste-fix.test.ts
           src/lib/fix-strategies
+          src/lib/internal-link-map/
+          src/app/api/internal-link-map/
+          src/components/DashboardNav.test.ts

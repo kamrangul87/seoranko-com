@@ -59,6 +59,7 @@ import {
 } from './crawler-identity'
 import { safeCrawlFetch } from './safe-crawl-fetch'
 import { buildRawRenderMismatch } from '@/lib/crawl-render/raw-render-mismatch'
+import { persistEdgesFromHtml } from '@/lib/internal-link-map'
 
 export type StartCrawlInput = {
   /** Connected site id, or null for detection-only. */
@@ -610,6 +611,14 @@ export async function processCrawlTick(
             'Served HTML looks client_only and render did not produce a DOM — content detectors skipped',
           url: job.url,
         })
+        await persistEdgesFromHtml({
+          runId,
+          siteId: run.siteId,
+          userId: run.userId,
+          html: page.html || page.rawHtml || '',
+          pageUrl: page.finalUrl || job.url,
+          origin: run.origin,
+        })
         await recordObservation()
         await flushCounters()
         terminalThisChunk++
@@ -670,6 +679,14 @@ export async function processCrawlTick(
       })
       await recordObservation()
       crawled.push(page)
+      await persistEdgesFromHtml({
+        runId,
+        siteId: run.siteId,
+        userId: run.userId,
+        html: page.html,
+        pageUrl: page.finalUrl || job.url,
+        origin: run.origin,
+      })
 
       // Link-graph frontier expansion (same-host <a href> only).
       const links = extractSameHostLinks(page.html, page.finalUrl, run.origin).filter(
