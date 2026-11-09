@@ -87,6 +87,14 @@ describe('owner-copy plain English', () => {
         surfaceClass: 'human-review',
       }),
     ).toMatch(/judgment/)
+    expect(
+      whyFindingNotAutoFixed({
+        autoFixable: false,
+        reportOnly: false,
+        surfaceClass: 'human-review',
+        verdict: 'human-review-jurisdiction-not-set',
+      }),
+    ).toMatch(/jurisdiction/)
   })
 })
 

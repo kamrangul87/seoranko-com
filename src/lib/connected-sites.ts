@@ -17,6 +17,8 @@ export interface ConnectedSite {
   autoMergeEnabled?: boolean
   /** Opt-in bearer token for the public, read-only, revocable fix report (Item 5). Null = no live link. */
   reportShareToken?: string | null
+  /** Explicit site jurisdiction for topic 72 (UK / EU / US). Never silently defaulted. */
+  privacyJurisdiction?: string | null
 }
 
 /** Normalise user input to a bare host: strips scheme, path, www and trailing slash. */
@@ -35,7 +37,7 @@ export async function getConnectedSites(
 ): Promise<ConnectedSite[]> {
   const { data } = await supabase
     .from('connected_sites')
-    .select('id, domain, brand, is_primary, universal_tag_token, auto_merge_enabled, report_share_token')
+    .select('id, domain, brand, is_primary, universal_tag_token, auto_merge_enabled, report_share_token, privacy_jurisdiction')
     .eq('user_id', userId)
     .order('is_primary', { ascending: false })
     .order('created_at', { ascending: true })
@@ -48,6 +50,7 @@ export async function getConnectedSites(
     universalTagToken: d.universal_tag_token,
     autoMergeEnabled: Boolean(d.auto_merge_enabled),
     reportShareToken: d.report_share_token ?? null,
+    privacyJurisdiction: d.privacy_jurisdiction ?? null,
   }))
 }
 

@@ -174,7 +174,9 @@ function ExperimentsPageInner() {
     error?: string | null
   }>>({})
   const [weekly, setWeekly] = useState<null | {
-    weekEnding: string
+    weekEnding: string | null
+    weekStart?: string | null
+    weekEnd?: string | null
     totals: { clicks: { current: number; previous: number; delta: number }, impressions: { current: number; previous: number; delta: number } }
     wins: Array<{ url: string; query: string; positionChange: number; clicksDelta: number; week2: { avg_position: number } }>
     nextAction: null | { url: string; query: string; avg_position: number; ctr: number; suggestedFix: 'title_meta' | 'internal_links' | 'content_gaps' | 'schema' }
@@ -279,6 +281,8 @@ function ExperimentsPageInner() {
         if (!res.ok) return
         setWeekly({
           weekEnding: data.weekEnding,
+          weekStart: data.weekStart,
+          weekEnd: data.weekEnd,
           totals: data.totals,
           wins: (data.wins || []).slice(0, 3),
           nextAction: data.nextAction || null,
@@ -303,6 +307,39 @@ function ExperimentsPageInner() {
           windowDays: data.windowDays,
           opportunities: data.opportunities || [],
         })
+        const cache = data.suggestions as
+          | {
+              titleMeta?: Record<string, {
+                currentTitle: string | null
+                currentDescription: string | null
+                suggestedTitle: string | null
+                suggestedDescription: string | null
+                targetedQueries: string[]
+              }>
+              internalLinks?: Record<string, {
+                anchorText: string
+                sources: Array<{ sourceUrl: string; insertion: 'related-list' }>
+              }>
+            }
+          | null
+        if (cache?.titleMeta) {
+          setSuggestions((prev) => {
+            const next = { ...prev }
+            for (const [url, sug] of Object.entries(cache.titleMeta || {})) {
+              next[url] = { ...sug, loading: false, error: null }
+            }
+            return next
+          })
+        }
+        if (cache?.internalLinks) {
+          setLinkSuggestions((prev) => {
+            const next = { ...prev }
+            for (const [url, sug] of Object.entries(cache.internalLinks || {})) {
+              next[url] = { ...sug, loading: false, error: null }
+            }
+            return next
+          })
+        }
       } catch {
         // Safe empty state on error (e.g. migration not applied yet)
         setOpportunities({
@@ -314,6 +351,17 @@ function ExperimentsPageInner() {
       }
     })()
   }, [siteId])
+
+  useEffect(() => {
+    if (!opportunities) return
+    const focus = searchParams.get('focus')
+    const targetId = focus
+      ? `page2-row-${encodeURIComponent(focus)}`
+      : 'page2-opportunities'
+    const el = document.getElementById(targetId) || document.getElementById('page2-opportunities')
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [opportunities, searchParams])
 
   useEffect(() => {
     const gscError = searchParams.get('gsc_error')
@@ -1140,7 +1188,14 @@ function ExperimentsPageInner() {
                 <div className="flex justify-between items-center">
                   <div>
                     <h2 className="font-medium">This week</h2>
-                    <p className="text-xs text-[#6B6B6B]">Week ending {weekly.weekEnding} — finalized GSC only</p>
+                    <p className="text-xs text-[#6B6B6B]">
+                      {weekly.weekStart && weekly.weekEnd
+                        ? `${weekly.weekStart} → ${weekly.weekEnd}`
+                        : weekly.weekEnding
+                          ? `Week ending ${weekly.weekEnding}`
+                          : 'No finalized week yet'}
+                      {' — finalized GSC only'}
+                    </p>
                   </div>
                   <div className="flex gap-4">
                     <div className="text-center">
@@ -1176,13 +1231,16 @@ function ExperimentsPageInner() {
                           : weekly.nextAction.suggestedFix === 'content_gaps'
                             ? 'Cover missing subtopics'
                             : 'Add schema'}{' '}
-                      for “{weekly.nextAction.query}”.
+                      for “{weekly.nextAction.query}”.{' '}
+                      <a className="underline text-[#FF6B2C]" href="#page2-opportunities">
+                        Open suggestion
+                      </a>
                     </div>
                   ) : null}
                 </div>
               </div>
             ) : null}
-                <div className="flex flex-wrap justify-between gap-2 items-start">
+                <div id="page2-opportunities" className="flex flex-wrap justify-between gap-2 items-start">
                   <div>
                     <h2 className="font-medium">Page‑2 opportunities</h2>
                     <p className="text-sm text-[#6B6B6B]">
@@ -1215,7 +1273,11 @@ function ExperimentsPageInner() {
                       </thead>
                       <tbody>
                         {opportunities.opportunities.slice(0, 20).map((row, idx) => (
-                          <tr key={`${row.query}\0${row.url}\0${idx}`} className="border-b border-[#F0F0F0] align-top">
+                          <tr
+                            id={`page2-row-${encodeURIComponent(row.url)}`}
+                            key={`${row.query}\0${row.url}\0${idx}`}
+                            className="border-b border-[#F0F0F0] align-top"
+                          >
                             <td className="py-2 pr-3 max-w-[280px] break-words">{row.query}</td>
                             <td className="py-2 pr-3 max-w-[360px] break-all text-[#0F0F0F]">{row.url}</td>
                             <td className="py-2 pr-3">{row.avg_position.toFixed(1)}</td>
@@ -1229,7 +1291,11 @@ function ExperimentsPageInner() {
                                 onClick={() => fetchInternalLinkSuggestions(row.url)}
                                 disabled={Boolean(linkSuggestions[row.url]?.loading)}
                               >
-                                {linkSuggestions[row.url]?.loading ? 'Finding link opportunities…' : 'Get internal link suggestions'}
+                                {linkSuggestions[row.url]?.loading
+                                  ? 'Finding link opportunities…'
+                                  : linkSuggestions[row.url] && !linkSuggestions[row.url]?.error
+                                    ? 'Refresh internal link suggestions'
+                                    : 'Get internal link suggestions'}
                               </button>
                             </div>
                             <div className="mt-2">
@@ -1307,7 +1373,11 @@ function ExperimentsPageInner() {
                                 onClick={() => fetchSuggestion(row.url)}
                                 disabled={Boolean(suggestions[row.url]?.loading)}
                               >
-                                {suggestions[row.url]?.loading ? 'Building…' : 'Get title/description suggestion'}
+                                {suggestions[row.url]?.loading
+                                  ? 'Building…'
+                                  : suggestions[row.url] && !suggestions[row.url]?.error
+                                    ? 'Refresh title/description suggestion'
+                                    : 'Get title/description suggestion'}
                               </button>
                             </div>
                             {suggestions[row.url] && !suggestions[row.url]?.loading && (

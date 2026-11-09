@@ -27,6 +27,9 @@ describe('findings-ui buckets', () => {
     expect(classifyVerdictBucket('informational-recommended-absent')).toBe(
       'informational',
     )
+    expect(classifyVerdictBucket('in-crawl-not-in-gsc-weak')).toBe(
+      'informational',
+    )
   })
 
   it('never lists internal rows', () => {

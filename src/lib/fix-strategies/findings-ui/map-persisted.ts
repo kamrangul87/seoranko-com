@@ -89,6 +89,7 @@ export function persistedToUiFinding(
 
   return {
     id: row.id,
+    siteId: row.siteId,
     topicId: row.topicId,
     kind: row.kind,
     verdict: row.verdict,
@@ -115,6 +116,7 @@ export function persistedToUiFinding(
       autoFixable: row.autoFixable,
       reportOnly: row.reportOnly,
       surfaceClass,
+      verdict: row.verdict,
       sourceUnresolvedReason: row.sourceUnresolvedReason,
       sourceUnresolvedWhy:
         typeof row.evidenceValues?.sourceUnresolvedWhy === 'string'

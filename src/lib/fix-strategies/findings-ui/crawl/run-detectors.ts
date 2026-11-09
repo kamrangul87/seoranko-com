@@ -1656,13 +1656,14 @@ export function rollupAndClassify(emits: DetectorEmit[]): {
       classifyVerdictBucket(r.verdict)
     const autoFixable =
       payload.autoFixable === true || /^auto[-_]/.test(r.verdict)
-    const reportOnly =
-      bucket === 'informational' ||
-      (!autoFixable && !r.verdict.startsWith('auto-'))
     let surfaceClass = classifySurfaceClass(r.verdict, {
       autoFixable,
-      reportOnly,
+      reportOnly: bucket === 'informational',
     })
+    const reportOnly =
+      bucket === 'informational' ||
+      surfaceClass === 'informational' ||
+      surfaceClass === 'report-only'
     // Auto-fixable only after resolveSourceFile stores path + blob SHA.
     // Rollup always demotes; resolve_sources promotes registered+resolved rows.
     let effectiveAutoFixable = autoFixable

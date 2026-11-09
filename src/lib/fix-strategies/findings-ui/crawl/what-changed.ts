@@ -8,6 +8,8 @@
 
 import type { PersistedFindingRow } from './constants'
 import { isCurrentlyPresentFindingStatus } from '../finding-status'
+import { isReportOnlyOrInformational } from '../list-groups'
+import { ownerFacingVerdictTitle } from '../owner-copy'
 import { buildRegressionReport } from './regression-report'
 
 export type WhatChangedFindingRef = {
@@ -23,11 +25,23 @@ export type WhatChangedFindingRef = {
   fixPrNumber?: number | null
 }
 
+export type WhatChangedGroup = {
+  key: string
+  verdict: string
+  title: string
+  count: number
+  representativeId: string
+  pageUrls: string[]
+  ids: string[]
+}
+
 export type WhatChangedDigest = {
   runId: string
   previousRunId: string | null
   generatedAt: string
   newFindings: WhatChangedFindingRef[]
+  newFindingGroups: WhatChangedGroup[]
+  newInformationalGroups: WhatChangedGroup[]
   resolvedFindings: WhatChangedFindingRef[]
   regressedFindings: WhatChangedFindingRef[]
   stillOpenCount: number
@@ -55,6 +69,42 @@ function ref(
   return base
 }
 
+export function groupWhatChangedRefs(
+  refs: WhatChangedFindingRef[],
+): WhatChangedGroup[] {
+  const groups = new Map<string, WhatChangedGroup>()
+  for (const r of refs) {
+    const title = ownerFacingVerdictTitle(r.verdict)
+    const existing = groups.get(r.verdict)
+    if (!existing) {
+      groups.set(r.verdict, {
+        key: r.verdict,
+        verdict: r.verdict,
+        title,
+        count: 1,
+        representativeId: r.id,
+        pageUrls: r.pageUrl ? [r.pageUrl] : [],
+        ids: [r.id],
+      })
+      continue
+    }
+    existing.count += 1
+    existing.ids.push(r.id)
+    if (r.pageUrl && !existing.pageUrls.includes(r.pageUrl)) {
+      existing.pageUrls.push(r.pageUrl)
+    }
+  }
+  return Array.from(groups.values())
+}
+
+function isInformationalChange(f: PersistedFindingRow): boolean {
+  return isReportOnlyOrInformational({
+    bucket: f.bucket,
+    reportOnly: f.reportOnly,
+    surfaceClass: f.surfaceClass,
+  })
+}
+
 /**
  * Build a what-changed digest for `currentRunId` given the scope's findings
  * and the previous terminal run id (if any).
@@ -73,8 +123,16 @@ export function buildWhatChangedDigest(input: {
   const generatedAt = input.nowIso ?? new Date().toISOString()
   const listable = input.findings.filter((f) => f.bucket !== 'internal')
 
-  const newFindings = listable
-    .filter((f) => f.firstSeenRunId === input.currentRunId)
+  const newlySeen = listable.filter(
+    (f) => f.firstSeenRunId === input.currentRunId,
+  )
+  const newFindings = newlySeen
+    .filter((f) => !isInformationalChange(f))
+    .map((f) =>
+      ref(f, { fixFlow: input.fixFlowByFindingId?.get(f.id) }),
+    )
+  const newInformational = newlySeen
+    .filter((f) => isInformationalChange(f))
     .map((f) =>
       ref(f, { fixFlow: input.fixFlowByFindingId?.get(f.id) }),
     )
@@ -127,6 +185,8 @@ export function buildWhatChangedDigest(input: {
     previousRunId: input.previousRunId,
     generatedAt,
     newFindings,
+    newFindingGroups: groupWhatChangedRefs(newFindings),
+    newInformationalGroups: groupWhatChangedRefs(newInformational),
     resolvedFindings,
     regressedFindings,
     stillOpenCount,

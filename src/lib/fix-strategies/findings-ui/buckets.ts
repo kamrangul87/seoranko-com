@@ -25,7 +25,9 @@ export function classifyVerdictBucket(verdict: string): FindingBucket {
     verdict.startsWith('metric-') ||
     verdict === 'client_only-limited' ||
     verdict === 'report-client-only-graph' ||
-    verdict === 'informational-generated-only'
+    verdict === 'informational-generated-only' ||
+    // Topic 58 weak direction: absence from GSC top rows is not a defect.
+    verdict === 'in-crawl-not-in-gsc-weak'
   ) {
     return 'informational'
   }

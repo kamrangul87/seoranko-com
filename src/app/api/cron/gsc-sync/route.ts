@@ -6,7 +6,7 @@ import { syncAllUrlInspections } from '@/lib/gsc/inspection-scheduler'
 
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+export const maxDuration = 300
 
 /**
  * Daily GSC metric ingestion + quota-aware URL Inspection batch.

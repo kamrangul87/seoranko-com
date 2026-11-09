@@ -11,6 +11,7 @@ import {
   type UiFinding,
 } from '@/lib/fix-strategies/findings-ui/client'
 import { affectedUrlsForFinding } from '@/lib/fix-strategies/findings-ui/affected-urls'
+import { jurisdictionSettingsHref } from '@/lib/compliance/jurisdiction'
 
 function sourceTierTone(tier: SourceTier): string {
   if (tier === 'STANDARD') return 'text-emerald-800 bg-emerald-50 border-emerald-100'
@@ -420,10 +421,22 @@ export default function FindingDetailPage() {
                       Awaiting your decision
                     </h2>
                     <p className="text-sm text-amber-900/80">
-                      This finding is not auto-fixable. Review the observation
-                      and evidence above — no change will be applied until you
-                      decide.
+                      {finding.whyNotAutoFixed ||
+                        'This finding is not auto-fixable. Review the observation and evidence above — no change will be applied until you decide.'}
                     </p>
+                    {finding.verdict ===
+                      'human-review-jurisdiction-not-set' && (
+                      <p className="text-sm mt-3">
+                        <Link
+                          href={jurisdictionSettingsHref(finding.siteId)}
+                          className="underline text-amber-950"
+                        >
+                          Set jurisdiction in Sites settings
+                        </Link>
+                        {' — '}
+                        SEORANKO will not write legal text automatically.
+                      </p>
+                    )}
                   </section>
                 )}
 
