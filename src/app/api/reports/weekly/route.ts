@@ -1,33 +1,27 @@
 import { NextResponse, NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
 import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
+import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import { gscAvailableEndDate } from '@/lib/gsc/client'
-import { pickWindowDates, aggregateWindowForQueryPage, type QueryPageDaily } from '@/lib/gsc/opportunities'
+import type { QueryPageDaily } from '@/lib/gsc/opportunities'
+import {
+  bestPage2NextAction,
+  pickLatestCompleteWeek,
+  previousWeekDates,
+  weeklyTotalsFromRows,
+} from '@/lib/gsc/weekly-report'
 import { listFixReceiptsForSite } from '@/lib/fix-strategies/findings-ui/fix-receipt'
+import { dedupeFixReceipts } from '@/lib/fix-strategies/findings-ui/fix-receipt-display'
+import { ownerFacingVerdictTitle } from '@/lib/fix-strategies/findings-ui/owner-copy'
 import { computeBeforeAfterForUrl } from '@/lib/gsc/before-after'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-function isQuestionLike(q: string): boolean {
-  return /\b(what|how|why|when|where|who|can|does|do|is|are|should|faq|guide)\b/i.test(q) || /\?$/.test(q.trim())
-}
-
-function shouldTargetPricing(q: string): boolean {
-  return /\b(price|prices|cost|fee|fees)\b/i.test(q)
-}
-
-function suggestFixTypeForOpportunity(row: { ctr: number; avg_position: number; query: string }): 'title_meta' | 'internal_links' | 'content_gaps' | 'schema' {
-  // Very rough CTR guard: < 2% at Page‑2 is likely title/description issue
-  if (row.ctr < 0.02) return 'title_meta'
-  if (isQuestionLike(row.query) || shouldTargetPricing(row.query)) return 'content_gaps'
-  return 'internal_links'
-}
-
 type WeeklyWin = {
   url: string
   query: string
-  positionChange: number // negative is improvement
+  positionChange: number
   clicksDelta: number
   impressionsDelta: number
   week2: { clicks: number; impressions: number; avg_position: number }
@@ -37,22 +31,34 @@ type WeeklyWin = {
 export async function GET(req: NextRequest): Promise<Response> {
   try {
     const cookieStore = cookies()
-    const sb = createSupabaseSsrClient(
+    const userClient = createSupabaseSsrClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { cookies: { get(name: string) { return cookieStore.get(name)?.value } } },
     )
-    const { data: { user } } = await sb.auth.getUser()
+    const { data: { user } } = await userClient.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const siteId = req.nextUrl.searchParams.get('siteId') || ''
     if (!siteId) return NextResponse.json({ error: 'siteId is required' }, { status: 400 })
 
-    // Fetch last ~60 days of finalized query-page rows to allow weekly + 28‑day calcs
+    const { data: site, error: siteErr } = await userClient
+      .from('connected_sites')
+      .select('id')
+      .eq('id', siteId)
+      .eq('user_id', user.id)
+      .maybeSingle()
+    if (siteErr || !site) {
+      return NextResponse.json({ error: 'Site not found' }, { status: 404 })
+    }
+
+    // Service role: gsc_query_page_daily has RLS with no authenticated policy.
+    const sb = createServiceRoleClient()
+
     const end = gscAvailableEndDate()
     const endDate = new Date(`${end}T00:00:00.000Z`)
     const startDate = new Date(endDate)
-    startDate.setUTCDate(startDate.getUTCDate() - 59)
+    startDate.setUTCDate(startDate.getUTCDate() - 90)
     const startYmd = startDate.toISOString().slice(0, 10)
     const endYmd = endDate.toISOString().slice(0, 10)
 
@@ -67,10 +73,10 @@ export async function GET(req: NextRequest): Promise<Response> {
       .limit(200000)
     if (error) throw new Error(error.message)
     const rows = (data || []) as QueryPageDaily[]
-    const dates = Array.from(new Set(rows.map(r => r.date))).sort()
-    // Build week2 = last 7 finalized days; week1 = previous 7
-    const last7 = dates.slice(-7)
-    const prev7 = dates.slice(-14, -7)
+    const weekBundle = weeklyTotalsFromRows(rows)
+    const week = weekBundle?.week ?? pickLatestCompleteWeek(rows.map((r) => r.date))
+    const last7 = week?.dates ?? []
+    const prev7 = week ? previousWeekDates(week) : []
     const agg = (win: string[]) => {
       type Acc = { clicks: number; impressions: number; posWeighted: number }
       const map = new Map<string, Acc>()
@@ -102,10 +108,9 @@ export async function GET(req: NextRequest): Promise<Response> {
     for (const [key, cur] of w2.entries()) {
       const prev = w1.get(key) || { clicks: 0, impressions: 0, avg_position: cur.avg_position }
       const [url, query] = key.split('\0')
-      const deltaPos = cur.avg_position - prev.avg_position // negative is good
+      const deltaPos = cur.avg_position - prev.avg_position
       const clicksDelta = cur.clicks - prev.clicks
       const impressionsDelta = cur.impressions - prev.impressions
-      // Consider a "win" if position improved by >= 0.5 or clicks gained by >= 10
       if (deltaPos <= -0.5 || clicksDelta >= 10) {
         wins.push({
           url,
@@ -119,45 +124,29 @@ export async function GET(req: NextRequest): Promise<Response> {
       }
     }
     wins.sort((a, b) => {
-      // Primary by position improvement magnitude, then by clicks delta
       const byPos = Math.abs(a.positionChange) - Math.abs(b.positionChange)
       if (byPos !== 0) return byPos > 0 ? -1 : 1
       return (b.clicksDelta || 0) - (a.clicksDelta || 0)
     })
 
-    // Best next action from Page‑2 opportunities (28‑day window)
-    const window = pickWindowDates(rows.map(r => r.date), 28, 90)
-    let nextAction: null | {
-      url: string
-      query: string
-      avg_position: number
-      ctr: number
-      suggestedFix: 'title_meta' | 'internal_links' | 'content_gaps' | 'schema'
-    } = null
-    if (window) {
-      const opp = aggregateWindowForQueryPage(rows, window.startDate, window.endDate)[0]
-      if (opp) {
-        nextAction = {
-          url: opp.url,
-          query: opp.query,
-          avg_position: opp.avg_position,
-          ctr: opp.ctr,
-          suggestedFix: suggestFixTypeForOpportunity(opp),
-        }
-      }
-    }
+    const nextAction = bestPage2NextAction(rows)
 
-    // Fix Receipts shipped in the last 7 days (+ optional before/after)
-    const since = new Date(endDate)
-    since.setUTCDate(since.getUTCDate() - 7)
-    const receipts = (await listFixReceiptsForSite({ userId: user.id, siteId, limit: 50 }))
-      .filter(r => {
-        const t = r.productionVerifiedAt || r.previewVerifiedAt || r.createdAt
-        return t ? new Date(t) >= since : false
-      })
-      .slice(0, 10)
+    const since = week
+      ? new Date(`${week.startDate}T00:00:00.000Z`)
+      : (() => {
+          const d = new Date(endDate)
+          d.setUTCDate(d.getUTCDate() - 7)
+          return d
+        })()
+    const receipts = dedupeFixReceipts(
+      (await listFixReceiptsForSite({ userId: user.id, siteId, limit: 50 }))
+        .filter((r) => {
+          const t = r.productionVerifiedAt || r.previewVerifiedAt || r.createdAt
+          return t ? new Date(t) >= since : false
+        })
+        .slice(0, 10),
+    )
 
-    // Gather before/after where possible using url_metrics_daily
     const { data: urlDaily, error: urlErr } = await sb
       .from('url_metrics_daily')
       .select('url, date, impressions, clicks, avg_position, is_final')
@@ -173,13 +162,14 @@ export async function GET(req: NextRequest): Promise<Response> {
       arr.push(r)
       byUrl.set(r.url, arr)
     }
-    const receiptsWithBeforeAfter = receipts.map(r => {
+    const receiptsWithBeforeAfter = receipts.map((r) => {
       const appliedAt = r.productionVerifiedAt || r.previewVerifiedAt || r.createdAt
-      const series = byUrl.get(r.pageUrl || '') || []
+      const displayUrl = r.pageUrl || ''
+      const series = byUrl.get(displayUrl) || []
       let beforeAfter: null | ReturnType<typeof computeBeforeAfterForUrl> = null
       if (appliedAt && series.length > 0) {
         beforeAfter = computeBeforeAfterForUrl({
-          url: r.pageUrl || '',
+          url: displayUrl,
           rows: series,
           appliedAt,
           baselineDays: 28,
@@ -188,22 +178,23 @@ export async function GET(req: NextRequest): Promise<Response> {
       }
       return {
         ...r,
+        title: r.plainEnglish || ownerFacingVerdictTitle(r.verdict),
         beforeAfter,
       }
     })
 
-    // Site-wide week-over-week totals
-    const totalW2 = Array.from(w2.values()).reduce((a, v) => ({ clicks: a.clicks + v.clicks, impressions: a.impressions + v.impressions }), { clicks: 0, impressions: 0 })
-    const totalW1 = Array.from(w1.values()).reduce((a, v) => ({ clicks: a.clicks + v.clicks, impressions: a.impressions + v.impressions }), { clicks: 0, impressions: 0 })
+    const totals = weekBundle?.totals ?? {
+      clicks: { current: 0, previous: 0, delta: 0 },
+      impressions: { current: 0, previous: 0, delta: 0 },
+    }
 
     return NextResponse.json({
       ok: true,
       siteId,
-      weekEnding: endYmd,
-      totals: {
-        clicks: { current: totalW2.clicks, previous: totalW1.clicks, delta: totalW2.clicks - totalW1.clicks },
-        impressions: { current: totalW2.impressions, previous: totalW1.impressions, delta: totalW2.impressions - totalW1.impressions },
-      },
+      weekEnding: week?.weekEnding ?? null,
+      weekStart: week?.startDate ?? null,
+      weekEnd: week?.endDate ?? null,
+      totals,
       wins: wins.slice(0, 8),
       nextAction,
       receipts: receiptsWithBeforeAfter,
@@ -213,4 +204,3 @@ export async function GET(req: NextRequest): Promise<Response> {
     return NextResponse.json({ error: 'failed' }, { status: 500 })
   }
 }
-

@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import { gscAvailableEndDate } from '@/lib/gsc/client'
-import { aggregateWindowForQueryPage, pickWindowDates, type QueryPageDaily } from '@/lib/gsc/opportunities'
+import { type QueryPageDaily } from '@/lib/gsc/opportunities'
+import { page2OpportunitiesFromRows, page2WindowFromRows } from '@/lib/gsc/weekly-report'
+import { asPage2SuggestionsCache } from '@/lib/gsc/precompute-suggestions'
 
 export async function GET(req: Request): Promise<Response> {
   const { searchParams } = new URL(req.url)
@@ -42,7 +44,7 @@ export async function GET(req: Request): Promise<Response> {
       throw new Error(error.message)
     }
     const rows = (data || []) as QueryPageDaily[]
-    const window = pickWindowDates(rows.map((r) => r.date), 28, 90)
+    const window = page2WindowFromRows(rows)
     if (!window) {
       return NextResponse.json({
         siteId,
@@ -52,13 +54,26 @@ export async function GET(req: Request): Promise<Response> {
           'No finalized Search Console data yet. Connect Search Console and wait for the next sync.',
       })
     }
-    const opps = aggregateWindowForQueryPage(rows, window.startDate, window.endDate)
+    const opps = page2OpportunitiesFromRows(rows)
+    let suggestions: ReturnType<typeof asPage2SuggestionsCache> = null
+    try {
+      const { data: conn } = await sb
+        .from('gsc_connections')
+        .select('page2_suggestions')
+        .eq('site_id', siteId)
+        .eq('status', 'active')
+        .maybeSingle()
+      suggestions = asPage2SuggestionsCache(conn?.page2_suggestions)
+    } catch {
+      suggestions = null
+    }
     return NextResponse.json({
       siteId,
       windowDays: window.windowDays,
       startDate: window.startDate,
       endDate: window.endDate,
       opportunities: opps,
+      suggestions,
       note:
         'Based on finalized Search Console data. Suggestions are observational, not guarantees. No ranking promises.',
     })

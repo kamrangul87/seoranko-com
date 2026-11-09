@@ -12,6 +12,7 @@ import {
   createSupabaseHeartbeatDeps,
   runHeartbeat,
 } from '@/lib/run-heartbeat'
+import { recoverStaleFixReceipts } from '@/lib/fix-strategies/findings-ui/fix-run/recover-stale-prs'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -23,7 +24,18 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await runHeartbeat(createSupabaseHeartbeatDeps())
-    return NextResponse.json({ ok: true, ...result })
+    let receipts: Awaited<ReturnType<typeof recoverStaleFixReceipts>> | null =
+      null
+    try {
+      receipts = await recoverStaleFixReceipts({ limit: 2 })
+    } catch (err) {
+      console.error('[internal/heartbeat] recover stale PRs', err)
+    }
+    return NextResponse.json({
+      ok: true,
+      ...result,
+      receiptRecovery: receipts,
+    })
   } catch (err) {
     console.error('[internal/heartbeat]', err)
     return NextResponse.json(

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
 import { cookies } from 'next/headers'
 import { listFixReceiptsForSite } from '@/lib/fix-strategies/findings-ui/fix-receipt'
+import { dedupeFixReceipts } from '@/lib/fix-strategies/findings-ui/fix-receipt-display'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,10 +29,12 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const receipts = await listFixReceiptsForSite({
-      userId: user.id,
-      siteId,
-    })
+    const receipts = dedupeFixReceipts(
+      await listFixReceiptsForSite({
+        userId: user.id,
+        siteId,
+      }),
+    )
     return NextResponse.json({ receipts })
   } catch (err) {
     console.error('[receipts]', err)

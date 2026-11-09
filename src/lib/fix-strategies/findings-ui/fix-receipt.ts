@@ -5,6 +5,7 @@
 
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import { ownerPlainEnglish } from './owner-copy'
+import { receiptDisplayPageUrl } from './fix-receipt-display'
 
 export type FixReceipt = {
   itemId: string
@@ -64,7 +65,10 @@ function rowToReceipt(row: ItemJoinRow): FixReceipt | null {
     itemId: row.id,
     runId: row.run_id,
     siteId: run.site_id,
-    pageUrl: finding.page_url,
+    pageUrl: receiptDisplayPageUrl({
+      verdict: finding.verdict,
+      pageUrl: finding.page_url,
+    }),
     topicId: String(finding.topic_id),
     verdict: finding.verdict,
     plainEnglish:

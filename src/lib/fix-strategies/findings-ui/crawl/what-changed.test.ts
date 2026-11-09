@@ -160,6 +160,88 @@ describe('buildWhatChangedDigest', () => {
     expect(digest.summaryLine).toContain('1 regression')
   })
 
+  it('does not count informational or report-only rows as new findings', () => {
+    const digest = buildWhatChangedDigest({
+      currentRunId: 'run-cur',
+      previousRunId: 'run-prev',
+      findings: [
+        finding({
+          id: 'f-info-1',
+          topicId: '58',
+          verdict: 'in-crawl-not-in-gsc-weak',
+          bucket: 'informational',
+          reportOnly: true,
+          surfaceClass: 'report-only',
+          autoFixable: false,
+          pageUrl: 'https://example.com/a',
+          firstSeenRunId: 'run-cur',
+          lastSeenRunId: 'run-cur',
+          status: 'open',
+        }),
+        finding({
+          id: 'f-info-2',
+          topicId: '58',
+          verdict: 'in-crawl-not-in-gsc-weak',
+          bucket: 'actionable',
+          reportOnly: true,
+          surfaceClass: 'report-only',
+          autoFixable: false,
+          pageUrl: 'https://example.com/b',
+          firstSeenRunId: 'run-cur',
+          lastSeenRunId: 'run-cur',
+          status: 'open',
+        }),
+        finding({
+          id: 'f-real',
+          firstSeenRunId: 'run-cur',
+          lastSeenRunId: 'run-cur',
+          status: 'open',
+        }),
+      ],
+    })
+    expect(digest.newFindings.map((f) => f.id)).toEqual(['f-real'])
+    expect(digest.summaryLine).toContain('1 new finding')
+    expect(digest.summaryLine).not.toMatch(/3 new/)
+    expect(digest.newInformationalGroups).toHaveLength(1)
+    expect(digest.newInformationalGroups[0]!.count).toBe(2)
+    expect(digest.newInformationalGroups[0]!.pageUrls).toEqual([
+      'https://example.com/a',
+      'https://example.com/b',
+    ])
+  })
+
+  it('groups identical-title new findings with a count and URLs', () => {
+    const digest = buildWhatChangedDigest({
+      currentRunId: 'run-cur',
+      previousRunId: 'run-prev',
+      findings: [
+        finding({
+          id: 'f-a',
+          verdict: 'auto-set-dimensions',
+          pageUrl: 'https://example.com/one',
+          firstSeenRunId: 'run-cur',
+          lastSeenRunId: 'run-cur',
+          status: 'open',
+        }),
+        finding({
+          id: 'f-b',
+          verdict: 'auto-set-dimensions',
+          pageUrl: 'https://example.com/two',
+          firstSeenRunId: 'run-cur',
+          lastSeenRunId: 'run-cur',
+          status: 'open',
+        }),
+      ],
+    })
+    expect(digest.newFindingGroups).toHaveLength(1)
+    expect(digest.newFindingGroups[0]!.count).toBe(2)
+    expect(digest.newFindingGroups[0]!.pageUrls).toEqual([
+      'https://example.com/one',
+      'https://example.com/two',
+    ])
+    expect(digest.newFindingGroups[0]!.representativeId).toBe('f-a')
+  })
+
   it('reports no changes when lifecycle is unchanged', () => {
     const digest = buildWhatChangedDigest({
       currentRunId: 'run-cur',

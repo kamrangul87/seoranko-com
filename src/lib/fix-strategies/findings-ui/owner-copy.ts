@@ -480,6 +480,7 @@ export function whyFindingNotAutoFixed(opts: {
   autoFixable: boolean
   reportOnly: boolean
   surfaceClass: string
+  verdict?: string
   /** From resolveSourceFile when path+SHA could not be stored. */
   sourceUnresolvedReason?: string | null
   /** Plain-English sentence stored on evidenceValues.sourceUnresolvedWhy. */
@@ -487,6 +488,9 @@ export function whyFindingNotAutoFixed(opts: {
   /** Circuit breaker paused this (topic, verdict). */
   fixTypePaused?: boolean
 }): string | null {
+  if (opts.verdict === 'human-review-jurisdiction-not-set') {
+    return 'Set this site’s jurisdiction (UK, EU, or US) in Sites settings. SEORANKO will not write legal or privacy wording automatically.'
+  }
   if (opts.fixTypePaused) {
     return 'Automatic fix paused while we fix a problem with it.'
   }

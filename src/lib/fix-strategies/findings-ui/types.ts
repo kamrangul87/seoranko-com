@@ -50,6 +50,7 @@ export type LeftAloneItem = {
  */
 export type UiFinding = {
   id: string
+  siteId?: string | null
   topicId: string
   kind: string
   verdict: string
@@ -129,12 +130,24 @@ export type SourceTier =
   | 'OBSERVED'
 
 /** Change Monitoring 3.4 — delta since previous terminal crawl. */
+export type WhatChangedGroupUi = {
+  key: string
+  verdict: string
+  title: string
+  count: number
+  representativeId: string
+  pageUrls: string[]
+  ids: string[]
+}
+
 export type WhatChangedDigestUi = {
   runId: string
   previousRunId: string | null
   generatedAt: string
   summaryLine: string
   stillOpenCount: number
+  newFindingGroups?: WhatChangedGroupUi[]
+  newInformationalGroups?: WhatChangedGroupUi[]
   newFindings: Array<{
     id: string
     topicId: string

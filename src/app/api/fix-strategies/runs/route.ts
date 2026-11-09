@@ -10,6 +10,8 @@ import {
 } from '@/lib/fix-strategies/findings-ui/fix-run'
 import { resolveGithubAppRepoCreds } from '@/lib/github-app/resolve-repo-creds'
 import { requireMasterUser } from '@/lib/github-app/require-master'
+import { filterRecoverableRuns } from '@/lib/fix-strategies/findings-ui/fix-run/recoverable'
+import { listFixReceiptsForSite } from '@/lib/fix-strategies/findings-ui/fix-receipt'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -151,7 +153,7 @@ export async function GET(req: NextRequest) {
       )
       const { data: rows, error } = await supabase
         .from('fix_strategies_runs')
-        .select('id, user_id, site_id, status, phase, pr_number, pr_url, error_detail, created_at, merged_by_customer, merged_at, summary')
+        .select('id, user_id, site_id, status, phase, pr_number, pr_url, error_detail, created_at, merged_by_customer, merged_at, closed_by_customer, summary')
         .eq('site_id', siteId)
         .eq('user_id', user.id)
         .not('pr_number', 'is', null)
@@ -171,23 +173,31 @@ export async function GET(req: NextRequest) {
         created_at: string
         merged_by_customer?: boolean | null
         merged_at?: string | null
+        closed_by_customer?: boolean | null
         summary?: { verifiedLive?: number; committed?: number } | null
       }
-      const recoverable = ((rows || []) as DbRow[])
-        .filter((r: DbRow) => {
-          const status = String(r.status || '')
-          const phase = String(r.phase || '')
-          const mergedFlag = Boolean(r.merged_by_customer) || Boolean(r.merged_at)
-          const s = r.summary || {}
-          const verifiedLive = Number(s.verifiedLive ?? 0)
-          const committed = Number(s.committed ?? 0)
-          const needsRecovery =
-            status === 'failed' ||
-            (mergedFlag && verifiedLive === 0 && committed > 0)
-          const contradictory = status !== 'complete' && phase === 'done'
-          return needsRecovery || contradictory
+      let receiptPrNumbers: number[] = []
+      let latestReceiptAt: string | null = null
+      try {
+        const receipts = await listFixReceiptsForSite({
+          userId: user.id,
+          siteId,
+          limit: 50,
         })
-        .map((r: DbRow) => ({
+        receiptPrNumbers = receipts
+          .map((r) => r.prNumber)
+          .filter((n): n is number => n != null)
+        latestReceiptAt =
+          receipts
+            .map((r) => r.productionVerifiedAt || r.createdAt)
+            .filter((t): t is string => Boolean(t))
+            .sort()
+            .at(-1) ?? null
+      } catch {
+        /* receipts optional for the filter */
+      }
+      const recoverable = filterRecoverableRuns({
+        runs: ((rows || []) as DbRow[]).map((r) => ({
           id: String(r.id),
           prNumber: r.pr_number == null ? null : Number(r.pr_number),
           prUrl: (r.pr_url as string | null) ?? null,
@@ -195,7 +205,14 @@ export async function GET(req: NextRequest) {
           phase: String(r.phase || ''),
           errorDetail: (r.error_detail as string | null) ?? null,
           createdAt: String(r.created_at),
-        }))
+          closedByCustomer: Boolean(r.closed_by_customer),
+          mergedByCustomer: Boolean(r.merged_by_customer),
+          mergedAt: (r.merged_at as string | null) ?? null,
+          summary: r.summary || null,
+        })),
+        receiptPrNumbers,
+        latestReceiptAt,
+      })
       return NextResponse.json({ ok: true, run, recoverable })
     }
     return NextResponse.json(

@@ -13,6 +13,7 @@ type ReceiptRow = {
   prNumber: number | null
   productionVerifiedAt: string | null
   sharePath: string | null
+  alsoPrNumbers?: number[]
 }
 
 export default function FixReceiptsPage() {
@@ -218,6 +219,9 @@ export default function FixReceiptsPage() {
                 ? `Verified ${new Date(r.productionVerifiedAt).toLocaleString()}`
                 : 'Verified live'}
               {r.prNumber ? ` · PR #${r.prNumber}` : ''}
+              {r.alsoPrNumbers && r.alsoPrNumbers.length > 0
+                ? ` · also PR #${r.alsoPrNumbers.join(', #')}`
+                : ''}
               {r.sharePath ? ' · share link on' : ' · private'}
             </p>
           </li>

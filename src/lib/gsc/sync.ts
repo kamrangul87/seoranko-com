@@ -18,6 +18,7 @@ import { evaluateBaselineReadiness } from '@/lib/gsc/baseline-readiness'
 import { filterRowsToKnownUrls, loadKnownUrlsForSite } from '@/lib/gsc/known-urls'
 import { buildDedupedUrlMetricsUpserts } from '@/lib/gsc/dedupe-metrics'
 import { buildDedupedQueryPageUpserts } from '@/lib/gsc/dedupe-query-metrics'
+import type { QueryPageDaily } from '@/lib/gsc/opportunities'
 
 export type GscSyncResult = {
   siteId: string
@@ -304,7 +305,7 @@ export async function syncGscConnection(
     })
     .eq('id', conn.id)
 
-  return {
+  const result = {
     siteId: conn.site_id,
     propertyUrl: conn.property_url,
     startDate: range.startDate,
@@ -323,6 +324,33 @@ export async function syncGscConnection(
     readinessPassed: readiness.passed,
     readinessReason: readiness.reasonCode,
   }
+
+  try {
+    const { persistPage2SuggestionsForSite } = await import(
+      '@/lib/gsc/precompute-suggestions'
+    )
+    const { data: qpRows } = await supabase
+      .from('gsc_query_page_daily')
+      .select('url, query, date, clicks, impressions, avg_position, is_final')
+      .eq('site_id', result.siteId)
+      .eq('is_final', true)
+      .gte('date', result.startDate)
+      .order('date', { ascending: true })
+      .limit(50000)
+    if (qpRows && qpRows.length > 0) {
+      await persistPage2SuggestionsForSite({
+        siteId: result.siteId,
+        rows: qpRows as QueryPageDaily[],
+      })
+    }
+  } catch (err) {
+    console.error(
+      '[gsc-sync] page2 suggestions',
+      err instanceof Error ? err.message : err,
+    )
+  }
+
+  return result
 }
 
 export async function syncAllActiveGscConnections(supabase: any): Promise<{

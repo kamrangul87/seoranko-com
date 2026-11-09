@@ -22,6 +22,7 @@ import {
   loadPausedFixTypeSet,
 } from '@/lib/fix-strategies/findings-ui/fix-run/failure-learning'
 import { countsForViewer } from '@/lib/fix-strategies/findings-ui/customer-counts'
+import { ownerFacingFindingCounts } from '@/lib/fix-strategies/findings-ui/list-groups'
 
 export const dynamic = 'force-dynamic'
 
@@ -138,7 +139,10 @@ export async function GET(request: Request) {
           }
         : null,
       whatChanged,
-      counts: countsForViewer(counts, user.email),
+      counts: countsForViewer(
+        ownerFacingFindingCounts({ counts, findings: rows }),
+        user.email,
+      ),
       findings,
       leftAlone: aggregateLeftAlone(findings),
     }
@@ -227,7 +231,10 @@ export async function GET(request: Request) {
         }
       : null,
     whatChanged,
-    counts: countsForViewer(counts, user.email),
+    counts: countsForViewer(
+      ownerFacingFindingCounts({ counts, findings: rows }),
+      user.email,
+    ),
     findings,
     leftAlone: aggregateLeftAlone(findings),
   }

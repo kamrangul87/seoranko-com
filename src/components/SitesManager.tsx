@@ -8,6 +8,7 @@ import {
   getConnectedSites, addConnectedSite, setPrimarySite, removeConnectedSite,
   ConnectedSite
 } from '@/lib/connected-sites'
+import { SITE_JURISDICTION_OPTIONS } from '@/lib/compliance/jurisdiction'
 
 const BRAND_OPTIONS = ['autodun', 'seoranko', 'fitford', 'other']
 
@@ -64,8 +65,20 @@ export function SitesManager() {
   const [connectTarget, setConnectTarget] = useState<{ id: string; domain: string; token?: string | null } | null>(null)
   const [shareBusy, setShareBusy] = useState<string | null>(null)
   const [copiedShareFor, setCopiedShareFor] = useState<string | null>(null)
+  const [jurisdictionBusy, setJurisdictionBusy] = useState<string | null>(null)
+  const [jurisdictionMsg, setJurisdictionMsg] = useState<Record<string, string>>(
+    {},
+  )
 
   useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    if (loading) return
+    const hash = typeof window !== 'undefined' ? window.location.hash.replace(/^#/, '') : ''
+    if (!hash) return
+    const el = document.getElementById(hash)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [loading, sites])
 
   async function load() {
     setLoading(true)
@@ -287,6 +300,81 @@ export function SitesManager() {
                   {shareBusy === site.id ? 'Creating…' : 'Create shareable fix report link'}
                 </button>
               )}
+            </div>
+            <div
+              id={`site-jurisdiction-${site.id}`}
+              className="pl-6 pt-2 space-y-1"
+            >
+              {site.id === sites[0]?.id ? (
+                <span id="site-jurisdiction" className="sr-only">
+                  Site jurisdiction
+                </span>
+              ) : null}
+              <label className="text-xs text-[#6B6B6B] block">
+                Site jurisdiction
+                <select
+                  className="mt-1 w-full max-w-xs border border-[#E8E8E4] rounded px-2 py-1 text-sm text-gray-900 bg-white"
+                  value={site.privacyJurisdiction || ''}
+                  disabled={jurisdictionBusy === site.id}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    setJurisdictionBusy(site.id)
+                    setJurisdictionMsg((m) => ({ ...m, [site.id]: '' }))
+                    void (async () => {
+                      try {
+                        const res = await fetch(
+                          '/api/connected-sites/jurisdiction',
+                          {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              siteId: site.id,
+                              jurisdiction: value || null,
+                            }),
+                          },
+                        )
+                        const body = (await res.json()) as {
+                          error?: string
+                          resolvedFindingIds?: string[]
+                        }
+                        if (!res.ok) throw new Error(body.error || 'Save failed')
+                        await load()
+                        setJurisdictionMsg((m) => ({
+                          ...m,
+                          [site.id]:
+                            (body.resolvedFindingIds?.length || 0) > 0
+                              ? 'Saved — jurisdiction finding closed. Other privacy wording still needs your review.'
+                              : 'Saved. SEORANKO will not write legal text automatically.',
+                        }))
+                      } catch (err) {
+                        setJurisdictionMsg((m) => ({
+                          ...m,
+                          [site.id]:
+                            err instanceof Error ? err.message : 'Save failed',
+                        }))
+                      } finally {
+                        setJurisdictionBusy(null)
+                      }
+                    })()
+                  }}
+                >
+                  <option value="">Not set</option>
+                  {SITE_JURISDICTION_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="text-[11px] text-[#9B9B9B]">
+                Used to choose supervisory-authority wording. Never auto-applied
+                to the live site.
+              </p>
+              {jurisdictionMsg[site.id] ? (
+                <p className="text-[11px] text-[#6B6B6B]">
+                  {jurisdictionMsg[site.id]}
+                </p>
+              ) : null}
             </div>
             <PrivacyNoticeAssembler siteId={site.id} siteDomain={site.domain} />
           </div>

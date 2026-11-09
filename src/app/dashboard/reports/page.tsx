@@ -8,7 +8,9 @@ type Site = { id: string; domain: string; brand: string }
 
 type WeeklyReport = {
   ok: boolean
-  weekEnding: string
+  weekEnding: string | null
+  weekStart?: string | null
+  weekEnd?: string | null
   totals: {
     clicks: { current: number; previous: number; delta: number }
     impressions: { current: number; previous: number; delta: number }
@@ -27,12 +29,16 @@ type WeeklyReport = {
     query: string
     avg_position: number
     ctr: number
+    impressions?: number
     suggestedFix: 'title_meta' | 'internal_links' | 'content_gaps' | 'schema'
   }
   receipts: Array<{
     itemId: string
     pageUrl: string | null
     verdict: string
+    title?: string
+    plainEnglish?: string
+    alsoPrNumbers?: number[]
     prUrl: string | null
     prNumber: number | null
     productionVerifiedAt: string | null
@@ -145,7 +151,15 @@ function ReportsPageInner() {
                 <div className="flex justify-between items-center">
                   <div>
                     <h2 className="font-medium">This week</h2>
-                    <p className="text-sm text-[#6B6B6B]">Week ending {report.weekEnding} — finalized GSC only</p>
+                    <p className="text-sm text-[#6B6B6B]">
+                      {report.weekStart && report.weekEnd
+                        ? `${report.weekStart} → ${report.weekEnd}`
+                        : report.weekEnding
+                          ? `Week ending ${report.weekEnding}`
+                          : 'No finalized week yet'}
+                      {' '}
+                      — finalized GSC only
+                    </p>
                   </div>
                   <div className="flex gap-4">
                     <div className="text-center">
@@ -191,7 +205,14 @@ function ReportsPageInner() {
                       Target: <span className="break-all">{report.nextAction.url}</span>
                     </div>
                     <div>Query: <span className="text-[#0F0F0F]">{report.nextAction.query}</span></div>
-                    <div>Position: {report.nextAction.avg_position.toFixed(1)} · CTR {(report.nextAction.ctr * 100).toFixed(1)}%</div>
+                    <div>
+                      Position: {report.nextAction.avg_position.toFixed(1)}
+                      {report.nextAction.impressions != null
+                        ? ` · ${report.nextAction.impressions} impr.`
+                        : ''}
+                      {' · CTR '}
+                      {(report.nextAction.ctr * 100).toFixed(1)}%
+                    </div>
                     <div className="mt-1">
                       Suggested fix: <span className="font-medium text-[#0F0F0F]">
                         {report.nextAction.suggestedFix === 'title_meta' ? 'Improve title and meta description'
@@ -199,6 +220,14 @@ function ReportsPageInner() {
                           : report.nextAction.suggestedFix === 'content_gaps' ? 'Cover missing subtopics / FAQ'
                           : 'Add schema'}
                       </span>
+                    </div>
+                    <div className="mt-2">
+                      <a
+                        className="text-xs underline text-[#FF6B2C]"
+                        href={`/dashboard/experiments?siteId=${encodeURIComponent(siteId)}&focus=${encodeURIComponent(report.nextAction.url)}#page2-opportunities`}
+                      >
+                        Open suggestion on Google status
+                      </a>
                     </div>
                   </div>
                 )}
@@ -218,9 +247,14 @@ function ReportsPageInner() {
                       return (
                         <li key={r.itemId}>
                           <div className="break-all">
-                            <span className="text-[#0F0F0F]">{r.verdict.replace(/_/g, ' ')}</span>{' '}
+                            <span className="text-[#0F0F0F]">
+                              {r.title || r.plainEnglish || r.verdict.replace(/_/g, ' ')}
+                            </span>{' '}
                             on <span className="break-all">{r.pageUrl || '—'}</span>{' '}
                             {r.prUrl ? (<a className="underline text-[#6B6B6B]" href={r.prUrl} target="_blank" rel="noreferrer">PR {r.prNumber ?? ''}</a>) : null}
+                            {r.alsoPrNumbers && r.alsoPrNumbers.length > 0
+                              ? ` (also PR #${r.alsoPrNumbers.join(', #')})`
+                              : ''}
                           </div>
                           <div className="text-[#6B6B6B]">Applied: {new Date(applied).toLocaleDateString()}</div>
                           {ba ? (

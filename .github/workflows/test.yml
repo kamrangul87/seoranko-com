@@ -70,6 +70,11 @@ jobs:
           src/lib/gsc/index-insights.test.ts
           src/lib/gsc/baseline-readiness.test.ts
           src/lib/gsc/dedupe-metrics.test.ts
+          src/lib/gsc/opportunities.test.ts
+          src/lib/gsc/weekly-report.test.ts
+          src/lib/gsc/precompute-suggestions.test.ts
+          src/lib/compliance/jurisdiction.test.ts
+          src/lib/compliance/reevaluate-jurisdiction.test.ts
           src/lib/fix-agent-classification.ts
           src/lib/fix-agent-issues
           src/lib/developer-snippet-placements.test.ts

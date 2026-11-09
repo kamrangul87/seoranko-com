@@ -22,7 +22,8 @@ import {
   ownerFacingVerdictTitle,
   whyNotFixedOrFallback,
 } from '@/lib/fix-strategies/findings-ui/owner-copy'
-import { isCurrentlyPresentFindingStatus } from '@/lib/fix-strategies/findings-ui/finding-status'
+import { partitionPresentFindings } from '@/lib/fix-strategies/findings-ui/list-groups'
+import { jurisdictionSettingsHref } from '@/lib/compliance/jurisdiction'
 import { readParamFromUrl, writeParamToUrl } from '@/lib/site-selection-url'
 import type { User } from '@supabase/supabase-js'
 
@@ -449,26 +450,12 @@ export default function FindingsListPage() {
     }
   }
 
-  const presentFindings =
-    data?.findings.filter((f) => isCurrentlyPresentFindingStatus(f.status)) ??
-    []
-  const readyFindings = presentFindings.filter(
-    (f) => f.surfaceClass === 'auto-fixable' && !f.fixTypePaused,
-  )
-  const needsYouFindings = presentFindings.filter(
-    (f) =>
-      !f.acceptedAt &&
-      (f.fixTypePaused ||
-        f.surfaceClass === 'human-review' ||
-        f.surfaceClass === 'finding' ||
-        f.surfaceClass === 'report-only'),
-  )
-  const acceptedFindings = presentFindings.filter(
-    (f) => Boolean(f.acceptedAt) && f.surfaceClass === 'human-review',
-  )
-  const infoFindings = presentFindings.filter(
-    (f) => f.surfaceClass === 'informational',
-  )
+  const {
+    ready: readyFindings,
+    needsYou: needsYouFindings,
+    accepted: acceptedFindings,
+    info: infoFindings,
+  } = partitionPresentFindings(data?.findings ?? [])
 
   async function drainCrawlTicks(runId: string, opts?: { detectOnly?: boolean }) {
     setCrawling(true)
@@ -897,19 +884,55 @@ export default function FindingsListPage() {
                   ))}
                 </ul>
               )}
-              {data.whatChanged.newFindings.length > 0 && (
+              {(data.whatChanged.newFindingGroups ?? []).length > 0 && (
                 <ul className="mt-2 space-y-1 text-[#6B6B6B]">
-                  {data.whatChanged.newFindings.slice(0, 5).map((f) => (
-                    <li key={f.id}>
+                  {(data.whatChanged.newFindingGroups ?? []).slice(0, 5).map((g) => (
+                    <li key={g.key}>
                       <Link
-                        href={`/dashboard/findings/${f.id}`}
+                        href={`/dashboard/findings/${g.representativeId}`}
                         className="hover:underline text-xs"
                       >
-                        New · {ownerFacingVerdictTitle(f.verdict)}
+                        New · {g.title}
+                        {g.count > 1 ? ` (${g.count})` : ''}
                       </Link>
+                      {g.pageUrls.length > 0 ? (
+                        <span className="ml-2 font-mono text-xs break-all">
+                          {g.pageUrls.slice(0, 3).join(', ')}
+                          {g.pageUrls.length > 3
+                            ? ` +${g.pageUrls.length - 3} more`
+                            : ''}
+                        </span>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
+              )}
+              {(data.whatChanged.newInformationalGroups ?? []).length > 0 && (
+                <div className="mt-2">
+                  <p className="text-[11px] uppercase tracking-wide text-[#9B9B9B]">
+                    Informational (not in Needs you)
+                  </p>
+                  <ul className="mt-1 space-y-1 text-[#6B6B6B]">
+                    {(data.whatChanged.newInformationalGroups ?? [])
+                      .slice(0, 5)
+                      .map((g) => (
+                        <li key={g.key}>
+                          <span className="text-xs">
+                            {g.title}
+                            {g.count > 1 ? ` · ${g.count} URLs` : ''}
+                          </span>
+                          {g.pageUrls.length > 0 ? (
+                            <span className="ml-2 font-mono text-xs break-all">
+                              {g.pageUrls.slice(0, 3).join(', ')}
+                              {g.pageUrls.length > 3
+                                ? ` +${g.pageUrls.length - 3} more`
+                                : ''}
+                            </span>
+                          ) : null}
+                        </li>
+                      ))}
+                  </ul>
+                </div>
               )}
               {data.whatChanged.resolvedFindings.length > 0 && (
                 <p className="mt-2 text-[#6B6B6B]">
@@ -1258,6 +1281,25 @@ export default function FindingsListPage() {
                               <p className="text-xs text-amber-900 mt-2 bg-amber-50 border border-amber-100 rounded-md px-2 py-1.5">
                                 {f.whyNotAutoFixed ??
                                   whyNotFixedOrFallback(f.verdict)}
+                                {f.verdict ===
+                                  'human-review-jurisdiction-not-set' && (
+                                  <>
+                                    {' '}
+                                    <span
+                                      className="underline text-amber-950"
+                                      onClick={(e) => {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        window.location.href =
+                                          jurisdictionSettingsHref(
+                                            data?.siteId ?? f.siteId,
+                                          )
+                                      }}
+                                    >
+                                      Open Sites settings
+                                    </span>
+                                  </>
+                                )}
                               </p>
                             )}
                             {f.pageUrl && (
