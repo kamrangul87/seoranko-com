@@ -43,6 +43,14 @@ const NAV_ICONS: Record<string, ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h10M4 18h10" />
     </svg>
   ),
+  '/dashboard/links': (
+    <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <circle cx="6" cy="7" r="2.5" strokeWidth={2} />
+      <circle cx="18" cy="7" r="2.5" strokeWidth={2} />
+      <circle cx="12" cy="17" r="2.5" strokeWidth={2} />
+      <path strokeLinecap="round" strokeWidth={2} d="M8 8.5l2.5 6.5M16 8.5l-2.5 6.5M8.5 7h7" />
+    </svg>
+  ),
   '/dashboard/receipts': (
     <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />

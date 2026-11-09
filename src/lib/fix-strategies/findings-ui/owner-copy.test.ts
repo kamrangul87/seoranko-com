@@ -206,8 +206,8 @@ describe('homepage claim discipline (docs/POSITIONING.md)', () => {
 describe('dashboard-focus claim discipline', () => {
   it('NAV_ITEMS labels and descriptions avoid banned claim words and legacy content labels', () => {
     const strings = NAV_ITEMS.flatMap((i) => [i.label, i.description])
-    // 9 nav items × (label + description)
-    expect(strings.length).toBe(18)
+    // 10 nav items × (label + description)
+    expect(strings.length).toBe(20)
     for (const s of strings) {
       expect(s).not.toMatch(BANNED_CLAIM_WORDS_RE)
     }

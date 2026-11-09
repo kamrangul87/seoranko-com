@@ -20,6 +20,11 @@ export const NAV_ITEMS = [
     description: "Crawl your site and fix what's found",
   },
   {
+    href: '/dashboard/links',
+    label: 'Link map',
+    description: 'Internal links as they are crawled',
+  },
+  {
     href: '/dashboard/receipts',
     label: 'Receipts',
     description: 'Verified fixes you can share',

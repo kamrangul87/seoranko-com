@@ -7,6 +7,7 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ['sharp', '@sparticuz/chromium', 'puppeteer-core'],
   },
+  transpilePackages: ['d3-force', 'd3-quadtree', 'd3-dispatch', 'd3-timer'],
   // Hosted publish route (Step 2): serves under a SEORANKO subdomain via a
   // rewrite rather than a real subdirectory — the actual file-based route
   // stays app/(public)/blog/[brand]/[slug] (see publish-hosted.ts's

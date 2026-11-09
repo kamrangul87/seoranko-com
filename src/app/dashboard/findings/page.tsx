@@ -777,6 +777,14 @@ export default function FindingsListPage() {
                   Detect-only
                 </span>
               )}
+              {mode === 'connected' && siteId && (
+                <Link
+                  href={`/dashboard/links?site=${encodeURIComponent(siteId)}`}
+                  className="px-2.5 py-1 rounded-md bg-white border border-[#E8E8E4] text-[#FF6B2C]"
+                >
+                  Link map
+                </Link>
+              )}
             </div>
           )}
 
