@@ -10,6 +10,12 @@ import { normalizeFixStrategyUrl } from '@/lib/fix-strategies/shared'
 import { cleanRelatedAnchor } from '@/lib/fix-strategies/related-articles/anchors'
 import { LINK_MAP_MAX_PAGES } from './rebuild-edges'
 import type { CrawlLinkEdge } from './types'
+import {
+  buildIdf,
+  scoreLinkRelevance,
+  shouldKeepPlannedLink,
+  type RelevancePage,
+} from './relevance'
 
 export const LINK_PLAN_MAX_NEW_PER_SOURCE = 4
 export const LINK_PLAN_ORPHAN_INBOUND = 2
@@ -38,6 +44,7 @@ export type PlanPageInput = {
   jobStatus: string
   title: string | null
   h1: string | null
+  headings?: string[]
   text: string
   noindex: boolean
 }
@@ -57,6 +64,8 @@ export type PlannedLink = {
   anchorText: string
   reason: string
   kind: PlannedLinkKind
+  score: number
+  weakMatch: boolean
 }
 
 export type TopicCluster = {
@@ -199,7 +208,20 @@ function pickAnchor(
 }
 
 function pageTokens(p: PlanPageInput): Set<string> {
-  return tokensOf(`${pathOf(p.url)} ${p.title || ''} ${p.h1 || ''} ${p.text || ''}`)
+  return tokensOf(
+    `${pathOf(p.url)} ${p.title || ''} ${p.h1 || ''} ${(p.headings || []).join(' ')} ${p.text || ''}`,
+  )
+}
+
+function toRelevancePage(p: PlanPageInput): RelevancePage {
+  return {
+    url: p.url,
+    title: p.title,
+    h1: p.h1,
+    headings: p.headings ?? [],
+    text: p.text,
+    clusterId: firstSegment(p.url) || 'site',
+  }
 }
 
 function parentDir(url: string): string {
@@ -331,6 +353,7 @@ export function planSitewideInternalLinks(input: {
   const newCount = new Map<string, number>()
   const usedAnchor = new Map<string, Set<string>>()
   const tokenCache = new Map<string, Set<string>>()
+  const idf = buildIdf(limited.map(toRelevancePage))
   const plannedPairs = new Set<string>()
   const inboundPlanned = new Map<string, number>()
   const inboundExisting = new Map<string, number>()
@@ -380,18 +403,31 @@ export function planSitewideInternalLinks(input: {
     clusterId?: string,
   ): boolean => {
     if (!canAdd(source, target)) return false
+    const sourcePage = byUrl.get(source)!
     const targetPage = byUrl.get(target)!
+    const scored = scoreLinkRelevance(toRelevancePage(sourcePage), toRelevancePage(targetPage), {
+      idf,
+    })
+    const cluster = clusterByUrl.get(source) || clusterByUrl.get(target)
+    const sourceIsHubOrHome = source === home || source === cluster?.hubUrl
+    if (!shouldKeepPlannedLink(kind, scored.band, { sourceIsHubOrHome })) {
+      return false
+    }
     const used = usedAnchor.get(target) ?? new Set<string>()
     const anchorText = pickAnchor(targetPage, used)
     usedAnchor.set(target, used)
+    const reason =
+      kind === 'sibling' ? scored.reason : reasonFor(kind, clusterId)
     links.push({
       id: `${source}|${target}|${kind}`,
       sourceUrl: source,
       targetUrl: target,
       href: hrefOf(target),
       anchorText,
-      reason: reasonFor(kind, clusterId),
+      reason,
       kind,
+      score: scored.score,
+      weakMatch: scored.band === 'weak',
     })
     plannedPairs.add(`${source}\0${target}`)
     inboundPlanned.set(target, (inboundPlanned.get(target) ?? 0) + 1)
@@ -447,8 +483,8 @@ export function planSitewideInternalLinks(input: {
         const m = group[i]!
         const window = group.slice(Math.max(0, i - 4), i + 5).filter((o) => o.url !== m.url)
         window.sort((a, b) => {
-          const sa = jaccard(tokens(m), tokens(a))
-          const sb = jaccard(tokens(m), tokens(b))
+          const sa = scoreLinkRelevance(toRelevancePage(m), toRelevancePage(a), { idf }).score
+          const sb = scoreLinkRelevance(toRelevancePage(m), toRelevancePage(b), { idf }).score
           if (sb !== sa) return sb - sa
           return a.url.localeCompare(b.url)
         })
@@ -545,6 +581,9 @@ export function planSitewideInternalLinks(input: {
 
   return {
     clusters,
-    links: links.sort((a, b) => a.id.localeCompare(b.id)),
+    links: links.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score
+      return a.id.localeCompare(b.id)
+    }),
   }
 }

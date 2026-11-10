@@ -37,6 +37,35 @@ describe('groupRelatedLinkItems', () => {
     }))
     expect(groupRelatedLinkItems(items)).toHaveLength(MAX_QUEUED_SOURCES)
   })
+
+  it('keeps score, reason, and weakMatch on each target and sorts strongest first', () => {
+    const grouped = groupRelatedLinkItems([
+      {
+        sourceUrl: 'https://example.com/a',
+        href: '/weak',
+        anchorText: 'Weak page',
+        score: 0.32,
+        reason: 'Loose overlap on driving — weak match',
+        weakMatch: true,
+      },
+      {
+        sourceUrl: 'https://example.com/a',
+        href: '/strong',
+        anchorText: 'Strong page',
+        score: 0.81,
+        reason: 'Both pages cover MOT tests',
+        weakMatch: false,
+      },
+    ])
+    expect(grouped[0]?.targets.map((t) => t.href)).toEqual(['/strong', '/weak'])
+    expect(grouped[0]?.targets[0]).toMatchObject({
+      href: '/strong',
+      score: 0.81,
+      reason: 'Both pages cover MOT tests',
+      weakMatch: false,
+    })
+    expect(grouped[0]?.targets[1]?.weakMatch).toBe(true)
+  })
 })
 
 describe('relatedFindingCandidate', () => {

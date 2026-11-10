@@ -29,11 +29,16 @@ export type { LaidOutNode, LabelBox } from './layout'
 export { shortNodeLabel, estimateLabelWidth, LABEL_MAX_CHARS } from './labels'
 export {
   isRelatedReadingFinding,
+  isLinkHealthFinding,
   approvalStatusFrom,
   toLinkMapApproval,
   canRegenerateRelated,
+  sortLinkMapApprovals,
 } from './approvals'
 export type { LinkMapApproval, LinkMapApprovalStatus } from './approvals'
+export { detectLinkHealthIssues } from './link-health'
+export type { LinkHealthIssue } from './link-health'
+export { scoreLinkRelevance, RELEVANCE_DROP_THRESHOLD } from './relevance'
 export {
   assembleInternalLinkMap,
   nodeDetailForUrl,

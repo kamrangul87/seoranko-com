@@ -309,6 +309,51 @@ describe('planSitewideInternalLinks', () => {
     expect(toEv?.anchorText.toLowerCase()).toMatch(/ev charging reliability/)
   })
 
+  it('does not suggest EV charging on UK motorways → MOT cost UK 2026', () => {
+    const plan = planSitewideInternalLinks({
+      originUrl: ORIGIN,
+      homepageUrl: `${ORIGIN}/`,
+      pages: [
+        page('/'),
+        page('/blog', { title: 'Blog', h1: 'Blog' }),
+        page('/blog/ev-charging-on-uk-motorways.html', {
+          title: 'EV charging on UK motorways',
+          h1: 'EV charging on UK motorways',
+          text: 'Electric vehicle charge points along motorway services. RAPID CCS Tesla Supercharger queues.',
+        }),
+        page('/blog/mot-cost-uk-2026.html', {
+          title: 'MOT cost UK 2026',
+          h1: 'MOT cost UK 2026',
+          text: 'MOT test fee for cars in 2026. DVSA class 4 garage prices and retest charges.',
+        }),
+        page('/blog/mot-history-check-uk.html', {
+          title: 'How to check a vehicle MOT history in the UK',
+          h1: 'How to check a vehicle MOT history in the UK',
+          text: 'Look up MOT history and mileage on the DVSA service. Free vehicle test records.',
+        }),
+      ],
+      edges: [],
+    })
+    const bad = plan.links.filter(
+      (l) =>
+        (l.sourceUrl.includes('ev-charging-on-uk-motorways') &&
+          l.targetUrl.includes('mot-cost-uk-2026')) ||
+        (l.sourceUrl.includes('mot-cost-uk-2026') &&
+          l.targetUrl.includes('ev-charging-on-uk-motorways')),
+    )
+    expect(bad).toEqual([])
+    const motToMot = plan.links.find(
+      (l) =>
+        l.sourceUrl.includes('mot-cost-uk-2026') &&
+        l.targetUrl.includes('mot-history-check-uk'),
+    )
+    expect(motToMot).toBeTruthy()
+    expect(motToMot?.score).toBeGreaterThan(0.28)
+    expect(motToMot?.reason.toLowerCase()).toMatch(/mot/)
+    expect(plan.links.every((l) => typeof l.score === 'number')).toBe(true)
+    expect(plan.links.every((l) => l.reason.trim().length > 0)).toBe(true)
+  })
+
   it('uses path-form hrefs the related-articles transform can write', () => {
     const plan = planSitewideInternalLinks({
       originUrl: ORIGIN,

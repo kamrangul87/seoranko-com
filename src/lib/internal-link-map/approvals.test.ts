@@ -3,6 +3,7 @@ import { RELATED_TRANSFORM_VERSION } from '@/lib/fix-strategies/related-articles
 import {
   approvalStatusFrom,
   isRelatedReadingFinding,
+  sortLinkMapApprovals,
   toLinkMapApproval,
 } from './approvals'
 
@@ -156,5 +157,105 @@ describe('toLinkMapApproval', () => {
     expect(item.targets).toEqual([{ href: '/blog/b.html', anchorText: 'B' }])
     expect(item.neverAutoMerge).toBe(true)
     expect(item.canRegenerate).toBe(false)
+  })
+
+  it('exposes score, reason, weak match, and a verify badge', () => {
+    const pending = toLinkMapApproval(
+      {
+        id: 'f-score',
+        pageUrl: 'https://example.com/blog/a.html',
+        detail: 'Add related reading',
+        status: 'open',
+        fixedAt: null,
+        evidenceValues: {
+          relatedTargets: [
+            {
+              href: '/blog/weak.html',
+              anchorText: 'Weak page',
+              score: 0.33,
+              reason: 'Loose overlap on driving — weak match',
+              weakMatch: true,
+            },
+            {
+              href: '/blog/strong.html',
+              anchorText: 'Strong page',
+              score: 0.88,
+              reason: 'Both pages cover MOT tests',
+              weakMatch: false,
+            },
+          ],
+          neverAutoMerge: true,
+        },
+        proposedDiff: null,
+      },
+      null,
+    )
+    expect(pending.targets[0]?.href).toBe('/blog/strong.html')
+    expect(pending.score).toBe(0.88)
+    expect(pending.reason).toBe('Both pages cover MOT tests')
+    expect(pending.weakMatch).toBe(true)
+    expect(pending.verifyBadge).toBeNull()
+
+    const merged = toLinkMapApproval(
+      {
+        id: 'f-verified',
+        pageUrl: 'https://example.com/blog/a.html',
+        detail: 'Add related reading',
+        status: 'resolved',
+        fixedAt: '2026-11-10T12:00:00.000Z',
+        evidenceValues: {
+          relatedTargets: [{ href: '/blog/b.html', anchorText: 'B', score: 0.7 }],
+          relatedVerify: {
+            verifiedAt: '2026-11-10T12:05:00.000Z',
+            ok: false,
+            links: [{ href: '/blog/b.html', ok: false, problems: ['nofollow'] }],
+          },
+          neverAutoMerge: true,
+        },
+        proposedDiff: null,
+      },
+      { step: 'verified', mergedAt: '2026-11-10T12:00:00.000Z' },
+    )
+    expect(merged.status).toBe('merged')
+    expect(merged.verifyBadge).toBe('problem')
+  })
+})
+
+describe('sortLinkMapApprovals', () => {
+  it('sorts strongest relevance first', () => {
+    const weak = toLinkMapApproval(
+      {
+        id: 'weak',
+        pageUrl: 'https://example.com/blog/weak.html',
+        detail: 'Add related reading',
+        status: 'open',
+        fixedAt: null,
+        evidenceValues: {
+          relatedTargets: [{ href: '/a', anchorText: 'A', score: 0.31, reason: 'weak' }],
+          neverAutoMerge: true,
+        },
+        proposedDiff: null,
+      },
+      null,
+    )
+    const strong = toLinkMapApproval(
+      {
+        id: 'strong',
+        pageUrl: 'https://example.com/blog/strong.html',
+        detail: 'Add related reading',
+        status: 'open',
+        fixedAt: null,
+        evidenceValues: {
+          relatedTargets: [{ href: '/b', anchorText: 'B', score: 0.9, reason: 'strong' }],
+          neverAutoMerge: true,
+        },
+        proposedDiff: null,
+      },
+      null,
+    )
+    expect(sortLinkMapApprovals([weak, strong]).map((i) => i.id)).toEqual([
+      'strong',
+      'weak',
+    ])
   })
 })

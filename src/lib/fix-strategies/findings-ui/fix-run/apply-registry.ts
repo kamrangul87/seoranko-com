@@ -56,6 +56,10 @@ import {
   evidenceSelfCanonical,
   evidenceSitemapLoc,
 } from './apply-evidence'
+import {
+  verifyRelatedFindingLive,
+  verifyRelatedLinksInHtml,
+} from '@/lib/internal-link-map/verify-related-live'
 
 export type ApplyTransformResult =
   | { ok: true; path: string; newContent: string; updated: number; noop?: boolean }
@@ -600,31 +604,33 @@ const topicRelatedArticles: TransformHandler = async (ctx) => {
   return { ok: true, path: ctx.path, newContent: html, updated }
 }
 
-const verifyRelatedArticles: TransformVerifier = async (ctx) => {
-  const hasRelatedBlock =
-    /<(nav|aside|section|div)\b[^>]*(related|data-seoranko-related-articles)[^>]*>/i.test(
-      ctx.body,
-    ) ||
-    /<h[2-4][^>]*>\s*Related\b/i.test(ctx.body) ||
-    ctx.body.includes('data-seoranko-related-articles')
-  if (!hasRelatedBlock) {
-    return { ok: false, detail: 'Related articles block missing on live page' }
-  }
-  const ev = (ctx.finding.evidenceValues || {}) as Record<string, unknown>
+function relatedTargetsFromFinding(finding: PersistedFindingRow): RelatedTarget[] {
+  const ev = (finding.evidenceValues || {}) as Record<string, unknown>
   const raw = ev.relatedTargets
-  const targets = Array.isArray(raw)
-    ? (raw as RelatedTarget[]).filter((t) => t && typeof t.href === 'string')
-    : []
-  for (const t of targets) {
-    const href = t.href
-    if (
-      !ctx.body.includes(`href="${href}"`) &&
-      !ctx.body.includes(`href='${href}'`)
-    ) {
-      return { ok: false, detail: `Missing related href ${href}` }
-    }
-  }
-  return { ok: true, detail: 'Related articles links present' }
+  if (!Array.isArray(raw)) return []
+  return (raw as RelatedTarget[]).filter((t) => t && typeof t.href === 'string')
+}
+
+const verifyRelatedArticles: TransformVerifier = async (ctx) => {
+  const targets = relatedTargetsFromFinding(ctx.finding)
+  const result = verifyRelatedLinksInHtml({
+    html: ctx.body,
+    pageUrl: ctx.liveUrl || ctx.finding.pageUrl || '',
+    targets,
+  })
+  if (!result.ok) return { ok: false, detail: result.detail }
+  return { ok: true, detail: result.detail }
+}
+
+const verifyRelatedArticlesLive: TransformVerifier = async (ctx) => {
+  const targets = relatedTargetsFromFinding(ctx.finding)
+  const result = await verifyRelatedFindingLive({
+    pageUrl: ctx.liveUrl || ctx.finding.pageUrl || '',
+    targets,
+    html: ctx.body,
+    fetchImpl: ctx.fetchImpl,
+  })
+  return { ok: result.ok, detail: result.detail }
 }
 
 const topic74UnwrapHref: TransformHandler = async (ctx) => {
@@ -976,7 +982,7 @@ const REGISTRY: RegistryEntry[] = [
     handler: topicRelatedArticles,
     resolvePath: storedSourcePath,
     previewVerifier: verifyRelatedArticles,
-    productionVerifier: verifyRelatedArticles,
+    productionVerifier: verifyRelatedArticlesLive,
   },
 ]
 

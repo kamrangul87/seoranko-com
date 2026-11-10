@@ -17,9 +17,13 @@ import { commitRelatedFindingsBatch } from '@/lib/fix-strategies/findings-ui/fix
 import { loadOwnedConnectedSite } from '@/lib/internal-link-map'
 import {
   canRegenerateRelated,
+  isLinkHealthFinding,
   isRelatedReadingFinding,
+  sortLinkMapApprovals,
   toLinkMapApproval,
 } from '@/lib/internal-link-map/approvals'
+import type { LinkMapApproval } from '@/lib/internal-link-map/approvals'
+import { verifyRelatedFindingLive } from '@/lib/internal-link-map/verify-related-live'
 import type { PersistedFindingRow } from '@/lib/fix-strategies/findings-ui/crawl/constants'
 
 export const dynamic = 'force-dynamic'
@@ -83,16 +87,16 @@ export async function GET(request: Request) {
     (row) =>
       row.userId === user.id &&
       row.siteId === site.id &&
-      isRelatedReadingFinding(row),
+      (isRelatedReadingFinding(row) || isLinkHealthFinding(row)),
   )
-  const items = []
+  const items: LinkMapApproval[] = []
   for (const row of related) {
     items.push(await approvalItem(row, user.id))
   }
 
   return NextResponse.json({
     siteId: site.id,
-    items,
+    items: sortLinkMapApprovals(items),
     merged: false as const,
   })
 }
@@ -196,12 +200,18 @@ export async function POST(request: Request) {
     row.userId !== user.id ||
     row.siteId !== site.id ||
     row.bucket === 'internal' ||
-    !isRelatedReadingFinding(row)
+    (!isRelatedReadingFinding(row) && !isLinkHealthFinding(row))
   ) {
     return NextResponse.json({ error: 'Finding not found' }, { status: 404 })
   }
 
   if (action === 'regenerate') {
+    if (!isRelatedReadingFinding(row)) {
+      return NextResponse.json(
+        { error: 'This finding cannot be regenerated' },
+        { status: 400 },
+      )
+    }
     const flow = await peekFixFlow(row.id, user.id)
     if (!canRegenerateRelated(row, flow)) {
       return NextResponse.json(
@@ -232,6 +242,47 @@ export async function POST(request: Request) {
       item: await approvalItem(row, user.id, evidenceValues),
       merged: false as const,
       closedGithubPr: false as const,
+    })
+  }
+
+  if (action === 'verify-live') {
+    const ev = (row.evidenceValues || {}) as Record<string, unknown>
+    const raw = ev.relatedTargets
+    const targets = Array.isArray(raw)
+      ? (raw as Array<{ href?: unknown; anchorText?: unknown }>)
+          .filter((t) => t && typeof t.href === 'string')
+          .map((t) => ({
+            href: String(t.href),
+            anchorText: typeof t.anchorText === 'string' ? t.anchorText : '',
+          }))
+      : []
+    if (!row.pageUrl || targets.length === 0) {
+      return NextResponse.json(
+        { error: 'Finding has no page URL or related targets to verify' },
+        { status: 400 },
+      )
+    }
+    const relatedVerify = await verifyRelatedFindingLive({
+      pageUrl: row.pageUrl,
+      targets,
+    })
+    const evidenceValues = {
+      ...ev,
+      relatedVerify,
+      neverAutoMerge: true,
+      requiresApproval: true,
+    }
+    await store.updateFindingSourceResolution({
+      findingId: row.id,
+      sourcePath: row.sourcePath,
+      sourceBlobSha: row.sourceBlobSha,
+      sourceResolvedAt: row.sourceResolvedAt,
+      sourceUnresolvedReason: row.sourceUnresolvedReason,
+      evidenceValues,
+    })
+    return NextResponse.json({
+      item: await approvalItem(row, user.id, evidenceValues),
+      merged: false as const,
     })
   }
 
