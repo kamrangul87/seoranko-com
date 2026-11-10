@@ -123,6 +123,7 @@ function toUi(r: FixFlowRecord): FixFlowState {
     needsHumanAttention: r.needsHumanAttention ?? false,
     flagDetail: r.flagDetail,
     autoMergeBlockedReason: r.autoMergeBlockedReason,
+    errorDetail: r.errorDetail,
   }
 }
 

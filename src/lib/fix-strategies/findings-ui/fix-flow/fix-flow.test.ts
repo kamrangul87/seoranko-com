@@ -115,6 +115,72 @@ describe('fix-flow orchestrate (memory)', () => {
     expect(committed.commitDetail).toMatch(/credentials|GitHub/i)
   })
 
+  it('commitFix for a link-map related-articles row is not "unsupported topic"', async () => {
+    const finding = {
+      id: '43f462f0-8d11-414f-815a-da5a9f7c9fd2',
+      siteId: '50b305a3-baab-49ce-8966-04796b8b27c4',
+      userId: 'u1',
+      topicId: 'related',
+      kind: 'internal-links/related-articles',
+      bucket: 'actionable' as const,
+      verdict: 'auto-add-related-articles',
+      severity: null,
+      rollupKey: 'related|auto-add-related-articles|https://autodun.com/blog/mot-retest-cost-uk-2026.html',
+      declarationSite: 'https://autodun.com/blog/mot-retest-cost-uk-2026.html',
+      affectedUrlCount: 1,
+      pageUrl: 'https://autodun.com/blog/mot-retest-cost-uk-2026.html',
+      detail: 'Add related reading',
+      autoFixable: true,
+      reportOnly: false,
+      surfaceClass: 'auto-fixable',
+      proposedDiff: {
+        proposed: {
+          relatedTargets: [
+            { href: '/blog/mot-cost-uk-2026.html', anchorText: 'MOT Cost in the UK 2026' },
+          ],
+        },
+      },
+      evidenceValues: {
+        relatedTargets: [
+          { href: '/blog/mot-cost-uk-2026.html', anchorText: 'MOT Cost in the UK 2026' },
+        ],
+        requiresApproval: true,
+        neverAutoMerge: true,
+      },
+      sourceRows: [],
+      sourcePath: 'public/blog/mot-retest-cost-uk-2026.html',
+      sourceBlobSha: 'sha-retest',
+      sourceResolvedAt: new Date().toISOString(),
+      sourceUnresolvedReason: null,
+      detectOrigin: null,
+      status: 'open' as const,
+      resolvedAt: null,
+      fixedAt: null,
+      verificationAt: null,
+      postFixStatus: null,
+      regressionObservedAt: null,
+      acceptedAt: null,
+      acceptedBy: null,
+      acceptedFingerprint: null,
+      firstSeenRunId: null,
+      lastSeenRunId: null,
+      firstSeenAt: new Date().toISOString(),
+      lastSeenAt: new Date().toISOString(),
+    }
+
+    const approved = await approveFix(finding.id, 'u1')
+    expect(approved.step).toBe('approved')
+
+    const committed = await commitFix({
+      findingId: finding.id,
+      userId: 'u1',
+      finding,
+    })
+    expect(committed.step).toBe('failed')
+    expect(committed.commitDetail).not.toMatch(/Unsupported topic|not implemented/i)
+    expect(committed.commitDetail).toMatch(/credentials|GitHub/i)
+  })
+
   it('verify refuses before commit', async () => {
     const finding = {
       id: 'f2',

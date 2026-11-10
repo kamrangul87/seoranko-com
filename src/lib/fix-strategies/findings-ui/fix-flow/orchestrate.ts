@@ -25,6 +25,10 @@ import {
 import { verifyFindingLive } from './verify-live'
 import { maybeAutoMergeAfterPreviewVerify } from './auto-merge'
 import { assessSingleFileBlastRadius } from './blast-radius'
+import {
+  applyRegisteredTransform,
+  isTransformRegistered,
+} from '../fix-run/apply-registry'
 import { findOwnedSiteConnection } from '@/lib/site-connection-lookup'
 import { resolveGithubAppRepoCreds } from '@/lib/github-app/resolve-repo-creds'
 import { postGithubCommitStatus } from '@/lib/github-app/commit-status'
@@ -111,7 +115,7 @@ function pathFromPageUrl(pageUrl: string): string | null {
   }
 }
 
-async function resolveGithubCreds(
+export async function resolveGithubCreds(
   userId: string,
   finding: { siteId: string | null; pageUrl: string | null },
   ctx?: CommitContext,
@@ -227,6 +231,163 @@ async function readRepoFile(
   }
 }
 
+async function commitRegisteredTransform(input: {
+  cur: FixFlowRecord
+  findingId: string
+  userId: string
+  finding: UiFinding | PersistedFindingRow
+  ctx?: CommitContext
+  pageUrl: string
+}): Promise<FixFlowState> {
+  const { cur, userId, finding, ctx, pageUrl } = input
+  const persisted =
+    'sourcePath' in finding ? (finding as PersistedFindingRow) : null
+  const path = persisted?.sourcePath ?? ctx?.pathOverride ?? null
+  const blobSha = persisted?.sourceBlobSha ?? null
+  if (!path || !blobSha) {
+    return getFixFlowStore().save({
+      ...cur,
+      step: 'failed',
+      commitStub: false,
+      commitDetail:
+        'No stored source_path/source_blob_sha — resolve the page file before commit',
+      errorDetail: 'source unresolved',
+    })
+  }
+  if (!persisted) {
+    return getFixFlowStore().save({
+      ...cur,
+      step: 'failed',
+      commitStub: false,
+      commitDetail: 'Finding row missing source fields for registered transform',
+      errorDetail: 'source unresolved',
+    })
+  }
+
+  const creds = await resolveGithubCreds(
+    userId,
+    {
+      siteId: persisted.siteId,
+      pageUrl,
+    },
+    ctx,
+  )
+  if (!creds) {
+    return getFixFlowStore().save({
+      ...cur,
+      step: 'failed',
+      commitStub: false,
+      commitDetail:
+        'No GitHub credentials — connect a GitHub site or set FINDINGS_FIX_GITHUB_TOKEN / GITHUB_TOKEN with explicit owner/repo',
+      errorDetail: 'Missing GitHub credentials',
+    })
+  }
+
+  const blast = assessSingleFileBlastRadius([path])
+  if (!blast.ok) {
+    return getFixFlowStore().save({
+      ...cur,
+      step: 'failed',
+      commitStub: false,
+      commitDetail: blast.reason,
+      errorDetail: blast.reason,
+      autoMergeBlockedReason: blast.reason,
+    })
+  }
+
+  const file = await readRepoFile(creds, path)
+  if (!file) {
+    return getFixFlowStore().save({
+      ...cur,
+      step: 'failed',
+      commitStub: false,
+      commitDetail: `Could not read ${path} from ${creds.owner}/${creds.repo}`,
+      errorDetail: 'read failed',
+    })
+  }
+
+  const applied = await applyRegisteredTransform({
+    fileContent: file.content,
+    path,
+    finding: persisted,
+  })
+  if (!applied.ok) {
+    return getFixFlowStore().save({
+      ...cur,
+      step: 'failed',
+      commitStub: false,
+      commitDetail: applied.error,
+      errorDetail: applied.error,
+    })
+  }
+  if (applied.noop || applied.updated === 0) {
+    return getFixFlowStore().save({
+      ...cur,
+      step: 'failed',
+      commitStub: false,
+      commitDetail: `Transform made no change to ${path}`,
+      errorDetail: 'noop',
+    })
+  }
+
+  const short = pageUrl
+    .replace(/^https?:\/\//, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .slice(0, 40)
+  const branchName = `seoranko/fix-${persisted.topicId}-${short}-${Date.now().toString(36)}`
+
+  const pr = await withCustomerWriteGate(
+    'findings-pr-branch',
+    { approved: true },
+    () =>
+      commitFileViaPullRequest({
+        creds,
+        path,
+        newContent: applied.newContent,
+        branchName,
+        commitMessage: `fix(seo): ${persisted.verdict} on ${path}`,
+        prTitle: `fix(seo): ${persisted.verdict} — ${path}`,
+        prBody: [
+          '## Summary',
+          '',
+          `SEORANKO findings fix-flow: \`${persisted.verdict}\` via the registered transform.`,
+          '',
+          `- Page: ${pageUrl}`,
+          `- File: \`${path}\``,
+          '',
+          'Opened as a PR. Related reading and other approval-required verdicts',
+          'are **never auto-merged** — merge it yourself.',
+        ].join('\n'),
+      }),
+  )
+
+  if (!pr.ok) {
+    return getFixFlowStore().save({
+      ...cur,
+      step: 'failed',
+      commitStub: false,
+      commitDetail: pr.error,
+      errorDetail: pr.error,
+    })
+  }
+
+  return getFixFlowStore().save({
+    ...cur,
+    step: 'committed',
+    committedAt: new Date().toISOString(),
+    commitStub: false,
+    commitDetail: pr.skipped
+      ? `Already applied on ${pr.branchName}; PR ${pr.prUrl}`
+      : `Committed ${persisted.verdict} on branch ${pr.branchName} → ${pr.prUrl}`,
+    commitSha: pr.commitSha,
+    branchName: pr.branchName,
+    prUrl: pr.prUrl,
+    prNumber: pr.prNumber,
+    previewUrl: null,
+    errorDetail: null,
+  })
+}
+
 export async function commitFix(input: {
   findingId: string
   userId: string
@@ -254,6 +415,20 @@ export async function commitFix(input: {
       commitStub: false,
       commitDetail: 'Finding has no pageUrl to fix',
       errorDetail: 'Finding has no pageUrl to fix',
+    })
+  }
+
+  if (
+    finding.topicId !== '49' &&
+    isTransformRegistered(finding.topicId, finding.verdict)
+  ) {
+    return commitRegisteredTransform({
+      cur,
+      findingId,
+      userId,
+      finding,
+      ctx,
+      pageUrl,
     })
   }
 

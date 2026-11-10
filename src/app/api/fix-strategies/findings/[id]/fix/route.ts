@@ -3,7 +3,6 @@ import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
 import { cookies } from 'next/headers'
 import { getFindingsStore } from '@/lib/fix-strategies/findings-ui/crawl'
 import { persistedToUiFinding } from '@/lib/fix-strategies/findings-ui/map-persisted'
-import { canOfferFix } from '@/lib/fix-strategies/findings-ui/buckets'
 import { isFixTypePaused } from '@/lib/fix-strategies/findings-ui/fix-run/failure-learning'
 import {
   approveFix,
@@ -12,6 +11,10 @@ import {
 } from '@/lib/fix-strategies/findings-ui/fix-flow-store'
 import { assertFixWriteEntitled } from '@/lib/stripe/entitlements'
 import { isFindingId } from '@/lib/fix-strategies/findings-ui/is-finding-id'
+import {
+  blockedFixMessage,
+  ensureFindingReadyForFix,
+} from '@/lib/fix-strategies/findings-ui/fix-flow/prepare-registered-fix'
 
 export const dynamic = 'force-dynamic'
 /** Commit + deploy wait + live verify can exceed default. */
@@ -52,11 +55,10 @@ export async function POST(
   }
 
   const store = getFindingsStore()
-  const row = await store.getFinding(params.id)
+  let row = await store.getFinding(params.id)
   if (!row || row.userId !== user.id || row.bucket === 'internal') {
     return NextResponse.json({ error: 'Finding not found' }, { status: 404 })
   }
-  const finding = persistedToUiFinding(row)
 
   const body = (await request.json().catch(() => ({}))) as {
     action?: 'approve' | 'commit' | 'verify'
@@ -76,18 +78,28 @@ export async function POST(
     pathOverride: body.pathOverride,
   }
 
+  if (action === 'approve' || action === 'commit') {
+    const prepared = await ensureFindingReadyForFix({
+      row,
+      userId: user.id,
+      ctx,
+    })
+    if (prepared.patch) {
+      await store.updateFindingSourceResolution({
+        findingId: row.id,
+        ...prepared.patch,
+      })
+    }
+    row = prepared.row
+  }
+
+  const finding = persistedToUiFinding(row)
   const paused = await isFixTypePaused(finding.topicId, finding.verdict)
 
   if (action === 'approve') {
-    if (!canOfferFix(finding.surfaceClass, { paused })) {
-      return NextResponse.json(
-        {
-          error: paused
-            ? 'Automatic fix paused while we fix a problem with it.'
-            : 'This finding is not auto-fixable. Human-review and report-only findings cannot enter the fix flow.',
-        },
-        { status: 400 },
-      )
+    const blocked = blockedFixMessage(row, paused)
+    if (blocked) {
+      return NextResponse.json({ error: blocked, finding }, { status: 400 })
     }
     return NextResponse.json({
       finding,
@@ -96,15 +108,9 @@ export async function POST(
   }
 
   if (action === 'commit') {
-    if (!canOfferFix(finding.surfaceClass, { paused })) {
-      return NextResponse.json(
-        {
-          error: paused
-            ? 'Automatic fix paused while we fix a problem with it.'
-            : 'Commit refused — finding is not auto-fixable.',
-        },
-        { status: 400 },
-      )
+    const blocked = blockedFixMessage(row, paused)
+    if (blocked) {
+      return NextResponse.json({ error: blocked, finding }, { status: 400 })
     }
     const entitled = await assertFixWriteEntitled({
       userId: user.id,
@@ -127,6 +133,18 @@ export async function POST(
       finding: row,
       ctx,
     })
+    if (fixFlow.step === 'failed') {
+      return NextResponse.json(
+        {
+          error:
+            fixFlow.commitDetail ||
+            'Commit failed',
+          finding,
+          fixFlow,
+        },
+        { status: 400 },
+      )
+    }
     return NextResponse.json({ finding, fixFlow })
   }
 

@@ -16,6 +16,10 @@ import type {
 } from '@/lib/internal-link-map/client-types'
 import type { User } from '@supabase/supabase-js'
 import type { FixFlowState } from '@/lib/fix-strategies/findings-ui/client'
+import {
+  fixActionError,
+  summarizeApprovalBatch,
+} from '@/lib/internal-link-map/approval-results'
 
 type Site = { id: string; domain: string; brand: string | null }
 
@@ -60,6 +64,9 @@ export default function InternalLinkMapPage() {
   )
   const [approvalBusyId, setApprovalBusyId] = useState<string | null>(null)
   const [approvalMsg, setApprovalMsg] = useState<string | null>(null)
+  const [approvalErrors, setApprovalErrors] = useState<Record<string, string>>(
+    {},
+  )
 
   useEffect(() => {
     const supabase = getSupabaseClient()
@@ -271,9 +278,25 @@ export default function InternalLinkMapPage() {
     })
   }
 
-  async function approveFinding(id: string) {
+  async function approveFinding(
+    id: string,
+    opts?: { keepSummary?: boolean },
+  ): Promise<{
+    id: string
+    label: string
+    ok: boolean
+    error?: string
+    prUrl?: string | null
+  }> {
+    const item = approvals.find((a) => a.id === id)
+    const label = item?.pageUrl ? pathOf(item.pageUrl) : id
     setApprovalBusyId(id)
-    setApprovalMsg(null)
+    if (!opts?.keepSummary) setApprovalMsg(null)
+    setApprovalErrors((prev) => {
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
     try {
       const approveRes = await fetch(`/api/fix-strategies/findings/${id}/fix`, {
         method: 'POST',
@@ -284,9 +307,12 @@ export default function InternalLinkMapPage() {
         error?: string
         fixFlow?: FixFlowState
       }
-      if (!approveRes.ok) {
-        throw new Error(approveBody.error || `HTTP ${approveRes.status}`)
-      }
+      const approveErr = fixActionError(
+        approveBody,
+        approveRes.ok,
+        approveRes.status,
+      )
+      if (approveErr) throw new Error(approveErr)
       const commitRes = await fetch(`/api/fix-strategies/findings/${id}/fix`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -296,18 +322,27 @@ export default function InternalLinkMapPage() {
         error?: string
         fixFlow?: FixFlowState
       }
-      if (!commitRes.ok) {
-        throw new Error(commitBody.error || `HTTP ${commitRes.status}`)
-      }
-      const prUrl = commitBody.fixFlow?.prUrl
-      setApprovalMsg(
-        prUrl
-          ? 'PR opened. SEORANKO does not merge customer PRs — merge it yourself.'
-          : 'Approved. Open the PR from the list when GitHub returns a link.',
+      const commitErr = fixActionError(
+        commitBody,
+        commitRes.ok,
+        commitRes.status,
       )
+      if (commitErr) throw new Error(commitErr)
+      const prUrl = commitBody.fixFlow?.prUrl
+      if (!opts?.keepSummary) {
+        setApprovalMsg(
+          prUrl
+            ? 'PR opened. SEORANKO does not merge customer PRs — merge it yourself.'
+            : 'Approved. Open the PR from the list when GitHub returns a link.',
+        )
+      }
       await loadApprovals(siteId)
+      return { id, label, ok: true, prUrl }
     } catch (e) {
-      setApprovalMsg(e instanceof Error ? e.message : 'Approve failed')
+      const error = e instanceof Error ? e.message : 'Approve failed'
+      setApprovalErrors((prev) => ({ ...prev, [id]: error }))
+      if (!opts?.keepSummary) setApprovalMsg(error)
+      return { id, label, ok: false, error }
     } finally {
       setApprovalBusyId(null)
     }
@@ -340,9 +375,11 @@ export default function InternalLinkMapPage() {
       setApprovalMsg('Select at least one pending finding')
       return
     }
+    const results = []
     for (const id of ids) {
-      await approveFinding(id)
+      results.push(await approveFinding(id, { keepSummary: true }))
     }
+    setApprovalMsg(summarizeApprovalBatch(results))
   }
 
   const selectedPlanned: PlannedLink[] = useMemo(() => {
@@ -615,6 +652,11 @@ export default function InternalLinkMapPage() {
                                 {item.prNumber != null ? `PR #${item.prNumber}` : 'Open PR'}
                               </a>
                             )}
+                            {approvalErrors[item.id] && (
+                              <p className="mt-1 text-xs text-[#E23D28] leading-5">
+                                {approvalErrors[item.id]}
+                              </p>
+                            )}
                             {item.status === 'pending' && (
                               <div className="flex gap-2 mt-2">
                                 <button
@@ -657,7 +699,9 @@ export default function InternalLinkMapPage() {
                 </>
               )}
               {approvalMsg && (
-                <p className="mt-2 text-xs text-[#6B6B6B] leading-5">{approvalMsg}</p>
+                <p className="mt-2 text-xs text-[#6B6B6B] leading-5 whitespace-pre-wrap">
+                  {approvalMsg}
+                </p>
               )}
             </div>
 

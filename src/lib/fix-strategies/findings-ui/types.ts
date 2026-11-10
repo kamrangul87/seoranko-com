@@ -258,4 +258,6 @@ export type FixFlowState = {
   flagDetail?: string | null
   /** Why auto-merge did not run (setting off or a gate failed). */
   autoMergeBlockedReason?: string | null
+  /** Terminal failure detail from approve/commit/verify. */
+  errorDetail?: string | null
 }

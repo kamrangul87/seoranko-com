@@ -167,6 +167,13 @@ export function evidenceNeedleForResolution(
         '<footer'
       return { needle: marker, expectedCount }
     }
+    case 'related': {
+      // Related reading is appended to the source page. Locate that page the
+      // same way Audit does (URL → static file), using a body marker that is
+      // already in the file — not the targets we are about to add.
+      const marker = str(ev(finding).resolveNeedle) ?? '<body'
+      return { needle: marker, expectedCount }
+    }
     case 'fixture': {
       // Fixture pages are identified by a stable marker or page body snippet.
       const marker = str(ev(finding).resolveNeedle) ?? '<body'

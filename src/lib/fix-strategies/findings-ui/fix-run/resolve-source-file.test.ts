@@ -4,6 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { canOfferFix } from '../buckets'
 import {
   candidatePathsForUrl,
   countExactOccurrences,
@@ -403,5 +404,95 @@ describe('blob SHA change forces re-resolution', () => {
     expect(patch.sourcePath).toBe('public/robots.txt')
     expect(patch.sourceBlobSha).toBe('fresh-sha')
     expect(patch.sourceUnresolvedReason).toBeNull()
+  })
+
+  it('link-map related-articles hosted row (surfaceClass finding, empty source_rows, no source_path) becomes auto-fixable once the page file resolves', async () => {
+    const f = finding({
+      id: '43f462f0-8d11-414f-815a-da5a9f7c9fd2',
+      topicId: 'related',
+      kind: 'internal-links/related-articles',
+      verdict: 'auto-add-related-articles',
+      autoFixable: true,
+      reportOnly: false,
+      bucket: 'actionable',
+      surfaceClass: 'finding',
+      status: 'open',
+      sourceRows: [],
+      sourcePath: null,
+      sourceBlobSha: null,
+      pageUrl: 'https://autodun.com/blog/mot-retest-cost-uk-2026.html',
+      proposedDiff: {
+        proposed: {
+          relatedTargets: [
+            { href: '/blog/mot-cost-uk-2026.html', anchorText: 'MOT Cost in the UK 2026' },
+          ],
+        },
+      },
+      evidenceValues: {
+        relatedTargets: [
+          { href: '/blog/mot-cost-uk-2026.html', anchorText: 'MOT Cost in the UK 2026' },
+        ],
+        requiresApproval: true,
+        neverAutoMerge: true,
+      },
+    })
+    expect(canOfferFix(f.surfaceClass)).toBe(false)
+    expect(evidenceNeedleForResolution(f)?.needle).toBeTruthy()
+    expect(resolutionUrlForFinding(f)).toBe(
+      'https://autodun.com/blog/mot-retest-cost-uk-2026.html',
+    )
+
+    const patch = await resolveOneFindingSource({
+      siteId: '50b305a3-baab-49ce-8966-04796b8b27c4',
+      finding: f,
+      tree: [
+        { path: 'public/blog/mot-retest-cost-uk-2026.html', sha: 'sha-retest' },
+        { path: 'public/blog/mot-cost-uk-2026.html', sha: 'sha-cost' },
+      ],
+      treeShas: {
+        'public/blog/mot-retest-cost-uk-2026.html': 'sha-retest',
+        'public/blog/mot-cost-uk-2026.html': 'sha-cost',
+      },
+      readFile: async (path) =>
+        path.endsWith('mot-retest-cost-uk-2026.html')
+          ? '<html><body><article><h1>MOT retest cost UK 2026</h1></article></body></html>'
+          : '<html><body><h1>other</h1></body></html>',
+    })
+    expect(patch.sourcePath).toBe('public/blog/mot-retest-cost-uk-2026.html')
+    expect(patch.sourceBlobSha).toBe('sha-retest')
+    expect(patch.sourceUnresolvedReason).toBeNull()
+    expect(patch.autoFixable).toBe(true)
+    expect(patch.surfaceClass).toBe('auto-fixable')
+    expect(canOfferFix(patch.surfaceClass as 'auto-fixable')).toBe(true)
+  })
+
+  it('does not offer fix for a report-only human-review finding even if the page file exists', async () => {
+    const human = finding({
+      id: '6541541c-65da-4e86-a390-9e5d7306de19',
+      topicId: 'related',
+      kind: 'internal-links/related-articles',
+      verdict: 'human-review-related-articles',
+      autoFixable: false,
+      reportOnly: true,
+      bucket: 'actionable',
+      surfaceClass: 'human-review',
+      pageUrl: 'https://autodun.com/blog/mot-retest-cost-uk-2026.html',
+      evidenceValues: {
+        relatedTargets: [{ href: '/blog/x.html', anchorText: 'X' }],
+      },
+    })
+    expect(canOfferFix(human.surfaceClass)).toBe(false)
+    const patch = await resolveOneFindingSource({
+      siteId: '50b305a3-baab-49ce-8966-04796b8b27c4',
+      finding: human,
+      tree: [{ path: 'public/blog/mot-retest-cost-uk-2026.html', sha: 'sha-retest' }],
+      treeShas: { 'public/blog/mot-retest-cost-uk-2026.html': 'sha-retest' },
+      readFile: async () =>
+        '<html><body><article><h1>MOT retest cost UK 2026</h1></article></body></html>',
+    })
+    expect(patch.surfaceClass === 'auto-fixable').toBe(false)
+    expect(canOfferFix((patch.surfaceClass ?? human.surfaceClass) as 'human-review')).toBe(
+      false,
+    )
   })
 })
