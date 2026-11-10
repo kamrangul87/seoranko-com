@@ -35,6 +35,7 @@ type Props = {
   view: MapView
   selectedUrl: string | null
   onSelect: (url: string | null) => void
+  plannedEdges?: Array<{ source: string; target: string }>
 }
 
 export function InternalLinkMapCanvas({
@@ -44,12 +45,15 @@ export function InternalLinkMapCanvas({
   view,
   selectedUrl,
   onSelect,
+  plannedEdges = [],
 }: Props) {
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const selectedRef = useRef(selectedUrl)
+  const plannedRef = useRef(plannedEdges)
   const drawRef = useRef<() => void>(() => {})
   selectedRef.current = selectedUrl
+  plannedRef.current = plannedEdges
 
   useEffect(() => {
     const wrap = wrapRef.current
@@ -159,6 +163,20 @@ export function InternalLinkMapCanvas({
         } else {
           ctx.setLineDash([])
         }
+        ctx.stroke()
+      }
+      ctx.setLineDash([])
+
+      for (const e of plannedRef.current) {
+        const a = byId.get(e.source)
+        const b = byId.get(e.target)
+        if (!a || !b) continue
+        ctx.beginPath()
+        ctx.moveTo(a.x, a.y)
+        ctx.lineTo(b.x, b.y)
+        ctx.strokeStyle = 'rgba(255,107,44,0.7)'
+        ctx.lineWidth = 1.15 / scale
+        ctx.setLineDash([7 / scale, 5 / scale])
         ctx.stroke()
       }
       ctx.setLineDash([])
@@ -350,7 +368,7 @@ export function InternalLinkMapCanvas({
 
   useEffect(() => {
     drawRef.current()
-  }, [selectedUrl])
+  }, [selectedUrl, plannedEdges])
 
   return (
     <div ref={wrapRef} className="relative h-full w-full min-h-[28rem]">

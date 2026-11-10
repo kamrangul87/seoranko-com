@@ -10,16 +10,17 @@ export type RelatedTarget = {
 }
 
 const RELATED_MARKER = 'data-seoranko-related-articles'
+export const MAX_RELATED_TARGETS = 5
 
 export function buildRelatedArticlesHtml(targets: RelatedTarget[]): string {
   const items = targets
-    .slice(0, 3)
+    .slice(0, MAX_RELATED_TARGETS)
     .map(
       (t) =>
         `<li><a href="${t.href}">${t.anchorText.replace(/</g, '').trim() || 'Article'}</a></li>`,
     )
     .join('')
-  return `<aside ${RELATED_MARKER}="1"><h2>Related articles</h2><ul>${items}</ul></aside>`
+  return `<aside ${RELATED_MARKER}="1"><h2>Related reading</h2><ul>${items}</ul></aside>`
 }
 
 /**

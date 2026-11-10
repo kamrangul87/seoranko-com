@@ -1,6 +1,7 @@
 /**
- * Queue an approval-required Related articles finding for the existing
- * Fix Agent / Create PR flow. Never applies the transform itself.
+ * Queue an approval-required Related reading finding for the existing
+ * Fix Agent / Create PR flow. Never applies the transform itself and
+ * never merges a customer PR.
  */
 
 import { NextResponse } from 'next/server'
@@ -9,8 +10,12 @@ import { createSupabaseSsrClient } from '@/lib/supabase/ssr-client'
 import { getFindingsStore } from '@/lib/fix-strategies/findings-ui/crawl'
 import { isTransformRegistered } from '@/lib/fix-strategies/findings-ui/fix-run/apply-registry'
 import { loadOwnedConnectedSite } from '@/lib/internal-link-map'
-import { normalizeFixStrategyUrl } from '@/lib/fix-strategies/shared'
-import type { RolledPersistCandidate } from '@/lib/fix-strategies/findings-ui/crawl/run-detectors'
+import {
+  groupRelatedLinkItems,
+  relatedFindingCandidate,
+  RELATED_LINK_VERDICT,
+  type RelatedLinkItem,
+} from '@/lib/internal-link-map/queue-related-findings'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -31,7 +36,7 @@ function authClient() {
 }
 
 export async function POST(req: Request) {
-  if (!isTransformRegistered('related', 'auto-add-related-articles')) {
+  if (!isTransformRegistered('related', RELATED_LINK_VERDICT)) {
     return NextResponse.json(
       { error: 'No safe transform is registered for this suggestion' },
       { status: 400 },
@@ -50,13 +55,24 @@ export async function POST(req: Request) {
     siteId?: string
     sourceUrl?: string
     targets?: Array<{ href: string; anchorText: string }>
+    links?: RelatedLinkItem[]
   }
   const siteId = typeof body.siteId === 'string' ? body.siteId : ''
-  const sourceUrl = typeof body.sourceUrl === 'string' ? body.sourceUrl : ''
-  const targets = Array.isArray(body.targets) ? body.targets : []
-  if (!siteId || !sourceUrl || targets.length === 0) {
+  const links: RelatedLinkItem[] = Array.isArray(body.links) ? body.links : []
+  if (links.length === 0 && typeof body.sourceUrl === 'string' && Array.isArray(body.targets)) {
+    for (const t of body.targets) {
+      if (t && typeof t.href === 'string' && typeof t.anchorText === 'string') {
+        links.push({
+          sourceUrl: body.sourceUrl,
+          href: t.href,
+          anchorText: t.anchorText,
+        })
+      }
+    }
+  }
+  if (!siteId || links.length === 0) {
     return NextResponse.json(
-      { error: 'siteId, sourceUrl, and targets are required' },
+      { error: 'siteId and links (or sourceUrl + targets) are required' },
       { status: 400 },
     )
   }
@@ -76,38 +92,22 @@ export async function POST(req: Request) {
     )
   }
 
-  const decl = normalizeFixStrategyUrl(sourceUrl) ?? sourceUrl
-  const rollupKey = ['related', 'auto-add-related-articles', decl].join('|')
-  const candidate: RolledPersistCandidate = {
-    topicId: 'related',
-    kind: 'internal-links/related-articles',
-    verdict: 'auto-add-related-articles',
-    severity: null,
-    detail: `Add related links to ${targets.map((t) => t.href).join(', ')}`,
-    pageUrl: sourceUrl,
-    declarationSite: decl,
-    rollupKey,
-    affectedUrlCount: 1,
-    rolledUp: false,
-    bucket: 'actionable',
-    autoFixable: true,
-    reportOnly: false,
-    surfaceClass: 'finding',
-    proposedDiff: { proposed: { relatedTargets: targets } },
-    evidenceValues: { relatedTargets: targets, requiresApproval: true },
-    sourceRows: [],
-  }
+  const grouped = groupRelatedLinkItems(links)
+  const findings = grouped.map((g) => relatedFindingCandidate(g.sourceUrl, g.targets))
   await store.upsertFindings({
     siteId,
     userId: user.id,
     runId: latest.id,
-    findings: [candidate],
+    findings,
     internalEvidence: [],
   })
 
   return NextResponse.json({
     ok: true,
     runId: latest.id,
+    findingCount: findings.length,
     requiresApproval: true,
+    applied: false,
+    merged: false,
   })
 }

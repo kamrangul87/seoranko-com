@@ -13,8 +13,10 @@ import {
   assembleInternalLinkMap,
   listCrawlLinkEdges,
   listSlimCrawlJobs,
+  loadHtmlJobsForRun,
   loadOwnedConnectedSite,
   nodeDetailForUrl,
+  rebuildMissingCrawlLinkEdges,
 } from '@/lib/internal-link-map'
 import { asPage2SuggestionsCache } from '@/lib/gsc/precompute-suggestions'
 import { normalizeFixStrategyUrl } from '@/lib/fix-strategies/shared'
@@ -131,16 +133,35 @@ export async function GET(request: Request) {
   origin = latest.origin || origin
 
   let jobs = await listSlimCrawlJobs(latest.id)
-  if (jobs.length === 0) {
-    const full = await store.listJobsForRun(latest.id)
-    jobs = full.map((j) => ({
+  const loadHtml = () =>
+    loadHtmlJobsForRun(latest.id, () => store.listJobsForRun(latest.id))
+  const toSlim = (rows: Awaited<ReturnType<typeof loadHtml>>) =>
+    rows.map((j) => ({
       url: j.url,
       status: j.status,
       httpStatus: j.httpStatus,
       finalUrl: j.finalUrl,
     }))
+  const htmlJobs = jobs.length === 0 ? await loadHtml() : null
+  if (htmlJobs) {
+    jobs = toSlim(htmlJobs)
   }
-  const edges = await listCrawlLinkEdges(latest.id)
+  let edges = await listCrawlLinkEdges(latest.id)
+  if (edges.length === 0) {
+    const html = htmlJobs ?? (await loadHtml())
+    const rebuilt = await rebuildMissingCrawlLinkEdges({
+      runId: latest.id,
+      siteId: ownedSiteId ?? latest.siteId,
+      userId: latest.userId,
+      origin,
+      existingEdges: edges,
+      jobs: html,
+    })
+    edges = rebuilt.edges
+    if (jobs.length === 0) {
+      jobs = toSlim(html)
+    }
+  }
   const map = assembleInternalLinkMap({
     originUrl: origin,
     jobs,
