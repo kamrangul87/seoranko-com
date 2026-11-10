@@ -235,6 +235,8 @@ describe('planSitewideInternalLinks', () => {
     expect(shortcut?.anchorText).toBe('Deep page title')
   })
 
+  // Default Vitest 5s timeout is the CI budget. The 2000-page empty-edge
+  // case must stay Hobby-safe — do not raise this timeout to hide O(n²) scans.
   it('is deterministic and stays within a 2000-page cap', () => {
     const pages2k = [
       page('/'),
@@ -270,7 +272,7 @@ describe('planSitewideInternalLinks', () => {
     })
     const plannedUrls = new Set(capped.links.flatMap((l) => [l.sourceUrl, l.targetUrl]))
     expect(plannedUrls.size).toBeLessThanOrEqual(2000)
-  }, 20_000)
+  })
 
   it('uses path-form hrefs the related-articles transform can write', () => {
     const plan = planSitewideInternalLinks({
