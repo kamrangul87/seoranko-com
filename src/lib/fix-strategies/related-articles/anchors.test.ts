@@ -49,6 +49,34 @@ describe('cleanRelatedAnchor', () => {
     expect(anchor).not.toMatch(/\s\w$/)
   })
 
+  it('drops a dangling parenthetical instead of leaving an unclosed (', () => {
+    const anchor = cleanRelatedAnchor({
+      h1: 'How to check a vehicle’s MOT history in the UK (free DVSA MOT check)',
+      title: 'Free MOT History Check UK: How to Use the DVSA Service',
+      href: '/blog/mot-history-check-uk.html',
+    })
+    expect(anchor).not.toMatch(/\(free DVSA/i)
+    expect(anchor).not.toMatch(/[(\[]$/)
+    expect(anchor.split('(').length).toBe(anchor.split(')').length)
+    expect(anchor.split('[').length).toBe(anchor.split(']').length)
+    expect(anchor).toMatch(/MOT history/i)
+    expect(anchor.length).toBeLessThanOrEqual(60)
+  })
+
+  it('drops an unclosed quote or bracket after truncation', () => {
+    const quoted = cleanRelatedAnchor({
+      h1: 'MOT advisories explained: “Dangerous, Major, Minor and what to fix next”',
+      href: '/blog/mot-advisories-explained-uk.html',
+    })
+    expect(quoted).not.toMatch(/[“"][^”"]*$/)
+    const bracketed = cleanRelatedAnchor({
+      h1: 'MOT retest costs UK 2026: when retests are free [DVSA rules and exceptions]',
+      href: '/blog/mot-retest-cost-uk-2026.html',
+    })
+    expect(bracketed).not.toMatch(/\[[^\]]*$/)
+    expect(bracketed.split('[').length).toBe(bracketed.split(']').length)
+  })
+
   it('falls back to a path-derived phrase when the stored anchor is a 2-word stub', () => {
     const anchor = cleanRelatedAnchor({
       h1: 'EV charging',

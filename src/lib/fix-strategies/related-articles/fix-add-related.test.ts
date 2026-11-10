@@ -101,15 +101,98 @@ describe('addRelatedArticlesBlock', () => {
     expect(third.updated).toBe(0)
   })
 
-  it('places a new block after </article> with article-like inline styles', () => {
+  it('places a new block before </article> with article-like inline styles', () => {
     const page =
       '<article style="max-width:720px;margin:0 auto;padding:0 20px;"><p>body</p></article>'
     const result = addRelatedArticlesBlock(page, [
       { href: '/blog/a.html', anchorText: 'A complete guide to MOT tests' },
     ])
-    expect(result.html).toMatch(/<\/article>\s*<(aside|nav)/i)
-    expect(result.html).not.toMatch(/<(aside|nav)[^>]*>[\s\S]*<\/article>/i)
+    expect(result.html).toMatch(/<(aside|nav)[^>]*>[\s\S]*<\/article>/i)
+    expect(result.html).not.toMatch(/<\/article>\s*<(aside|nav)/i)
     expect(result.html).toMatch(/max-width:\s*720px/)
     expect(result.html).toMatch(/margin:\s*0 auto|margin:[^"]*auto/)
+  })
+
+  it('appends into an h2 Related heading plus ul (mot-cost shaped page)', () => {
+    const page = `<!doctype html><html><body>
+<div class="wrap">
+  <h1>MOT Cost UK 2026</h1>
+  <p>Fees.</p>
+  <h2>Related</h2>
+  <ul>
+    <li><a href="/blog/motorbike-mot-cost-uk-2026.html">Motorbike MOT Costs — What to expect in 2026</a></li>
+    <li><a href="/blog/mot-retest-cost-uk-2026.html">MOT retest costs</a></li>
+  </ul>
+</div>
+<footer>Site footer</footer>
+</body></html>`
+    const result = addRelatedArticlesBlock(page, [
+      {
+        href: '/blog/mot-changes-2026-dvsa-updates.html',
+        anchorText: 'MOT Changes 2026:',
+        h1: 'MOT Changes 2026: DVSA Updates, New Rules & What UK Drivers Need to Know',
+      },
+    ])
+    expect(result.updated).toBe(1)
+    expect(result.html).toContain('href="/blog/mot-changes-2026-dvsa-updates.html"')
+    expect(result.html).toMatch(
+      /<h2>Related<\/h2>\s*<ul>[\s\S]*mot-changes-2026-dvsa-updates\.html/,
+    )
+    expect(result.html).not.toContain('data-seoranko-related-articles')
+    expect(result.html).not.toMatch(/<\/footer>[\s\S]*<(aside|nav)/i)
+    expect(result.html).not.toMatch(/<(aside|nav)[^>]*>\s*<h2>Related reading[\s\S]*<\/body>/i)
+  })
+
+  it('appends into a Related heading plus list inside a related-articles div', () => {
+    const page = `<body>
+    <div class="related-articles">
+      <h3>Related articles</h3>
+      <ul>
+        <li><a href="/blog/mot-cost-uk-2026.html">MOT Cost UK 2026</a></li>
+      </ul>
+    </div>
+    <footer style="margin-top:80px;">Footer</footer>
+    </body>`
+    const result = addRelatedArticlesBlock(page, [
+      { href: '/blog/electric-car-mot-whats-checked-uk-2026.html', anchorText: 'EV MOT UK 2026' },
+    ])
+    expect(result.html).toContain('href="/blog/electric-car-mot-whats-checked-uk-2026.html"')
+    expect(result.html).toMatch(/<h3>Related articles<\/h3>[\s\S]*electric-car-mot-whats-checked-uk-2026\.html/)
+    expect(result.html.match(/<h3>/g)?.length).toBe(1)
+    expect(result.html).not.toMatch(/<\/footer>[\s\S]*aside/i)
+  })
+
+  it('appends matching <a> markup when Related heading is followed by anchors, not a list', () => {
+    const page = `<body>
+    <div class="related-articles">
+      <h3>Related</h3>
+      <a href="/blog/mot-cost-uk-2026.html">MOT Cost UK 2026 — What you’ll actually pay</a>
+      <a href="/blog/mot-history-check-uk.html">MOT History Check — Read your car’s MOT record</a>
+    </div>
+    <footer>Footer</footer>
+    </body>`
+    const result = addRelatedArticlesBlock(page, [
+      { href: '/blog/mot-changes-2026-dvsa-updates.html', anchorText: 'MOT Changes 2026' },
+    ])
+    expect(result.html).toContain('href="/blog/mot-changes-2026-dvsa-updates.html"')
+    expect(result.html).toMatch(
+      /<h3>Related<\/h3>[\s\S]*<a href="\/blog\/mot-changes-2026-dvsa-updates\.html">/,
+    )
+    expect(result.html).not.toContain('<aside')
+    expect(result.html).not.toMatch(/<\/footer>[\s\S]*<(aside|nav|a )/i)
+  })
+
+  it('never inserts a new block after footer or directly before </body>', () => {
+    const page = `<body><div class="content"><p>No related section.</p></div>
+<footer>Site footer</footer>
+</body>`
+    const result = addRelatedArticlesBlock(page, [
+      { href: '/blog/mot-cost-uk-2026.html', anchorText: 'MOT Cost in the UK 2026' },
+    ])
+    expect(result.updated).toBe(1)
+    expect(result.html).toMatch(/<(aside|nav)[\s\S]*<\/aside>|<(aside|nav)[\s\S]*<\/nav>/i)
+    expect(result.html).toMatch(/<(aside|nav)[\s\S]*<footer/i)
+    expect(result.html).not.toMatch(/<\/footer>[\s\S]*<(aside|nav)/i)
+    expect(result.html).not.toMatch(/<(aside|nav)[^>]*>[\s\S]*<\/\1>\s*<\/body>/i)
   })
 })

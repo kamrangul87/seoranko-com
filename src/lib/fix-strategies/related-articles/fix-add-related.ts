@@ -53,6 +53,10 @@ function isRelatedOpening(attrs: string): boolean {
   return false
 }
 
+function stripTags(s: string): string {
+  return s.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
 function findMatchingClose(html: string, tag: string, from: number): number {
   const openRe = new RegExp(`<${tag}\\b[^>]*>`, 'gi')
   const closeRe = new RegExp(`</${tag}\\s*>`, 'gi')
@@ -77,7 +81,7 @@ function findMatchingClose(html: string, tag: string, from: number): number {
 }
 
 function findRelatedBlocks(html: string): RelatedBlock[] {
-  const re = /<(nav|aside|section)\b([^>]*)>/gi
+  const re = /<(nav|aside|section|div)\b([^>]*)>/gi
   const out: RelatedBlock[] = []
   let m: RegExpExecArray | null
   while ((m = re.exec(html))) {
@@ -98,6 +102,56 @@ function findRelatedBlocks(html: string): RelatedBlock[] {
   return out
 }
 
+/**
+ * Related h2/h3/h4 whose following sibling is a list (or a run of <a> tags).
+ * Used when the page has no related nav/aside/section/div wrapper.
+ */
+function findRelatedHeadingHosts(html: string): RelatedBlock[] {
+  const re = /<h([2-4])\b([^>]*)>([\s\S]*?)<\/h\1>/gi
+  const out: RelatedBlock[] = []
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html))) {
+    const text = stripTags(m[3] || '')
+    if (!/^related\b/i.test(text)) continue
+    const after = m.index + m[0].length
+    const rest = html.slice(after)
+    const boundary = rest.search(/<(h[1-4]|footer)\b/i)
+    const window = rest.slice(0, boundary >= 0 ? boundary : Math.min(rest.length, 5000))
+    const listOpen = window.match(/<(ul|ol)\b([^>]*)>/i)
+    if (listOpen && listOpen.index != null) {
+      const tag = listOpen[1]!
+      const listStart = after + listOpen.index
+      const close = findMatchingClose(html, tag, listStart + listOpen[0].length)
+      if (close < 0) continue
+      out.push({
+        tag,
+        start: listStart,
+        end: close,
+        attrs: listOpen[2] || '',
+        inner: html.slice(listStart + listOpen[0].length, close - `</${tag}>`.length),
+        isSeoranko: false,
+      })
+      continue
+    }
+    const firstA = window.search(/<a\b/i)
+    if (firstA < 0) continue
+    const run = window.slice(firstA)
+    const lastClose = [...run.matchAll(/<\/a>/gi)].pop()
+    if (!lastClose || lastClose.index == null) continue
+    const runEnd = after + firstA + lastClose.index + lastClose[0].length
+    const runStart = after + firstA
+    out.push({
+      tag: 'a-run',
+      start: runStart,
+      end: runEnd,
+      attrs: '',
+      inner: html.slice(runStart, runEnd),
+      isSeoranko: false,
+    })
+  }
+  return out
+}
+
 function hrefsIn(html: string): Set<string> {
   const set = new Set<string>()
   const re = /<a\b[^>]*\bhref\s*=\s*(["'])(.*?)\1/gi
@@ -106,6 +160,20 @@ function hrefsIn(html: string): Set<string> {
     set.add(normHref(m[2] || ''))
   }
   return set
+}
+
+function anchorItemHtml(hostInner: string, href: string, text: string): string {
+  const a = hostInner.match(/<a\b([^>]*)>[\s\S]*?<\/a>/i)
+  const escHref = escapeHtmlAttr(href)
+  const escText = escapeHtmlText(text)
+  if (!a) return `<a href="${escHref}">${escText}</a>`
+  let aAttrs = a[1] ?? ''
+  if (/\bhref\s*=/i.test(aAttrs)) {
+    aAttrs = aAttrs.replace(/\bhref\s*=\s*(["']).*?\1/i, `href="${escHref}"`)
+  } else {
+    aAttrs = ` href="${escHref}"${aAttrs}`
+  }
+  return `<a${aAttrs}>${escText}</a>`
 }
 
 function itemHtml(hostInner: string, href: string, text: string): string {
@@ -173,17 +241,17 @@ function articleLayoutStyle(html: string): string {
   return DEFAULT_BLOCK_STYLE
 }
 
-function insertAfterArticle(html: string, block: string): string {
+function insertNewBlock(html: string, block: string): string {
   if (/<\/article>/i.test(html)) {
-    return html.replace(/<\/article>/i, `</article>\n${block}`)
+    return html.replace(/<\/article>/i, `${block}</article>`)
   }
   if (/<\/main>/i.test(html)) {
     return html.replace(/<\/main>/i, `${block}</main>`)
   }
-  if (/<\/body>/i.test(html)) {
-    return html.replace(/<\/body>/i, `${block}</body>`)
+  if (/<footer\b/i.test(html)) {
+    return html.replace(/<footer\b/i, `${block}<footer`)
   }
-  return `${html}\n${block}\n`
+  return html.replace(/<\/html>/i, `${block}</html>`)
 }
 
 function appendToBlock(
@@ -195,15 +263,47 @@ function appendToBlock(
   const missing = targets.filter((t) => !existing.has(normHref(t.href)))
   let inner = host.inner
   if (missing.length > 0) {
-    const list = listCloseOffset(inner)
-    const indent = inner.match(/\n([ \t]*)<li/i)?.[1] ?? '    '
-    const items = missing.map((t) => itemHtml(inner, t.href, t.anchor)).join(`\n${indent}`)
-    if (list) {
-      const before = inner.slice(0, list.index).replace(/\s*$/, '')
-      inner = `${before}\n${indent}${items}\n${indent.slice(0, Math.max(0, indent.length - 2))}</${list.tag}>${inner.slice(list.index + `</${list.tag}>`.length)}`
+    const asListItems = host.tag === 'ul' || host.tag === 'ol' || Boolean(listCloseOffset(inner))
+    const asAnchors =
+      !asListItems &&
+      (host.tag === 'a-run' || /<a\b/i.test(inner))
+    if (asAnchors) {
+      const indent = inner.match(/\n([ \t]*)<a\b/i)?.[1] ?? '      '
+      const items = missing
+        .map((t) => anchorItemHtml(inner, t.href, t.anchor))
+        .join(`\n${indent}`)
+      const last = [...inner.matchAll(/<\/a>/gi)].pop()
+      if (last && last.index != null) {
+        const at = last.index + last[0].length
+        inner = `${inner.slice(0, at)}\n${indent}${items}${inner.slice(at)}`
+      } else {
+        inner = `${inner}\n${indent}${items}`
+      }
+    } else if (host.tag === 'ul' || host.tag === 'ol') {
+      const indent = inner.match(/\n([ \t]*)<li/i)?.[1] ?? '    '
+      const items = missing.map((t) => itemHtml(inner, t.href, t.anchor)).join(`\n${indent}`)
+      inner = `${inner.replace(/\s*$/, '')}\n${indent}${items}\n`
     } else {
-      inner = `${inner}\n<ul>\n    ${items}\n</ul>`
+      const list = listCloseOffset(inner)
+      const indent = inner.match(/\n([ \t]*)<li/i)?.[1] ?? '    '
+      const items = missing.map((t) => itemHtml(inner, t.href, t.anchor)).join(`\n${indent}`)
+      if (list) {
+        const before = inner.slice(0, list.index).replace(/\s*$/, '')
+        inner = `${before}\n${indent}${items}\n${indent.slice(0, Math.max(0, indent.length - 2))}</${list.tag}>${inner.slice(list.index + `</${list.tag}>`.length)}`
+      } else {
+        inner = `${inner}\n<ul>\n    ${items}\n</ul>`
+      }
     }
+  }
+
+  if (host.tag === 'a-run') {
+    let next = `${html.slice(0, host.start)}${inner}${html.slice(host.end)}`
+    const extras = findRelatedBlocks(next).filter((b) => b.isSeoranko)
+    for (const extra of extras.sort((a, b) => b.start - a.start)) {
+      next = `${next.slice(0, extra.start)}${next.slice(extra.end)}`
+    }
+    const updated = missing.length > 0 || extras.length > 0 ? 1 : 0
+    return { html: next, updated }
   }
 
   const open = html.slice(host.start, html.indexOf('>', host.start) + 1)
@@ -224,9 +324,10 @@ function appendToBlock(
 }
 
 /**
- * Append related links into an existing related nav/aside/section when present.
- * Updates a SEORANKO block in place (idempotent). Otherwise inserts a new
- * styled block after </article>.
+ * Append related links into an existing related nav/aside/section/div, or into
+ * a Related h2/h3/h4 plus its following list. Updates a SEORANKO block in
+ * place (idempotent). A new block is never placed after <footer> or directly
+ * before </body>.
  */
 export function addRelatedArticlesBlock(
   html: string,
@@ -236,13 +337,17 @@ export function addRelatedArticlesBlock(
   if (resolved.length === 0) return { html, updated: 0 }
 
   const blocks = findRelatedBlocks(html)
-  const host = blocks.find((b) => !b.isSeoranko) || blocks[0]
+  const headingHosts = findRelatedHeadingHosts(html).filter(
+    (h) => !blocks.some((b) => h.start >= b.start && h.end <= b.end),
+  )
+  const host =
+    blocks.find((b) => !b.isSeoranko) || blocks[0] || headingHosts[0]
   if (host) {
     return appendToBlock(html, host, resolved)
   }
 
   const block = buildRelatedArticlesHtml(targets, articleLayoutStyle(html))
-  return { html: insertAfterArticle(html, block), updated: 1 }
+  return { html: insertNewBlock(html, block), updated: 1 }
 }
 
 /** Same-folder siblings: share path dirname, exclude self. */

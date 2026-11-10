@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { RELATED_TRANSFORM_VERSION } from '@/lib/fix-strategies/related-articles/anchors'
 import {
   approvalStatusFrom,
   isRelatedReadingFinding,
@@ -123,7 +124,7 @@ describe('toLinkMapApproval', () => {
         fixedAt: null,
         evidenceValues: {
           relatedTargets: [{ href: '/blog/b.html', anchorText: 'B' }],
-          relatedTransformVersion: 2,
+          relatedTransformVersion: RELATED_TRANSFORM_VERSION,
           neverAutoMerge: true,
         },
         proposedDiff: null,
