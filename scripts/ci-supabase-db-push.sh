@@ -43,6 +43,18 @@ push_with_db_url() {
   npx --yes supabase@2.116.0 db push --yes --db-url "$DB_URL"
 }
 
+# GitHub Actions and the Vercel production build both run this script on merge.
+# They can both see the same pending version, both apply the SQL, then the loser
+# fails INSERT INTO supabase_migrations.schema_migrations (SQLSTATE 23505).
+# The winner already recorded the version — treat that as success, not a brick.
+already_applied_race() {
+  printf '%s\n' "$1" | grep -qE 'schema_migrations_pkey|Key \(version\)=\([0-9]+\) already exists'
+}
+
+accept_already_applied_race() {
+  echo "::warning::db push lost a concurrent apply race (schema_migrations version already exists). Treating as success."
+}
+
 if [[ -n "$DB_URL" ]]; then
   echo "Applying migrations via --db-url (project ${PROJECT_REF}, pooler ${POOLER_HOST:-from-url})"
   set +e
@@ -51,22 +63,38 @@ if [[ -n "$DB_URL" ]]; then
   set -e
   printf '%s\n' "$push_out"
   if [[ $push_ec -ne 0 ]]; then
-    # Ghost remote versions (applied/recorded on hosted, missing from git) block every
-    # db push. Repair them as reverted, then retry once.
-    mapfile -t orphan_versions < <(
-      printf '%s\n' "$push_out" | grep -oE 'supabase migration repair --status reverted [0-9]+' \
-        | awk '{print $NF}' | sort -u
-    )
-    if [[ ${#orphan_versions[@]} -eq 0 ]]; then
-      echo "::error::supabase db push failed (no repairable orphan versions detected)."
-      exit "$push_ec"
+    if already_applied_race "$push_out"; then
+      accept_already_applied_race
+    else
+      # Ghost remote versions (applied/recorded on hosted, missing from git) block every
+      # db push. Repair them as reverted, then retry once.
+      mapfile -t orphan_versions < <(
+        printf '%s\n' "$push_out" | grep -oE 'supabase migration repair --status reverted [0-9]+' \
+          | awk '{print $NF}' | sort -u
+      )
+      if [[ ${#orphan_versions[@]} -eq 0 ]]; then
+        echo "::error::supabase db push failed (no repairable orphan versions detected)."
+        exit "$push_ec"
+      fi
+      echo "::warning::Repairing orphan remote migration version(s): ${orphan_versions[*]}"
+      for ver in "${orphan_versions[@]}"; do
+        npx --yes supabase@2.116.0 migration repair --status reverted "$ver" --yes --db-url "$DB_URL"
+      done
+      echo "Retrying db push after orphan repair…"
+      set +e
+      retry_out="$(push_with_db_url 2>&1)"
+      retry_ec=$?
+      set -e
+      printf '%s\n' "$retry_out"
+      if [[ $retry_ec -ne 0 ]]; then
+        if already_applied_race "$retry_out"; then
+          accept_already_applied_race
+        else
+          echo "::error::supabase db push failed after orphan repair."
+          exit "$retry_ec"
+        fi
+      fi
     fi
-    echo "::warning::Repairing orphan remote migration version(s): ${orphan_versions[*]}"
-    for ver in "${orphan_versions[@]}"; do
-      npx --yes supabase@2.116.0 migration repair --status reverted "$ver" --yes --db-url "$DB_URL"
-    done
-    echo "Retrying db push after orphan repair…"
-    push_with_db_url
   fi
 else
   export SUPABASE_ACCESS_TOKEN
