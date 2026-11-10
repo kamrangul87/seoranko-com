@@ -205,22 +205,6 @@ function parentDir(url: string): string {
   return `/${parts.join('/')}`
 }
 
-function uniqueInbound(
-  target: string,
-  existing: Set<string>,
-  planned: PlannedLink[],
-): number {
-  const src = new Set<string>()
-  for (const k of existing) {
-    const [s, t] = k.split('\0')
-    if (t === target && s !== target) src.add(s!)
-  }
-  for (const l of planned) {
-    if (l.targetUrl === target && l.sourceUrl !== target) src.add(l.sourceUrl)
-  }
-  return src.size
-}
-
 function bfsDepth(
   home: string,
   existing: Set<string>,
@@ -344,6 +328,30 @@ export function planSitewideInternalLinks(input: {
   const newCount = new Map<string, number>()
   const usedAnchor = new Map<string, Set<string>>()
   const tokenCache = new Map<string, Set<string>>()
+  const plannedPairs = new Set<string>()
+  const inboundPlanned = new Map<string, number>()
+  const inboundExisting = new Map<string, number>()
+  for (const k of existing) {
+    const sep = k.indexOf('\0')
+    if (sep < 0) continue
+    const s = k.slice(0, sep)
+    const t = k.slice(sep + 1)
+    if (t && s && s !== t) inboundExisting.set(t, (inboundExisting.get(t) ?? 0) + 1)
+  }
+  const clusterByUrl = new Map<string, TopicCluster>()
+  for (const c of clusters) {
+    for (const u of c.memberUrls) clusterByUrl.set(u, c)
+  }
+  const byParentDir = new Map<string, PlanPageInput[]>()
+  for (const p of limited) {
+    const dir = parentDir(p.url)
+    const list = byParentDir.get(dir) ?? []
+    list.push(p)
+    byParentDir.set(dir, list)
+  }
+  for (const list of byParentDir.values()) {
+    list.sort((a, b) => a.url.localeCompare(b.url))
+  }
   const tokens = (p: PlanPageInput) => {
     let t = tokenCache.get(p.url)
     if (!t) {
@@ -356,8 +364,8 @@ export function planSitewideInternalLinks(input: {
   const canAdd = (source: string, target: string): boolean => {
     if (source === target) return false
     if (!byUrl.has(source) || !byUrl.has(target)) return false
-    if (existing.has(`${source}\0${target}`)) return false
-    if (links.some((l) => l.sourceUrl === source && l.targetUrl === target)) return false
+    const pair = `${source}\0${target}`
+    if (existing.has(pair) || plannedPairs.has(pair)) return false
     if ((newCount.get(source) ?? 0) >= cap) return false
     return true
   }
@@ -382,6 +390,8 @@ export function planSitewideInternalLinks(input: {
       reason: reasonFor(kind, clusterId),
       kind,
     })
+    plannedPairs.add(`${source}\0${target}`)
+    inboundPlanned.set(target, (inboundPlanned.get(target) ?? 0) + 1)
     newCount.set(source, (newCount.get(source) ?? 0) + 1)
     return true
   }
@@ -455,7 +465,7 @@ export function planSitewideInternalLinks(input: {
   }
 
   const nearbySources = (target: PlanPageInput): PlanPageInput[] => {
-    const cluster = clusters.find((c) => c.memberUrls.includes(target.url))
+    const cluster = clusterByUrl.get(target.url)
     const preferred: PlanPageInput[] = []
     const seen = new Set<string>()
     const push = (u: string | undefined) => {
@@ -468,13 +478,15 @@ export function planSitewideInternalLinks(input: {
     push(home)
     push(cluster?.hubUrl)
     const dir = parentDir(target.url)
-    const siblings = limited
-      .filter((p) => p.url !== target.url && parentDir(p.url) === dir)
-      .sort((a, b) => a.url.localeCompare(b.url))
-    const idx = siblings.findIndex((p) => p.url > target.url)
-    const around = [
-      ...siblings.slice(Math.max(0, (idx < 0 ? siblings.length : idx) - 3), (idx < 0 ? siblings.length : idx) + 3),
-    ]
+    const siblings = byParentDir.get(dir) ?? []
+    const selfIdx = siblings.findIndex((p) => p.url === target.url)
+    const around =
+      selfIdx < 0
+        ? siblings.slice(0, 6)
+        : [
+            ...siblings.slice(Math.max(0, selfIdx - 3), selfIdx),
+            ...siblings.slice(selfIdx + 1, selfIdx + 4),
+          ]
     around.sort((a, b) => {
       const sa = jaccard(tokens(target), tokens(a))
       const sb = jaccard(tokens(target), tokens(b))
@@ -488,9 +500,11 @@ export function planSitewideInternalLinks(input: {
   // 5. Pages with no existing inbound links get at least 2 inbound (orphans).
   for (const p of limited) {
     if (p.url === home) continue
-    const existingIn = uniqueInbound(p.url, existing, [])
-    if (existingIn > 0) continue
-    while (uniqueInbound(p.url, existing, links) < LINK_PLAN_ORPHAN_INBOUND) {
+    if ((inboundExisting.get(p.url) ?? 0) > 0) continue
+    while (
+      (inboundExisting.get(p.url) ?? 0) + (inboundPlanned.get(p.url) ?? 0) <
+      LINK_PLAN_ORPHAN_INBOUND
+    ) {
       let placed = false
       for (const src of nearbySources(p)) {
         if (add(src.url, p.url, 'orphan-inlink')) {
@@ -508,7 +522,7 @@ export function planSitewideInternalLinks(input: {
     if (p.url === home) continue
     const d = depths.get(p.url)
     if (d != null && d <= DEEP_CLICKS) continue
-    const cluster = clusters.find((c) => c.memberUrls.includes(p.url))
+    const cluster = clusterByUrl.get(p.url)
     const preferred = [cluster?.hubUrl, home].filter(
       (u): u is string => Boolean(u) && u !== p.url,
     )
