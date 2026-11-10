@@ -602,9 +602,11 @@ const topicRelatedArticles: TransformHandler = async (ctx) => {
 
 const verifyRelatedArticles: TransformVerifier = async (ctx) => {
   const hasRelatedBlock =
-    /<(nav|aside|section)\b[^>]*(related|data-seoranko-related-articles)[^>]*>/i.test(
+    /<(nav|aside|section|div)\b[^>]*(related|data-seoranko-related-articles)[^>]*>/i.test(
       ctx.body,
-    ) || ctx.body.includes('data-seoranko-related-articles')
+    ) ||
+    /<h[2-4][^>]*>\s*Related\b/i.test(ctx.body) ||
+    ctx.body.includes('data-seoranko-related-articles')
   if (!hasRelatedBlock) {
     return { ok: false, detail: 'Related articles block missing on live page' }
   }

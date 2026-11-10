@@ -3,7 +3,7 @@
  * Never invent marketing copy; never emit 2-word stubs or colon-truncated titles.
  */
 
-export const RELATED_TRANSFORM_VERSION = 2
+export const RELATED_TRANSFORM_VERSION = 3
 export const RELATED_ANCHOR_MAX = 60
 
 const DANGLING = new Set([
@@ -77,7 +77,52 @@ function stripDangling(s: string, dropShortTail = false): string {
       out = before
     }
   }
-  return out
+  return dropUnbalancedPunctuation(out)
+}
+
+/** Drop a truncated parenthetical, bracket, or quote so the anchor never ends unclosed. */
+export function dropUnbalancedPunctuation(s: string): string {
+  let out = collapseWs(s)
+  for (const [open, close] of [
+    ['(', ')'],
+    ['[', ']'],
+  ] as const) {
+    let depth = 0
+    let firstUnclosed = -1
+    for (let i = 0; i < out.length; i++) {
+      const ch = out[i]
+      if (ch === open) {
+        if (depth === 0) firstUnclosed = i
+        depth += 1
+      } else if (ch === close) {
+        if (depth > 0) depth -= 1
+        if (depth === 0) firstUnclosed = -1
+      }
+    }
+    if (depth > 0 && firstUnclosed >= 0) {
+      out = out.slice(0, firstUnclosed).trim()
+    }
+  }
+
+  let straight = 0
+  let lastStraight = -1
+  for (let i = 0; i < out.length; i++) {
+    if (out[i] === '"') {
+      straight += 1
+      lastStraight = i
+    }
+  }
+  if (straight % 2 === 1 && lastStraight >= 0) {
+    out = out.slice(0, lastStraight).trim()
+  }
+
+  const openD = out.lastIndexOf('“')
+  const closeD = out.lastIndexOf('”')
+  if (openD >= 0 && openD > closeD) {
+    out = out.slice(0, openD).trim()
+  }
+
+  return out.replace(/[:;,\-–—/&]+$/g, '').trim()
 }
 
 function truncateAtWord(s: string, max = RELATED_ANCHOR_MAX): {
