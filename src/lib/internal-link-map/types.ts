@@ -30,6 +30,7 @@ export type LinkMapNodeKind = 'ok' | 'orphan' | 'deep' | 'broken' | 'redirect'
 export type LinkMapNode = {
   url: string
   path: string
+  title?: string | null
   inlinks: number
   outlinks: number
   depth: number | null

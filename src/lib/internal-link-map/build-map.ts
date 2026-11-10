@@ -21,6 +21,7 @@ export type BuildInternalLinkMapInput = {
   pages: CrawlLinkPage[]
   edges: CrawlLinkEdge[]
   homepageUrl?: string
+  titles?: Map<string, string | null>
 }
 
 function norm(url: string, base?: string): string {
@@ -183,6 +184,7 @@ export function buildInternalLinkMap(
     outNodes.push({
       url: n.url,
       path: pathOf(n.url),
+      title: input.titles?.get(n.url) ?? null,
       inlinks,
       outlinks: n.outTargets.size,
       depth: d,

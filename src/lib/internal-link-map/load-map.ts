@@ -75,6 +75,7 @@ export function assembleInternalLinkMap(input: {
   jobs: SlimCrawlJob[]
   edges: CrawlLinkEdge[]
   homepageUrl?: string
+  titles?: Map<string, string | null>
 }): InternalLinkMap {
   const pages = pagesFromSlimJobs(input.jobs)
   const edges = overlayEdgeStatuses(input.edges, pages, input.originUrl)
@@ -83,6 +84,7 @@ export function assembleInternalLinkMap(input: {
     homepageUrl: input.homepageUrl,
     pages,
     edges,
+    titles: input.titles,
   })
 }
 

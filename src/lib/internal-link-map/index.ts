@@ -24,8 +24,15 @@ export {
 } from './plan-links'
 export type { PlannedLink, SiteLinkPlan, PlanPageInput } from './plan-links'
 export { loadOwnedConnectedSite } from './owned-site'
-export { treePositions, nodeRadius } from './layout'
-export type { LaidOutNode } from './layout'
+export { treePositions, nodeRadius, boxesOverlap, webForceSettings, fitViewTransform } from './layout'
+export type { LaidOutNode, LabelBox } from './layout'
+export { shortNodeLabel, estimateLabelWidth, LABEL_MAX_CHARS } from './labels'
+export {
+  isRelatedReadingFinding,
+  approvalStatusFrom,
+  toLinkMapApproval,
+} from './approvals'
+export type { LinkMapApproval, LinkMapApprovalStatus } from './approvals'
 export {
   assembleInternalLinkMap,
   nodeDetailForUrl,

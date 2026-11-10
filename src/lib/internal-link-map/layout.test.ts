@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { renderTreeMapSvg, treePositions } from './layout'
+import {
+  boxesOverlap,
+  renderTreeMapSvg,
+  treePositions,
+  webForceSettings,
+} from './layout'
 import type { LinkMapNode } from './types'
 
 function n(
@@ -61,6 +66,45 @@ describe('treePositions', () => {
     expect(y['https://example.com/a/c']).toBeLessThan(
       y['https://example.com/a/c/d']!,
     )
+  })
+
+  it('does not overlap bounding boxes for 20 nodes on one level', () => {
+    const home = 'https://example.com/'
+    const nodes: LinkMapNode[] = [
+      n(home, 0, 8),
+      ...Array.from({ length: 20 }, (_, i) =>
+        n(
+          `https://example.com/blog/electric-car-charger-map-uk-${i}.html`,
+          1,
+          2,
+        ),
+      ),
+    ]
+    const laid = treePositions(nodes, home, 720, 640)
+    const level1 = laid.filter((p) => p.id !== home)
+    expect(level1).toHaveLength(20)
+    for (let i = 0; i < level1.length; i++) {
+      for (let j = i + 1; j < level1.length; j++) {
+        expect(
+          boxesOverlap(level1[i]!.box, level1[j]!.box),
+          `${level1[i]!.id} overlaps ${level1[j]!.id}`,
+        ).toBe(false)
+      }
+    }
+  })
+})
+
+describe('webForceSettings', () => {
+  it('scales charge to node count and keeps link distance between 80 and 120', () => {
+    const small = webForceSettings(18)
+    const large = webForceSettings(2000)
+    expect(small.linkDistance).toBeGreaterThanOrEqual(80)
+    expect(small.linkDistance).toBeLessThanOrEqual(120)
+    expect(large.linkDistance).toBeGreaterThanOrEqual(80)
+    expect(large.linkDistance).toBeLessThanOrEqual(120)
+    expect(small.charge).toBeLessThan(0)
+    expect(large.charge).toBeLessThan(0)
+    expect(Math.abs(small.charge)).toBeGreaterThan(Math.abs(large.charge))
   })
 })
 

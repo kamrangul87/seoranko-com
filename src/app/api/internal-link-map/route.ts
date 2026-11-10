@@ -11,6 +11,7 @@ import { normalizePublicOrigin } from '@/lib/fix-strategies/findings-ui/crawl/no
 import { isTransformRegistered } from '@/lib/fix-strategies/findings-ui/fix-run/apply-registry'
 import {
   assembleInternalLinkMap,
+  extractPageSignals,
   listCrawlLinkEdges,
   listSlimCrawlJobs,
   loadHtmlJobsForRun,
@@ -142,30 +143,40 @@ export async function GET(request: Request) {
       httpStatus: j.httpStatus,
       finalUrl: j.finalUrl,
     }))
-  const htmlJobs = jobs.length === 0 ? await loadHtml() : null
+  let htmlJobs = jobs.length === 0 ? await loadHtml() : null
   if (htmlJobs) {
     jobs = toSlim(htmlJobs)
   }
   let edges = await listCrawlLinkEdges(latest.id)
   if (edges.length === 0) {
-    const html = htmlJobs ?? (await loadHtml())
+    htmlJobs = htmlJobs ?? (await loadHtml())
     const rebuilt = await rebuildMissingCrawlLinkEdges({
       runId: latest.id,
       siteId: ownedSiteId ?? latest.siteId,
       userId: latest.userId,
       origin,
       existingEdges: edges,
-      jobs: html,
+      jobs: htmlJobs,
     })
     edges = rebuilt.edges
     if (jobs.length === 0) {
-      jobs = toSlim(html)
+      jobs = toSlim(htmlJobs)
+    }
+  }
+  const titles = new Map<string, string | null>()
+  if (htmlJobs) {
+    for (const j of htmlJobs) {
+      const title = extractPageSignals(j.html || '').title
+      if (!title) continue
+      titles.set(j.url, title)
+      if (j.finalUrl) titles.set(j.finalUrl, title)
     }
   }
   const map = assembleInternalLinkMap({
     originUrl: origin,
     jobs,
     edges,
+    titles: titles.size > 0 ? titles : undefined,
   })
 
   const page2 = selectedUrl

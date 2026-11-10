@@ -135,6 +135,8 @@ function supabaseAvailable(): boolean {
 
 export type FixFlowStore = {
   get(findingId: string, userId: string): Promise<FixFlowState>
+  /** Read-only: null when no row exists (does not insert idle). */
+  peek(findingId: string, userId: string): Promise<FixFlowState | null>
   save(record: FixFlowRecord): Promise<FixFlowState>
 }
 
@@ -146,6 +148,11 @@ export function createMemoryFixFlowStore(): FixFlowStore {
       const fresh = idle(findingId, userId)
       mem().set(findingId, fresh)
       return toUi(fresh)
+    },
+    async peek(findingId, userId) {
+      const existing = mem().get(findingId)
+      if (existing && existing.userId === userId) return toUi(existing)
+      return null
     },
     async save(record) {
       const next = { ...record, updatedAt: new Date().toISOString() }
@@ -179,6 +186,17 @@ export function createSupabaseFixFlowStore(): FixFlowStore {
         })
       if (insErr) throw new Error(insErr.message)
       return toUi(fresh)
+    },
+    async peek(findingId, userId) {
+      const { data, error } = await db()
+        .from('fix_strategies_fix_flows')
+        .select('*')
+        .eq('finding_id', findingId)
+        .eq('user_id', userId)
+        .maybeSingle()
+      if (error) throw new Error(error.message)
+      if (!data) return null
+      return toUi(mapRow(data as Record<string, unknown>))
     },
     async save(record) {
       const row = {
@@ -250,6 +268,13 @@ export function resetMemoryFixFlowStore(): void {
 /** @internal test helper */
 export function _testIdle(findingId = randomUUID(), userId = 'u'): FixFlowRecord {
   return idle(findingId, userId)
+}
+
+export async function peekFixFlow(
+  findingId: string,
+  userId: string,
+): Promise<FixFlowState | null> {
+  return getFixFlowStore().peek(findingId, userId)
 }
 
 export { toUi, idle as _idleForTests }

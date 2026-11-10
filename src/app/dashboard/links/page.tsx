@@ -7,8 +7,15 @@ import { DashboardNav } from '@/components/DashboardNav'
 import { InternalLinkMapCanvas, type MapView } from '@/components/internal-link-map/InternalLinkMapCanvas'
 import { CRAWL_STATUS_POLL_MS, crawlProgressKind } from '@/lib/fix-strategies/findings-ui/crawl/crawl-progress-ui'
 import { readParamFromUrl, writeParamToUrl } from '@/lib/site-selection-url'
-import type { LinkMapResponse, LinkPlanResponse, PlannedLink } from '@/lib/internal-link-map/client-types'
+import type {
+  LinkMapApprovalItem,
+  LinkMapApprovalsResponse,
+  LinkMapResponse,
+  LinkPlanResponse,
+  PlannedLink,
+} from '@/lib/internal-link-map/client-types'
 import type { User } from '@supabase/supabase-js'
+import type { FixFlowState } from '@/lib/fix-strategies/findings-ui/client'
 
 type Site = { id: string; domain: string; brand: string | null }
 
@@ -19,6 +26,18 @@ const writeSiteIdToUrl = (id: string) => writeParamToUrl(SITE_QUERY_PARAM, id ||
 function fmtDepth(n: number | null): string {
   if (n == null) return '—'
   return n.toFixed(1)
+}
+
+function pathOf(url: string): string {
+  return url.replace(/^https?:\/\/[^/]+/, '') || '/'
+}
+
+const STATUS_LABEL: Record<LinkMapApprovalItem['status'], string> = {
+  pending: 'Pending',
+  approved: 'Approved',
+  pr_opened: 'PR opened',
+  merged: 'Merged',
+  rejected: 'Rejected',
 }
 
 export default function InternalLinkMapPage() {
@@ -35,6 +54,12 @@ export default function InternalLinkMapPage() {
   const [selectedLinkIds, setSelectedLinkIds] = useState<Set<string>>(new Set())
   const [planBusy, setPlanBusy] = useState(false)
   const [planMsg, setPlanMsg] = useState<string | null>(null)
+  const [approvals, setApprovals] = useState<LinkMapApprovalItem[]>([])
+  const [selectedApprovalIds, setSelectedApprovalIds] = useState<Set<string>>(
+    new Set(),
+  )
+  const [approvalBusyId, setApprovalBusyId] = useState<string | null>(null)
+  const [approvalMsg, setApprovalMsg] = useState<string | null>(null)
 
   useEffect(() => {
     const supabase = getSupabaseClient()
@@ -78,9 +103,37 @@ export default function InternalLinkMapPage() {
     }
   }, [])
 
+  const loadApprovals = useCallback(async (id: string) => {
+    if (!id) {
+      setApprovals([])
+      return
+    }
+    try {
+      const res = await fetch(
+        `/api/internal-link-map/approvals?siteId=${encodeURIComponent(id)}`,
+      )
+      const body = (await res.json().catch(() => ({}))) as LinkMapApprovalsResponse
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`)
+      setApprovals(body.items || [])
+      setSelectedApprovalIds(
+        new Set(
+          (body.items || [])
+            .filter((item) => item.status === 'pending')
+            .map((item) => item.id),
+        ),
+      )
+    } catch {
+      setApprovals([])
+    }
+  }, [])
+
   useEffect(() => {
     if (siteId) void load(siteId, selectedUrl)
   }, [siteId, selectedUrl, load])
+
+  useEffect(() => {
+    if (siteId) void loadApprovals(siteId)
+  }, [siteId, loadApprovals])
 
   const crawl = data?.crawl ?? null
   const inFlight =
@@ -116,7 +169,8 @@ export default function InternalLinkMapPage() {
         ok?: boolean
       }
       if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`)
-      setFixMsg('Queued on Audit — open it and approve a PR. Nothing was changed on the site.')
+      setFixMsg('Queued below — approve to open a Fix Agent PR. Nothing was changed on the site.')
+      await loadApprovals(siteId)
     } catch (e) {
       setFixMsg(e instanceof Error ? e.message : 'Could not queue the suggestion')
     } finally {
@@ -189,8 +243,9 @@ export default function InternalLinkMapPage() {
         throw new Error('Refusing to continue: this path must never merge a PR')
       }
       setPlanMsg(
-        `Queued ${body.findingCount ?? selected.length} Related reading finding(s) on Audit. Approve a PR there — nothing was applied or merged.`,
+        `Queued ${body.findingCount ?? selected.length} Related reading finding(s). Approve below — nothing was applied or merged.`,
       )
+      await loadApprovals(siteId)
     } catch (e) {
       setPlanMsg(e instanceof Error ? e.message : 'Could not queue the plan')
     } finally {
@@ -205,6 +260,89 @@ export default function InternalLinkMapPage() {
       else next.add(id)
       return next
     })
+  }
+
+  function toggleApproval(id: string) {
+    setSelectedApprovalIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function approveFinding(id: string) {
+    setApprovalBusyId(id)
+    setApprovalMsg(null)
+    try {
+      const approveRes = await fetch(`/api/fix-strategies/findings/${id}/fix`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve' }),
+      })
+      const approveBody = (await approveRes.json().catch(() => ({}))) as {
+        error?: string
+        fixFlow?: FixFlowState
+      }
+      if (!approveRes.ok) {
+        throw new Error(approveBody.error || `HTTP ${approveRes.status}`)
+      }
+      const commitRes = await fetch(`/api/fix-strategies/findings/${id}/fix`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'commit' }),
+      })
+      const commitBody = (await commitRes.json().catch(() => ({}))) as {
+        error?: string
+        fixFlow?: FixFlowState
+      }
+      if (!commitRes.ok) {
+        throw new Error(commitBody.error || `HTTP ${commitRes.status}`)
+      }
+      const prUrl = commitBody.fixFlow?.prUrl
+      setApprovalMsg(
+        prUrl
+          ? 'PR opened. SEORANKO does not merge customer PRs — merge it yourself.'
+          : 'Approved. Open the PR from the list when GitHub returns a link.',
+      )
+      await loadApprovals(siteId)
+    } catch (e) {
+      setApprovalMsg(e instanceof Error ? e.message : 'Approve failed')
+    } finally {
+      setApprovalBusyId(null)
+    }
+  }
+
+  async function rejectFinding(id: string) {
+    setApprovalBusyId(id)
+    setApprovalMsg(null)
+    try {
+      const res = await fetch('/api/internal-link-map/approvals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteId, findingId: id, action: 'reject' }),
+      })
+      const body = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`)
+      await loadApprovals(siteId)
+    } catch (e) {
+      setApprovalMsg(e instanceof Error ? e.message : 'Reject failed')
+    } finally {
+      setApprovalBusyId(null)
+    }
+  }
+
+  async function approveSelected() {
+    const ids = approvals
+      .filter((item) => item.status === 'pending' && selectedApprovalIds.has(item.id))
+      .map((item) => item.id)
+    if (ids.length === 0) {
+      setApprovalMsg('Select at least one pending finding')
+      return
+    }
+    for (const id of ids) {
+      await approveFinding(id)
+    }
   }
 
   const selectedPlanned: PlannedLink[] = useMemo(() => {
@@ -254,6 +392,8 @@ export default function InternalLinkMapPage() {
                 setSelectedUrl(null)
                 setPlan(null)
                 setPlanMsg(null)
+                setApprovals([])
+                setApprovalMsg(null)
               }}
             >
               {sites.length === 0 && <option value="">No connected sites</option>}
@@ -361,13 +501,14 @@ export default function InternalLinkMapPage() {
             )}
           </div>
 
-          <aside className="w-80 flex-shrink-0 border-l border-[#E8E8E4] bg-white overflow-y-auto p-4 text-sm">
+          <aside className="w-[22rem] flex-shrink-0 border-l border-[#E8E8E4] bg-white text-sm flex flex-col min-h-0">
+            <div className="flex-1 min-h-0 overflow-y-auto p-4">
             {plan && (
               <div className="mb-5 pb-4 border-b border-[#E8E8E4]">
                 <p className="text-[#0F0F0F] font-medium">Link all pages</p>
-                <p className="text-xs text-[#6B6B6B] mt-1">
+                <p className="text-xs text-[#6B6B6B] mt-1 leading-5">
                   Review crawlable Related reading links. Nothing is applied until you
-                  approve a PR on Audit.
+                  click Approve.
                 </p>
                 <p className="text-xs text-[#9B9B9B] mt-1">
                   {selectedLinkIds.size} of {plan.links.length} selected · dashed on the map
@@ -388,24 +529,24 @@ export default function InternalLinkMapPage() {
                     Select none
                   </button>
                 </div>
-                <ul className="mt-3 space-y-2 max-h-64 overflow-y-auto">
+                <ul className="mt-3 space-y-2 max-h-48 overflow-y-auto">
                   {plan.links.map((l) => (
                     <li key={l.id} className="flex gap-2 items-start">
                       <input
                         type="checkbox"
-                        className="mt-1"
+                        className="mt-1 shrink-0"
                         checked={selectedLinkIds.has(l.id)}
                         onChange={() => toggleLink(l.id)}
                       />
                       <button
                         type="button"
-                        className="text-left text-xs text-[#6B6B6B]"
+                        className="text-left text-xs text-[#6B6B6B] min-w-0"
                         onClick={() => setSelectedUrl(l.sourceUrl)}
                       >
-                        <span className="text-[#0F0F0F]">
-                          {l.sourceUrl.replace(/^https?:\/\/[^/]+/, '') || '/'}
+                        <span className="text-[#0F0F0F] break-all">
+                          {pathOf(l.sourceUrl)}
                           {' → '}
-                          {l.targetUrl.replace(/^https?:\/\/[^/]+/, '') || '/'}
+                          {pathOf(l.targetUrl)}
                         </span>
                         <span className="block text-[#9B9B9B]">“{l.anchorText}”</span>
                         <span className="block">{l.reason}</span>
@@ -421,30 +562,113 @@ export default function InternalLinkMapPage() {
                 >
                   Send to Audit for approval
                 </button>
-                {planMsg && <p className="mt-2 text-xs text-[#6B6B6B]">{planMsg}</p>}
+                {planMsg && <p className="mt-2 text-xs text-[#6B6B6B] leading-5">{planMsg}</p>}
               </div>
             )}
             {planMsg && !plan && (
               <p className="mb-4 text-xs text-red-700">{planMsg}</p>
             )}
-            <p className="text-[#0F0F0F] font-medium mb-2">Legend</p>
-            <ul className="space-y-1 text-[#6B6B6B] mb-5">
-              <li><span className="inline-block w-2 h-2 rounded-full bg-[#E23D28] mr-2" />No internal links in</li>
-              <li><span className="inline-block w-2 h-2 rounded-full bg-[#E08A2A] mr-2" />More than 3 clicks from home</li>
-              <li><span className="inline-block w-2 h-2 rounded-full bg-[#C45C6A] mr-2" />Broken target</li>
-              <li><span className="inline-block w-2 h-2 rounded-full bg-[#D4A04A] mr-2" />Redirecting target</li>
-              <li>Larger dots have more internal links in</li>
-              <li>Dashed orange — planned Related reading links</li>
-            </ul>
+
+            <div className="mb-5 pb-4 border-b border-[#E8E8E4]">
+              <p className="text-[#0F0F0F] font-medium">Approvals</p>
+              <p className="text-xs text-[#6B6B6B] mt-1 leading-5">
+                Related reading for this site. Approve opens the Fix Agent PR.
+                SEORANKO never auto-merges customer PRs.
+              </p>
+              {approvals.length === 0 && (
+                <p className="text-xs text-[#9B9B9B] mt-3 leading-5">
+                  Nothing queued yet. Send planned links, then approve them here.
+                </p>
+              )}
+              {approvals.length > 0 && (
+                <>
+                  <ul className="mt-3 space-y-3">
+                    {approvals.map((item) => (
+                      <li key={item.id} className="rounded-md border border-[#E8E8E4] p-2.5">
+                        <div className="flex gap-2 items-start">
+                          {item.status === 'pending' ? (
+                            <input
+                              type="checkbox"
+                              className="mt-1 shrink-0"
+                              checked={selectedApprovalIds.has(item.id)}
+                              onChange={() => toggleApproval(item.id)}
+                            />
+                          ) : (
+                            <span className="w-4 shrink-0" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs text-[#0F0F0F] break-all leading-5">
+                              {item.pageUrl ? pathOf(item.pageUrl) : 'Page'}
+                            </p>
+                            <p className="text-xs text-[#9B9B9B] mt-0.5 leading-5">
+                              {item.targets.length} link{item.targets.length === 1 ? '' : 's'}
+                              {' · '}
+                              {STATUS_LABEL[item.status]}
+                            </p>
+                            {item.prUrl && (
+                              <a
+                                href={item.prUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block text-xs text-[#FF6B2C] mt-1 break-all"
+                              >
+                                {item.prNumber != null ? `PR #${item.prNumber}` : 'Open PR'}
+                              </a>
+                            )}
+                            {item.status === 'pending' && (
+                              <div className="flex gap-2 mt-2">
+                                <button
+                                  type="button"
+                                  disabled={approvalBusyId != null}
+                                  onClick={() => void approveFinding(item.id)}
+                                  className="text-xs rounded-md bg-[#0F0F0F] text-white px-2 py-1 disabled:opacity-50"
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={approvalBusyId != null}
+                                  onClick={() => void rejectFinding(item.id)}
+                                  className="text-xs rounded-md border border-[#E8E8E4] px-2 py-1 disabled:opacity-50"
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  <button
+                    type="button"
+                    disabled={
+                      approvalBusyId != null ||
+                      approvals.every(
+                        (item) =>
+                          item.status !== 'pending' || !selectedApprovalIds.has(item.id),
+                      )
+                    }
+                    onClick={() => void approveSelected()}
+                    className="mt-3 w-full rounded-md bg-[#FF6B2C] text-white text-sm px-3 py-1.5 disabled:opacity-50"
+                  >
+                    Approve all selected
+                  </button>
+                </>
+              )}
+              {approvalMsg && (
+                <p className="mt-2 text-xs text-[#6B6B6B] leading-5">{approvalMsg}</p>
+              )}
+            </div>
 
             {!selected && (
-              <p className="text-[#9B9B9B]">Click a page on the map to see what links in and out.</p>
+              <p className="text-[#9B9B9B] leading-5">Click a page on the map to see what links in and out.</p>
             )}
             {selected && (
               <div>
-                <p className="font-medium text-[#0F0F0F] break-all">{selected.path}</p>
+                <p className="font-medium text-[#0F0F0F] break-all">{selected.title || selected.path}</p>
                 <p className="text-xs text-[#9B9B9B] mt-1 break-all">{selected.url}</p>
-                <p className="mt-2 text-[#6B6B6B]">
+                <p className="mt-2 text-[#6B6B6B] leading-5">
                   {selected.inlinks} in · {selected.outlinks} out
                   {selected.depth != null ? ` · ${selected.depth} clicks from home` : ' · not reached from home'}
                 </p>
@@ -455,10 +679,10 @@ export default function InternalLinkMapPage() {
                     <li key={`${e.source}|${e.anchor}`} className="text-[#6B6B6B]">
                       <button
                         type="button"
-                        className="text-left underline decoration-[#E8E8E4] hover:text-[#0F0F0F]"
+                        className="text-left underline decoration-[#E8E8E4] hover:text-[#0F0F0F] break-all"
                         onClick={() => setSelectedUrl(e.source)}
                       >
-                        {e.source.replace(/^https?:\/\/[^/]+/, '') || '/'}
+                        {pathOf(e.source)}
                       </button>
                       {e.anchor ? <span className="text-[#9B9B9B]"> — “{e.anchor}”</span> : null}
                     </li>
@@ -474,10 +698,10 @@ export default function InternalLinkMapPage() {
                     <li key={`${e.target}|${e.anchor}`} className="text-[#6B6B6B]">
                       <button
                         type="button"
-                        className="text-left underline decoration-[#E8E8E4] hover:text-[#0F0F0F]"
+                        className="text-left underline decoration-[#E8E8E4] hover:text-[#0F0F0F] break-all"
                         onClick={() => setSelectedUrl(e.target)}
                       >
-                        {e.target.replace(/^https?:\/\/[^/]+/, '') || '/'}
+                        {pathOf(e.target)}
                       </button>
                       {e.broken ? <span className="text-[#E23D28]"> broken</span> : null}
                       {e.redirect ? <span className="text-[#E08A2A]"> redirect</span> : null}
@@ -493,13 +717,10 @@ export default function InternalLinkMapPage() {
                     <p className="mt-4 font-medium text-[#0F0F0F]">Planned for this page</p>
                     <ul className="mt-1 space-y-2">
                       {planForSelected.map((l) => (
-                        <li key={l.id} className="text-[#6B6B6B] text-xs">
-                          <p>
+                        <li key={l.id} className="text-[#6B6B6B] text-xs leading-5">
+                          <p className="break-all">
                             {l.sourceUrl === selectedUrl ? 'Out' : 'In'} ·{' '}
-                            {(l.sourceUrl === selectedUrl ? l.targetUrl : l.sourceUrl).replace(
-                              /^https?:\/\/[^/]+/,
-                              '',
-                            ) || '/'}
+                            {pathOf(l.sourceUrl === selectedUrl ? l.targetUrl : l.sourceUrl)}
                           </p>
                           <p className="text-[#9B9B9B]">“{l.anchorText}” — {l.reason}</p>
                         </li>
@@ -512,7 +733,7 @@ export default function InternalLinkMapPage() {
                 <ul className="mt-1 space-y-2">
                   {(detail?.suggestions ?? []).map((s) => (
                     <li key={s.sourceUrl} className="text-[#6B6B6B]">
-                      <p className="break-all">{s.sourceUrl.replace(/^https?:\/\/[^/]+/, '') || '/'}</p>
+                      <p className="break-all">{pathOf(s.sourceUrl)}</p>
                       <p className="text-xs text-[#9B9B9B]">{s.reason}</p>
                       {detail?.canCreateRelatedFinding && (
                         <button
@@ -541,9 +762,33 @@ export default function InternalLinkMapPage() {
                     Open the Audit finding for this orphan
                   </Link>
                 )}
-                {fixMsg && <p className="mt-3 text-xs text-[#6B6B6B]">{fixMsg}</p>}
+                {fixMsg && <p className="mt-3 text-xs text-[#6B6B6B] leading-5">{fixMsg}</p>}
               </div>
             )}
+            </div>
+            <div className="flex-shrink-0 border-t border-[#E8E8E4] bg-[#FAFAF8] px-4 py-3">
+              <p className="text-[#0F0F0F] font-medium mb-2">Legend</p>
+              <ul className="flex flex-col gap-2 text-xs text-[#6B6B6B]">
+                <li className="flex items-start gap-2 leading-5">
+                  <span className="mt-1.5 inline-block w-2 h-2 rounded-full bg-[#E23D28] shrink-0" />
+                  <span>No internal links in</span>
+                </li>
+                <li className="flex items-start gap-2 leading-5">
+                  <span className="mt-1.5 inline-block w-2 h-2 rounded-full bg-[#E08A2A] shrink-0" />
+                  <span>More than 3 clicks from home</span>
+                </li>
+                <li className="flex items-start gap-2 leading-5">
+                  <span className="mt-1.5 inline-block w-2 h-2 rounded-full bg-[#C45C6A] shrink-0" />
+                  <span>Broken target</span>
+                </li>
+                <li className="flex items-start gap-2 leading-5">
+                  <span className="mt-1.5 inline-block w-2 h-2 rounded-full bg-[#D4A04A] shrink-0" />
+                  <span>Redirecting target</span>
+                </li>
+                <li className="leading-5">Larger dots have more internal links in</li>
+                <li className="leading-5">Dashed orange — planned Related reading links</li>
+              </ul>
+            </div>
           </aside>
         </div>
       </main>
