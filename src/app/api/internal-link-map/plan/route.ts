@@ -104,6 +104,7 @@ export async function POST(req: Request) {
       jobStatus: j.status,
       title: signals.title,
       h1: signals.h1,
+      headings: signals.headings,
       text: signals.text,
       noindex: signals.noindex,
     }

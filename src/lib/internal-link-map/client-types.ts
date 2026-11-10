@@ -63,9 +63,40 @@ export type LinkMapApprovalItem = {
   status: 'pending' | 'approved' | 'pr_opened' | 'merged' | 'rejected'
   prUrl: string | null
   prNumber: number | null
-  targets: Array<{ href: string; anchorText: string }>
+  targets: Array<{
+    href: string
+    anchorText: string
+    score?: number
+    reason?: string
+    weakMatch?: boolean
+  }>
+  score: number | null
+  reason: string | null
+  weakMatch: boolean
+  verifyBadge: 'verified' | 'problem' | null
   neverAutoMerge: true
   canRegenerate: boolean
+}
+
+export type LinkHealthIssueItem = {
+  id: string
+  kind: string
+  sourceUrl: string
+  targetUrl: string | null
+  href: string | null
+  anchorText: string
+  hint: string
+  mechanical: boolean
+  neverAutoMerge: true
+}
+
+export type LinkHealthResponse = {
+  siteId: string
+  runId: string | null
+  issues: LinkHealthIssueItem[]
+  queued?: number
+  merged: false
+  error?: string
 }
 
 export type LinkMapApprovalsResponse = {

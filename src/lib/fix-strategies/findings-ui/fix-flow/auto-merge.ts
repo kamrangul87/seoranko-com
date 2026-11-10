@@ -36,8 +36,17 @@ export function evaluateAutoMergeVerdictGate(
   finding: Pick<
     UiFinding | PersistedFindingRow,
     'surfaceClass' | 'autoFixable' | 'reportOnly' | 'verdict'
-  > & { topicId?: string },
+  > & {
+    topicId?: string
+    evidenceValues?: Record<string, unknown> | null
+  },
 ): AutoMergeGateResult {
+  if (finding.evidenceValues?.neverAutoMerge === true) {
+    return {
+      allowed: false,
+      reason: 'never auto-merge — human approval is required',
+    }
+  }
   // Topic 72 privacy/consent is human-review only — never auto-merge.
   if (finding.topicId === '72') {
     return {

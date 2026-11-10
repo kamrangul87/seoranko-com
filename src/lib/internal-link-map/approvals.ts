@@ -3,6 +3,10 @@ import {
   RELATED_LINK_TOPIC,
   RELATED_LINK_VERDICT,
 } from './queue-related-findings'
+import {
+  relatedVerifyFromUnknown,
+  summarizeRelatedVerify,
+} from './verify-related-live'
 
 export type LinkMapApprovalStatus =
   | 'pending'
@@ -14,6 +18,9 @@ export type LinkMapApprovalStatus =
 export type LinkMapApprovalTarget = {
   href: string
   anchorText: string
+  score?: number
+  reason?: string
+  weakMatch?: boolean
 }
 
 export type LinkMapApproval = {
@@ -24,6 +31,10 @@ export type LinkMapApproval = {
   prUrl: string | null
   prNumber: number | null
   targets: LinkMapApprovalTarget[]
+  score: number | null
+  reason: string | null
+  weakMatch: boolean
+  verifyBadge: 'verified' | 'problem' | null
   neverAutoMerge: true
   canRegenerate: boolean
 }
@@ -51,6 +62,15 @@ export function isRelatedReadingFinding(row: {
   verdict: string
 }): boolean {
   return row.topicId === RELATED_LINK_TOPIC && row.verdict === RELATED_LINK_VERDICT
+}
+
+export function isLinkHealthFinding(row: {
+  topicId: string
+  verdict: string
+  evidenceValues?: Record<string, unknown> | null
+}): boolean {
+  const kind = row.evidenceValues?.linkHealthKind
+  return typeof kind === 'string' && kind.length > 0
 }
 
 export function approvalStatusFrom(input: {
@@ -90,12 +110,22 @@ function targetsFrom(finding: ApprovalFindingInput): LinkMapApprovalTarget[] {
   const out: LinkMapApprovalTarget[] = []
   for (const t of raw) {
     if (!t || typeof t !== 'object') continue
-    const rec = t as { href?: unknown; anchorText?: unknown }
+    const rec = t as {
+      href?: unknown
+      anchorText?: unknown
+      score?: unknown
+      reason?: unknown
+      weakMatch?: unknown
+    }
     if (typeof rec.href === 'string' && typeof rec.anchorText === 'string') {
-      out.push({ href: rec.href, anchorText: rec.anchorText })
+      const item: LinkMapApprovalTarget = { href: rec.href, anchorText: rec.anchorText }
+      if (typeof rec.score === 'number') item.score = rec.score
+      if (typeof rec.reason === 'string') item.reason = rec.reason
+      if (rec.weakMatch === true) item.weakMatch = true
+      out.push(item)
     }
   }
-  return out
+  return out.sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || a.href.localeCompare(b.href))
 }
 
 export function canRegenerateRelated(
@@ -112,6 +142,11 @@ export function toLinkMapApproval(
   flow: ApprovalFlowInput,
 ): LinkMapApproval {
   const status = approvalStatusFrom({ finding, flow })
+  const targets = targetsFrom(finding)
+  const top = targets[0]
+  const ev = finding.evidenceValues || {}
+  const verify = relatedVerifyFromUnknown(ev.relatedVerify)
+  const healthHint = typeof ev.linkHealthHint === 'string' ? ev.linkHealthHint : null
   return {
     id: finding.id,
     pageUrl: finding.pageUrl,
@@ -119,8 +154,21 @@ export function toLinkMapApproval(
     status,
     prUrl: flow?.prUrl ?? null,
     prNumber: flow?.prNumber ?? null,
-    targets: targetsFrom(finding),
+    targets,
+    score: typeof top?.score === 'number' ? top.score : null,
+    reason: top?.reason ?? healthHint,
+    weakMatch: targets.some((t) => t.weakMatch),
+    verifyBadge: status === 'merged' ? summarizeRelatedVerify(verify) : null,
     neverAutoMerge: true,
     canRegenerate: canRegenerateRelated(finding, flow),
   }
+}
+
+export function sortLinkMapApprovals(items: LinkMapApproval[]): LinkMapApproval[] {
+  return [...items].sort((a, b) => {
+    const sa = a.score ?? -1
+    const sb = b.score ?? -1
+    if (sb !== sa) return sb - sa
+    return (a.pageUrl || a.id).localeCompare(b.pageUrl || b.id)
+  })
 }

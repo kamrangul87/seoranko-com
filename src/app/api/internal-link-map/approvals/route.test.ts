@@ -153,6 +153,60 @@ describe('GET /api/internal-link-map/approvals', () => {
     expect(approveFix).not.toHaveBeenCalled()
     expect(commitFix).not.toHaveBeenCalled()
   })
+
+  it('sorts strongest relevance first and exposes score and reason', async () => {
+    loadOwned.mockResolvedValue({
+      id: 'site-1',
+      domain: 'example.com',
+      brand: null,
+    })
+    listFindings.mockResolvedValue([
+      {
+        ...relatedRow('33333333-3333-4333-8333-333333333333'),
+        evidenceValues: {
+          relatedTargets: [
+            {
+              href: '/weak',
+              anchorText: 'Weak',
+              score: 0.3,
+              reason: 'Loose overlap — weak match',
+              weakMatch: true,
+            },
+          ],
+          neverAutoMerge: true,
+        },
+      },
+      {
+        ...relatedRow(),
+        evidenceValues: {
+          relatedTargets: [
+            {
+              href: '/strong',
+              anchorText: 'Strong',
+              score: 0.91,
+              reason: 'Both pages cover MOT tests',
+            },
+          ],
+          neverAutoMerge: true,
+        },
+      },
+    ])
+    const { GET } = await import('./route')
+    const res = await GET(
+      new Request('http://localhost/api/internal-link-map/approvals?siteId=site-1'),
+    )
+    const body = await res.json()
+    expect(body.items.map((i: { id: string }) => i.id)).toEqual([
+      '11111111-1111-4111-8111-111111111111',
+      '33333333-3333-4333-8333-333333333333',
+    ])
+    expect(body.items[0]).toMatchObject({
+      score: 0.91,
+      reason: 'Both pages cover MOT tests',
+      weakMatch: false,
+    })
+    expect(body.items[1].weakMatch).toBe(true)
+  })
 })
 
 describe('POST /api/internal-link-map/approvals', () => {

@@ -8,6 +8,8 @@ import { InternalLinkMapCanvas, type MapView } from '@/components/internal-link-
 import { CRAWL_STATUS_POLL_MS, crawlProgressKind } from '@/lib/fix-strategies/findings-ui/crawl/crawl-progress-ui'
 import { readParamFromUrl, writeParamToUrl } from '@/lib/site-selection-url'
 import type {
+  LinkHealthIssueItem,
+  LinkHealthResponse,
   LinkMapApprovalItem,
   LinkMapApprovalsResponse,
   LinkMapResponse,
@@ -67,6 +69,9 @@ export default function InternalLinkMapPage() {
   const [approvalErrors, setApprovalErrors] = useState<Record<string, string>>(
     {},
   )
+  const [health, setHealth] = useState<LinkHealthIssueItem[]>([])
+  const [healthBusy, setHealthBusy] = useState(false)
+  const [healthMsg, setHealthMsg] = useState<string | null>(null)
 
   useEffect(() => {
     const supabase = getSupabaseClient()
@@ -121,16 +126,58 @@ export default function InternalLinkMapPage() {
       )
       const body = (await res.json().catch(() => ({}))) as LinkMapApprovalsResponse
       if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`)
-      setApprovals(body.items || [])
+      const items = body.items || []
+      setApprovals(items)
       setSelectedApprovalIds(
         new Set(
-          (body.items || [])
+          items
             .filter((item) => item.status === 'pending')
             .map((item) => item.id),
         ),
       )
+      const unverified = items.filter(
+        (item) => item.status === 'merged' && item.verifyBadge == null,
+      )
+      if (unverified.length > 0) {
+        void Promise.all(
+          unverified.slice(0, 5).map((item) =>
+            fetch('/api/internal-link-map/approvals', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                siteId: id,
+                findingId: item.id,
+                action: 'verify-live',
+              }),
+            }),
+          ),
+        ).then(async () => {
+          const again = await fetch(
+            `/api/internal-link-map/approvals?siteId=${encodeURIComponent(id)}`,
+          )
+          const next = (await again.json().catch(() => ({}))) as LinkMapApprovalsResponse
+          if (again.ok) setApprovals(next.items || [])
+        })
+      }
     } catch {
       setApprovals([])
+    }
+  }, [])
+
+  const loadHealth = useCallback(async (id: string) => {
+    if (!id) {
+      setHealth([])
+      return
+    }
+    try {
+      const res = await fetch(
+        `/api/internal-link-map/health?siteId=${encodeURIComponent(id)}`,
+      )
+      const body = (await res.json().catch(() => ({}))) as LinkHealthResponse
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`)
+      setHealth(body.issues || [])
+    } catch {
+      setHealth([])
     }
   }, [])
 
@@ -141,6 +188,10 @@ export default function InternalLinkMapPage() {
   useEffect(() => {
     if (siteId) void loadApprovals(siteId)
   }, [siteId, loadApprovals])
+
+  useEffect(() => {
+    if (siteId) void loadHealth(siteId)
+  }, [siteId, loadHealth])
 
   const crawl = data?.crawl ?? null
   const inFlight =
@@ -237,6 +288,8 @@ export default function InternalLinkMapPage() {
             href: l.href,
             anchorText: l.anchorText,
             reason: l.reason,
+            score: l.score,
+            weakMatch: l.weakMatch,
           })),
         }),
       })
@@ -257,6 +310,44 @@ export default function InternalLinkMapPage() {
       setPlanMsg(e instanceof Error ? e.message : 'Could not queue the plan')
     } finally {
       setPlanBusy(false)
+    }
+  }
+
+  async function queueHealthFixes() {
+    if (!siteId) return
+    const mechanical = health.filter((i) => i.mechanical)
+    if (mechanical.length === 0) {
+      setHealthMsg('No mechanical health items to send for approval')
+      return
+    }
+    setHealthBusy(true)
+    setHealthMsg(null)
+    try {
+      const res = await fetch('/api/internal-link-map/health', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siteId,
+          action: 'queue',
+          issueIds: mechanical.map((i) => i.id),
+        }),
+      })
+      const body = (await res.json().catch(() => ({}))) as LinkHealthResponse & {
+        queued?: number
+        merged?: boolean
+      }
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`)
+      if (body.merged) {
+        throw new Error('Refusing to continue: this path must never merge a PR')
+      }
+      setHealthMsg(
+        `Queued ${body.queued ?? mechanical.length} fix(es) for approval. Nothing was applied or merged.`,
+      )
+      await loadApprovals(siteId)
+    } catch (e) {
+      setHealthMsg(e instanceof Error ? e.message : 'Could not queue health fixes')
+    } finally {
+      setHealthBusy(false)
     }
   }
 
@@ -629,7 +720,11 @@ export default function InternalLinkMapPage() {
                           {pathOf(l.targetUrl)}
                         </span>
                         <span className="block text-[#9B9B9B]">“{l.anchorText}”</span>
-                        <span className="block">{l.reason}</span>
+                        <span className="block">
+                          {typeof l.score === 'number' ? `${Math.round(l.score * 100)}% · ` : ''}
+                          {l.reason}
+                          {l.weakMatch ? ' · weak match' : ''}
+                        </span>
                       </button>
                     </li>
                   ))}
@@ -648,6 +743,47 @@ export default function InternalLinkMapPage() {
             {planMsg && !plan && (
               <p className="mb-4 text-xs text-red-700">{planMsg}</p>
             )}
+
+            <div className="mb-5 pb-4 border-b border-[#E8E8E4]">
+              <p className="text-[#0F0F0F] font-medium">Link health</p>
+              <p className="text-xs text-[#6B6B6B] mt-1 leading-5">
+                From the latest crawl. Mechanical fixes go to Approvals — SEORANKO
+                never auto-merges.
+              </p>
+              {health.length === 0 && (
+                <p className="text-xs text-[#9B9B9B] mt-3 leading-5">
+                  No broken, redirected, duplicate, or generic-anchor issues on this crawl.
+                </p>
+              )}
+              {health.length > 0 && (
+                <ul className="mt-3 space-y-2 max-h-56 overflow-y-auto">
+                  {health.map((issue) => (
+                    <li key={issue.id} className="rounded-md border border-[#E8E8E4] p-2.5">
+                      <p className="text-xs text-[#0F0F0F] leading-5">
+                        {issue.kind.replace(/-/g, ' ')}
+                        {issue.mechanical ? '' : ' · review'}
+                      </p>
+                      <p className="text-xs text-[#9B9B9B] break-all leading-5 mt-0.5">
+                        {pathOf(issue.sourceUrl)}
+                        {issue.targetUrl ? ` → ${pathOf(issue.targetUrl)}` : ''}
+                      </p>
+                      <p className="text-xs text-[#6B6B6B] mt-1 leading-5">{issue.hint}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <button
+                type="button"
+                disabled={healthBusy || health.every((i) => !i.mechanical)}
+                onClick={() => void queueHealthFixes()}
+                className="mt-3 w-full rounded-md border border-[#E8E8E4] text-sm px-3 py-1.5 disabled:opacity-50"
+              >
+                Send mechanical fixes for approval
+              </button>
+              {healthMsg && (
+                <p className="mt-2 text-xs text-[#6B6B6B] leading-5">{healthMsg}</p>
+              )}
+            </div>
 
             <div className="mb-5 pb-4 border-b border-[#E8E8E4]">
               <p className="text-[#0F0F0F] font-medium">Approvals</p>
@@ -684,7 +820,30 @@ export default function InternalLinkMapPage() {
                               {item.targets.length} link{item.targets.length === 1 ? '' : 's'}
                               {' · '}
                               {STATUS_LABEL[item.status]}
+                              {item.score != null ? ` · ${Math.round(item.score * 100)}%` : ''}
+                              {item.weakMatch ? ' · weak match' : ''}
                             </p>
+                            {item.reason && (
+                              <p className="text-xs text-[#6B6B6B] mt-0.5 leading-5">{item.reason}</p>
+                            )}
+                            {item.targets.map((t) => (
+                              <p key={t.href} className="text-xs text-[#9B9B9B] mt-0.5 leading-5">
+                                {t.score != null ? `${Math.round(t.score * 100)}% · ` : ''}
+                                “{t.anchorText}”
+                                {t.weakMatch ? ' · weak match' : ''}
+                                {t.reason ? ` — ${t.reason}` : ''}
+                              </p>
+                            ))}
+                            {item.verifyBadge === 'verified' && (
+                              <span className="inline-block mt-1 text-[10px] uppercase tracking-wide rounded bg-[#E7F6EC] text-[#1B7F3A] px-1.5 py-0.5">
+                                Verified
+                              </span>
+                            )}
+                            {item.verifyBadge === 'problem' && (
+                              <span className="inline-block mt-1 text-[10px] uppercase tracking-wide rounded bg-[#FDECEC] text-[#E23D28] px-1.5 py-0.5">
+                                Problem
+                              </span>
+                            )}
                             {item.prUrl && (
                               <a
                                 href={item.prUrl}

@@ -70,6 +70,18 @@ describe('evaluateAutoMergeVerdictGate', () => {
     ).toBe(true)
   })
 
+  it('refuses findings marked neverAutoMerge', () => {
+    expect(
+      evaluateAutoMergeVerdictGate({
+        surfaceClass: 'auto-fixable',
+        autoFixable: true,
+        reportOnly: false,
+        verdict: 'auto-fixable',
+        evidenceValues: { neverAutoMerge: true },
+      }).allowed,
+    ).toBe(false)
+  })
+
   it('refuses human-review and report-only', () => {
     expect(
       evaluateAutoMergeVerdictGate({
