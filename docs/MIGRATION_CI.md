@@ -86,6 +86,11 @@ should stay in history.
 After remote history matches the repo’s `supabase/migrations/` files, CI
 `db push` only applies **new** files.
 
+If GitHub Actions and the Vercel production build both push the same pending
+version, the loser can fail with `schema_migrations_pkey` / `Key (version)=… already exists`
+after the SQL has already been applied. The script treats that duplicate-key
+error as success so a concurrent apply cannot brick the production deploy.
+
 ## Local check before merge
 
 ```bash

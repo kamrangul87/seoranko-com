@@ -66,6 +66,13 @@ describe('migration CI contract (merge-to-main auto-apply)', () => {
     expect(sh).toMatch(/supabase migration repair/)
   })
 
+  it('treats concurrent schema_migrations duplicate-key as already applied', () => {
+    const sh = readFileSync(join(root, 'scripts/ci-supabase-db-push.sh'), 'utf8')
+    expect(sh).toMatch(/schema_migrations_pkey/)
+    expect(sh).toMatch(/already exists/)
+    expect(sh).toMatch(/Treating as success/)
+  })
+
   it('pins Node 24 in migration and test workflows', () => {
     for (const name of ['supabase-migrate.yml', 'test.yml', 'intervention-pr2-prod-status.yml']) {
       const yml = readFileSync(join(root, `.github/workflows/${name}`), 'utf8')
