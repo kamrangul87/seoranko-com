@@ -116,10 +116,15 @@ export async function POST(req: Request) {
     edges,
   })
 
+  const titles = new Map<string, string | null>()
+  for (const p of pages) {
+    titles.set(p.url, p.title)
+  }
   const map = assembleInternalLinkMap({
     originUrl: origin,
     jobs,
     edges,
+    titles,
   })
 
   return NextResponse.json({

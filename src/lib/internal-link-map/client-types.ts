@@ -56,4 +56,22 @@ export type LinkPlanResponse = {
   error?: string
 }
 
+export type LinkMapApprovalItem = {
+  id: string
+  pageUrl: string | null
+  detail: string
+  status: 'pending' | 'approved' | 'pr_opened' | 'merged' | 'rejected'
+  prUrl: string | null
+  prNumber: number | null
+  targets: Array<{ href: string; anchorText: string }>
+  neverAutoMerge: true
+}
+
+export type LinkMapApprovalsResponse = {
+  siteId: string
+  items: LinkMapApprovalItem[]
+  merged: false
+  error?: string
+}
+
 export type { PlannedLink, TopicCluster }

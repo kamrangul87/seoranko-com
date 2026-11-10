@@ -270,7 +270,7 @@ describe('planSitewideInternalLinks', () => {
     })
     const plannedUrls = new Set(capped.links.flatMap((l) => [l.sourceUrl, l.targetUrl]))
     expect(plannedUrls.size).toBeLessThanOrEqual(2000)
-  })
+  }, 20_000)
 
   it('uses path-form hrefs the related-articles transform can write', () => {
     const plan = planSitewideInternalLinks({

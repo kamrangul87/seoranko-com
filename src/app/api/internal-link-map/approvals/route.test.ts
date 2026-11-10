@@ -1,0 +1,234 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const getUser = vi.fn()
+const loadOwned = vi.fn()
+const listFindings = vi.fn()
+const getFinding = vi.fn()
+const updateFindingSourceResolution = vi.fn()
+const peekFixFlow = vi.fn()
+const approveFix = vi.fn()
+const commitFix = vi.fn()
+
+vi.mock('next/headers', () => ({
+  cookies: () => ({ get: () => undefined }),
+}))
+
+vi.mock('@/lib/supabase/ssr-client', () => ({
+  createSupabaseSsrClient: () => ({
+    auth: { getUser: () => getUser() },
+  }),
+}))
+
+vi.mock('@/lib/fix-strategies/findings-ui/crawl', () => ({
+  getFindingsStore: () => ({
+    listFindings: (...args: unknown[]) => listFindings(...args),
+    getFinding: (...args: unknown[]) => getFinding(...args),
+    updateFindingSourceResolution: (...args: unknown[]) =>
+      updateFindingSourceResolution(...args),
+  }),
+}))
+
+vi.mock('@/lib/internal-link-map', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/internal-link-map')>(
+    '@/lib/internal-link-map',
+  )
+  return {
+    ...actual,
+    loadOwnedConnectedSite: (...args: unknown[]) => loadOwned(...args),
+  }
+})
+
+vi.mock('@/lib/fix-strategies/findings-ui/fix-flow/persist', () => ({
+  peekFixFlow: (...args: unknown[]) => peekFixFlow(...args),
+}))
+
+vi.mock('@/lib/fix-strategies/findings-ui/fix-flow-store', () => ({
+  approveFix: (...args: unknown[]) => approveFix(...args),
+  commitFix: (...args: unknown[]) => commitFix(...args),
+}))
+
+function relatedRow(id = '11111111-1111-4111-8111-111111111111') {
+  return {
+    id,
+    siteId: 'site-1',
+    userId: 'user-1',
+    topicId: 'related',
+    kind: 'internal-links/related-articles',
+    verdict: 'auto-add-related-articles',
+    bucket: 'actionable',
+    pageUrl: 'https://example.com/blog/a.html',
+    detail: 'Add related reading links',
+    status: 'open',
+    fixedAt: null,
+    evidenceValues: {
+      relatedTargets: [{ href: '/blog/b.html', anchorText: 'B' }],
+      requiresApproval: true,
+      neverAutoMerge: true,
+    },
+    proposedDiff: { proposed: { relatedTargets: [{ href: '/blog/b.html', anchorText: 'B' }] } },
+    sourcePath: null,
+    sourceBlobSha: null,
+    sourceResolvedAt: null,
+    sourceUnresolvedReason: null,
+    autoFixable: true,
+    surfaceClass: 'finding',
+  }
+}
+
+describe('GET /api/internal-link-map/approvals', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    getUser.mockReset()
+    loadOwned.mockReset()
+    listFindings.mockReset()
+    getFinding.mockReset()
+    updateFindingSourceResolution.mockReset()
+    peekFixFlow.mockReset()
+    approveFix.mockReset()
+    commitFix.mockReset()
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://example.supabase.co'
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon'
+    getUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
+    peekFixFlow.mockResolvedValue(null)
+    listFindings.mockResolvedValue([relatedRow()])
+  })
+
+  it('returns 401 when there is no session', async () => {
+    getUser.mockResolvedValue({ data: { user: null } })
+    const { GET } = await import('./route')
+    const res = await GET(
+      new Request('http://localhost/api/internal-link-map/approvals?siteId=site-1'),
+    )
+    expect(res.status).toBe(401)
+    expect(loadOwned).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 when the site is not owned by the caller', async () => {
+    loadOwned.mockResolvedValue(null)
+    const { GET } = await import('./route')
+    const res = await GET(
+      new Request('http://localhost/api/internal-link-map/approvals?siteId=site-1'),
+    )
+    expect(res.status).toBe(404)
+    expect(listFindings).not.toHaveBeenCalled()
+  })
+
+  it('lists related reading findings for an owned site and never claims a merge', async () => {
+    loadOwned.mockResolvedValue({
+      id: 'site-1',
+      domain: 'example.com',
+      brand: null,
+    })
+    listFindings.mockResolvedValue([
+      relatedRow(),
+      {
+        ...relatedRow('22222222-2222-4222-8222-222222222222'),
+        topicId: '43',
+        verdict: 'orphan-page',
+      },
+    ])
+    const { GET } = await import('./route')
+    const res = await GET(
+      new Request('http://localhost/api/internal-link-map/approvals?siteId=site-1'),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0]).toMatchObject({
+      id: '11111111-1111-4111-8111-111111111111',
+      status: 'pending',
+      neverAutoMerge: true,
+    })
+    expect(body.merged).toBe(false)
+    expect(approveFix).not.toHaveBeenCalled()
+    expect(commitFix).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/internal-link-map/approvals', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    getUser.mockReset()
+    loadOwned.mockReset()
+    listFindings.mockReset()
+    getFinding.mockReset()
+    updateFindingSourceResolution.mockReset()
+    peekFixFlow.mockReset()
+    approveFix.mockReset()
+    commitFix.mockReset()
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://example.supabase.co'
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon'
+    getUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
+    loadOwned.mockResolvedValue({
+      id: 'site-1',
+      domain: 'example.com',
+      brand: null,
+    })
+    peekFixFlow.mockResolvedValue(null)
+    getFinding.mockResolvedValue(relatedRow())
+    updateFindingSourceResolution.mockResolvedValue(undefined)
+  })
+
+  it('returns 401 when there is no session', async () => {
+    getUser.mockResolvedValue({ data: { user: null } })
+    const { POST } = await import('./route')
+    const res = await POST(
+      new Request('http://localhost/api/internal-link-map/approvals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siteId: 'site-1',
+          findingId: '11111111-1111-4111-8111-111111111111',
+          action: 'reject',
+        }),
+      }),
+    )
+    expect(res.status).toBe(401)
+    expect(updateFindingSourceResolution).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 when the finding is not owned by the caller', async () => {
+    getFinding.mockResolvedValue({
+      ...relatedRow(),
+      userId: 'someone-else',
+      siteId: 'site-other',
+    })
+    const { POST } = await import('./route')
+    const res = await POST(
+      new Request('http://localhost/api/internal-link-map/approvals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siteId: 'site-1',
+          findingId: '11111111-1111-4111-8111-111111111111',
+          action: 'reject',
+        }),
+      }),
+    )
+    expect(res.status).toBe(404)
+    expect(updateFindingSourceResolution).not.toHaveBeenCalled()
+    expect(approveFix).not.toHaveBeenCalled()
+  })
+
+  it('rejects a pending related finding without opening a PR', async () => {
+    const { POST } = await import('./route')
+    const res = await POST(
+      new Request('http://localhost/api/internal-link-map/approvals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siteId: 'site-1',
+          findingId: '11111111-1111-4111-8111-111111111111',
+          action: 'reject',
+        }),
+      }),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.item.status).toBe('rejected')
+    expect(body.merged).toBe(false)
+    expect(updateFindingSourceResolution).toHaveBeenCalled()
+    expect(approveFix).not.toHaveBeenCalled()
+    expect(commitFix).not.toHaveBeenCalled()
+  })
+})
