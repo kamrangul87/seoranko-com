@@ -97,7 +97,12 @@ export async function appendCrawlLinkEdges(
       ignoreDuplicates: true,
     })
     if (error) {
-      console.warn('[internal-link-map] edge insert', error.message)
+      console.warn('[internal-link-map] edge insert', error.message, {
+        runId: input.runId,
+        siteId: input.siteId,
+        chunk: chunk.length,
+        code: (error as { code?: string }).code ?? null,
+      })
     }
   }
 }
@@ -207,6 +212,45 @@ export async function listSlimCrawlJobs(runId: string): Promise<SlimCrawlJob[]> 
         status: String(row.status),
         httpStatus: (row.http_status as number | null) ?? null,
         finalUrl: (row.final_url as string | null) ?? null,
+      })
+    }
+    if (chunk.length < pageSize) break
+  }
+  return out
+}
+
+export type HtmlCrawlJob = SlimCrawlJob & { html: string | null }
+
+/**
+ * Paginated job list including stored body HTML. Hobby-safe: capped, time-bounded.
+ */
+export async function listCrawlJobsWithHtml(
+  runId: string,
+  opts?: { max?: number; deadlineMs?: number },
+): Promise<HtmlCrawlJob[]> {
+  const max = Math.min(Math.max(1, opts?.max ?? 2000), 2000)
+  const deadline = opts?.deadlineMs ?? Date.now() + 40_000
+  if (!canUseSupabase()) return []
+  const db = createServiceRoleClient()
+  const out: HtmlCrawlJob[] = []
+  const pageSize = 50
+  for (let from = 0; from < max; from += pageSize) {
+    if (Date.now() > deadline) break
+    const to = Math.min(from + pageSize, max) - 1
+    const { data, error } = await db
+      .from('fix_strategies_crawl_url_jobs')
+      .select('url, status, http_status, final_url, body_html')
+      .eq('run_id', runId)
+      .range(from, to)
+    if (error) throw new Error(error.message)
+    const chunk = data ?? []
+    for (const row of chunk) {
+      out.push({
+        url: String(row.url),
+        status: String(row.status),
+        httpStatus: (row.http_status as number | null) ?? null,
+        finalUrl: (row.final_url as string | null) ?? null,
+        html: (row.body_html as string | null) ?? null,
       })
     }
     if (chunk.length < pageSize) break

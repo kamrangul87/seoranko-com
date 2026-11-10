@@ -39,6 +39,29 @@ describe('treePositions', () => {
       byId['https://example.com/z']!.y,
     )
   })
+
+  it('lays out each click-depth from home on its own row', () => {
+    const home = 'https://example.com/'
+    const laid = treePositions(
+      [
+        n(home, 0, 3),
+        n('https://example.com/a', 1, 2),
+        n('https://example.com/b', 1, 1),
+        n('https://example.com/a/c', 2, 1),
+        n('https://example.com/a/c/d', 3, 1),
+      ],
+      home,
+      800,
+      400,
+    )
+    const y = Object.fromEntries(laid.map((p) => [p.id, p.y]))
+    expect(y[home]).toBeLessThan(y['https://example.com/a']!)
+    expect(y['https://example.com/a']).toBe(y['https://example.com/b'])
+    expect(y['https://example.com/a']).toBeLessThan(y['https://example.com/a/c']!)
+    expect(y['https://example.com/a/c']).toBeLessThan(
+      y['https://example.com/a/c/d']!,
+    )
+  })
 })
 
 describe('renderTreeMapSvg', () => {

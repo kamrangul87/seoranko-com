@@ -4,6 +4,7 @@ import type {
   LinkMapNode,
   LinkSourceSuggestion,
 } from './types'
+import type { PlannedLink, TopicCluster } from './plan-links'
 
 export type LinkMapCrawlStatus = {
   runId: string
@@ -43,3 +44,16 @@ export type LinkMapResponse = {
   detail: LinkMapDetail | null
   error?: string
 }
+
+export type LinkPlanResponse = {
+  origin: string
+  siteId: string
+  runId: string
+  requiresApproval: boolean
+  clusters: TopicCluster[]
+  links: PlannedLink[]
+  graph: LinkMapResponse['graph']
+  error?: string
+}
+
+export type { PlannedLink, TopicCluster }

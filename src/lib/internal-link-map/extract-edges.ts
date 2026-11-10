@@ -25,6 +25,14 @@ function hostOf(url: string): string {
   }
 }
 
+/** Apex/www are the same site; tool subdomains (ev.example.com) are not. */
+export function sameSiteHost(a: string, b: string): boolean {
+  const strip = (h: string) => h.toLowerCase().replace(/^www\./, '')
+  const left = strip(a)
+  const right = strip(b)
+  return Boolean(left) && left === right
+}
+
 function parseAttrGroup(match: RegExpMatchArray | null): string {
   if (!match) return ''
   return (match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5] ?? '').trim()
@@ -70,7 +78,9 @@ export function extractCrawlLinkEdges(
     if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') {
       continue
     }
-    if (resolved.hostname.toLowerCase() !== originHost) continue
+    if (!sameSiteHost(resolved.hostname, originHost)) continue
+    // Canonicalise www/apex to the crawl origin host so overlay matches jobs.
+    resolved.hostname = originHost
 
     const targetUrl = normalizeFixStrategyUrl(resolved.href, pageUrl)
     if (!targetUrl) continue

@@ -1,4 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import {
+  AUTODUN_LIKE_HOME_HTML,
+  AUTODUN_LIKE_ORIGIN,
+  AUTODUN_LIKE_POST_HTML,
+} from './autodun-like-html'
 import { extractCrawlLinkEdges } from './extract-edges'
 
 const PAGE = 'https://example.com/blog/one'
@@ -71,5 +76,41 @@ describe('extractCrawlLinkEdges', () => {
     expect(edges).toHaveLength(1)
     expect(edges[0]?.targetUrl).toBe('https://example.com/tools/x')
     expect(edges[0]?.anchorText).toBe('Tool X')
+  })
+
+  it('extracts autodun-like relative nav and .html blog URLs, skipping tool subdomains', () => {
+    const edges = extractCrawlLinkEdges(
+      AUTODUN_LIKE_HOME_HTML,
+      `${AUTODUN_LIKE_ORIGIN}/`,
+      AUTODUN_LIKE_ORIGIN,
+    )
+    const targets = edges.map((e) => e.targetUrl).sort()
+    expect(targets).toEqual([
+      'https://autodun.com/about',
+      'https://autodun.com/blog',
+      'https://autodun.com/blog/electric-car-charger-map-uk.html',
+      'https://autodun.com/blog/mot-cost-uk-2026.html',
+      'https://autodun.com/blog/mot-history-check-uk.html',
+      'https://autodun.com/contact',
+      'https://autodun.com/privacy',
+    ])
+    expect(targets.some((t) => t.includes('ev.autodun.com'))).toBe(false)
+    expect(targets.some((t) => t.includes('mot.autodun.com'))).toBe(false)
+    expect(edges.find((e) => e.targetUrl.endsWith('/about'))?.anchorText).toBe(
+      'About Autodun',
+    )
+  })
+
+  it('treats www and apex as the same site so clean-URL blog pages keep autodun links', () => {
+    const edges = extractCrawlLinkEdges(
+      AUTODUN_LIKE_POST_HTML,
+      `${AUTODUN_LIKE_ORIGIN}/blog/mot-cost-uk-2026.html`,
+      AUTODUN_LIKE_ORIGIN,
+    )
+    const targets = edges.map((e) => e.targetUrl)
+    expect(targets).toContain('https://autodun.com/')
+    expect(targets).toContain('https://autodun.com/blog')
+    expect(targets).toContain('https://autodun.com/blog/mot-history-check-uk.html')
+    expect(targets).toContain('https://autodun.com/about')
   })
 })

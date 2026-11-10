@@ -34,7 +34,7 @@ export const OWNER_PLAIN_ENGLISH: Record<string, string> = {
   "auto-self-canonical": "This page should declare itself as the preferred URL.",
   "auto-strip-spa-shell-canonical": "Remove the hardcoded homepage canonical from the SPA shell so each route can set its own (approval required).",
   "auto-add-nav-link": "Add a footer/nav link to this orphan page (approval required).",
-  "auto-add-related-articles": "Add a Related articles list with sibling page links (approval required).",
+  "auto-add-related-articles": "Add a Related reading list with crawlable page links (approval required).",
   "informational-crawled-not-indexed": "Google's choice, not a technical error — SEORANKO can't force indexing.",
   "informational-discovered-not-indexed": "Google's choice, not a technical error — SEORANKO can't force indexing.",
   "auto-set-dimensions": "Your page may visibly jump around while images load.",

@@ -1,13 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { getSupabaseClient } from '@/lib/supabase-client'
 import { DashboardNav } from '@/components/DashboardNav'
 import { InternalLinkMapCanvas, type MapView } from '@/components/internal-link-map/InternalLinkMapCanvas'
 import { CRAWL_STATUS_POLL_MS, crawlProgressKind } from '@/lib/fix-strategies/findings-ui/crawl/crawl-progress-ui'
 import { readParamFromUrl, writeParamToUrl } from '@/lib/site-selection-url'
-import type { LinkMapResponse } from '@/lib/internal-link-map/client-types'
+import type { LinkMapResponse, LinkPlanResponse, PlannedLink } from '@/lib/internal-link-map/client-types'
 import type { User } from '@supabase/supabase-js'
 
 type Site = { id: string; domain: string; brand: string | null }
@@ -31,6 +31,10 @@ export default function InternalLinkMapPage() {
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null)
   const [fixMsg, setFixMsg] = useState<string | null>(null)
   const [fixBusy, setFixBusy] = useState(false)
+  const [plan, setPlan] = useState<LinkPlanResponse | null>(null)
+  const [selectedLinkIds, setSelectedLinkIds] = useState<Set<string>>(new Set())
+  const [planBusy, setPlanBusy] = useState(false)
+  const [planMsg, setPlanMsg] = useState<string | null>(null)
 
   useEffect(() => {
     const supabase = getSupabaseClient()
@@ -120,6 +124,106 @@ export default function InternalLinkMapPage() {
     }
   }
 
+  async function buildLinkPlan() {
+    if (!siteId) return
+    setPlanBusy(true)
+    setPlanMsg(null)
+    try {
+      const res = await fetch('/api/internal-link-map/plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteId }),
+      })
+      const body = (await res.json().catch(() => ({}))) as LinkPlanResponse
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`)
+      setPlan(body)
+      setSelectedLinkIds(new Set((body.links || []).map((l) => l.id)))
+      if (body.graph) {
+        setData((prev) =>
+          prev
+            ? {
+                ...prev,
+                graph: body.graph,
+              }
+            : prev,
+        )
+      }
+    } catch (e) {
+      setPlanMsg(e instanceof Error ? e.message : 'Could not build a linking plan')
+      setPlan(null)
+    } finally {
+      setPlanBusy(false)
+    }
+  }
+
+  async function sendPlanToAudit() {
+    if (!siteId || !plan) return
+    const selected = plan.links.filter((l) => selectedLinkIds.has(l.id))
+    if (selected.length === 0) {
+      setPlanMsg('Select at least one planned link')
+      return
+    }
+    setPlanBusy(true)
+    setPlanMsg(null)
+    try {
+      const res = await fetch('/api/internal-link-map/suggest-fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siteId,
+          links: selected.map((l) => ({
+            sourceUrl: l.sourceUrl,
+            href: l.href,
+            anchorText: l.anchorText,
+            reason: l.reason,
+          })),
+        }),
+      })
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string
+        findingCount?: number
+        merged?: boolean
+      }
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`)
+      if (body.merged) {
+        throw new Error('Refusing to continue: this path must never merge a PR')
+      }
+      setPlanMsg(
+        `Queued ${body.findingCount ?? selected.length} Related reading finding(s) on Audit. Approve a PR there — nothing was applied or merged.`,
+      )
+    } catch (e) {
+      setPlanMsg(e instanceof Error ? e.message : 'Could not queue the plan')
+    } finally {
+      setPlanBusy(false)
+    }
+  }
+
+  function toggleLink(id: string) {
+    setSelectedLinkIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const selectedPlanned: PlannedLink[] = useMemo(() => {
+    if (!plan) return []
+    return plan.links.filter((l) => selectedLinkIds.has(l.id))
+  }, [plan, selectedLinkIds])
+
+  const plannedEdges = useMemo(
+    () => selectedPlanned.map((l) => ({ source: l.sourceUrl, target: l.targetUrl })),
+    [selectedPlanned],
+  )
+
+  const planForSelected = useMemo(() => {
+    if (!plan || !selectedUrl) return []
+    return plan.links.filter(
+      (l) => l.sourceUrl === selectedUrl || l.targetUrl === selectedUrl,
+    )
+  }, [plan, selectedUrl])
+
   const graph = data?.graph ?? null
   const metrics = graph?.metrics
   const detail = data?.detail
@@ -148,6 +252,8 @@ export default function InternalLinkMapPage() {
                 setSiteId(e.target.value)
                 writeSiteIdToUrl(e.target.value)
                 setSelectedUrl(null)
+                setPlan(null)
+                setPlanMsg(null)
               }}
             >
               {sites.length === 0 && <option value="">No connected sites</option>}
@@ -176,6 +282,14 @@ export default function InternalLinkMapPage() {
               Tree
             </button>
           </div>
+          <button
+            type="button"
+            disabled={planBusy || !graph}
+            onClick={() => void buildLinkPlan()}
+            className="rounded-md bg-[#0F0F0F] text-white text-sm px-3 py-1.5 disabled:opacity-50"
+          >
+            {planBusy && !plan ? 'Planning…' : 'Link all pages'}
+          </button>
         </div>
 
         {metrics && (
@@ -241,12 +355,78 @@ export default function InternalLinkMapPage() {
                   view={view}
                   selectedUrl={selectedUrl}
                   onSelect={setSelectedUrl}
+                  plannedEdges={plannedEdges}
                 />
               </div>
             )}
           </div>
 
           <aside className="w-80 flex-shrink-0 border-l border-[#E8E8E4] bg-white overflow-y-auto p-4 text-sm">
+            {plan && (
+              <div className="mb-5 pb-4 border-b border-[#E8E8E4]">
+                <p className="text-[#0F0F0F] font-medium">Link all pages</p>
+                <p className="text-xs text-[#6B6B6B] mt-1">
+                  Review crawlable Related reading links. Nothing is applied until you
+                  approve a PR on Audit.
+                </p>
+                <p className="text-xs text-[#9B9B9B] mt-1">
+                  {selectedLinkIds.size} of {plan.links.length} selected · dashed on the map
+                </p>
+                <div className="flex gap-2 mt-2">
+                  <button
+                    type="button"
+                    className="text-xs rounded-md border border-[#E8E8E4] px-2 py-1"
+                    onClick={() => setSelectedLinkIds(new Set(plan.links.map((l) => l.id)))}
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs rounded-md border border-[#E8E8E4] px-2 py-1"
+                    onClick={() => setSelectedLinkIds(new Set())}
+                  >
+                    Select none
+                  </button>
+                </div>
+                <ul className="mt-3 space-y-2 max-h-64 overflow-y-auto">
+                  {plan.links.map((l) => (
+                    <li key={l.id} className="flex gap-2 items-start">
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        checked={selectedLinkIds.has(l.id)}
+                        onChange={() => toggleLink(l.id)}
+                      />
+                      <button
+                        type="button"
+                        className="text-left text-xs text-[#6B6B6B]"
+                        onClick={() => setSelectedUrl(l.sourceUrl)}
+                      >
+                        <span className="text-[#0F0F0F]">
+                          {l.sourceUrl.replace(/^https?:\/\/[^/]+/, '') || '/'}
+                          {' → '}
+                          {l.targetUrl.replace(/^https?:\/\/[^/]+/, '') || '/'}
+                        </span>
+                        <span className="block text-[#9B9B9B]">“{l.anchorText}”</span>
+                        <span className="block">{l.reason}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  type="button"
+                  disabled={planBusy || selectedLinkIds.size === 0}
+                  onClick={() => void sendPlanToAudit()}
+                  className="mt-3 w-full rounded-md bg-[#FF6B2C] text-white text-sm px-3 py-1.5 disabled:opacity-50"
+                >
+                  Send to Audit for approval
+                </button>
+                {planMsg && <p className="mt-2 text-xs text-[#6B6B6B]">{planMsg}</p>}
+              </div>
+            )}
+            {planMsg && !plan && (
+              <p className="mb-4 text-xs text-red-700">{planMsg}</p>
+            )}
             <p className="text-[#0F0F0F] font-medium mb-2">Legend</p>
             <ul className="space-y-1 text-[#6B6B6B] mb-5">
               <li><span className="inline-block w-2 h-2 rounded-full bg-[#E23D28] mr-2" />No internal links in</li>
@@ -254,6 +434,7 @@ export default function InternalLinkMapPage() {
               <li><span className="inline-block w-2 h-2 rounded-full bg-[#C45C6A] mr-2" />Broken target</li>
               <li><span className="inline-block w-2 h-2 rounded-full bg-[#D4A04A] mr-2" />Redirecting target</li>
               <li>Larger dots have more internal links in</li>
+              <li>Dashed orange — planned Related reading links</li>
             </ul>
 
             {!selected && (
@@ -306,6 +487,26 @@ export default function InternalLinkMapPage() {
                     <li className="text-[#9B9B9B]">None yet</li>
                   )}
                 </ul>
+
+                {planForSelected.length > 0 && (
+                  <>
+                    <p className="mt-4 font-medium text-[#0F0F0F]">Planned for this page</p>
+                    <ul className="mt-1 space-y-2">
+                      {planForSelected.map((l) => (
+                        <li key={l.id} className="text-[#6B6B6B] text-xs">
+                          <p>
+                            {l.sourceUrl === selectedUrl ? 'Out' : 'In'} ·{' '}
+                            {(l.sourceUrl === selectedUrl ? l.targetUrl : l.sourceUrl).replace(
+                              /^https?:\/\/[^/]+/,
+                              '',
+                            ) || '/'}
+                          </p>
+                          <p className="text-[#9B9B9B]">“{l.anchorText}” — {l.reason}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
 
                 <p className="mt-4 font-medium text-[#0F0F0F]">Pages that should link here</p>
                 <ul className="mt-1 space-y-2">
