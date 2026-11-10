@@ -1,3 +1,4 @@
+import { RELATED_TRANSFORM_VERSION } from '@/lib/fix-strategies/related-articles/anchors'
 import {
   RELATED_LINK_TOPIC,
   RELATED_LINK_VERDICT,
@@ -24,6 +25,7 @@ export type LinkMapApproval = {
   prNumber: number | null
   targets: LinkMapApprovalTarget[]
   neverAutoMerge: true
+  canRegenerate: boolean
 }
 
 export type ApprovalFindingInput = {
@@ -96,6 +98,15 @@ function targetsFrom(finding: ApprovalFindingInput): LinkMapApprovalTarget[] {
   return out
 }
 
+export function canRegenerateRelated(
+  finding: ApprovalFindingInput,
+  flow: ApprovalFlowInput,
+): boolean {
+  const status = approvalStatusFrom({ finding, flow })
+  if (status !== 'pr_opened') return false
+  return finding.evidenceValues?.relatedTransformVersion !== RELATED_TRANSFORM_VERSION
+}
+
 export function toLinkMapApproval(
   finding: ApprovalFindingInput,
   flow: ApprovalFlowInput,
@@ -110,5 +121,6 @@ export function toLinkMapApproval(
     prNumber: flow?.prNumber ?? null,
     targets: targetsFrom(finding),
     neverAutoMerge: true,
+    canRegenerate: canRegenerateRelated(finding, flow),
   }
 }

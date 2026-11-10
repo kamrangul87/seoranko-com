@@ -31,6 +31,7 @@ export {
   isRelatedReadingFinding,
   approvalStatusFrom,
   toLinkMapApproval,
+  canRegenerateRelated,
 } from './approvals'
 export type { LinkMapApproval, LinkMapApprovalStatus } from './approvals'
 export {

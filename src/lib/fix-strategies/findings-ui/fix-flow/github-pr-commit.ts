@@ -22,6 +22,15 @@ export type CommitViaPrInput = {
   prBody: string
 }
 
+export type CommitFilesViaPrInput = {
+  creds: GithubPrCreds
+  files: Array<{ path: string; newContent: string }>
+  branchName: string
+  commitMessage: string
+  prTitle: string
+  prBody: string
+}
+
 export type CommitViaPrResult =
   | {
       ok: true
@@ -71,13 +80,28 @@ async function ghJson<T>(
 export async function commitFileViaPullRequest(
   input: CommitViaPrInput,
 ): Promise<CommitViaPrResult> {
+  return commitFilesViaPullRequest({
+    creds: input.creds,
+    files: [{ path: input.path, newContent: input.newContent }],
+    branchName: input.branchName,
+    commitMessage: input.commitMessage,
+    prTitle: input.prTitle,
+    prBody: input.prBody,
+  })
+}
+
+export async function commitFilesViaPullRequest(
+  input: CommitFilesViaPrInput,
+): Promise<CommitViaPrResult> {
   const { requireActiveCustomerWriteGate } = await import(
     '@/lib/customer-write-gate'
   )
   requireActiveCustomerWriteGate('findings.commitFileViaPullRequest')
 
-  const { creds, path, newContent, branchName, commitMessage, prTitle, prBody } =
-    input
+  const { creds, files, branchName, commitMessage, prTitle, prBody } = input
+  if (files.length === 0) {
+    return { ok: false, error: 'No files to commit' }
+  }
   const token = creds.accessToken
   const owner = creds.owner
   const repo = creds.repo
@@ -130,29 +154,58 @@ export async function commitFileViaPullRequest(
     }
   }
 
-  // Read current file on the *branch* (or base if new).
-  const fileRes = await ghJson<{
-    content?: string
-    sha?: string
-    encoding?: string
-  }>(
-    token,
-    `${GH}/repos/${owner}/${repo}/contents/${path
+  let commitSha = baseSha
+  let wrote = 0
+  for (const file of files) {
+    const encodedPath = file.path
       .split('/')
       .map(encodeURIComponent)
-      .join('/')}?ref=${encodeURIComponent(branchName)}`,
-  )
-  if (!fileRes.ok || !fileRes.data.sha) {
-    return {
-      ok: false,
-      error: `Cannot read ${path} on ${branchName} (HTTP ${fileRes.status})`,
+      .join('/')
+    const fileRes = await ghJson<{
+      content?: string
+      sha?: string
+      encoding?: string
+    }>(
+      token,
+      `${GH}/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(branchName)}`,
+    )
+    if (!fileRes.ok || !fileRes.data.sha) {
+      return {
+        ok: false,
+        error: `Cannot read ${file.path} on ${branchName} (HTTP ${fileRes.status})`,
+      }
     }
+    const current = Buffer.from(fileRes.data.content ?? '', 'base64').toString(
+      'utf-8',
+    )
+    if (current === file.newContent) continue
+
+    const put = await ghJson<{
+      commit?: { sha?: string }
+      content?: { sha?: string }
+    }>(token, `${GH}/repos/${owner}/${repo}/contents/${encodedPath}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        message:
+          files.length === 1
+            ? commitMessage
+            : `${commitMessage} (${file.path})`,
+        content: Buffer.from(file.newContent, 'utf-8').toString('base64'),
+        sha: fileRes.data.sha,
+        branch: branchName,
+      }),
+    })
+    if (!put.ok) {
+      return {
+        ok: false,
+        error: `Commit failed on ${branchName}: ${put.text.slice(0, 400)}`,
+      }
+    }
+    commitSha = put.data.commit?.sha || put.data.content?.sha || commitSha
+    wrote += 1
   }
-  const current = Buffer.from(fileRes.data.content ?? '', 'base64').toString(
-    'utf-8',
-  )
-  if (current === newContent) {
-    // Still ensure a PR exists for the branch.
+
+  if (wrote === 0) {
     const existing = await findOpenPr(token, owner, repo, branchName, base)
     if (existing) {
       return {
@@ -164,31 +217,8 @@ export async function commitFileViaPullRequest(
         skipped: true,
       }
     }
+    return { ok: false, error: 'No file changes to commit' }
   }
-
-  const put = await ghJson<{
-    commit?: { sha?: string }
-    content?: { sha?: string }
-  }>(token, `${GH}/repos/${owner}/${repo}/contents/${path
-    .split('/')
-    .map(encodeURIComponent)
-    .join('/')}`, {
-    method: 'PUT',
-    body: JSON.stringify({
-      message: commitMessage,
-      content: Buffer.from(newContent, 'utf-8').toString('base64'),
-      sha: fileRes.data.sha,
-      branch: branchName,
-    }),
-  })
-  if (!put.ok) {
-    return {
-      ok: false,
-      error: `Commit failed on ${branchName}: ${put.text.slice(0, 400)}`,
-    }
-  }
-  const commitSha =
-    put.data.commit?.sha || put.data.content?.sha || 'unknown'
 
   const existingPr = await findOpenPr(token, owner, repo, branchName, base)
   if (existingPr) {

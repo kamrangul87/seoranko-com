@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { addRelatedArticlesBlock, buildRelatedArticlesHtml } from './fix-add-related'
 
+const AUTODUN_RELATED = `<nav class="related-articles" aria-label="Related articles" style="max-width:780px;margin:48px auto 0;padding:0 24px;">
+  <h2 style="font-size:20px;margin-bottom:12px;">Related articles</h2>
+  <ul style="padding-left:20px;line-height:1.9;">
+    <li><a href="/blog/mot-advisories-explained-uk.html">MOT Advisories Explained: Dangerous, Major, Minor and What to Fix</a></li>
+    <li><a href="/blog/ev-charging-reliability-uk.html">EV Charging Reliability UK: What the 99% Rule Covers</a></li>
+  </ul>
+</nav>`
+
 describe('buildRelatedArticlesHtml', () => {
   it('writes up to 5 related reading links from provided title/H1 anchors', () => {
     const html = buildRelatedArticlesHtml([
-      { href: '/a', anchorText: 'A' },
+      { href: '/a', anchorText: 'A guide to MOT costs' },
       { href: '/b', anchorText: 'B' },
       { href: '/c', anchorText: 'C' },
       { href: '/d', anchorText: 'D' },
@@ -16,19 +24,92 @@ describe('buildRelatedArticlesHtml', () => {
     expect(html.match(/<li>/g)?.length).toBe(5)
     expect(html).not.toContain('href="/f"')
   })
+
+  it('HTML-escapes href and anchor values', () => {
+    const html = buildRelatedArticlesHtml([
+      {
+        href: '/blog/foo"bar.html?a=1&b=2',
+        anchorText: 'A & B <C>',
+      },
+    ])
+    expect(html).toContain('href="/blog/foo&quot;bar.html?a=1&amp;b=2"')
+    expect(html).toContain('A &amp; B &lt;C&gt;')
+    expect(html).not.toContain('href="/blog/foo"bar')
+    expect(html).not.toContain('A & B <C>')
+  })
 })
 
 describe('addRelatedArticlesBlock', () => {
-  it('inserts the block before </article> and is a no-op when already present', () => {
-    const first = addRelatedArticlesBlock(
-      '<article><p>body</p></article>',
-      [{ href: '/blog/mot-cost-uk-2026.html', anchorText: 'MOT Cost in the UK 2026' }],
+  it('appends into an existing related-articles nav instead of a second block', () => {
+    const page = `<article><p>MOT history</p></article>${AUTODUN_RELATED}`
+    const result = addRelatedArticlesBlock(page, [
+      {
+        href: '/blog/mot-changes-2026-dvsa-updates.html',
+        anchorText: 'MOT Changes 2026:',
+        h1: 'MOT Changes 2026: DVSA Updates, New Rules & What UK Drivers Need to Know',
+        title: 'MOT Changes 2026 – DVSA Updates, New Rules & What UK Drivers Need to Know | Autodun',
+      },
+    ])
+    expect(result.updated).toBe(1)
+    expect(result.html).toContain('href="/blog/mot-changes-2026-dvsa-updates.html"')
+    expect(result.html).not.toMatch(/MOT Changes 2026:<\/a>/)
+    expect((result.html.match(/related-articles/g) || []).length).toBeGreaterThanOrEqual(1)
+    expect(result.html).not.toMatch(
+      /data-seoranko-related-articles[\s\S]*related-articles|related-articles[\s\S]*data-seoranko-related-articles/,
     )
+    expect(result.html.match(/<nav /g)?.length).toBe(1)
+    expect(result.html).toContain('class="related-articles"')
+    expect(result.html).toContain('style="max-width:780px;margin:48px auto 0;padding:0 24px;"')
+    expect(result.html).toContain('style="padding-left:20px;line-height:1.9;"')
+  })
+
+  it('skips hrefs already present in the existing list', () => {
+    const page = `<article><p>body</p></article>${AUTODUN_RELATED}`
+    const result = addRelatedArticlesBlock(page, [
+      {
+        href: '/blog/ev-charging-reliability-uk.html',
+        anchorText: 'EV charging',
+      },
+      {
+        href: '/blog/mot-cost-uk-2026.html',
+        anchorText: 'MOT Cost in the UK 2026',
+      },
+    ])
+    expect(result.updated).toBe(1)
+    expect(
+      result.html.match(/href="\/blog\/ev-charging-reliability-uk\.html"/g)?.length,
+    ).toBe(1)
+    expect(result.html).toContain('href="/blog/mot-cost-uk-2026.html"')
+  })
+
+  it('updates an existing SEORANKO block instead of no-op (idempotent)', () => {
+    const first = addRelatedArticlesBlock('<article><p>body</p></article>', [
+      { href: '/blog/mot-cost-uk-2026.html', anchorText: 'MOT Cost in the UK 2026' },
+    ])
     expect(first.updated).toBe(1)
     expect(first.html).toContain('MOT Cost in the UK 2026')
     const again = addRelatedArticlesBlock(first.html, [
-      { href: '/x', anchorText: 'X' },
+      { href: '/blog/mot-cost-uk-2026.html', anchorText: 'MOT Cost in the UK 2026' },
+      { href: '/blog/mot-history-check-uk.html', anchorText: 'MOT History Check UK' },
     ])
-    expect(again.updated).toBe(0)
+    expect(again.updated).toBe(1)
+    expect(again.html).toContain('MOT History Check UK')
+    expect(again.html.match(/data-seoranko-related-articles/g)?.length).toBe(1)
+    const third = addRelatedArticlesBlock(again.html, [
+      { href: '/blog/mot-history-check-uk.html', anchorText: 'MOT History Check UK' },
+    ])
+    expect(third.updated).toBe(0)
+  })
+
+  it('places a new block after </article> with article-like inline styles', () => {
+    const page =
+      '<article style="max-width:720px;margin:0 auto;padding:0 20px;"><p>body</p></article>'
+    const result = addRelatedArticlesBlock(page, [
+      { href: '/blog/a.html', anchorText: 'A complete guide to MOT tests' },
+    ])
+    expect(result.html).toMatch(/<\/article>\s*<(aside|nav)/i)
+    expect(result.html).not.toMatch(/<(aside|nav)[^>]*>[\s\S]*<\/article>/i)
+    expect(result.html).toMatch(/max-width:\s*720px/)
+    expect(result.html).toMatch(/margin:\s*0 auto|margin:[^"]*auto/)
   })
 })

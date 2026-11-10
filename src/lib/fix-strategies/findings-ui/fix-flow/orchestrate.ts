@@ -17,6 +17,16 @@ import {
   resolveGithubCredsFromEnv,
   type GithubPrCreds,
 } from './github-pr-commit'
+import { getFindingsStore } from '@/lib/fix-strategies/findings-ui/crawl'
+import {
+  RELATED_TRANSFORM_VERSION,
+  cleanRelatedAnchor,
+} from '@/lib/fix-strategies/related-articles/anchors'
+import type { RelatedTarget } from '@/lib/fix-strategies/related-articles/fix-add-related'
+import {
+  relatedReadingPrBody,
+  relatedReadingPrTitle,
+} from '@/lib/fix-strategies/related-articles/pr-copy'
 import { withCustomerWriteGate } from '@/lib/customer-write-gate'
 import {
   previewPageUrl,
@@ -334,7 +344,53 @@ async function commitRegisteredTransform(input: {
     .replace(/^https?:\/\//, '')
     .replace(/[^a-zA-Z0-9]+/g, '-')
     .slice(0, 40)
-  const branchName = `seoranko/fix-${persisted.topicId}-${short}-${Date.now().toString(36)}`
+  const isRelated =
+    persisted.topicId === 'related' &&
+    persisted.verdict === 'auto-add-related-articles'
+  const branchName = isRelated
+    ? `seoranko/related-reading-${Date.now().toString(36)}`
+    : `seoranko/fix-${persisted.topicId}-${short}-${Date.now().toString(36)}`
+
+  const relatedTargets = ((): RelatedTarget[] => {
+    const raw = (persisted.evidenceValues || {}).relatedTargets
+    if (!Array.isArray(raw)) return []
+    return (raw as RelatedTarget[]).filter(
+      (t) => t && typeof t.href === 'string' && typeof t.anchorText === 'string',
+    )
+  })()
+
+  const prTitle = isRelated
+    ? relatedReadingPrTitle(1)
+    : `fix(seo): ${persisted.verdict} — ${path}`
+  const prBody = isRelated
+    ? relatedReadingPrBody([
+        {
+          sourcePath: path,
+          sourceUrl: pageUrl,
+          targets: relatedTargets.map((t) => ({
+            href: t.href,
+            anchorText: cleanRelatedAnchor({
+              h1: t.h1,
+              title: t.title,
+              href: t.href,
+              stored: t.anchorText,
+              anchorText: t.anchorText,
+            }),
+            reason: persisted.detail || 'Related reading',
+          })),
+        },
+      ])
+    : [
+        '## Summary',
+        '',
+        `SEORANKO findings fix-flow: \`${persisted.verdict}\` via the registered transform.`,
+        '',
+        `- Page: ${pageUrl}`,
+        `- File: \`${path}\``,
+        '',
+        'Opened as a PR. Related reading and other approval-required verdicts',
+        'are **never auto-merged** — merge it yourself.',
+      ].join('\n')
 
   const pr = await withCustomerWriteGate(
     'findings-pr-branch',
@@ -345,19 +401,11 @@ async function commitRegisteredTransform(input: {
         path,
         newContent: applied.newContent,
         branchName,
-        commitMessage: `fix(seo): ${persisted.verdict} on ${path}`,
-        prTitle: `fix(seo): ${persisted.verdict} — ${path}`,
-        prBody: [
-          '## Summary',
-          '',
-          `SEORANKO findings fix-flow: \`${persisted.verdict}\` via the registered transform.`,
-          '',
-          `- Page: ${pageUrl}`,
-          `- File: \`${path}\``,
-          '',
-          'Opened as a PR. Related reading and other approval-required verdicts',
-          'are **never auto-merged** — merge it yourself.',
-        ].join('\n'),
+        commitMessage: isRelated
+          ? relatedReadingPrTitle(1)
+          : `fix(seo): ${persisted.verdict} on ${path}`,
+        prTitle,
+        prBody,
       }),
   )
 
@@ -368,6 +416,22 @@ async function commitRegisteredTransform(input: {
       commitStub: false,
       commitDetail: pr.error,
       errorDetail: pr.error,
+    })
+  }
+
+  if (isRelated) {
+    await getFindingsStore().updateFindingSourceResolution({
+      findingId: persisted.id,
+      sourcePath: persisted.sourcePath,
+      sourceBlobSha: persisted.sourceBlobSha,
+      sourceResolvedAt: persisted.sourceResolvedAt,
+      sourceUnresolvedReason: persisted.sourceUnresolvedReason,
+      evidenceValues: {
+        ...(persisted.evidenceValues || {}),
+        relatedTransformVersion: RELATED_TRANSFORM_VERSION,
+        neverAutoMerge: true,
+        requiresApproval: true,
+      },
     })
   }
 

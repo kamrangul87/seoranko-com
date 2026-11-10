@@ -4,6 +4,7 @@ export {
 } from './apply-topic-49'
 export {
   commitFileViaPullRequest,
+  commitFilesViaPullRequest,
   resolveGithubCredsFromEnv,
 } from './github-pr-commit'
 export type { GithubPrCreds, CommitViaPrResult } from './github-pr-commit'

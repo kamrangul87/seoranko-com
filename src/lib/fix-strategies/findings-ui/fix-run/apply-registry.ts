@@ -601,10 +601,28 @@ const topicRelatedArticles: TransformHandler = async (ctx) => {
 }
 
 const verifyRelatedArticles: TransformVerifier = async (ctx) => {
-  if (!ctx.body.includes('data-seoranko-related-articles')) {
+  const hasRelatedBlock =
+    /<(nav|aside|section)\b[^>]*(related|data-seoranko-related-articles)[^>]*>/i.test(
+      ctx.body,
+    ) || ctx.body.includes('data-seoranko-related-articles')
+  if (!hasRelatedBlock) {
     return { ok: false, detail: 'Related articles block missing on live page' }
   }
-  return { ok: true, detail: 'Related articles block present' }
+  const ev = (ctx.finding.evidenceValues || {}) as Record<string, unknown>
+  const raw = ev.relatedTargets
+  const targets = Array.isArray(raw)
+    ? (raw as RelatedTarget[]).filter((t) => t && typeof t.href === 'string')
+    : []
+  for (const t of targets) {
+    const href = t.href
+    if (
+      !ctx.body.includes(`href="${href}"`) &&
+      !ctx.body.includes(`href='${href}'`)
+    ) {
+      return { ok: false, detail: `Missing related href ${href}` }
+    }
+  }
+  return { ok: true, detail: 'Related articles links present' }
 }
 
 const topic74UnwrapHref: TransformHandler = async (ctx) => {

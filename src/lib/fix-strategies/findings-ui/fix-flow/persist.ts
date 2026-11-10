@@ -278,4 +278,12 @@ export async function peekFixFlow(
   return getFixFlowStore().peek(findingId, userId)
 }
 
+/** Clear PR/commit state so the owner can Approve again. Does not close GitHub PRs. */
+export async function resetFixFlowToIdle(
+  findingId: string,
+  userId: string,
+): Promise<FixFlowState> {
+  return getFixFlowStore().save(idle(findingId, userId))
+}
+
 export { toUi, idle as _idleForTests }

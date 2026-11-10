@@ -84,6 +84,59 @@ describe('approvalStatusFrom', () => {
 })
 
 describe('toLinkMapApproval', () => {
+  it('marks an open old-transform PR as regenerable', () => {
+    const item = toLinkMapApproval(
+      {
+        id: 'f-old',
+        pageUrl: 'https://example.com/blog/a.html',
+        detail: 'Add related reading',
+        status: 'open',
+        fixedAt: null,
+        evidenceValues: {
+          relatedTargets: [{ href: '/blog/b.html', anchorText: 'EV charging' }],
+          neverAutoMerge: true,
+        },
+        proposedDiff: null,
+      },
+      {
+        step: 'committed',
+        approvedAt: '2026-11-10',
+        prUrl: 'https://github.com/autodun-ai/autodun.com/pull/73',
+        prNumber: 73,
+        mergedAt: null,
+      },
+    )
+    expect(item.status).toBe('pr_opened')
+    expect(item.canRegenerate).toBe(true)
+    expect(item.prUrl).toBe(
+      'https://github.com/autodun-ai/autodun.com/pull/73',
+    )
+  })
+
+  it('does not offer regenerate after the current transform version committed', () => {
+    const item = toLinkMapApproval(
+      {
+        id: 'f-new',
+        pageUrl: 'https://example.com/blog/a.html',
+        detail: 'Add related reading',
+        status: 'open',
+        fixedAt: null,
+        evidenceValues: {
+          relatedTargets: [{ href: '/blog/b.html', anchorText: 'B' }],
+          relatedTransformVersion: 2,
+          neverAutoMerge: true,
+        },
+        proposedDiff: null,
+      },
+      {
+        step: 'committed',
+        prUrl: 'https://github.com/ex/repo/pull/90',
+        mergedAt: null,
+      },
+    )
+    expect(item.canRegenerate).toBe(false)
+  })
+
   it('exposes targets and never claims a merge from a pending row', () => {
     const item = toLinkMapApproval({
       id: 'f1',
@@ -101,5 +154,6 @@ describe('toLinkMapApproval', () => {
     expect(item.prUrl).toBeNull()
     expect(item.targets).toEqual([{ href: '/blog/b.html', anchorText: 'B' }])
     expect(item.neverAutoMerge).toBe(true)
+    expect(item.canRegenerate).toBe(false)
   })
 })
