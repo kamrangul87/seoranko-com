@@ -3,6 +3,7 @@
  * Never applies HTML and never merges a PR.
  */
 
+import { cleanRelatedAnchor } from '@/lib/fix-strategies/related-articles/anchors'
 import { MAX_RELATED_TARGETS } from '@/lib/fix-strategies/related-articles/fix-add-related'
 import { normalizeFixStrategyUrl } from '@/lib/fix-strategies/shared'
 import type { RolledPersistCandidate } from '@/lib/fix-strategies/findings-ui/crawl/run-detectors'
@@ -26,7 +27,11 @@ export function groupRelatedLinkItems(
   for (const item of items) {
     const source = (normalizeFixStrategyUrl(item.sourceUrl) ?? item.sourceUrl).trim()
     const href = item.href.trim()
-    const anchor = item.anchorText.replace(/</g, '').trim()
+    const anchor = cleanRelatedAnchor({
+      stored: item.anchorText,
+      anchorText: item.anchorText,
+      href,
+    })
     if (!source || !href || !anchor) continue
     const k = `${source}\0${href}`
     if (seen.has(k)) continue

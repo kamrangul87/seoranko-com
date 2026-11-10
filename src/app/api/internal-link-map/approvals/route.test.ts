@@ -8,6 +8,8 @@ const updateFindingSourceResolution = vi.fn()
 const peekFixFlow = vi.fn()
 const approveFix = vi.fn()
 const commitFix = vi.fn()
+const resetFixFlowToIdle = vi.fn()
+const commitRelatedFindingsBatch = vi.fn()
 
 vi.mock('next/headers', () => ({
   cookies: () => ({ get: () => undefined }),
@@ -40,11 +42,17 @@ vi.mock('@/lib/internal-link-map', async () => {
 
 vi.mock('@/lib/fix-strategies/findings-ui/fix-flow/persist', () => ({
   peekFixFlow: (...args: unknown[]) => peekFixFlow(...args),
+  resetFixFlowToIdle: (...args: unknown[]) => resetFixFlowToIdle(...args),
 }))
 
 vi.mock('@/lib/fix-strategies/findings-ui/fix-flow-store', () => ({
   approveFix: (...args: unknown[]) => approveFix(...args),
   commitFix: (...args: unknown[]) => commitFix(...args),
+}))
+
+vi.mock('@/lib/fix-strategies/findings-ui/fix-flow/commit-related-batch', () => ({
+  commitRelatedFindingsBatch: (...args: unknown[]) =>
+    commitRelatedFindingsBatch(...args),
 }))
 
 function relatedRow(id = '11111111-1111-4111-8111-111111111111') {
@@ -86,6 +94,8 @@ describe('GET /api/internal-link-map/approvals', () => {
     peekFixFlow.mockReset()
     approveFix.mockReset()
     commitFix.mockReset()
+    resetFixFlowToIdle.mockReset()
+    commitRelatedFindingsBatch.mockReset()
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://example.supabase.co'
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon'
     getUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
@@ -156,6 +166,8 @@ describe('POST /api/internal-link-map/approvals', () => {
     peekFixFlow.mockReset()
     approveFix.mockReset()
     commitFix.mockReset()
+    resetFixFlowToIdle.mockReset()
+    commitRelatedFindingsBatch.mockReset()
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://example.supabase.co'
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon'
     getUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
@@ -229,6 +241,100 @@ describe('POST /api/internal-link-map/approvals', () => {
     expect(body.merged).toBe(false)
     expect(updateFindingSourceResolution).toHaveBeenCalled()
     expect(approveFix).not.toHaveBeenCalled()
+    expect(commitFix).not.toHaveBeenCalled()
+  })
+
+  it('opens one shared PR for approve-batch and never auto-merges', async () => {
+    const a = relatedRow()
+    const b = relatedRow('22222222-2222-4222-8222-222222222222')
+    getFinding.mockImplementation(async (id: string) =>
+      id === a.id ? a : id === b.id ? b : null,
+    )
+    commitRelatedFindingsBatch.mockResolvedValue({
+      ok: true,
+      prUrl: 'https://github.com/ex/repo/pull/12',
+      prNumber: 12,
+      items: [
+        { id: a.id, ok: true, prUrl: 'https://github.com/ex/repo/pull/12' },
+        { id: b.id, ok: true, prUrl: 'https://github.com/ex/repo/pull/12' },
+      ],
+      merged: false,
+    })
+    peekFixFlow.mockResolvedValue({
+      step: 'committed',
+      prUrl: 'https://github.com/ex/repo/pull/12',
+      prNumber: 12,
+      mergedAt: null,
+    })
+    const { POST } = await import('./route')
+    const res = await POST(
+      new Request('http://localhost/api/internal-link-map/approvals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siteId: 'site-1',
+          findingIds: [a.id, b.id],
+          action: 'approve-batch',
+        }),
+      }),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.merged).toBe(false)
+    expect(body.prUrl).toBe('https://github.com/ex/repo/pull/12')
+    expect(body.items).toHaveLength(2)
+    expect(
+      body.items.every((item: { prUrl: string }) => item.prUrl === body.prUrl),
+    ).toBe(true)
+    expect(commitFix).not.toHaveBeenCalled()
+    expect(commitRelatedFindingsBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it('resets an old-transform finding to pending without closing the GitHub PR', async () => {
+    getFinding.mockResolvedValue({
+      ...relatedRow(),
+      evidenceValues: {
+        relatedTargets: [{ href: '/blog/b.html', anchorText: 'EV charging' }],
+        requiresApproval: true,
+        neverAutoMerge: true,
+      },
+    })
+    peekFixFlow
+      .mockResolvedValueOnce({
+        step: 'committed',
+        prUrl: 'https://github.com/autodun-ai/autodun.com/pull/73',
+        prNumber: 73,
+        mergedAt: null,
+      })
+      .mockResolvedValueOnce({
+        step: 'idle',
+        prUrl: null,
+        prNumber: null,
+        mergedAt: null,
+      })
+    resetFixFlowToIdle.mockResolvedValue({
+      step: 'idle',
+      prUrl: null,
+      prNumber: null,
+    })
+    const { POST } = await import('./route')
+    const res = await POST(
+      new Request('http://localhost/api/internal-link-map/approvals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siteId: 'site-1',
+          findingId: '11111111-1111-4111-8111-111111111111',
+          action: 'regenerate',
+        }),
+      }),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.item.status).toBe('pending')
+    expect(body.closedGithubPr).toBe(false)
+    expect(body.merged).toBe(false)
+    expect(resetFixFlowToIdle).toHaveBeenCalledTimes(1)
     expect(commitFix).not.toHaveBeenCalled()
   })
 })

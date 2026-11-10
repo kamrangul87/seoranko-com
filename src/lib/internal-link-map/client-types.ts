@@ -65,6 +65,7 @@ export type LinkMapApprovalItem = {
   prNumber: number | null
   targets: Array<{ href: string; anchorText: string }>
   neverAutoMerge: true
+  canRegenerate: boolean
 }
 
 export type LinkMapApprovalsResponse = {

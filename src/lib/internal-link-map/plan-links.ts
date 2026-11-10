@@ -7,6 +7,7 @@
  */
 
 import { normalizeFixStrategyUrl } from '@/lib/fix-strategies/shared'
+import { cleanRelatedAnchor } from '@/lib/fix-strategies/related-articles/anchors'
 import { LINK_MAP_MAX_PAGES } from './rebuild-edges'
 import type { CrawlLinkEdge } from './types'
 
@@ -152,26 +153,25 @@ function cleanPhrase(s: string | null | undefined): string {
 }
 
 /** Anchors from the target title/H1 only — never invented marketing copy. */
-export function anchorCandidates(h1: string | null, title: string | null): string[] {
-  const raw = [cleanPhrase(h1), cleanPhrase(title)].filter(Boolean)
+export function anchorCandidates(
+  h1: string | null,
+  title: string | null,
+  href?: string | null,
+): string[] {
+  const primary = cleanRelatedAnchor({ h1, title, href })
+  const alt = cleanRelatedAnchor({ h1: title, title: h1, href })
   const out: string[] = []
   const seen = new Set<string>()
   const push = (s: string) => {
-    const t = s.replace(/\s+/g, ' ').trim()
-    if (t.length < 2) return
+    const t = cleanPhrase(s)
+    if (t.length < 2 || t.endsWith(':')) return
     const k = t.toLowerCase()
     if (seen.has(k)) return
     seen.add(k)
     out.push(t)
   }
-  for (const s of raw) {
-    push(s)
-    const clause = s.split(/\s*[|—–•]\s*/)[0] || ''
-    push(clause)
-    const words = s.split(/\s+/).filter(Boolean)
-    if (words.length > 3) push(words.slice(0, 3).join(' '))
-    if (words.length > 2) push(words.slice(0, 2).join(' '))
-  }
+  push(primary)
+  push(alt)
   return out
 }
 
@@ -179,7 +179,8 @@ function pickAnchor(
   target: PlanPageInput,
   usedForTarget: Set<string>,
 ): string {
-  const cands = anchorCandidates(target.h1, target.title)
+  const href = pathOf(target.url)
+  const cands = anchorCandidates(target.h1, target.title, href)
   for (const c of cands) {
     if (!usedForTarget.has(c.toLowerCase())) {
       usedForTarget.add(c.toLowerCase())
@@ -190,9 +191,11 @@ function pickAnchor(
     usedForTarget.add(cands[0].toLowerCase())
     return cands[0]
   }
-  const parts = pathParts(target.url)
-  const last = (parts[parts.length - 1] || 'Home').replace(/\.html$/i, '')
-  return last.replace(/[-_]+/g, ' ') || 'Home'
+  return cleanRelatedAnchor({
+    h1: target.h1,
+    title: target.title,
+    href,
+  })
 }
 
 function pageTokens(p: PlanPageInput): Set<string> {

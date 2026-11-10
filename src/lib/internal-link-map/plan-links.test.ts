@@ -191,14 +191,8 @@ describe('planSitewideInternalLinks', () => {
     for (const n of bySource.values()) {
       expect(n).toBeLessThanOrEqual(5)
     }
-    const toFirst = plan.links.filter(
-      (l) => l.targetUrl === `${ORIGIN}/blog/post-0.html`,
-    )
-    if (toFirst.length >= 2) {
-      const unique = new Set(toFirst.map((l) => l.anchorText.toLowerCase()))
-      expect(unique.size).toBeGreaterThan(1)
-    }
     expect(plan.links.every((l) => l.anchorText.trim().length > 0)).toBe(true)
+    expect(plan.links.every((l) => !l.anchorText.trim().endsWith(':'))).toBe(true)
     expect(plan.links.some((l) => /click here|read more/i.test(l.anchorText))).toBe(
       false,
     )
@@ -272,6 +266,47 @@ describe('planSitewideInternalLinks', () => {
     })
     const plannedUrls = new Set(capped.links.flatMap((l) => [l.sourceUrl, l.targetUrl]))
     expect(plannedUrls.size).toBeLessThanOrEqual(2000)
+  })
+
+  it('uses a clean H1/title anchor, not a 2-word or colon-truncated slice', () => {
+    const autodun: PlanPageInput[] = [
+      page('/'),
+      page('/blog/mot-history-check-uk.html', {
+        title: 'Free MOT History Check UK: How to Use the DVSA Service',
+        h1: 'How to check a vehicle’s MOT history in the UK (free DVSA MOT check)',
+        text: 'MOT history check vehicle lookup garage',
+      }),
+      page('/blog/mot-changes-2026-dvsa-updates.html', {
+        title:
+          'MOT Changes 2026 – DVSA Updates, New Rules & What UK Drivers Need to Know | Autodun',
+        h1: 'MOT Changes 2026: DVSA Updates, New Rules & What UK Drivers Need to Know',
+        text: 'MOT changes 2026 DVSA updates new rules drivers',
+      }),
+      page('/blog/ev-charging-reliability-uk.html', {
+        title:
+          'EV Charging Reliability UK: What the 99% Rule Covers — and What It Doesn’t',
+        h1: 'EV charging reliability in the UK: what the 99% rule covers — and what it doesn’t',
+        text: 'EV chargepoint uptime motorway reliability',
+      }),
+    ]
+    const plan = planSitewideInternalLinks({
+      originUrl: ORIGIN,
+      homepageUrl: `${ORIGIN}/`,
+      pages: autodun,
+      edges: [],
+    })
+    const toMotChanges = plan.links.find(
+      (l) => l.targetUrl === `${ORIGIN}/blog/mot-changes-2026-dvsa-updates.html`,
+    )
+    const toEv = plan.links.find(
+      (l) => l.targetUrl === `${ORIGIN}/blog/ev-charging-reliability-uk.html`,
+    )
+    expect(toMotChanges?.anchorText).not.toBe('MOT Changes 2026:')
+    expect(toMotChanges?.anchorText.endsWith(':')).toBe(false)
+    expect(toMotChanges?.anchorText).toMatch(/MOT Changes 2026/i)
+    expect(toMotChanges?.anchorText).not.toMatch(/Autodun/i)
+    expect(toEv?.anchorText).not.toBe('EV charging')
+    expect(toEv?.anchorText.toLowerCase()).toMatch(/ev charging reliability/)
   })
 
   it('uses path-form hrefs the related-articles transform can write', () => {

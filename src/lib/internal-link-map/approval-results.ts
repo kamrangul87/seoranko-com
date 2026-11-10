@@ -35,9 +35,18 @@ export function summarizeApprovalBatch(results: ApprovalBatchItem[]): string {
   const failed = results.filter((r) => !r.ok)
   const lines: string[] = []
   if (opened.length > 0) {
-    lines.push(
-      `${opened.length} PR${opened.length === 1 ? '' : 's'} opened. SEORANKO does not merge customer PRs — merge them yourself.`,
-    )
+    const urls = [
+      ...new Set(opened.map((r) => r.prUrl).filter((u): u is string => Boolean(u))),
+    ]
+    if (urls.length <= 1) {
+      lines.push(
+        `${opened.length} page${opened.length === 1 ? '' : 's'} in 1 PR. SEORANKO does not merge customer PRs — merge them yourself.`,
+      )
+    } else {
+      lines.push(
+        `${urls.length} PRs opened. SEORANKO does not merge customer PRs — merge them yourself.`,
+      )
+    }
   }
   for (const item of failed) {
     lines.push(`${item.label}: ${item.error || 'Approve failed'}`)

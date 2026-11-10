@@ -278,10 +278,7 @@ export default function InternalLinkMapPage() {
     })
   }
 
-  async function approveFinding(
-    id: string,
-    opts?: { keepSummary?: boolean },
-  ): Promise<{
+  async function approveFinding(id: string): Promise<{
     id: string
     label: string
     ok: boolean
@@ -291,7 +288,7 @@ export default function InternalLinkMapPage() {
     const item = approvals.find((a) => a.id === id)
     const label = item?.pageUrl ? pathOf(item.pageUrl) : id
     setApprovalBusyId(id)
-    if (!opts?.keepSummary) setApprovalMsg(null)
+    setApprovalMsg(null)
     setApprovalErrors((prev) => {
       const next = { ...prev }
       delete next[id]
@@ -329,19 +326,17 @@ export default function InternalLinkMapPage() {
       )
       if (commitErr) throw new Error(commitErr)
       const prUrl = commitBody.fixFlow?.prUrl
-      if (!opts?.keepSummary) {
-        setApprovalMsg(
-          prUrl
-            ? 'PR opened. SEORANKO does not merge customer PRs — merge it yourself.'
-            : 'Approved. Open the PR from the list when GitHub returns a link.',
-        )
-      }
+      setApprovalMsg(
+        prUrl
+          ? 'PR opened. SEORANKO does not merge customer PRs — merge it yourself.'
+          : 'Approved. Open the PR from the list when GitHub returns a link.',
+      )
       await loadApprovals(siteId)
       return { id, label, ok: true, prUrl }
     } catch (e) {
       const error = e instanceof Error ? e.message : 'Approve failed'
       setApprovalErrors((prev) => ({ ...prev, [id]: error }))
-      if (!opts?.keepSummary) setApprovalMsg(error)
+      setApprovalMsg(error)
       return { id, label, ok: false, error }
     } finally {
       setApprovalBusyId(null)
@@ -375,11 +370,59 @@ export default function InternalLinkMapPage() {
       setApprovalMsg('Select at least one pending finding')
       return
     }
-    const results = []
-    for (const id of ids) {
-      results.push(await approveFinding(id, { keepSummary: true }))
+    setApprovalBusyId('batch')
+    setApprovalMsg(null)
+    try {
+      const res = await fetch('/api/internal-link-map/approvals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siteId,
+          findingIds: ids,
+          action: 'approve-batch',
+        }),
+      })
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string
+        prUrl?: string | null
+        items?: LinkMapApprovalItem[]
+      }
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`)
+      const prUrl = body.prUrl
+      const results = ids.map((id) => {
+        const item = approvals.find((a) => a.id === id)
+        const label = item?.pageUrl ? pathOf(item.pageUrl) : id
+        return { id, label, ok: true, prUrl }
+      })
+      setApprovalMsg(summarizeApprovalBatch(results))
+      await loadApprovals(siteId)
+    } catch (e) {
+      setApprovalMsg(e instanceof Error ? e.message : 'Approve failed')
+    } finally {
+      setApprovalBusyId(null)
     }
-    setApprovalMsg(summarizeApprovalBatch(results))
+  }
+
+  async function regenerateFinding(id: string) {
+    setApprovalBusyId(id)
+    setApprovalMsg(null)
+    try {
+      const res = await fetch('/api/internal-link-map/approvals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteId, findingId: id, action: 'regenerate' }),
+      })
+      const body = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`)
+      setApprovalMsg(
+        'Reset to pending. The GitHub PR was not closed — Approve again to open a new PR with the updated related reading block.',
+      )
+      await loadApprovals(siteId)
+    } catch (e) {
+      setApprovalMsg(e instanceof Error ? e.message : 'Could not reset this finding')
+    } finally {
+      setApprovalBusyId(null)
+    }
   }
 
   const selectedPlanned: PlannedLink[] = useMemo(() => {
@@ -676,6 +719,16 @@ export default function InternalLinkMapPage() {
                                   Reject
                                 </button>
                               </div>
+                            )}
+                            {item.canRegenerate && (
+                              <button
+                                type="button"
+                                disabled={approvalBusyId != null}
+                                onClick={() => void regenerateFinding(item.id)}
+                                className="mt-2 text-xs rounded-md border border-[#E8E8E4] px-2 py-1 disabled:opacity-50"
+                              >
+                                Close & regenerate
+                              </button>
                             )}
                           </div>
                         </div>
