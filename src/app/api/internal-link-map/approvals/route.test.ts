@@ -207,6 +207,51 @@ describe('GET /api/internal-link-map/approvals', () => {
     })
     expect(body.items[1].weakMatch).toBe(true)
   })
+
+  it('marks pending utility-page related findings obsolete and hides them from Approvals', async () => {
+    loadOwned.mockResolvedValue({
+      id: 'site-1',
+      domain: 'example.com',
+      brand: null,
+    })
+    const privacy = {
+      ...relatedRow('44444444-4444-4444-8444-444444444444'),
+      pageUrl: 'https://example.com/privacy',
+      evidenceValues: {
+        relatedTargets: [{ href: '/contact', anchorText: 'Contact' }],
+        linkHealthKind: 'orphan-footer-only',
+        requiresApproval: true,
+        neverAutoMerge: true,
+      },
+    }
+    const aboutTarget = {
+      ...relatedRow('55555555-5555-4555-8555-555555555555'),
+      pageUrl: 'https://example.com/blog/mot-cost-uk-2026.html',
+      evidenceValues: {
+        relatedTargets: [{ href: '/about', anchorText: 'About Autodun' }],
+        requiresApproval: true,
+        neverAutoMerge: true,
+      },
+    }
+    listFindings.mockResolvedValue([relatedRow(), privacy, aboutTarget])
+    const { GET } = await import('./route')
+    const res = await GET(
+      new Request('http://localhost/api/internal-link-map/approvals?siteId=site-1'),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0].id).toBe('11111111-1111-4111-8111-111111111111')
+    expect(updateFindingSourceResolution).toHaveBeenCalledTimes(2)
+    const writes = updateFindingSourceResolution.mock.calls.map(
+      (c) => c[0] as { findingId: string; evidenceValues: Record<string, unknown> },
+    )
+    expect(writes.every((w) => w.evidenceValues.obsolete === true)).toBe(true)
+    expect(writes.every((w) => w.evidenceValues.dismissed === true)).toBe(true)
+    expect(writes.every((w) => w.evidenceValues.dismissedReason === 'utility-page')).toBe(
+      true,
+    )
+  })
 })
 
 describe('POST /api/internal-link-map/approvals', () => {

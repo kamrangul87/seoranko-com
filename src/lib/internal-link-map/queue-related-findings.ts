@@ -7,6 +7,7 @@ import { cleanRelatedAnchor } from '@/lib/fix-strategies/related-articles/anchor
 import { MAX_RELATED_TARGETS } from '@/lib/fix-strategies/related-articles/fix-add-related'
 import { normalizeFixStrategyUrl } from '@/lib/fix-strategies/shared'
 import type { RolledPersistCandidate } from '@/lib/fix-strategies/findings-ui/crawl/run-detectors'
+import { isUtilityPage } from './utility-page'
 
 export const RELATED_LINK_TOPIC = 'related'
 export const RELATED_LINK_VERDICT = 'auto-add-related-articles'
@@ -47,6 +48,8 @@ export function groupRelatedLinkItems(
       href,
     })
     if (!source || !href || !anchor) continue
+    if (isUtilityPage({ url: source })) continue
+    if (isUtilityPage({ url: href, href })) continue
     const k = `${source}\0${href}`
     if (seen.has(k)) continue
     seen.add(k)

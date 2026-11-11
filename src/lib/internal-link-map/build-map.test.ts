@@ -79,6 +79,27 @@ describe('buildInternalLinkMap', () => {
     expect(map.metrics.orphanCount).toBe(1)
   })
 
+  it('does not count utility pages as orphans', () => {
+    const map = buildInternalLinkMap({
+      originUrl: ORIGIN,
+      pages: [
+        page(`${ORIGIN}/`),
+        page(`${ORIGIN}/privacy`),
+        page(`${ORIGIN}/lonely-guide`),
+      ],
+      edges: [edge(`${ORIGIN}/`, `${ORIGIN}/`)],
+      titles: new Map([
+        [`${ORIGIN}/privacy`, 'Privacy Policy'],
+        [`${ORIGIN}/lonely-guide`, 'Lonely guide'],
+      ]),
+    })
+    const privacy = map.nodes.find((n) => n.url === `${ORIGIN}/privacy`)
+    const lonely = map.nodes.find((n) => n.url === `${ORIGIN}/lonely-guide`)
+    expect(privacy?.kind).not.toBe('orphan')
+    expect(lonely?.kind).toBe('orphan')
+    expect(map.metrics.orphanCount).toBe(1)
+  })
+
   it('marks pages more than 3 clicks from the homepage as deep (orange)', () => {
     const pages = [
       page(`${ORIGIN}/`),

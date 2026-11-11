@@ -46,8 +46,8 @@ describe('suggestLinkSources', () => {
     expect(out.map((s) => s.sourceUrl)).toEqual([
       'https://example.com/guides/ev-chargers-install',
       'https://example.com/',
-      'https://example.com/about',
     ])
+    expect(out.some((s) => s.sourceUrl.endsWith('/about'))).toBe(false)
     expect(out[0]?.reason).toMatch(/topic overlap/i)
   })
 

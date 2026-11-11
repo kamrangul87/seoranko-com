@@ -76,7 +76,7 @@ describe('POST /api/internal-link-map/suggest-fix', () => {
       requiresApproval: true,
       applied: false,
       merged: false,
-      findingCount: 2,
+      findingCount: 1,
     })
     expect(upsertFindings).toHaveBeenCalledTimes(1)
     const arg = upsertFindings.mock.calls[0]![0] as {
@@ -86,7 +86,6 @@ describe('POST /api/internal-link-map/suggest-fix', () => {
       true,
     )
     expect(arg.findings.map((f) => f.pageUrl).sort()).toEqual([
-      'https://example.com/',
       'https://example.com/blog',
     ])
   })

@@ -4,6 +4,7 @@
  */
 
 import { extractAnchors, isInternalHref, isSkippableHref } from '@/lib/fix-strategies/topic-1/extract-anchors'
+import { isUtilityPage } from '@/lib/internal-link-map/utility-page'
 import { pickRelatedSiblingUrls, type RelatedTarget } from './fix-add-related'
 
 export type RelatedArticlesVerdict = 'auto-add-related-articles'
@@ -75,7 +76,7 @@ export function detectMissingOutboundInternalLinks(opts: {
           return false
         }
       })()
-    if (!isContent) {
+    if (!isContent || isUtilityPage({ url: page.url, title: page.title, h1: page.h1 })) {
       ok.push({ pageUrl: page.url, verdict: 'not_content_page' })
       continue
     }

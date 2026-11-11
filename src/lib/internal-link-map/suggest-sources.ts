@@ -10,6 +10,7 @@ import type {
   LinkSourceSuggestion,
   Page2LinkCache,
 } from './types'
+import { isUtilityPage } from './utility-page'
 
 const STOP = new Set([
   'www',
@@ -70,6 +71,7 @@ export function suggestLinkSources(input: {
 }): LinkSourceSuggestion[] {
   const max = input.max ?? 5
   const target = norm(input.targetUrl)
+  if (isUtilityPage({ url: target })) return []
   const already = new Set<string>()
   for (const e of input.edges) {
     if (norm(e.target) === target) already.add(norm(e.source))
@@ -81,6 +83,7 @@ export function suggestLinkSources(input: {
   const push = (s: LinkSourceSuggestion) => {
     const key = norm(s.sourceUrl)
     if (seen.has(key) || key === target || already.has(key)) return
+    if (isUtilityPage({ url: key })) return
     seen.add(key)
     out.push({ ...s, sourceUrl: key, targetUrl: target })
   }

@@ -32,6 +32,21 @@ describe('shortNodeLabel', () => {
     expect(shortNodeLabel({ path: '/about' })).toBe('about')
   })
 
+  it('decodes stored HTML entities in titles before truncating', () => {
+    expect(
+      shortNodeLabel({
+        path: '/contact',
+        title: 'Vehicle History &amp; Support Team',
+      }),
+    ).toBe('Vehicle History & Suppo…')
+    expect(
+      shortNodeLabel({
+        path: '/contact',
+        title: 'Vehicle History &amp; Support Team',
+      }),
+    ).not.toContain('&amp;')
+  })
+
   it('labels the homepage as home', () => {
     expect(shortNodeLabel({ path: '/' })).toBe('home')
     expect(shortNodeLabel({ path: '', title: null })).toBe('home')

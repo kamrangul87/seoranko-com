@@ -141,6 +141,33 @@ describe('addRelatedArticlesBlock', () => {
     expect(result.html).not.toContain('data-seoranko-related-articles')
     expect(result.html).not.toMatch(/<\/footer>[\s\S]*<(aside|nav)/i)
     expect(result.html).not.toMatch(/<(aside|nav)[^>]*>\s*<h2>Related reading[\s\S]*<\/body>/i)
+    expect(result.html).toMatch(/\n  <\/ul>/)
+    expect(result.html).not.toMatch(/<\/li>\n<\/ul>/)
+  })
+
+  it('preserves the closing list tag indentation when appending into Autodun-shaped related nav', () => {
+    const page = `<article><p>MOT history</p></article>${AUTODUN_RELATED}`
+    const result = addRelatedArticlesBlock(page, [
+      {
+        href: '/blog/mot-changes-2026-dvsa-updates.html',
+        anchorText: 'MOT Changes 2026 DVSA Updates',
+      },
+    ])
+    expect(result.html).toContain('href="/blog/mot-changes-2026-dvsa-updates.html"')
+    expect(result.html).toMatch(/\n  <\/ul>/)
+    expect(result.html).not.toMatch(/<\/li>\n<\/ul>/)
+  })
+
+  it('does not append utility-page hrefs into a related list', () => {
+    const page = `<article><p>body</p></article>${AUTODUN_RELATED}`
+    const result = addRelatedArticlesBlock(page, [
+      { href: '/privacy', anchorText: 'Privacy Policy' },
+      { href: '/about', anchorText: 'About Autodun' },
+      { href: '/blog/mot-cost-uk-2026.html', anchorText: 'MOT Cost in the UK 2026' },
+    ])
+    expect(result.html).not.toContain('href="/privacy"')
+    expect(result.html).not.toContain('href="/about"')
+    expect(result.html).toContain('href="/blog/mot-cost-uk-2026.html"')
   })
 
   it('appends into a Related heading plus list inside a related-articles div', () => {

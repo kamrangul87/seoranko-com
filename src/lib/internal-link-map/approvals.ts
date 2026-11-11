@@ -1,4 +1,7 @@
-import { RELATED_TRANSFORM_VERSION } from '@/lib/fix-strategies/related-articles/anchors'
+import {
+  RELATED_TRANSFORM_VERSION,
+  decodeHtmlEntities,
+} from '@/lib/fix-strategies/related-articles/anchors'
 import {
   RELATED_LINK_TOPIC,
   RELATED_LINK_VERDICT,
@@ -82,6 +85,7 @@ export function approvalStatusFrom(input: {
   flow: ApprovalFlowInput
 }): LinkMapApprovalStatus {
   const ev = input.finding.evidenceValues || {}
+  if (ev.obsolete === true || ev.dismissed === true) return 'rejected'
   if (ev.rejected === true || typeof ev.rejectedAt === 'string') return 'rejected'
   if (input.finding.fixedAt || input.flow?.mergedAt) return 'merged'
   if (input.finding.status === 'resolved') return 'merged'
@@ -118,9 +122,12 @@ function targetsFrom(finding: ApprovalFindingInput): LinkMapApprovalTarget[] {
       weakMatch?: unknown
     }
     if (typeof rec.href === 'string' && typeof rec.anchorText === 'string') {
-      const item: LinkMapApprovalTarget = { href: rec.href, anchorText: rec.anchorText }
+      const item: LinkMapApprovalTarget = {
+        href: rec.href,
+        anchorText: decodeHtmlEntities(rec.anchorText),
+      }
       if (typeof rec.score === 'number') item.score = rec.score
-      if (typeof rec.reason === 'string') item.reason = rec.reason
+      if (typeof rec.reason === 'string') item.reason = decodeHtmlEntities(rec.reason)
       if (rec.weakMatch === true) item.weakMatch = true
       out.push(item)
     }
@@ -146,7 +153,8 @@ export function toLinkMapApproval(
   const top = targets[0]
   const ev = finding.evidenceValues || {}
   const verify = relatedVerifyFromUnknown(ev.relatedVerify)
-  const healthHint = typeof ev.linkHealthHint === 'string' ? ev.linkHealthHint : null
+  const healthHint =
+    typeof ev.linkHealthHint === 'string' ? decodeHtmlEntities(ev.linkHealthHint) : null
   return {
     id: finding.id,
     pageUrl: finding.pageUrl,

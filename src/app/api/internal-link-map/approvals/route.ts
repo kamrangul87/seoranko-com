@@ -16,6 +16,7 @@ import {
 import { commitRelatedFindingsBatch } from '@/lib/fix-strategies/findings-ui/fix-flow/commit-related-batch'
 import { loadOwnedConnectedSite } from '@/lib/internal-link-map'
 import {
+  approvalStatusFrom,
   canRegenerateRelated,
   isLinkHealthFinding,
   isRelatedReadingFinding,
@@ -23,6 +24,11 @@ import {
   toLinkMapApproval,
 } from '@/lib/internal-link-map/approvals'
 import type { LinkMapApproval } from '@/lib/internal-link-map/approvals'
+import {
+  isObsoleteEvidence,
+  markObsoleteUtilityFinding,
+  relatedFindingIsObsolete,
+} from '@/lib/internal-link-map/obsolete-related'
 import { verifyRelatedFindingLive } from '@/lib/internal-link-map/verify-related-live'
 import type { PersistedFindingRow } from '@/lib/fix-strategies/findings-ui/crawl/constants'
 
@@ -91,6 +97,22 @@ export async function GET(request: Request) {
   )
   const items: LinkMapApproval[] = []
   for (const row of related) {
+    const flow = await peekFixFlow(row.id, user.id)
+    const status = approvalStatusFrom({ finding: row, flow })
+    const alreadyObsolete = isObsoleteEvidence(row.evidenceValues)
+    if (alreadyObsolete) continue
+    if (status === 'pending' && relatedFindingIsObsolete(row)) {
+      const evidenceValues = markObsoleteUtilityFinding(row.evidenceValues)
+      await store.updateFindingSourceResolution({
+        findingId: row.id,
+        sourcePath: row.sourcePath,
+        sourceBlobSha: row.sourceBlobSha,
+        sourceResolvedAt: row.sourceResolvedAt,
+        sourceUnresolvedReason: row.sourceUnresolvedReason,
+        evidenceValues,
+      })
+      continue
+    }
     items.push(await approvalItem(row, user.id))
   }
 
@@ -154,7 +176,20 @@ export async function POST(request: Request) {
       ) {
         return NextResponse.json({ error: 'Finding not found' }, { status: 404 })
       }
+      if (isObsoleteEvidence(row.evidenceValues) || relatedFindingIsObsolete(row)) {
+        continue
+      }
       rows.push(row)
+    }
+    if (rows.length === 0) {
+      return NextResponse.json(
+        {
+          error: 'No related reading findings left to approve',
+          items: [],
+          merged: false as const,
+        },
+        { status: 400 },
+      )
     }
 
     const result = await commitRelatedFindingsBatch({

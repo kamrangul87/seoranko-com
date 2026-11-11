@@ -3,6 +3,7 @@
  * internal links. Reuses an existing related nav/aside/section when present.
  */
 
+import { isUtilityPage } from '@/lib/internal-link-map/utility-page'
 import {
   cleanRelatedAnchor,
   escapeHtmlAttr,
@@ -207,6 +208,7 @@ function resolvedTargets(targets: RelatedTarget[]): Array<{ href: string; anchor
   for (const t of targets.slice(0, MAX_RELATED_TARGETS)) {
     const href = t.href.trim()
     if (!href) continue
+    if (isUtilityPage({ url: href, href, title: t.title, h1: t.h1 })) continue
     const key = normHref(href)
     if (seen.has(key)) continue
     seen.add(key)
@@ -281,15 +283,19 @@ function appendToBlock(
       }
     } else if (host.tag === 'ul' || host.tag === 'ol') {
       const indent = inner.match(/\n([ \t]*)<li/i)?.[1] ?? '    '
+      const closeWs = inner.match(/(\n[ \t]*)$/)?.[1] ?? '\n'
       const items = missing.map((t) => itemHtml(inner, t.href, t.anchor)).join(`\n${indent}`)
-      inner = `${inner.replace(/\s*$/, '')}\n${indent}${items}\n`
+      inner = `${inner.replace(/\s*$/, '')}\n${indent}${items}${closeWs}`
     } else {
       const list = listCloseOffset(inner)
       const indent = inner.match(/\n([ \t]*)<li/i)?.[1] ?? '    '
       const items = missing.map((t) => itemHtml(inner, t.href, t.anchor)).join(`\n${indent}`)
       if (list) {
-        const before = inner.slice(0, list.index).replace(/\s*$/, '')
-        inner = `${before}\n${indent}${items}\n${indent.slice(0, Math.max(0, indent.length - 2))}</${list.tag}>${inner.slice(list.index + `</${list.tag}>`.length)}`
+        const closeTag = `</${list.tag}>`
+        const beforeRaw = inner.slice(0, list.index)
+        const closeWs = beforeRaw.match(/(\n[ \t]*)$/)?.[1] ?? '\n'
+        const before = beforeRaw.replace(/\s*$/, '')
+        inner = `${before}\n${indent}${items}${closeWs}${closeTag}${inner.slice(list.index + closeTag.length)}`
       } else {
         inner = `${inner}\n<ul>\n    ${items}\n</ul>`
       }
@@ -375,6 +381,7 @@ export function pickRelatedSiblingUrls(
       parts.pop()
       const cdir = parts.join('/') || '/'
       if (cdir !== dir) continue
+      if (isUtilityPage({ url: c.url, title: c.title, h1: c.h1 })) continue
       const href = p.pathname + p.search
       out.push({
         href,

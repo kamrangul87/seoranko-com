@@ -3,6 +3,8 @@
  * Deterministic, no network, no model.
  */
 
+import { decodeHtmlEntities } from '@/lib/fix-strategies/related-articles/anchors'
+
 export type PageSignals = {
   title: string | null
   h1: string | null
@@ -12,12 +14,14 @@ export type PageSignals = {
 }
 
 function stripTags(inner: string): string {
-  return inner
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+  return decodeHtmlEntities(
+    inner
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim(),
+  )
 }
 
 function metaContent(
