@@ -50,6 +50,15 @@ describe('extractPageSignals', () => {
     expect(s.noindex).toBe(true)
     expect(s.text).toMatch(/guide for drivers/i)
   })
+
+  it('decodes HTML entities in title and H1 so UI copy is not double-escaped', () => {
+    const s = extractPageSignals(
+      `<html><head><title>Contact Autodun – Vehicle History &amp; Support Team</title></head><body><h1>Vehicle History &amp; Support Team</h1></body></html>`,
+    )
+    expect(s.title).toBe('Contact Autodun – Vehicle History & Support Team')
+    expect(s.h1).toBe('Vehicle History & Support Team')
+    expect(s.title).not.toContain('&amp;')
+  })
 })
 
 describe('planSitewideInternalLinks', () => {
@@ -358,10 +367,45 @@ describe('planSitewideInternalLinks', () => {
     const plan = planSitewideInternalLinks({
       originUrl: ORIGIN,
       homepageUrl: `${ORIGIN}/`,
-      pages: [page('/'), page('/about', { title: 'About Autodun', h1: 'About Autodun' })],
+      pages: [
+        page('/'),
+        page('/blog/mot-cost-uk-2026.html', {
+          title: 'MOT Cost in the UK 2026',
+          h1: 'MOT Cost in the UK 2026',
+        }),
+      ],
       edges: [],
     })
-    const toAbout = plan.links.find((l) => l.targetUrl === `${ORIGIN}/about`)
-    expect(toAbout?.href).toBe('/about')
+    const toArticle = plan.links.find(
+      (l) => l.targetUrl === `${ORIGIN}/blog/mot-cost-uk-2026.html`,
+    )
+    expect(toArticle?.href).toBe('/blog/mot-cost-uk-2026.html')
+  })
+
+  it('never plans Related reading to or from utility pages', () => {
+    const plan = planSitewideInternalLinks({
+      originUrl: ORIGIN,
+      homepageUrl: `${ORIGIN}/`,
+      pages: [
+        page('/'),
+        page('/blog/mot-cost-uk-2026.html', {
+          title: 'MOT Cost in the UK 2026',
+          h1: 'MOT Cost in the UK 2026',
+        }),
+        page('/about', { title: 'About Autodun', h1: 'About Autodun' }),
+        page('/privacy', { title: 'Privacy Policy', h1: 'Privacy Policy' }),
+        page('/contact', {
+          title: 'Contact Autodun – Vehicle History & Support Team',
+          h1: 'Contact Autodun',
+        }),
+      ],
+      edges: [],
+    })
+    const involved = plan.links.filter(
+      (l) =>
+        /\/(about|privacy|contact)(\/|$|\.html)/i.test(l.sourceUrl) ||
+        /\/(about|privacy|contact)(\/|$|\.html)/i.test(l.targetUrl),
+    )
+    expect(involved).toEqual([])
   })
 })

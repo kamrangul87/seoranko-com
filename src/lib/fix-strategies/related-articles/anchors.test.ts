@@ -95,4 +95,13 @@ describe('HTML escaping', () => {
       'A &amp; B &lt;C&gt; &quot;D&quot;',
     )
   })
+
+  it('decodes stored entities before escaping so titles are not double-escaped', () => {
+    expect(escapeHtmlText('Vehicle History &amp; Support Team')).toBe(
+      'Vehicle History &amp; Support Team',
+    )
+    expect(escapeHtmlText('Vehicle History & Support Team')).toBe(
+      'Vehicle History &amp; Support Team',
+    )
+  })
 })

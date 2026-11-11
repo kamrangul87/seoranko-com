@@ -18,6 +18,12 @@ export {
   LINK_MAP_MAX_PAGES,
 } from './rebuild-edges'
 export { extractPageSignals } from './page-signals'
+export { isContentPage, isUtilityPage } from './utility-page'
+export {
+  isObsoleteEvidence,
+  markObsoleteUtilityFinding,
+  relatedFindingIsObsolete,
+} from './obsolete-related'
 export {
   planSitewideInternalLinks,
   LINK_PLAN_MAX_NEW_PER_SOURCE,

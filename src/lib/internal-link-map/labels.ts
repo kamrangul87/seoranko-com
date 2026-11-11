@@ -1,5 +1,7 @@
 /** Short map labels: title, else last path segment. Never the full URL. */
 
+import { decodeHtmlEntities } from '@/lib/fix-strategies/related-articles/anchors'
+
 export const LABEL_MAX_CHARS = 24
 export const LABEL_CHAR_W = 6.4
 export const LABEL_PILL_PAD_X = 7
@@ -9,7 +11,7 @@ export function shortNodeLabel(input: {
   path: string
   title?: string | null
 }): string {
-  const title = input.title?.replace(/\s+/g, ' ').trim()
+  const title = decodeHtmlEntities(input.title || '').replace(/\s+/g, ' ').trim()
   if (title) return truncateLabel(title)
   const path = (input.path || '').split('?')[0]!.replace(/\/+$/, '')
   if (!path || path === '/') return 'home'

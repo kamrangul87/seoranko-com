@@ -67,4 +67,46 @@ describe('healthFindingCandidate', () => {
       ),
     ).toBeNull()
   })
+
+  it('queues footer-only content orphans as related reading', () => {
+    const queued = healthFindingCandidate(
+      issue({
+        kind: 'orphan-footer-only',
+        sourceUrl: 'https://example.com/blog/mot-cost-uk-2026.html',
+        targetUrl: 'https://example.com/blog/lonely-guide.html',
+        href: '/blog/lonely-guide.html',
+        anchorText: 'Lonely guide',
+        hint: 'Only linked from the footer.',
+      }),
+    )
+    expect(queued?.verdict).toBe('auto-add-related-articles')
+    expect(queued?.pageUrl).toBe('https://example.com/blog/mot-cost-uk-2026.html')
+  })
+
+  it('does not queue footer-only related reading for utility pages as source or target', () => {
+    expect(
+      healthFindingCandidate(
+        issue({
+          kind: 'orphan-footer-only',
+          sourceUrl: 'https://example.com/',
+          targetUrl: 'https://example.com/privacy',
+          href: '/privacy',
+          anchorText: 'Privacy Policy',
+          hint: 'orphan footer only',
+        }),
+      ),
+    ).toBeNull()
+    expect(
+      healthFindingCandidate(
+        issue({
+          kind: 'orphan-footer-only',
+          sourceUrl: 'https://example.com/privacy',
+          targetUrl: 'https://example.com/blog/lonely-guide.html',
+          href: '/blog/lonely-guide.html',
+          anchorText: 'Lonely guide',
+          hint: 'orphan footer only',
+        }),
+      ),
+    ).toBeNull()
+  })
 })

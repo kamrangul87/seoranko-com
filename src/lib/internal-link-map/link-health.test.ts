@@ -153,4 +153,145 @@ describe('detectLinkHealthIssues', () => {
     const tooMany = issues.find((i) => i.kind === 'too-many-outlinks')
     expect(tooMany?.mechanical).toBe(false)
   })
+
+  it('does not flag utility pages as footer-only orphans', () => {
+    const privacyHtml = `<!doctype html><html><body>
+<main><h1>Privacy Policy</h1><p>How we use data.</p></main>
+</body></html>`
+    const homeHtml = `<!doctype html><html><body>
+<nav><a href="/privacy">Privacy Policy</a></nav>
+<main><article><h1>Home</h1></article></main>
+<footer><a href="/privacy">Privacy Policy</a><a href="/lonely">Lonely guide</a></footer>
+</body></html>`
+    const issues = detectLinkHealthIssues({
+      originUrl: ORIGIN,
+      homepageUrl: `${ORIGIN}/`,
+      pages: [
+        {
+          url: `${ORIGIN}/`,
+          title: 'Home',
+          h1: 'Home',
+          html: homeHtml,
+          httpStatus: 200,
+        },
+        {
+          url: `${ORIGIN}/privacy`,
+          title: 'Privacy Policy',
+          h1: 'Privacy Policy',
+          html: privacyHtml,
+          httpStatus: 200,
+        },
+        {
+          url: `${ORIGIN}/lonely`,
+          title: 'Lonely guide',
+          h1: 'Lonely guide',
+          html: ORPHAN_HTML,
+          httpStatus: 200,
+        },
+      ],
+      edges: [
+        edge('/', '/privacy', { anchorText: 'Privacy Policy' }),
+        edge('/', '/lonely', { anchorText: 'Lonely guide' }),
+      ],
+      htmlByUrl: {
+        [`${ORIGIN}/`]: homeHtml,
+        [`${ORIGIN}/privacy`]: privacyHtml,
+        [`${ORIGIN}/lonely`]: ORPHAN_HTML,
+      },
+    })
+    expect(issues.filter((i) => i.kind === 'orphan-footer-only').map((i) => i.targetUrl)).toEqual([
+      `${ORIGIN}/lonely`,
+    ])
+  })
+
+  it('decodes stored title entities in footer-only hints', () => {
+    const homeHtml = `<!doctype html><html><body>
+<footer><a href="/lonely">Lonely</a></footer>
+<main><p>Home</p></main>
+</body></html>`
+    const issues = detectLinkHealthIssues({
+      originUrl: ORIGIN,
+      homepageUrl: `${ORIGIN}/`,
+      pages: [
+        {
+          url: `${ORIGIN}/`,
+          title: 'Home',
+          h1: 'Home',
+          html: homeHtml,
+          httpStatus: 200,
+        },
+        {
+          url: `${ORIGIN}/lonely`,
+          title: 'Vehicle History &amp; Support Team',
+          h1: 'Vehicle History &amp; Support Team',
+          html: ORPHAN_HTML,
+          httpStatus: 200,
+        },
+      ],
+      edges: [edge('/', '/lonely', { anchorText: 'Lonely' })],
+      htmlByUrl: { [`${ORIGIN}/`]: homeHtml, [`${ORIGIN}/lonely`]: ORPHAN_HTML },
+    })
+    const orphan = issues.find((i) => i.kind === 'orphan-footer-only')
+    expect(orphan?.hint).toContain('Vehicle History & Support Team')
+    expect(orphan?.hint).not.toContain('&amp;')
+    expect(orphan?.anchorText).toBe('Vehicle History & Support Team')
+  })
+
+  it('uses a content page, not a utility page, as the footer-only related-reading source', () => {
+    const privacyHtml = `<!doctype html><html><body>
+<footer><a href="/lonely">Lonely guide</a></footer>
+<main><h1>Privacy Policy</h1></main>
+</body></html>`
+    const articleHtml = `<!doctype html><html><body>
+<main><article><h1>MOT cost</h1><p>Fees.</p></article></main>
+<footer><a href="/lonely">Lonely guide</a></footer>
+</body></html>`
+    const issues = detectLinkHealthIssues({
+      originUrl: ORIGIN,
+      homepageUrl: `${ORIGIN}/`,
+      pages: [
+        {
+          url: `${ORIGIN}/`,
+          title: 'Home',
+          h1: 'Home',
+          html: `<html><body><main><h1>Home</h1></main></body></html>`,
+          httpStatus: 200,
+        },
+        {
+          url: `${ORIGIN}/privacy`,
+          title: 'Privacy Policy',
+          h1: 'Privacy Policy',
+          html: privacyHtml,
+          httpStatus: 200,
+        },
+        {
+          url: `${ORIGIN}/blog/mot-cost-uk-2026.html`,
+          title: 'MOT cost UK 2026',
+          h1: 'MOT cost UK 2026',
+          html: articleHtml,
+          httpStatus: 200,
+        },
+        {
+          url: `${ORIGIN}/lonely`,
+          title: 'Lonely guide',
+          h1: 'Lonely guide',
+          html: ORPHAN_HTML,
+          httpStatus: 200,
+        },
+      ],
+      edges: [
+        edge('/privacy', '/lonely', { anchorText: 'Lonely guide' }),
+        edge('/blog/mot-cost-uk-2026.html', '/lonely', { anchorText: 'Lonely guide' }),
+      ],
+      htmlByUrl: {
+        [`${ORIGIN}/privacy`]: privacyHtml,
+        [`${ORIGIN}/blog/mot-cost-uk-2026.html`]: articleHtml,
+        [`${ORIGIN}/lonely`]: ORPHAN_HTML,
+      },
+    })
+    const orphan = issues.find((i) => i.kind === 'orphan-footer-only')
+    expect(orphan?.targetUrl).toBe(`${ORIGIN}/lonely`)
+    expect(orphan?.sourceUrl).toBe(`${ORIGIN}/blog/mot-cost-uk-2026.html`)
+    expect(orphan?.sourceUrl).not.toContain('/privacy')
+  })
 })

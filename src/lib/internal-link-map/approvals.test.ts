@@ -83,6 +83,23 @@ describe('approvalStatusFrom', () => {
       }),
     ).toBe('rejected')
   })
+
+  it('treats obsolete dismissed findings as rejected so they leave the pending batch', () => {
+    expect(
+      approvalStatusFrom({
+        finding: {
+          ...finding,
+          evidenceValues: {
+            ...finding.evidenceValues,
+            obsolete: true,
+            dismissed: true,
+            dismissedReason: 'utility-page',
+          },
+        },
+        flow: null,
+      }),
+    ).toBe('rejected')
+  })
 })
 
 describe('toLinkMapApproval', () => {
@@ -195,7 +212,42 @@ describe('toLinkMapApproval', () => {
     expect(pending.reason).toBe('Both pages cover MOT tests')
     expect(pending.weakMatch).toBe(true)
     expect(pending.verifyBadge).toBeNull()
+  })
 
+  it('decodes stored title entities in reasons, hints, and anchors', () => {
+    const item = toLinkMapApproval(
+      {
+        id: 'f-amp',
+        pageUrl: 'https://example.com/blog/a.html',
+        detail: 'Add related reading',
+        status: 'open',
+        fixedAt: null,
+        evidenceValues: {
+          relatedTargets: [
+            {
+              href: '/contact',
+              anchorText: 'Contact Autodun – Vehicle History &amp; Support Team',
+              reason:
+                '“Contact Autodun – Vehicle History &amp; Support Team” is only linked from the footer or nav.',
+            },
+          ],
+          linkHealthHint:
+            '“Contact Autodun – Vehicle History &amp; Support Team” is only linked from the footer or nav.',
+          neverAutoMerge: true,
+        },
+        proposedDiff: null,
+      },
+      null,
+    )
+    expect(item.reason).toContain('Vehicle History & Support Team')
+    expect(item.reason).not.toContain('&amp;')
+    expect(item.targets[0]?.anchorText).toBe(
+      'Contact Autodun – Vehicle History & Support Team',
+    )
+    expect(item.targets[0]?.anchorText).not.toContain('&amp;')
+  })
+
+  it('exposes a verify badge on merged related reading', () => {
     const merged = toLinkMapApproval(
       {
         id: 'f-verified',

@@ -36,8 +36,32 @@ const DANGLING = new Set([
 
 const ACRONYMS = new Set(['uk', 'us', 'eu', 'ev', 'mot', 'dvsa', 'seo', 'faq'])
 
+/** Decode named/numeric entities, including a stored `&amp;` that would otherwise double-escape. */
+export function decodeHtmlEntities(value: string): string {
+  let prev = ''
+  let out = value
+  for (let i = 0; i < 3 && out !== prev; i++) {
+    prev = out
+    out = out
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;|&apos;/gi, "'")
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
+        String.fromCharCode(parseInt(hex, 16)),
+      )
+      .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+      .replace(/&amp;/gi, '&')
+  }
+  return out
+}
+
 export function escapeHtmlText(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return decodeHtmlEntities(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
 }
 
 export function escapeHtmlAttr(s: string): string {
@@ -185,7 +209,7 @@ export function cleanRelatedAnchor(input: CleanAnchorInput): string {
   const pathCut = truncateAtWord(titleFromHref(href))
   const fromPath = stripDangling(pathCut.text, pathCut.truncated)
   const raws = [input.h1, input.title, input.stored, input.anchorText]
-    .map((s) => collapseWs(s || ''))
+    .map((s) => collapseWs(decodeHtmlEntities(s || '')))
     .filter(Boolean)
 
   const cleaned: string[] = []

@@ -66,6 +66,29 @@ describe('groupRelatedLinkItems', () => {
     })
     expect(grouped[0]?.targets[1]?.weakMatch).toBe(true)
   })
+
+  it('drops utility pages as sources and as related targets', () => {
+    const grouped = groupRelatedLinkItems([
+      {
+        sourceUrl: 'https://example.com/blog/mot-cost-uk-2026.html',
+        href: '/about',
+        anchorText: 'About Autodun',
+      },
+      {
+        sourceUrl: 'https://example.com/privacy',
+        href: '/blog/mot-history-check-uk.html',
+        anchorText: 'MOT History Check UK',
+      },
+      {
+        sourceUrl: 'https://example.com/blog/mot-cost-uk-2026.html',
+        href: '/blog/mot-history-check-uk.html',
+        anchorText: 'MOT History Check UK',
+      },
+    ])
+    expect(grouped).toHaveLength(1)
+    expect(grouped[0]?.sourceUrl).toBe('https://example.com/blog/mot-cost-uk-2026.html')
+    expect(grouped[0]?.targets.map((t) => t.href)).toEqual(['/blog/mot-history-check-uk.html'])
+  })
 })
 
 describe('relatedFindingCandidate', () => {

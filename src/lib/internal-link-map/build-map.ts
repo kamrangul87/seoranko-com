@@ -4,6 +4,7 @@
  */
 
 import { normalizeFixStrategyUrl } from '@/lib/fix-strategies/shared'
+import { isUtilityPage } from './utility-page'
 import type {
   CrawlJobStatus,
   CrawlLinkEdge,
@@ -62,9 +63,14 @@ function nodeKind(input: {
   depth: number | null
   broken: boolean
   redirect: boolean
+  utility: boolean
 }): LinkMapNodeKind {
   if (input.broken) return 'broken'
   if (input.redirect) return 'redirect'
+  if (input.utility) {
+    if (input.depth != null && input.depth > DEEP_CLICKS) return 'deep'
+    return 'ok'
+  }
   if (!input.isHome && input.inlinks === 0) return 'orphan'
   if (input.depth != null && input.depth > DEEP_CLICKS) return 'deep'
   return 'ok'
@@ -181,16 +187,18 @@ export function buildInternalLinkMap(
     const d = depth.has(n.url) ? depth.get(n.url)! : null
     const broken = isBrokenStatus(n.status, n.crawlStatus)
     const redirect = !broken && isRedirectPage(n.url, n.status, n.finalUrl)
+    const title = input.titles?.get(n.url) ?? null
+    const utility = isUtilityPage({ url: n.url, title })
     outNodes.push({
       url: n.url,
       path: pathOf(n.url),
-      title: input.titles?.get(n.url) ?? null,
+      title,
       inlinks,
       outlinks: n.outTargets.size,
       depth: d,
       status: n.status,
       crawlStatus: n.crawlStatus,
-      kind: nodeKind({ isHome, inlinks, depth: d, broken, redirect }),
+      kind: nodeKind({ isHome, inlinks, depth: d, broken, redirect, utility }),
       parentUrl: parent.has(n.url) ? parent.get(n.url)! : null,
     })
   }

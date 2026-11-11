@@ -9,6 +9,7 @@
 import { normalizeFixStrategyUrl } from '@/lib/fix-strategies/shared'
 import { cleanRelatedAnchor } from '@/lib/fix-strategies/related-articles/anchors'
 import { LINK_MAP_MAX_PAGES } from './rebuild-edges'
+import { isUtilityPage } from './utility-page'
 import type { CrawlLinkEdge } from './types'
 import {
   buildIdf,
@@ -145,6 +146,7 @@ function isEligible(p: PlanPageInput): boolean {
   if (p.noindex) return false
   if (isBrokenPage(p)) return false
   if (isRedirectPage(p)) return false
+  if (isUtilityPage({ url: p.url, title: p.title, h1: p.h1 })) return false
   return true
 }
 

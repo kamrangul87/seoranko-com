@@ -7,6 +7,7 @@ import type { RolledPersistCandidate } from '@/lib/fix-strategies/findings-ui/cr
 import { normalizeFixStrategyUrl } from '@/lib/fix-strategies/shared'
 import type { LinkHealthIssue } from './link-health'
 import { relatedFindingCandidate } from './queue-related-findings'
+import { isUtilityPage } from './utility-page'
 
 export function healthFindingCandidate(
   issue: LinkHealthIssue,
@@ -79,6 +80,12 @@ export function healthFindingCandidate(
   }
 
   if (issue.kind === 'orphan-footer-only' && issue.href && issue.targetUrl) {
+    if (
+      isUtilityPage({ url: issue.sourceUrl }) ||
+      isUtilityPage({ url: issue.targetUrl, href: issue.href, title: issue.anchorText })
+    ) {
+      return null
+    }
     const related = relatedFindingCandidate(issue.sourceUrl, [
       { href: issue.href, anchorText: issue.anchorText || issue.href },
     ])

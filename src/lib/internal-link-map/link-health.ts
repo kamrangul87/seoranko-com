@@ -4,6 +4,7 @@
  */
 
 import { isBareUrlAnchor, isGenericAnchor } from '@/lib/link-graph/generic-anchors'
+import { decodeHtmlEntities } from '@/lib/fix-strategies/related-articles/anchors'
 import { normalizeFixStrategyUrl } from '@/lib/fix-strategies/shared'
 import {
   anchorsMatchingHref,
@@ -13,6 +14,7 @@ import {
 } from './link-placement'
 import { overlayEdgeStatuses } from './load-map'
 import type { CrawlLinkEdge, CrawlLinkPage } from './types'
+import { isUtilityPage } from './utility-page'
 
 export const TOO_MANY_OUTLINKS = 80
 
@@ -114,7 +116,7 @@ export function detectLinkHealthIssues(input: {
   }
   const titleByUrl = new Map<string, string>()
   for (const p of input.pages) {
-    const t = (p.h1 || p.title || '').trim()
+    const t = decodeHtmlEntities((p.h1 || p.title || '').trim())
     if (t) titleByUrl.set(norm(p.url, origin), t)
   }
 
@@ -257,6 +259,15 @@ export function detectLinkHealthIssues(input: {
   for (const page of input.pages) {
     const url = norm(page.url, origin)
     if (url === home) continue
+    if (
+      isUtilityPage({
+        url,
+        title: page.title,
+        h1: page.h1,
+      })
+    ) {
+      continue
+    }
     const ins = inbound.get(url) ?? []
     if (ins.length === 0) continue
     let contentIn = 0
@@ -268,11 +279,13 @@ export function detectLinkHealthIssues(input: {
       else if (region && isChromeRegion(region)) chromeIn++
     }
     if (contentIn === 0 && chromeIn > 0) {
+      const contentSource = ins.find((e) => !isUtilityPage({ url: e.sourceUrl }))
+      if (!contentSource) continue
       const title = titleByUrl.get(url) || pathHint(url)
       push({
         id: `orphan-footer-only|${url}`,
         kind: 'orphan-footer-only',
-        sourceUrl: ins[0]!.sourceUrl,
+        sourceUrl: contentSource.sourceUrl,
         targetUrl: url,
         href: hrefOf(url),
         anchorText: title,
