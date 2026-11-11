@@ -16,19 +16,19 @@ import {
 import { commitRelatedFindingsBatch } from '@/lib/fix-strategies/findings-ui/fix-flow/commit-related-batch'
 import { loadOwnedConnectedSite } from '@/lib/internal-link-map'
 import {
-  approvalStatusFrom,
   canRegenerateRelated,
   isLinkHealthFinding,
   isRelatedReadingFinding,
-  sortLinkMapApprovals,
   toLinkMapApproval,
 } from '@/lib/internal-link-map/approvals'
-import type { LinkMapApproval } from '@/lib/internal-link-map/approvals'
 import {
   isObsoleteEvidence,
-  markObsoleteUtilityFinding,
   relatedFindingIsObsolete,
 } from '@/lib/internal-link-map/obsolete-related'
+import { evaluateLinkMapApprovals } from '@/lib/internal-link-map/evaluate-approvals'
+import { loadInContentInlinkKeysForRun } from '@/lib/internal-link-map/load-in-content-inlinks'
+import { safeLoadCustomerPrStates } from '@/lib/internal-link-map/load-customer-pr'
+import type { CustomerPrState } from '@/lib/internal-link-map/customer-pr'
 import { verifyRelatedFindingLive } from '@/lib/internal-link-map/verify-related-live'
 import type { PersistedFindingRow } from '@/lib/fix-strategies/findings-ui/crawl/constants'
 
@@ -95,30 +95,77 @@ export async function GET(request: Request) {
       row.siteId === site.id &&
       (isRelatedReadingFinding(row) || isLinkHealthFinding(row)),
   )
-  const items: LinkMapApproval[] = []
+
+  let inContentInlinkKeys = new Set<string>()
+  try {
+    const runs = await store.listRunsForSite(site.id)
+    const latest = runs[0]
+    if (latest) {
+      inContentInlinkKeys = await loadInContentInlinkKeysForRun({
+        runId: latest.id,
+        origin: latest.origin || `https://${site.domain}`,
+        siteId: site.id,
+        userId: user.id,
+        listJobsForRun: () => store.listJobsForRun(latest.id),
+      })
+    }
+  } catch {
+    inContentInlinkKeys = new Set()
+  }
+
+  const evaluatedRows = []
+  const prUrls: string[] = []
   for (const row of related) {
     const flow = await peekFixFlow(row.id, user.id)
-    const status = approvalStatusFrom({ finding: row, flow })
-    const alreadyObsolete = isObsoleteEvidence(row.evidenceValues)
-    if (alreadyObsolete) continue
-    if (status === 'pending' && relatedFindingIsObsolete(row)) {
-      const evidenceValues = markObsoleteUtilityFinding(row.evidenceValues)
-      await store.updateFindingSourceResolution({
-        findingId: row.id,
-        sourcePath: row.sourcePath,
-        sourceBlobSha: row.sourceBlobSha,
-        sourceResolvedAt: row.sourceResolvedAt,
-        sourceUnresolvedReason: row.sourceUnresolvedReason,
-        evidenceValues,
-      })
-      continue
-    }
-    items.push(await approvalItem(row, user.id))
+    if (flow?.prUrl) prUrls.push(flow.prUrl)
+    evaluatedRows.push({
+      finding: {
+        id: row.id,
+        pageUrl: row.pageUrl,
+        detail: row.detail,
+        status: row.status,
+        fixedAt: row.fixedAt,
+        evidenceValues: row.evidenceValues,
+        proposedDiff: row.proposedDiff,
+      },
+      flow,
+    })
+  }
+
+  let customerPrByUrl = new Map<string, CustomerPrState>()
+  try {
+    customerPrByUrl = await safeLoadCustomerPrStates({
+      userId: user.id,
+      domain: site.domain,
+      prUrls,
+    })
+  } catch {
+    customerPrByUrl = new Map()
+  }
+
+  const evaluated = evaluateLinkMapApprovals({
+    rows: evaluatedRows,
+    inContentInlinkKeys,
+    customerPrByUrl,
+  })
+
+  for (const write of evaluated.obsoleteWrites) {
+    const row = related.find((r) => r.id === write.findingId)
+    if (!row) continue
+    await store.updateFindingSourceResolution({
+      findingId: row.id,
+      sourcePath: row.sourcePath,
+      sourceBlobSha: row.sourceBlobSha,
+      sourceResolvedAt: row.sourceResolvedAt,
+      sourceUnresolvedReason: row.sourceUnresolvedReason,
+      evidenceValues: write.evidenceValues,
+    })
   }
 
   return NextResponse.json({
     siteId: site.id,
-    items: sortLinkMapApprovals(items),
+    items: evaluated.items,
+    history: evaluated.history,
     merged: false as const,
   })
 }

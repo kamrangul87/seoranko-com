@@ -61,6 +61,7 @@ export default function InternalLinkMapPage() {
   const [planBusy, setPlanBusy] = useState(false)
   const [planMsg, setPlanMsg] = useState<string | null>(null)
   const [approvals, setApprovals] = useState<LinkMapApprovalItem[]>([])
+  const [approvalHistory, setApprovalHistory] = useState<LinkMapApprovalItem[]>([])
   const [selectedApprovalIds, setSelectedApprovalIds] = useState<Set<string>>(
     new Set(),
   )
@@ -118,6 +119,7 @@ export default function InternalLinkMapPage() {
   const loadApprovals = useCallback(async (id: string) => {
     if (!id) {
       setApprovals([])
+      setApprovalHistory([])
       return
     }
     try {
@@ -127,7 +129,9 @@ export default function InternalLinkMapPage() {
       const body = (await res.json().catch(() => ({}))) as LinkMapApprovalsResponse
       if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`)
       const items = body.items || []
+      const history = body.history || []
       setApprovals(items)
+      setApprovalHistory(history)
       setSelectedApprovalIds(
         new Set(
           items
@@ -135,7 +139,7 @@ export default function InternalLinkMapPage() {
             .map((item) => item.id),
         ),
       )
-      const unverified = items.filter(
+      const unverified = history.filter(
         (item) => item.status === 'merged' && item.verifyBadge == null,
       )
       if (unverified.length > 0) {
@@ -156,11 +160,15 @@ export default function InternalLinkMapPage() {
             `/api/internal-link-map/approvals?siteId=${encodeURIComponent(id)}`,
           )
           const next = (await again.json().catch(() => ({}))) as LinkMapApprovalsResponse
-          if (again.ok) setApprovals(next.items || [])
+          if (again.ok) {
+            setApprovals(next.items || [])
+            setApprovalHistory(next.history || [])
+          }
         })
       }
     } catch {
       setApprovals([])
+      setApprovalHistory([])
     }
   }, [])
 
@@ -791,9 +799,14 @@ export default function InternalLinkMapPage() {
                 Related reading for this site. Approve opens the Fix Agent PR.
                 SEORANKO never auto-merges customer PRs.
               </p>
-              {approvals.length === 0 && (
+              {approvals.length === 0 && approvalHistory.length === 0 && (
                 <p className="text-xs text-[#9B9B9B] mt-3 leading-5">
                   Nothing queued yet. Send planned links, then approve them here.
+                </p>
+              )}
+              {approvals.length === 0 && approvalHistory.length > 0 && (
+                <p className="text-xs text-[#9B9B9B] mt-3 leading-5">
+                  Nothing waiting for approval. Opened and merged work is in History.
                 </p>
               )}
               {approvals.length > 0 && (
@@ -909,6 +922,56 @@ export default function InternalLinkMapPage() {
                     Approve all selected
                   </button>
                 </>
+              )}
+              {approvalHistory.length > 0 && (
+                <details className="mt-4">
+                  <summary className="cursor-pointer text-xs text-[#6B6B6B]">
+                    History ({approvalHistory.length})
+                  </summary>
+                  <ul className="mt-3 space-y-3">
+                    {approvalHistory.map((item) => (
+                      <li key={item.id} className="rounded-md border border-[#E8E8E4] p-2.5">
+                        <p className="text-xs text-[#0F0F0F] break-all leading-5">
+                          {item.pageUrl ? pathOf(item.pageUrl) : 'Page'}
+                        </p>
+                        <p className="text-xs text-[#9B9B9B] mt-0.5 leading-5">
+                          {item.targets.length} link{item.targets.length === 1 ? '' : 's'}
+                          {' · '}
+                          {STATUS_LABEL[item.status]}
+                          {item.score != null ? ` · ${Math.round(item.score * 100)}%` : ''}
+                        </p>
+                        {item.reason && (
+                          <p className="text-xs text-[#6B6B6B] mt-0.5 leading-5">{item.reason}</p>
+                        )}
+                        {item.targets.map((t) => (
+                          <p key={t.href} className="text-xs text-[#9B9B9B] mt-0.5 leading-5">
+                            “{t.anchorText}”
+                          </p>
+                        ))}
+                        {item.verifyBadge === 'verified' && (
+                          <span className="inline-block mt-1 text-[10px] uppercase tracking-wide rounded bg-[#E7F6EC] text-[#1B7F3A] px-1.5 py-0.5">
+                            Verified
+                          </span>
+                        )}
+                        {item.verifyBadge === 'problem' && (
+                          <span className="inline-block mt-1 text-[10px] uppercase tracking-wide rounded bg-[#FDECEC] text-[#E23D28] px-1.5 py-0.5">
+                            Problem
+                          </span>
+                        )}
+                        {item.prUrl && (
+                          <a
+                            href={item.prUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block text-xs text-[#FF6B2C] mt-1 break-all"
+                          >
+                            {item.prNumber != null ? `PR #${item.prNumber}` : 'Open PR'}
+                          </a>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
               )}
               {approvalMsg && (
                 <p className="mt-2 text-xs text-[#6B6B6B] leading-5 whitespace-pre-wrap">

@@ -204,6 +204,28 @@ export type CleanAnchorInput = {
   anchorText?: string | null
 }
 
+/** True when a stored related-reading anchor was cut off mid-phrase. */
+export function relatedAnchorLooksTruncated(
+  anchor: string,
+  href?: string | null,
+): boolean {
+  const t = collapseWs(decodeHtmlEntities(anchor || ''))
+  if (!t) return true
+  if (/[:]$/.test(t)) return true
+  if (/[…]$/.test(t) || /\.{2,}$/.test(t)) return true
+  const words = t.split(/\s+/).filter(Boolean)
+  const last = words[words.length - 1] || ''
+  if (isDanglingToken(last)) return true
+  const balanced = dropUnbalancedPunctuation(t)
+  if (balanced.length > 0 && balanced.length < t.length) return true
+  if (words.length <= 3 && /^(how|what|why|when|where|who)\b/i.test(t)) return true
+  if (href) {
+    const fromPath = titleFromHref(href)
+    if (fromPath && isStubOfPath(t, fromPath) && isDanglingToken(last)) return true
+  }
+  return false
+}
+
 export function cleanRelatedAnchor(input: CleanAnchorInput): string {
   const href = input.href || ''
   const pathCut = truncateAtWord(titleFromHref(href))

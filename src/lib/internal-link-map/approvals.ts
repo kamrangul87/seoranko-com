@@ -1,6 +1,8 @@
 import {
   RELATED_TRANSFORM_VERSION,
+  cleanRelatedAnchor,
   decodeHtmlEntities,
+  relatedAnchorLooksTruncated,
 } from '@/lib/fix-strategies/related-articles/anchors'
 import {
   RELATED_LINK_TOPIC,
@@ -122,9 +124,16 @@ function targetsFrom(finding: ApprovalFindingInput): LinkMapApprovalTarget[] {
       weakMatch?: unknown
     }
     if (typeof rec.href === 'string' && typeof rec.anchorText === 'string') {
+      const decoded = decodeHtmlEntities(rec.anchorText)
       const item: LinkMapApprovalTarget = {
         href: rec.href,
-        anchorText: decodeHtmlEntities(rec.anchorText),
+        anchorText: relatedAnchorLooksTruncated(decoded, rec.href)
+          ? cleanRelatedAnchor({
+              href: rec.href,
+              stored: decoded,
+              anchorText: decoded,
+            })
+          : decoded,
       }
       if (typeof rec.score === 'number') item.score = rec.score
       if (typeof rec.reason === 'string') item.reason = decodeHtmlEntities(rec.reason)
@@ -179,4 +188,24 @@ export function sortLinkMapApprovals(items: LinkMapApproval[]): LinkMapApproval[
     if (sb !== sa) return sb - sa
     return (a.pageUrl || a.id).localeCompare(b.pageUrl || b.id)
   })
+}
+
+export function isActionableLinkMapApproval(item: LinkMapApproval): boolean {
+  return item.status === 'pending' || item.status === 'pr_opened'
+}
+
+export function partitionLinkMapApprovals(items: LinkMapApproval[]): {
+  items: LinkMapApproval[]
+  history: LinkMapApproval[]
+} {
+  const actionable: LinkMapApproval[] = []
+  const history: LinkMapApproval[] = []
+  for (const item of items) {
+    if (isActionableLinkMapApproval(item)) actionable.push(item)
+    else if (item.status === 'merged' || item.status === 'approved') history.push(item)
+  }
+  return {
+    items: sortLinkMapApprovals(actionable),
+    history: sortLinkMapApprovals(history),
+  }
 }

@@ -27,6 +27,8 @@ vi.mock('@/lib/fix-strategies/findings-ui/crawl', () => ({
     getFinding: (...args: unknown[]) => getFinding(...args),
     updateFindingSourceResolution: (...args: unknown[]) =>
       updateFindingSourceResolution(...args),
+    listRunsForSite: async () => [],
+    listJobsForRun: async () => [],
   }),
 }))
 
@@ -251,6 +253,135 @@ describe('GET /api/internal-link-map/approvals', () => {
     expect(writes.every((w) => w.evidenceValues.dismissedReason === 'utility-page')).toBe(
       true,
     )
+  })
+
+  it('marks a PR-opened utility-page finding obsolete, not just pending ones', async () => {
+    loadOwned.mockResolvedValue({
+      id: 'site-1',
+      domain: 'example.com',
+      brand: null,
+    })
+    const aboutPr = {
+      ...relatedRow('66666666-6666-4666-8666-666666666666'),
+      pageUrl: 'https://example.com/blog/electric-car-mot-whats-checked-uk-2026.html',
+      evidenceValues: {
+        relatedTargets: [
+          {
+            href: '/about',
+            anchorText: "About Autodun: The UK's Smarter Car Ownership Platform (2026)",
+          },
+        ],
+        linkHealthKind: 'orphan-footer-only',
+        requiresApproval: true,
+        neverAutoMerge: true,
+      },
+    }
+    listFindings.mockResolvedValue([aboutPr])
+    peekFixFlow.mockResolvedValue({
+      step: 'committed',
+      prUrl: 'https://github.com/kamrangul87/autodun-ai/pull/69',
+      prNumber: 69,
+      mergedAt: null,
+    })
+    const { GET } = await import('./route')
+    const res = await GET(
+      new Request('http://localhost/api/internal-link-map/approvals?siteId=site-1'),
+    )
+    const body = await res.json()
+    expect(body.items).toEqual([])
+    expect(body.history).toEqual([])
+    expect(updateFindingSourceResolution).toHaveBeenCalledTimes(1)
+    const write = updateFindingSourceResolution.mock.calls[0][0] as {
+      evidenceValues: Record<string, unknown>
+    }
+    expect(write.evidenceValues.obsolete).toBe(true)
+    expect(write.evidenceValues.dismissedReason).toBe('utility-page')
+  })
+
+  it('puts merged findings in history and keeps pending in items', async () => {
+    loadOwned.mockResolvedValue({
+      id: 'site-1',
+      domain: 'example.com',
+      brand: null,
+    })
+    const pending = relatedRow()
+    const merged = {
+      ...relatedRow('77777777-7777-4777-8777-777777777777'),
+      pageUrl: 'https://example.com/blog/merged.html',
+      status: 'resolved',
+      fixedAt: '2026-11-10T12:00:00.000Z',
+      evidenceValues: {
+        relatedTargets: [{ href: '/blog/b.html', anchorText: 'MOT History Check UK' }],
+        relatedTransformVersion: 3,
+        relatedVerify: {
+          verifiedAt: '2026-11-10T12:05:00.000Z',
+          ok: true,
+          links: [{ href: '/blog/b.html', ok: true, problems: [] }],
+        },
+        neverAutoMerge: true,
+      },
+    }
+    listFindings.mockResolvedValue([pending, merged])
+    peekFixFlow.mockImplementation(async (id: string) =>
+      id === merged.id
+        ? {
+            step: 'verified',
+            prUrl: 'https://github.com/ex/repo/pull/90',
+            prNumber: 90,
+            mergedAt: '2026-11-10T12:00:00.000Z',
+          }
+        : null,
+    )
+    const { GET } = await import('./route')
+    const res = await GET(
+      new Request('http://localhost/api/internal-link-map/approvals?siteId=site-1'),
+    )
+    const body = await res.json()
+    expect(body.items.map((i: { id: string }) => i.id)).toEqual([pending.id])
+    expect(body.history).toHaveLength(1)
+    expect(body.history[0]).toMatchObject({
+      id: merged.id,
+      status: 'merged',
+      verifyBadge: 'verified',
+    })
+    expect(body.merged).toBe(false)
+  })
+
+  it('obsoletes approved truncated-anchor findings so they never reach History', async () => {
+    loadOwned.mockResolvedValue({
+      id: 'site-1',
+      domain: 'example.com',
+      brand: null,
+    })
+    const cutOff = {
+      ...relatedRow('88888888-8888-4888-8888-888888888888'),
+      pageUrl: 'https://example.com/blog/mot-advisories-explained-uk.html',
+      evidenceValues: {
+        relatedTargets: [
+          { href: '/blog/mot-history-check-uk.html', anchorText: 'How to find' },
+        ],
+        neverAutoMerge: true,
+      },
+    }
+    listFindings.mockResolvedValue([cutOff])
+    peekFixFlow.mockResolvedValue({
+      step: 'approved',
+      approvedAt: '2026-11-10',
+      prUrl: null,
+    })
+    const { GET } = await import('./route')
+    const res = await GET(
+      new Request('http://localhost/api/internal-link-map/approvals?siteId=site-1'),
+    )
+    const body = await res.json()
+    expect(body.items).toEqual([])
+    expect(body.history).toEqual([])
+    expect(updateFindingSourceResolution).toHaveBeenCalled()
+    const write = updateFindingSourceResolution.mock.calls[0][0] as {
+      evidenceValues: Record<string, unknown>
+    }
+    expect(write.evidenceValues.obsolete).toBe(true)
+    expect(write.evidenceValues.dismissedReason).toBe('truncated-anchor')
   })
 })
 

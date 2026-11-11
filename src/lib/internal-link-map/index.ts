@@ -21,6 +21,7 @@ export { extractPageSignals } from './page-signals'
 export { isContentPage, isUtilityPage } from './utility-page'
 export {
   isObsoleteEvidence,
+  markObsoleteFinding,
   markObsoleteUtilityFinding,
   relatedFindingIsObsolete,
 } from './obsolete-related'
@@ -40,9 +41,11 @@ export {
   toLinkMapApproval,
   canRegenerateRelated,
   sortLinkMapApprovals,
+  partitionLinkMapApprovals,
 } from './approvals'
 export type { LinkMapApproval, LinkMapApprovalStatus } from './approvals'
-export { detectLinkHealthIssues } from './link-health'
+export { evaluateLinkMapApprovals } from './evaluate-approvals'
+export { detectLinkHealthIssues, collectInContentInlinkKeys } from './link-health'
 export type { LinkHealthIssue } from './link-health'
 export { scoreLinkRelevance, RELEVANCE_DROP_THRESHOLD } from './relevance'
 export {

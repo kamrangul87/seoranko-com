@@ -102,6 +102,7 @@ export type LinkHealthResponse = {
 export type LinkMapApprovalsResponse = {
   siteId: string
   items: LinkMapApprovalItem[]
+  history?: LinkMapApprovalItem[]
   merged: false
   error?: string
 }

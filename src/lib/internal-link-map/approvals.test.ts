@@ -3,6 +3,7 @@ import { RELATED_TRANSFORM_VERSION } from '@/lib/fix-strategies/related-articles
 import {
   approvalStatusFrom,
   isRelatedReadingFinding,
+  partitionLinkMapApprovals,
   sortLinkMapApprovals,
   toLinkMapApproval,
 } from './approvals'
@@ -247,6 +248,29 @@ describe('toLinkMapApproval', () => {
     expect(item.targets[0]?.anchorText).not.toContain('&amp;')
   })
 
+  it('never surfaces a truncated mid-phrase stored anchor', () => {
+    const item = toLinkMapApproval(
+      {
+        id: 'f-cut',
+        pageUrl: 'https://example.com/blog/a.html',
+        detail: 'Add related reading',
+        status: 'open',
+        fixedAt: null,
+        evidenceValues: {
+          relatedTargets: [
+            { href: '/blog/mot-cost-uk-2026.html', anchorText: 'MOT cost in' },
+          ],
+          neverAutoMerge: true,
+        },
+        proposedDiff: null,
+      },
+      null,
+    )
+    expect(item.targets[0]?.anchorText.toLowerCase()).not.toMatch(/\bin$/)
+    expect(item.targets[0]?.anchorText).not.toBe('MOT cost in')
+    expect(item.targets[0]?.anchorText.length).toBeGreaterThan('MOT cost in'.length)
+  })
+
   it('exposes a verify badge on merged related reading', () => {
     const merged = toLinkMapApproval(
       {
@@ -309,5 +333,85 @@ describe('sortLinkMapApprovals', () => {
       'strong',
       'weak',
     ])
+  })
+})
+
+describe('partitionLinkMapApprovals', () => {
+  it('keeps pending and open-PR rows actionable, and sends merged/approved to history', () => {
+    const pending = toLinkMapApproval(
+      {
+        id: 'p',
+        pageUrl: 'https://example.com/blog/p.html',
+        detail: 'Add related reading',
+        status: 'open',
+        fixedAt: null,
+        evidenceValues: {
+          relatedTargets: [{ href: '/b', anchorText: 'B', score: 0.9 }],
+          neverAutoMerge: true,
+        },
+        proposedDiff: null,
+      },
+      null,
+    )
+    const opened = toLinkMapApproval(
+      {
+        id: 'o',
+        pageUrl: 'https://example.com/blog/o.html',
+        detail: 'Add related reading',
+        status: 'open',
+        fixedAt: null,
+        evidenceValues: {
+          relatedTargets: [{ href: '/c', anchorText: 'C', score: 0.5 }],
+          relatedTransformVersion: 3,
+          neverAutoMerge: true,
+        },
+        proposedDiff: null,
+      },
+      {
+        step: 'committed',
+        prUrl: 'https://github.com/ex/repo/pull/12',
+        prNumber: 12,
+      },
+    )
+    const merged = toLinkMapApproval(
+      {
+        id: 'm',
+        pageUrl: 'https://example.com/blog/m.html',
+        detail: 'Add related reading',
+        status: 'resolved',
+        fixedAt: '2026-11-10T12:00:00.000Z',
+        evidenceValues: {
+          relatedTargets: [{ href: '/d', anchorText: 'D', score: 0.4 }],
+          relatedVerify: {
+            verifiedAt: '2026-11-10T12:05:00.000Z',
+            ok: false,
+            links: [{ href: '/d', ok: false, problems: ['nofollow'] }],
+          },
+          neverAutoMerge: true,
+        },
+        proposedDiff: null,
+      },
+      { step: 'verified', mergedAt: '2026-11-10T12:00:00.000Z' },
+    )
+    const approved = toLinkMapApproval(
+      {
+        id: 'a',
+        pageUrl: 'https://example.com/blog/a.html',
+        detail: 'Add related reading',
+        status: 'open',
+        fixedAt: null,
+        evidenceValues: {
+          relatedTargets: [{ href: '/e', anchorText: 'E', score: 0.1 }],
+          relatedTransformVersion: 3,
+          neverAutoMerge: true,
+        },
+        proposedDiff: null,
+      },
+      { step: 'approved', approvedAt: '2026-11-10' },
+    )
+    const split = partitionLinkMapApprovals([approved, merged, opened, pending])
+    expect(split.items.map((i) => i.id)).toEqual(['p', 'o'])
+    expect(split.history.map((i) => i.id)).toEqual(['m', 'a'])
+    expect(split.history.find((i) => i.id === 'm')?.verifyBadge).toBe('problem')
   })
 })
