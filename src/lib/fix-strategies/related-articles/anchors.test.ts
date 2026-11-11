@@ -3,6 +3,7 @@ import {
   cleanRelatedAnchor,
   escapeHtmlAttr,
   escapeHtmlText,
+  relatedAnchorLooksTruncated,
 } from './anchors'
 
 describe('cleanRelatedAnchor', () => {
@@ -85,6 +86,43 @@ describe('cleanRelatedAnchor', () => {
     })
     expect(anchor).not.toBe('EV charging')
     expect(anchor.toLowerCase()).toMatch(/reliability/)
+  })
+})
+
+describe('relatedAnchorLooksTruncated', () => {
+  it('flags old pre-v3 cut-offs that end mid-phrase', () => {
+    expect(relatedAnchorLooksTruncated('MOT cost in')).toBe(true)
+    expect(relatedAnchorLooksTruncated('How to find')).toBe(true)
+    expect(
+      relatedAnchorLooksTruncated(
+        'MOT cost in',
+        '/blog/mot-cost-uk-2026.html',
+      ),
+    ).toBe(true)
+  })
+
+  it('flags a cut-off that ends on a dangling preposition', () => {
+    expect(
+      relatedAnchorLooksTruncated(
+        'EV charging on',
+        '/blog/ev-charging-reliability-uk.html',
+      ),
+    ).toBe(true)
+  })
+
+  it('leaves a complete H1-style phrase alone', () => {
+    expect(
+      relatedAnchorLooksTruncated(
+        'MOT Changes 2026: DVSA Updates',
+        '/blog/mot-changes-2026-dvsa-updates.html',
+      ),
+    ).toBe(false)
+    expect(
+      relatedAnchorLooksTruncated(
+        'ULEZ Checker UK — What ULEZ Compliance Really Means for Drivers',
+        '/ulez-checker-uk',
+      ),
+    ).toBe(false)
   })
 })
 

@@ -14,6 +14,7 @@ import {
 } from './link-placement'
 import { overlayEdgeStatuses } from './load-map'
 import type { CrawlLinkEdge, CrawlLinkPage } from './types'
+import { hrefMatchKeys } from './obsolete-related'
 import { isUtilityPage } from './utility-page'
 
 export const TOO_MANY_OUTLINKS = 80
@@ -81,6 +82,32 @@ function pathHint(url: string): string {
   } catch {
     return url
   }
+}
+
+/** URLs/paths that currently have at least one in-content (article/main) inlink. */
+export function collectInContentInlinkKeys(input: {
+  originUrl: string
+  edges: CrawlLinkEdge[]
+  htmlByUrl?: Record<string, string | null | undefined>
+}): Set<string> {
+  const origin = input.originUrl
+  const htmlByUrl = new Map<string, string>()
+  if (input.htmlByUrl) {
+    for (const [url, html] of Object.entries(input.htmlByUrl)) {
+      if (html) htmlByUrl.set(norm(url, origin), html)
+    }
+  }
+  const keys = new Set<string>()
+  for (const e of input.edges) {
+    const source = norm(e.sourceUrl, origin)
+    const target = norm(e.targetUrl, origin)
+    const html = htmlByUrl.get(source)
+    const region = regionForEdge(html, e.hrefRaw, source)
+    if (!region || !isContentRegion(region)) continue
+    for (const k of hrefMatchKeys(target, origin)) keys.add(k)
+    for (const k of hrefMatchKeys(e.hrefRaw, origin)) keys.add(k)
+  }
+  return keys
 }
 
 export function detectLinkHealthIssues(input: {

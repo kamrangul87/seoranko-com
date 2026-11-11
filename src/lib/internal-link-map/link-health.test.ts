@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { detectLinkHealthIssues } from './link-health'
+import { collectInContentInlinkKeys, detectLinkHealthIssues } from './link-health'
 import type { CrawlLinkEdge } from './types'
 
 const ORIGIN = 'https://example.com'
@@ -293,5 +293,35 @@ describe('detectLinkHealthIssues', () => {
     expect(orphan?.targetUrl).toBe(`${ORIGIN}/lonely`)
     expect(orphan?.sourceUrl).toBe(`${ORIGIN}/blog/mot-cost-uk-2026.html`)
     expect(orphan?.sourceUrl).not.toContain('/privacy')
+  })
+})
+
+describe('collectInContentInlinkKeys', () => {
+  it('includes targets linked from article/main and ignores footer/nav-only inlinks', () => {
+    const articleHtml = `<!doctype html><html><body>
+<main><article>
+  <h1>MOT changes 2026</h1>
+  <h2>Related</h2>
+  <ul><li><a href="/ulez-checker-uk">ULEZ Checker UK</a></li></ul>
+</article></main>
+<footer><a href="/lonely">Lonely guide</a></footer>
+</body></html>`
+    const keys = collectInContentInlinkKeys({
+      originUrl: ORIGIN,
+      edges: [
+        edge('/blog/mot-changes-2026-dvsa-updates.html', '/ulez-checker-uk', {
+          anchorText: 'ULEZ Checker UK',
+        }),
+        edge('/', '/lonely', { anchorText: 'Lonely guide' }),
+      ],
+      htmlByUrl: {
+        [`${ORIGIN}/blog/mot-changes-2026-dvsa-updates.html`]: articleHtml,
+        [`${ORIGIN}/`]: HOME_HTML,
+      },
+    })
+    expect(keys.has(`${ORIGIN}/ulez-checker-uk`)).toBe(true)
+    expect(keys.has('/ulez-checker-uk')).toBe(true)
+    expect(keys.has(`${ORIGIN}/lonely`)).toBe(false)
+    expect(keys.has('/lonely')).toBe(false)
   })
 })
