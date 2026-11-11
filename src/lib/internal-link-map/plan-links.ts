@@ -19,7 +19,12 @@ import {
 } from './relevance'
 
 export const LINK_PLAN_MAX_NEW_PER_SOURCE = 4
+export const LINK_PLAN_MAX_NEW_INBOUND_PER_TARGET = 4
 export const LINK_PLAN_ORPHAN_INBOUND = 2
+
+export function defaultSelectedPlanLinkIds(links: PlannedLink[]): string[] {
+  return links.filter((l) => !l.weakMatch).map((l) => l.id)
+}
 const DEEP_CLICKS = 3
 
 const STOP = new Set([
@@ -395,6 +400,9 @@ export function planSitewideInternalLinks(input: {
     const pair = `${source}\0${target}`
     if (existing.has(pair) || plannedPairs.has(pair)) return false
     if ((newCount.get(source) ?? 0) >= cap) return false
+    if ((inboundPlanned.get(target) ?? 0) >= LINK_PLAN_MAX_NEW_INBOUND_PER_TARGET) {
+      return false
+    }
     return true
   }
 
@@ -488,6 +496,11 @@ export function planSitewideInternalLinks(input: {
           const sa = scoreLinkRelevance(toRelevancePage(m), toRelevancePage(a), { idf }).score
           const sb = scoreLinkRelevance(toRelevancePage(m), toRelevancePage(b), { idf }).score
           if (sb !== sa) return sb - sa
+          const inA =
+            (inboundExisting.get(a.url) ?? 0) + (inboundPlanned.get(a.url) ?? 0)
+          const inB =
+            (inboundExisting.get(b.url) ?? 0) + (inboundPlanned.get(b.url) ?? 0)
+          if (inA !== inB) return inA - inB
           return a.url.localeCompare(b.url)
         })
         let added = 0
@@ -529,9 +542,12 @@ export function planSitewideInternalLinks(input: {
             ...siblings.slice(selfIdx + 1, selfIdx + 4),
           ]
     around.sort((a, b) => {
-      const sa = jaccard(tokens(target), tokens(a))
-      const sb = jaccard(tokens(target), tokens(b))
+      const sa = scoreLinkRelevance(toRelevancePage(target), toRelevancePage(a), { idf }).score
+      const sb = scoreLinkRelevance(toRelevancePage(target), toRelevancePage(b), { idf }).score
       if (sb !== sa) return sb - sa
+      const inA = inboundExisting.get(a.url) ?? 0
+      const inB = inboundExisting.get(b.url) ?? 0
+      if (inA !== inB) return inA - inB
       return a.url.localeCompare(b.url)
     })
     for (const s of around) push(s.url)

@@ -64,6 +64,12 @@ function hrefOf(url: string): string {
   }
 }
 
+function isInContentInlink(region: LinkRegion): boolean {
+  if (isChromeRegion(region)) return false
+  if (region === 'after-body') return false
+  return isContentRegion(region) || region === 'aside' || region === 'other'
+}
+
 function regionForEdge(
   html: string | null | undefined,
   href: string,
@@ -72,7 +78,7 @@ function regionForEdge(
   if (!html) return null
   const matches = anchorsMatchingHref(html, href, pageUrl)
   if (matches.length === 0) return null
-  if (matches.some((a) => isContentRegion(a.region))) return 'article'
+  if (matches.some((a) => isInContentInlink(a.region))) return 'article'
   return matches[0]!.region
 }
 
@@ -84,7 +90,7 @@ function pathHint(url: string): string {
   }
 }
 
-/** URLs/paths that currently have at least one in-content (article/main) inlink. */
+/** URLs/paths that currently have at least one in-content inlink (not nav/footer). */
 export function collectInContentInlinkKeys(input: {
   originUrl: string
   edges: CrawlLinkEdge[]
@@ -103,7 +109,7 @@ export function collectInContentInlinkKeys(input: {
     const target = norm(e.targetUrl, origin)
     const html = htmlByUrl.get(source)
     const region = regionForEdge(html, e.hrefRaw, source)
-    if (!region || !isContentRegion(region)) continue
+    if (!region || !isInContentInlink(region)) continue
     for (const k of hrefMatchKeys(target, origin)) keys.add(k)
     for (const k of hrefMatchKeys(e.hrefRaw, origin)) keys.add(k)
   }
@@ -283,6 +289,14 @@ export function detectLinkHealthIssues(input: {
     }
   }
 
+  const htmlRecord: Record<string, string> = {}
+  for (const [k, v] of htmlByUrl) htmlRecord[k] = v
+  const inContentKeys = collectInContentInlinkKeys({
+    originUrl: origin,
+    edges,
+    htmlByUrl: htmlRecord,
+  })
+
   for (const page of input.pages) {
     const url = norm(page.url, origin)
     if (url === home) continue
@@ -295,6 +309,7 @@ export function detectLinkHealthIssues(input: {
     ) {
       continue
     }
+    if (hrefMatchKeys(url, origin).some((k) => inContentKeys.has(k))) continue
     const ins = inbound.get(url) ?? []
     if (ins.length === 0) continue
     let contentIn = 0
@@ -302,7 +317,7 @@ export function detectLinkHealthIssues(input: {
     for (const e of ins) {
       const html = htmlByUrl.get(e.sourceUrl)
       const region = regionForEdge(html, e.hrefRaw, e.sourceUrl)
-      if (region && isContentRegion(region)) contentIn++
+      if (region && isInContentInlink(region)) contentIn++
       else if (region && isChromeRegion(region)) chromeIn++
     }
     if (contentIn === 0 && chromeIn > 0) {

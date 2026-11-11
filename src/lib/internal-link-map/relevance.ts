@@ -1,7 +1,7 @@
 /**
  * Source→target relevance for internal links.
- * TF-IDF cosine over stored title/H1/headings/text, cluster match, and
- * same-intent tags. Deterministic, no paid APIs.
+ * Field-weighted TF-IDF over title/H1/headings/main content, site-wide IDF,
+ * and intent tags from title/H1/headings only. Deterministic, no paid APIs.
  */
 
 export const RELEVANCE_DROP_THRESHOLD = 0.28
@@ -37,6 +37,8 @@ const STOP = new Set([
   'how',
   'what',
   'year',
+  'guide',
+  'guides',
 ])
 
 const GENERIC_CLUSTERS = new Set([
@@ -50,12 +52,15 @@ const GENERIC_CLUSTERS = new Set([
   'site',
 ])
 
-type IntentRule = { tag: string; label: string; terms: string[]; distinctive: string[] }
+type IntentRule = { tag: string; terms: string[]; distinctive: string[] }
 
+/**
+ * Scoring-only topic tags. Never used as reason labels — reasons come from
+ * the strongest shared title/heading terms of the two pages.
+ */
 const INTENT_RULES: IntentRule[] = [
   {
     tag: 'ev-charging',
-    label: 'EV charging',
     terms: [
       'ev',
       'electric',
@@ -66,31 +71,26 @@ const INTENT_RULES: IntentRule[] = [
       'tesla',
       'ccs',
       'supercharger',
-      'motorway',
     ],
     distinctive: ['ev', 'charger', 'charging', 'chargepoint', 'wallbox', 'tesla', 'ccs', 'supercharger'],
   },
   {
     tag: 'mot-test',
-    label: 'MOT tests',
     terms: ['mot', 'retest', 'dvsa', 'motorbike'],
     distinctive: ['mot', 'retest', 'dvsa'],
   },
   {
     tag: 'vehicle-history',
-    label: 'vehicle history checks',
     terms: ['history', 'mileage', 'lookup'],
     distinctive: ['history', 'mileage'],
   },
   {
     tag: 'insurance',
-    label: 'car insurance',
     terms: ['insurance', 'premium'],
     distinctive: ['insurance'],
   },
   {
     tag: 'road-tax',
-    label: 'road tax',
     terms: ['ved', 'roadtax'],
     distinctive: ['ved', 'roadtax'],
   },
@@ -125,10 +125,14 @@ export function tokenizeForRelevance(s: string): string[] {
   return out
 }
 
+function titleHeadingDocument(page: RelevancePage): string {
+  return [page.title, page.h1, ...(page.headings ?? [])].filter(Boolean).join(' ')
+}
+
 export function pageDocument(page: RelevancePage): string {
-  return [page.title, page.h1, ...(page.headings ?? []), page.text]
-    .filter(Boolean)
-    .join(' ')
+  const title = titleHeadingDocument(page)
+  const text = page.text || ''
+  return [title, title, title, text].filter(Boolean).join(' ')
 }
 
 export function buildIdf(pages: RelevancePage[]): Map<string, number> {
@@ -140,7 +144,8 @@ export function buildIdf(pages: RelevancePage[]): Map<string, number> {
   }
   const idf = new Map<string, number>()
   for (const [term, count] of df) {
-    idf.set(term, Math.log((1 + n) / (1 + count)) + 1)
+    const specificity = n <= 2 ? 1 : 1 - count / n
+    idf.set(term, Math.log((1 + n) / (1 + count)) * specificity)
   }
   return idf
 }
@@ -151,7 +156,8 @@ function tfidfVector(tokens: string[], idf: Map<string, number>): Map<string, nu
   const vec = new Map<string, number>()
   const len = Math.max(1, tokens.length)
   for (const [term, count] of tf) {
-    vec.set(term, (count / len) * (idf.get(term) ?? 1))
+    const weight = (count / len) * (idf.get(term) ?? 0)
+    if (weight > 0) vec.set(term, weight)
   }
   return vec
 }
@@ -189,10 +195,6 @@ function intentTags(tokens: Set<string>): string[] {
   return tags
 }
 
-function intentLabel(tag: string): string {
-  return INTENT_RULES.find((r) => r.tag === tag)?.label ?? tag
-}
-
 function shortTopic(page: RelevancePage): string {
   const raw = (page.h1 || page.title || '').replace(/\s+/g, ' ').trim()
   if (raw.length >= 8) return raw.length > 48 ? `${raw.slice(0, 45).trim()}…` : raw
@@ -205,13 +207,31 @@ function shortTopic(page: RelevancePage): string {
   }
 }
 
-function topShared(a: string[], b: Set<string>, limit = 4): string[] {
-  const counts = new Map<string, number>()
+function topShared(
+  a: string[],
+  b: Set<string>,
+  idf: Map<string, number>,
+  limit = 4,
+): string[] {
+  const weights = new Map<string, number>()
   for (const t of a) {
     if (!b.has(t)) continue
-    counts.set(t, (counts.get(t) ?? 0) + 1)
+    const w = idf.get(t) ?? 0
+    if (w <= 0) continue
+    weights.set(t, (weights.get(t) ?? 0) + w)
   }
-  return [...counts.entries()]
+  if (weights.size === 0) {
+    const fallback = new Map<string, number>()
+    for (const t of a) {
+      if (!b.has(t)) continue
+      fallback.set(t, (fallback.get(t) ?? 0) + 1)
+    }
+    return [...fallback.entries()]
+      .sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))
+      .slice(0, limit)
+      .map(([t]) => t)
+  }
+  return [...weights.entries()]
     .sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))
     .slice(0, limit)
     .map(([t]) => t)
@@ -234,21 +254,14 @@ function reasonFor(input: {
   target: RelevancePage
   band: RelevanceBand
   sharedTerms: string[]
-  sharedIntent: string[]
   cluster: string | null
 }): string {
   const shared = input.sharedTerms.slice(0, 3).join(', ')
   if (input.band === 'drop') {
     return `${shortTopic(input.source)} and ${shortTopic(input.target)} are different topics`
   }
-  if (input.sharedIntent.length > 0) {
-    const label = intentLabel(input.sharedIntent[0]!)
-    return shared
-      ? `Both pages cover ${label} (${shared})`
-      : `Both pages cover ${label}`
-  }
   if (input.band === 'strong' && shared) {
-    return `Related by shared heading terms: ${shared}`
+    return `Both pages cover ${shared}`
   }
   if (input.band === 'weak') {
     return shared
@@ -258,7 +271,7 @@ function reasonFor(input: {
         : 'Loose topical overlap — weak match'
   }
   return shared
-    ? `Shared heading terms: ${shared}`
+    ? `Related by shared terms: ${shared}`
     : 'Related pages in the same section'
 }
 
@@ -267,30 +280,35 @@ export function scoreLinkRelevance(
   target: RelevancePage,
   opts?: { idf?: Map<string, number> },
 ): RelevanceScore {
+  const srcFocus = tokenizeForRelevance(titleHeadingDocument(source))
+  const tgtFocus = tokenizeForRelevance(titleHeadingDocument(target))
   const srcTokens = tokenizeForRelevance(pageDocument(source))
   const tgtTokens = tokenizeForRelevance(pageDocument(target))
-  const srcSet = new Set(srcTokens)
-  const tgtSet = new Set(tgtTokens)
+  const srcFocusSet = new Set(srcFocus)
+  const tgtFocusSet = new Set(tgtFocus)
   const idf = opts?.idf ?? buildIdf([source, target])
-  const cosineSim = cosine(tfidfVector(srcTokens, idf), tfidfVector(tgtTokens, idf))
-  const srcIntent = intentTags(srcSet)
-  const tgtIntent = intentTags(tgtSet)
+  const fullCosine = cosine(tfidfVector(srcTokens, idf), tfidfVector(tgtTokens, idf))
+  const focusCosine = cosine(tfidfVector(srcFocus, idf), tfidfVector(tgtFocus, idf))
+  const srcIntent = intentTags(srcFocusSet)
+  const tgtIntent = intentTags(tgtFocusSet)
   const sharedIntent = srcIntent.filter((t) => tgtIntent.includes(t))
-  const unionIntent = new Set([...srcIntent, ...tgtIntent])
-  const intentJaccard =
-    unionIntent.size === 0 ? 0 : sharedIntent.length / unionIntent.size
+  const intentOverlap =
+    sharedIntent.length === 0
+      ? 0
+      : sharedIntent.length / Math.min(srcIntent.length, tgtIntent.length)
   const srcCluster = meaningfulCluster(source.clusterId)
   const tgtCluster = meaningfulCluster(target.clusterId)
   const cluster =
     srcCluster && tgtCluster && srcCluster === tgtCluster ? srcCluster : null
 
-  const clusterScore = cluster ? 0.3 : 0
-  const tfidfScore = 0.45 * cosineSim
-  const intentScore =
-    sharedIntent.length > 0 ? 0.35 + 0.1 * intentJaccard : 0
+  const clusterScore = cluster ? 0.28 : 0
+  const tfidfScore = 0.35 * fullCosine + 0.2 * focusCosine
+  const intentScore = sharedIntent.length > 0 ? 0.35 + 0.1 * intentOverlap : 0
   const score = Math.max(0, Math.min(1, clusterScore + tfidfScore + intentScore))
   const band = relevanceBand(score)
-  const sharedTerms = topShared(srcTokens, tgtSet)
+  const sharedTerms = topShared(srcFocus, tgtFocusSet, idf)
+  const fallbackShared =
+    sharedTerms.length > 0 ? sharedTerms : topShared(srcTokens, new Set(tgtTokens), idf)
   return {
     score: Math.round(score * 1000) / 1000,
     band,
@@ -298,11 +316,10 @@ export function scoreLinkRelevance(
       source,
       target,
       band,
-      sharedTerms,
-      sharedIntent,
+      sharedTerms: fallbackShared,
       cluster,
     }),
-    sharedTerms,
+    sharedTerms: fallbackShared,
     intentTags: sharedIntent,
   }
 }
@@ -314,6 +331,7 @@ export function shouldKeepPlannedLink(
 ): boolean {
   if (band !== 'drop') return true
   if (kind === 'sibling') return false
+  if (kind === 'depth-shortcut') return Boolean(opts?.sourceIsHubOrHome)
   if (kind === 'orphan-inlink') return Boolean(opts?.sourceIsHubOrHome)
   return true
 }

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { extractPageSignals } from './page-signals'
 import {
+  LINK_PLAN_MAX_NEW_INBOUND_PER_TARGET,
+  defaultSelectedPlanLinkIds,
   planSitewideInternalLinks,
   type PlanPageInput,
 } from './plan-links'
@@ -382,6 +384,26 @@ describe('planSitewideInternalLinks', () => {
     expect(toArticle?.href).toBe('/blog/mot-cost-uk-2026.html')
   })
 
+  it('ignores nav and footer copy when reading topics for scoring', () => {
+    const s = extractPageSignals(`<!doctype html><html><head><title>MOT Cost in the UK 2026</title></head>
+<body>
+<nav><h2>Popular guides</h2><a href="/blog/uk-vehicle-data-tools.html">UK Vehicle Data Tools</a>
+EV charging MOT motorbike fees guide check</nav>
+<main>
+<h1>MOT Cost in the UK 2026</h1>
+<h2>Class 4 test fee</h2>
+<p>DVSA class 4 garage prices and retest charges.</p>
+</main>
+<footer>EV charging MOT fees guide check UK Vehicle Data Tools</footer>
+</body></html>`)
+    expect(s.h1).toBe('MOT Cost in the UK 2026')
+    expect(s.headings).toEqual(['Class 4 test fee'])
+    expect(s.headings.join(' ')).not.toMatch(/Popular guides/i)
+    expect(s.text.toLowerCase()).toMatch(/dvsa class 4/)
+    expect(s.text.toLowerCase()).not.toMatch(/ev charging/)
+    expect(s.text.toLowerCase()).not.toMatch(/vehicle data tools/)
+  })
+
   it('never plans Related reading to or from utility pages', () => {
     const plan = planSitewideInternalLinks({
       originUrl: ORIGIN,
@@ -407,5 +429,153 @@ describe('planSitewideInternalLinks', () => {
         /\/(about|privacy|contact)(\/|$|\.html)/i.test(l.targetUrl),
     )
     expect(involved).toEqual([])
+  })
+
+  it('does not pile MOT cost articles onto UK Vehicle Data Tools via generic nav words', () => {
+    const chrome =
+      'Home Blog MOT cost UK 2026 motorbike fees guide check EV charging UK Vehicle Data Tools'
+    const motPages = [
+      ['/blog/mot-cost-uk-2026.html', 'MOT Cost in the UK 2026', 'DVSA class 4 garage prices and retest charges.'],
+      ['/blog/motorbike-mot-cost-uk-2026.html', 'Motorbike MOT cost UK 2026', 'Class 1 and 2 motorbike MOT test fees and retest.'],
+      ['/blog/mot-changes-2026-dvsa-updates.html', 'MOT changes 2026 DVSA updates', 'New DVSA inspection rules and retest policy.'],
+      ['/blog/mot-advisories-explained-uk.html', 'MOT advisories explained UK', 'Advisory versus fail items in the DVSA handbook.'],
+      ['/blog/mot-history-check-uk.html', 'MOT history check UK', 'Look up MOT history and mileage on the DVSA service.'],
+      ['/blog/free-mot-history-check-uk.html', 'Free MOT history check UK', 'Free DVSA MOT history and mileage records.'],
+    ] as const
+    const evPages = [
+      [
+        '/blog/ev-charging-on-uk-motorways.html',
+        'EV charging on UK motorways',
+        'Electric vehicle charge points along motorway services. RAPID CCS Tesla Supercharger queues.',
+      ],
+      [
+        '/blog/electric-car-charger-map-uk.html',
+        'Electric car charger map UK',
+        'Public electric vehicle charge point map. RAPID CCS Tesla Supercharger locations.',
+      ],
+      [
+        '/blog/home-ev-charger-installation.html',
+        'Home EV charger installation',
+        'Install a home electric vehicle charger. Wallbox grant, tethered Type 2 cable, off-peak charging.',
+      ],
+    ] as const
+    const autodun: PlanPageInput[] = [
+      page('/'),
+      page('/blog', { title: 'Blog', h1: 'Blog' }),
+      ...motPages.map(([path, title, body]) =>
+        page(path, { title, h1: title, text: `${chrome} ${body}` }),
+      ),
+      ...evPages.map(([path, title, body]) =>
+        page(path, { title, h1: title, text: `${chrome} ${body}` }),
+      ),
+      page('/blog/uk-vehicle-data-tools.html', {
+        title: 'UK Vehicle Data Tools',
+        h1: 'UK Vehicle Data Tools',
+        text: `${chrome} Directory of vehicle lookup tools covering MOT history, EV charging, insurance, and fees.`,
+      }),
+    ]
+    const plan = planSitewideInternalLinks({
+      originUrl: ORIGIN,
+      homepageUrl: `${ORIGIN}/`,
+      pages: autodun,
+      edges: [edge('/', '/blog')],
+    })
+    const motToTools = plan.links.filter(
+      (l) =>
+        /mot-cost|motorbike-mot|mot-changes|mot-advisories|mot-history/i.test(l.sourceUrl) &&
+        l.targetUrl.includes('uk-vehicle-data-tools'),
+    )
+    expect(motToTools).toEqual([])
+    expect(plan.links.some((l) => /ev charging/i.test(l.reason) && /mot-cost|motorbike-mot/i.test(l.sourceUrl))).toBe(
+      false,
+    )
+
+    const evToEv = plan.links.find(
+      (l) =>
+        l.sourceUrl.includes('ev-charging-on-uk-motorways') &&
+        (l.targetUrl.includes('electric-car-charger-map') ||
+          l.targetUrl.includes('home-ev-charger')),
+    )
+    expect(evToEv).toBeTruthy()
+    expect(evToEv!.weakMatch).toBe(false)
+    expect(evToEv!.reason.toLowerCase()).toMatch(/charg|electric|ev/)
+    expect(evToEv!.reason.toLowerCase()).not.toMatch(/mot tests/)
+  })
+
+  it('caps new inbound links per target and default-selects only strong matches', () => {
+    const many = [
+      page('/'),
+      page('/blog', { title: 'Blog', h1: 'Blog' }),
+      page('/blog/hub-target.html', {
+        title: 'DVSA MOT handbook for UK garages',
+        h1: 'DVSA MOT handbook for UK garages',
+        text: 'DVSA MOT handbook inspection manual for garages. Retest rules and class 4 procedures.',
+      }),
+      ...Array.from({ length: 8 }, (_, i) =>
+        page(`/blog/mot-garage-guide-${i}.html`, {
+          title: `DVSA MOT garage guide ${i}`,
+          h1: `DVSA MOT garage guide ${i}`,
+          text: `DVSA MOT handbook inspection for garages ${i}. Class 4 retest procedures.`,
+        }),
+      ),
+    ]
+    const plan = planSitewideInternalLinks({
+      originUrl: ORIGIN,
+      homepageUrl: `${ORIGIN}/`,
+      pages: many,
+      edges: [edge('/', '/blog')],
+    })
+    const inbound = new Map<string, number>()
+    for (const l of plan.links) {
+      inbound.set(l.targetUrl, (inbound.get(l.targetUrl) ?? 0) + 1)
+    }
+    for (const n of inbound.values()) {
+      expect(n).toBeLessThanOrEqual(LINK_PLAN_MAX_NEW_INBOUND_PER_TARGET)
+    }
+    const selected = defaultSelectedPlanLinkIds(plan.links)
+    expect(selected.length).toBeGreaterThan(0)
+    expect(selected.every((id) => plan.links.find((l) => l.id === id)?.weakMatch === false)).toBe(
+      true,
+    )
+    const weak = plan.links.filter((l) => l.weakMatch)
+    for (const l of weak) {
+      expect(selected).not.toContain(l.id)
+    }
+  })
+
+  it('prefers orphan and low-inlink targets when several pages are equally related', () => {
+    const pages: PlanPageInput[] = [
+      page('/'),
+      page('/blog', { title: 'Blog', h1: 'Blog' }),
+      page('/blog/ev-charging-on-uk-motorways.html', {
+        title: 'EV charging on UK motorways',
+        h1: 'EV charging on UK motorways',
+        text: 'Electric vehicle charge points along motorway services. RAPID CCS Tesla Supercharger queues.',
+      }),
+      page('/blog/home-ev-charger-installation.html', {
+        title: 'Home EV charger installation',
+        h1: 'Home EV charger installation',
+        text: 'Install a home electric vehicle charger. Wallbox grant, tethered Type 2 cable.',
+      }),
+      page('/blog/electric-car-charger-map-uk.html', {
+        title: 'Electric car charger map UK',
+        h1: 'Electric car charger map UK',
+        text: 'Public electric vehicle charge point map. RAPID CCS Tesla Supercharger locations.',
+      }),
+    ]
+    const plan = planSitewideInternalLinks({
+      originUrl: ORIGIN,
+      homepageUrl: `${ORIGIN}/`,
+      pages,
+      edges: [
+        edge('/', '/blog'),
+        edge('/blog', '/blog/ev-charging-on-uk-motorways.html'),
+        edge('/blog', '/blog/home-ev-charger-installation.html'),
+      ],
+    })
+    const toMap = plan.links.filter((l) =>
+      l.targetUrl.includes('electric-car-charger-map-uk'),
+    )
+    expect(toMap.length).toBeGreaterThan(0)
   })
 })

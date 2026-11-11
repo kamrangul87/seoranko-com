@@ -294,6 +294,127 @@ describe('detectLinkHealthIssues', () => {
     expect(orphan?.sourceUrl).toBe(`${ORIGIN}/blog/mot-cost-uk-2026.html`)
     expect(orphan?.sourceUrl).not.toContain('/privacy')
   })
+
+  it('does not flag ULEZ Checker as footer-only when a blog article links it in content', () => {
+    const ulezUrl = `${ORIGIN}/ulez-checker-uk`
+    const articleHtml = `<!doctype html><html><body>
+<nav><a href="/ulez-checker-uk">ULEZ Checker</a></nav>
+<div id="root">
+  <h1>MOT changes 2026</h1>
+  <p>Drivers should also use the <a href="/ulez-checker-uk">ULEZ Checker UK</a> before a test.</p>
+</div>
+<footer><a href="/ulez-checker-uk">ULEZ Checker</a></footer>
+</body></html>`
+    const homeHtml = `<!doctype html><html><body>
+<nav><a href="/ulez-checker-uk">ULEZ Checker</a></nav>
+<main><h1>Home</h1></main>
+<footer><a href="/ulez-checker-uk">ULEZ Checker</a></footer>
+</body></html>`
+    const ulezHtml = `<!doctype html><html><body>
+<nav><a href="/">Home</a></nav>
+<h1>ULEZ Checker UK</h1>
+<p>Check whether a vehicle is ULEZ compliant.</p>
+<footer><a href="/ulez-checker-uk">ULEZ Checker</a></footer>
+</body></html>`
+    const issues = detectLinkHealthIssues({
+      originUrl: ORIGIN,
+      homepageUrl: `${ORIGIN}/`,
+      pages: [
+        {
+          url: `${ORIGIN}/`,
+          title: 'Home',
+          h1: 'Home',
+          html: homeHtml,
+          httpStatus: 200,
+        },
+        {
+          url: `${ORIGIN}/blog/mot-changes-2026-dvsa-updates.html`,
+          title: 'MOT changes 2026',
+          h1: 'MOT changes 2026',
+          html: articleHtml,
+          httpStatus: 200,
+        },
+        {
+          url: ulezUrl,
+          title: 'ULEZ Checker UK',
+          h1: 'ULEZ Checker UK',
+          html: ulezHtml,
+          httpStatus: 200,
+        },
+      ],
+      edges: [
+        edge('/', '/ulez-checker-uk', { anchorText: 'ULEZ Checker' }),
+        edge('/blog/mot-changes-2026-dvsa-updates.html', '/ulez-checker-uk', {
+          anchorText: 'ULEZ Checker UK',
+        }),
+      ],
+      htmlByUrl: {
+        [`${ORIGIN}/`]: homeHtml,
+        [`${ORIGIN}/blog/mot-changes-2026-dvsa-updates.html`]: articleHtml,
+        [ulezUrl]: ulezHtml,
+      },
+    })
+    expect(issues.filter((i) => i.kind === 'orphan-footer-only')).toEqual([])
+  })
+
+  it('treats an in-content inlink as current even when the crawl edge uses a .html target URL', () => {
+    const articleHtml = `<!doctype html><html><body>
+<main><article>
+  <h1>MOT changes 2026</h1>
+  <p>See the <a href="/ulez-checker-uk.html">ULEZ Checker UK</a>.</p>
+</article></main>
+<footer><a href="/ulez-checker-uk">ULEZ Checker</a></footer>
+</body></html>`
+    const homeHtml = `<!doctype html><html><body>
+<footer><a href="/ulez-checker-uk">ULEZ Checker</a></footer>
+<main><h1>Home</h1></main>
+</body></html>`
+    const issues = detectLinkHealthIssues({
+      originUrl: ORIGIN,
+      homepageUrl: `${ORIGIN}/`,
+      pages: [
+        {
+          url: `${ORIGIN}/`,
+          title: 'Home',
+          h1: 'Home',
+          html: homeHtml,
+          httpStatus: 200,
+        },
+        {
+          url: `${ORIGIN}/blog/mot-changes-2026-dvsa-updates.html`,
+          title: 'MOT changes 2026',
+          h1: 'MOT changes 2026',
+          html: articleHtml,
+          httpStatus: 200,
+        },
+        {
+          url: `${ORIGIN}/ulez-checker-uk`,
+          title: 'ULEZ Checker UK',
+          h1: 'ULEZ Checker UK',
+          html: `<html><body><h1>ULEZ Checker UK</h1></body></html>`,
+          httpStatus: 200,
+        },
+      ],
+      edges: [
+        edge('/', '/ulez-checker-uk', { anchorText: 'ULEZ Checker' }),
+        {
+          sourceUrl: `${ORIGIN}/blog/mot-changes-2026-dvsa-updates.html`,
+          targetUrl: `${ORIGIN}/ulez-checker-uk.html`,
+          hrefRaw: '/ulez-checker-uk.html',
+          anchorText: 'ULEZ Checker UK',
+          isNofollow: false,
+          targetHttpStatus: 200,
+          targetFinalUrl: `${ORIGIN}/ulez-checker-uk`,
+          isRedirect: false,
+        },
+      ],
+      htmlByUrl: {
+        [`${ORIGIN}/`]: homeHtml,
+        [`${ORIGIN}/blog/mot-changes-2026-dvsa-updates.html`]: articleHtml,
+      },
+    })
+    expect(issues.filter((i) => i.kind === 'orphan-footer-only')).toEqual([])
+  })
 })
 
 describe('collectInContentInlinkKeys', () => {
@@ -323,5 +444,27 @@ describe('collectInContentInlinkKeys', () => {
     expect(keys.has('/ulez-checker-uk')).toBe(true)
     expect(keys.has(`${ORIGIN}/lonely`)).toBe(false)
     expect(keys.has('/lonely')).toBe(false)
+  })
+
+  it('counts in-content links that sit outside article/main landmarks', () => {
+    const spaHtml = `<!doctype html><html><body>
+<nav><a href="/ulez-checker-uk">ULEZ</a></nav>
+<div id="root"><h1>MOT cost</h1><p><a href="/ulez-checker-uk">ULEZ Checker UK</a></p></div>
+<footer><a href="/lonely">Lonely</a></footer>
+</body></html>`
+    const keys = collectInContentInlinkKeys({
+      originUrl: ORIGIN,
+      edges: [
+        edge('/blog/mot-cost-uk-2026.html', '/ulez-checker-uk', {
+          anchorText: 'ULEZ Checker UK',
+        }),
+        edge('/blog/mot-cost-uk-2026.html', '/lonely', { anchorText: 'Lonely' }),
+      ],
+      htmlByUrl: {
+        [`${ORIGIN}/blog/mot-cost-uk-2026.html`]: spaHtml,
+      },
+    })
+    expect(keys.has(`${ORIGIN}/ulez-checker-uk`)).toBe(true)
+    expect(keys.has(`${ORIGIN}/lonely`)).toBe(false)
   })
 })

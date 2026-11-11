@@ -38,6 +38,22 @@ function metaContent(
   return content?.[1] ?? null
 }
 
+const CHROME_RE = /<(nav|footer|header|aside)\b[^>]*>[\s\S]*?<\/\1>/gi
+
+function stripChrome(html: string): string {
+  return html.replace(CHROME_RE, ' ')
+}
+
+function contentHtml(html: string): string {
+  const body = html.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? html
+  const stripped = stripChrome(body)
+  return (
+    stripped.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i)?.[1] ||
+    stripped.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1] ||
+    stripped
+  )
+}
+
 function extractHeadings(html: string): string[] {
   const out: string[] = []
   for (const m of html.matchAll(/<h([2-4])\b[^>]*>([\s\S]*?)<\/h\1>/gi)) {
@@ -54,9 +70,9 @@ export function extractPageSignals(html: string): PageSignals {
   const titleRaw = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1]
   const h1Raw = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1]
   const robots = `${metaContent(html, 'robots') || ''} ${metaContent(html, 'googlebot') || ''}`
-  const bodyRaw = html.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? html
-  const headings = extractHeadings(html)
-  const text = stripTags(bodyRaw).slice(0, 1200)
+  const main = contentHtml(html)
+  const headings = extractHeadings(main)
+  const text = stripTags(main).slice(0, 1200)
   return {
     title: titleRaw ? stripTags(titleRaw) || null : null,
     h1: h1Raw ? stripTags(h1Raw) || null : null,
