@@ -27,7 +27,9 @@ export {
 } from './obsolete-related'
 export {
   planSitewideInternalLinks,
+  defaultSelectedPlanLinkIds,
   LINK_PLAN_MAX_NEW_PER_SOURCE,
+  LINK_PLAN_MAX_NEW_INBOUND_PER_TARGET,
 } from './plan-links'
 export type { PlannedLink, SiteLinkPlan, PlanPageInput } from './plan-links'
 export { loadOwnedConnectedSite } from './owned-site'

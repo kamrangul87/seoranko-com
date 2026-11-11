@@ -257,7 +257,9 @@ export default function InternalLinkMapPage() {
       const body = (await res.json().catch(() => ({}))) as LinkPlanResponse
       if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`)
       setPlan(body)
-      setSelectedLinkIds(new Set((body.links || []).map((l) => l.id)))
+      setSelectedLinkIds(
+        new Set((body.links || []).filter((l) => !l.weakMatch).map((l) => l.id)),
+      )
       if (body.graph) {
         setData((prev) =>
           prev
