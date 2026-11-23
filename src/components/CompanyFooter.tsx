@@ -27,6 +27,15 @@ export function CompanyFooter() {
       >
         <div style={{ fontSize: 15, fontWeight: 700 }}>SEORANKO</div>
         <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+          <Link href="/pricing" style={linkStyle}>
+            Pricing
+          </Link>
+          <Link href="/about" style={linkStyle}>
+            About
+          </Link>
+          <Link href="/case-studies/autodun" style={linkStyle}>
+            Case study
+          </Link>
           <Link href="/privacy" style={linkStyle}>
             Privacy
           </Link>

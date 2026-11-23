@@ -4,12 +4,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { CompanyFooter } from '@/components/CompanyFooter'
 import { FeatureIcon } from '@/components/FeatureIcons'
-import { SeorankoWordmark } from '@/components/SeorankoLogo'
-import {
-  SEORANKO_PLANS,
-  SEORANKO_FREE_PLAN,
-  PAID_ONLY_FEATURES,
-} from '@/lib/stripe/plans'
+import { MarketingNav } from '@/components/MarketingNav'
+import { PricingGrid } from '@/components/PricingGrid'
 import { HOMEPAGE_COPY } from '@/lib/homepage-copy'
 import {
   PROOF_EXAMPLES,
@@ -67,10 +63,6 @@ export default function LandingPage() {
         .hp-proof-head, .hp-proof-row { display: grid; grid-template-columns: 1.2fr 1.4fr 0.9fr; gap: 16px; padding: 16px 20px; }
         .hp-proof-head { background: #F5F4F1; font-size: 11px; font-weight: 700; color: #6B6B6B; text-transform: uppercase; letter-spacing: 0.06em; }
         .hp-proof-row { border-top: 1px solid #E8E8E4; align-items: start; }
-        .hp-pricing { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; align-items: stretch; }
-        .hp-price-card { display: flex; flex-direction: column; height: 100%; border-radius: 12px; padding: 24px; background: #fff; position: relative; }
-        .hp-price-cta { margin-top: auto; }
-        .hp-nav-inner { display: flex; align-items: center; justify-content: space-between; padding: 0 48px; height: 64px; }
         @media (max-width: 900px) {
           .hp-hero { grid-template-columns: 1fr; padding: 48px 24px 40px; gap: 36px; }
           .hp-hero-title { max-width: none; font-size: 34px; }
@@ -78,39 +70,13 @@ export default function LandingPage() {
           .hp-steps { grid-template-columns: 1fr 1fr; }
           .hp-proof-head { display: none; }
           .hp-proof-row { grid-template-columns: 1fr; gap: 10px; }
-          .hp-pricing { grid-template-columns: 1fr; }
-          .hp-nav-inner { padding: 0 20px; }
         }
         @media (max-width: 560px) {
           .hp-steps { grid-template-columns: 1fr; }
         }
       `}</style>
 
-      <nav style={{ background: '#fff', borderBottom: '1px solid #E8E8E4', position: 'sticky', top: 0, zIndex: 50 }}>
-        <div className="hp-nav-inner">
-          <Link href="/" style={{ textDecoration: 'none' }}>
-            <SeorankoWordmark size={32} />
-          </Link>
-          <div style={{ display: 'flex', gap: 28, alignItems: 'center' }}>
-            {['Features', 'Pricing'].map((item) => (
-              <a key={item} href={`#${item.toLowerCase()}`} style={{ fontSize: 14, color: '#6B6B6B', textDecoration: 'none' }}>
-                {item}
-              </a>
-            ))}
-            <Link href="/tools/index-diagnosis" style={{ fontSize: 14, color: '#6B6B6B', textDecoration: 'none' }}>
-              {c.navFreeIndexCheck}
-            </Link>
-          </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <Link href="/login" style={{ fontSize: 13, color: '#333', textDecoration: 'none', padding: '7px 16px', border: '1px solid #E8E8E4', borderRadius: 7, background: '#fff' }}>
-              Log in
-            </Link>
-            <Link href="/signup" style={{ fontSize: 13, fontWeight: 600, color: '#fff', textDecoration: 'none', padding: '8px 18px', background: '#FF6B2C', borderRadius: 7 }}>
-              Start free →
-            </Link>
-          </div>
-        </div>
-      </nav>
+      <MarketingNav />
 
       {/* HERO */}
       <section className="hp-hero">
@@ -379,7 +345,10 @@ export default function LandingPage() {
         </div>
         <h2 style={{ fontSize: 34, fontWeight: 800, letterSpacing: '-1px', marginBottom: 12, lineHeight: 1.15 }}>{c.proofTitle}</h2>
         <p style={{ fontSize: 15, color: '#6B6B6B', marginBottom: 8, maxWidth: 640, lineHeight: 1.6 }}>
-          {PROOF_VERIFIED_FIX_COUNT} production-verified fixes on {PROOF_SITE_HOST}.
+          {PROOF_VERIFIED_FIX_COUNT} production-verified fixes on {PROOF_SITE_HOST}.{' '}
+          <Link href="/case-studies/autodun" style={{ color: '#FF6B2C' }}>
+            {c.proofCaseStudyLink}
+          </Link>
         </p>
         <p style={{ fontSize: 15, color: '#6B6B6B', marginBottom: 36, maxWidth: 640, lineHeight: 1.6 }}>{PROOF_UI_COPY.proofNothingMore}</p>
         <div className="hp-proof-table">
@@ -437,116 +406,7 @@ export default function LandingPage() {
           <h2 style={{ fontSize: 34, fontWeight: 800, letterSpacing: '-1px', marginBottom: 10 }}>{c.pricingTitle}</h2>
           <p style={{ fontSize: 15, color: '#6B6B6B' }}>{c.pricingSubtitle}</p>
         </div>
-        <div className="hp-pricing">
-          <div className="hp-price-card" style={{ border: '1px solid #E8E8E4' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#9B9B9B', letterSpacing: '1px', marginBottom: 6 }}>
-              {SEORANKO_FREE_PLAN.label.toUpperCase()}
-            </div>
-            <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: '-1px', marginBottom: 2 }}>
-              {SEORANKO_FREE_PLAN.priceDisplay}
-            </div>
-            <div style={{ fontSize: 12, color: '#9B9B9B', marginBottom: 16 }}>{SEORANKO_FREE_PLAN.tagline}</div>
-            <div style={{ borderTop: '1px solid #E8E8E4', paddingTop: 16, marginBottom: 20, flex: 1 }}>
-              {SEORANKO_FREE_PLAN.features.map((f) => (
-                <div key={f} style={{ fontSize: 12, color: '#444', padding: '4px 0', display: 'flex', gap: 7 }}>
-                  <span style={{ color: '#16A34A', fontWeight: 700, flexShrink: 0 }}>✓</span>
-                  {f}
-                </div>
-              ))}
-            </div>
-            <Link
-              href="/signup"
-              className="hp-price-cta"
-              data-pricing-cta="true"
-              style={{
-                display: 'block',
-                textAlign: 'center',
-                padding: 10,
-                borderRadius: 7,
-                fontSize: 13,
-                fontWeight: 600,
-                textDecoration: 'none',
-                background: 'transparent',
-                color: '#333',
-                border: '1.5px solid #E8E8E4',
-              }}
-            >
-              Start free
-            </Link>
-          </div>
-
-          {Object.values(SEORANKO_PLANS).map((p, i) => {
-            const featured = i === 1
-            return (
-              <div
-                key={p.id}
-                className="hp-price-card"
-                style={{ border: featured ? '2px solid #FF6B2C' : '1px solid #E8E8E4' }}
-              >
-                {featured && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: -12,
-                      left: '50%',
-                      transform: 'translateX(-50%)',
-                      background: '#FF6B2C',
-                      color: '#fff',
-                      fontSize: 10,
-                      fontWeight: 700,
-                      padding: '3px 12px',
-                      borderRadius: 20,
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    MOST POPULAR
-                  </div>
-                )}
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#9B9B9B', letterSpacing: '1px', marginBottom: 6 }}>
-                  {p.label.toUpperCase()}
-                </div>
-                <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: '-1px', marginBottom: 2 }}>
-                  {p.priceDisplay.replace('/mo', '')}
-                  <span style={{ fontSize: 14, fontWeight: 400, color: '#9B9B9B' }}>/mo</span>
-                </div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: '#0F0F0F', marginBottom: 4 }}>
-                  {c.pricingPagesLine(p.pagesPerCrawlDisplay)}
-                </div>
-                <div style={{ fontSize: 12, color: '#9B9B9B', marginBottom: 16 }}>{p.tagline}</div>
-                <div style={{ borderTop: '1px solid #E8E8E4', paddingTop: 16, marginBottom: 20, flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#6B6B6B', marginBottom: 8 }}>
-                    {c.pricingEverythingInFree}
-                  </div>
-                  {PAID_ONLY_FEATURES.map((f) => (
-                    <div key={f} style={{ fontSize: 12, color: '#444', padding: '4px 0', display: 'flex', gap: 7 }}>
-                      <span style={{ color: '#16A34A', fontWeight: 700, flexShrink: 0 }}>✓</span>
-                      {f}
-                    </div>
-                  ))}
-                </div>
-                <Link
-                  href="/signup"
-                  className="hp-price-cta"
-                  data-pricing-cta="true"
-                  style={{
-                    display: 'block',
-                    textAlign: 'center',
-                    padding: 10,
-                    borderRadius: 7,
-                    fontSize: 13,
-                    fontWeight: 600,
-                    textDecoration: 'none',
-                    background: featured ? '#FF6B2C' : 'transparent',
-                    color: featured ? '#fff' : '#333',
-                    border: featured ? 'none' : '1.5px solid #E8E8E4',
-                  }}
-                >
-                  Get started
-                </Link>
-              </div>
-            )
-          })}
-        </div>
+        <PricingGrid />
       </section>
 
       {/* CTA */}
