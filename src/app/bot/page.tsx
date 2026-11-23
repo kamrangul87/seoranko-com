@@ -6,11 +6,9 @@
 import Link from 'next/link'
 import { CompanyFooter } from '@/components/CompanyFooter'
 import { SEORANKO_CRAWLER_USER_AGENT } from '@/lib/fix-strategies/findings-ui/crawl/crawler-identity'
+import { BOT_METADATA } from '@/lib/site-metadata'
 
-export const metadata = {
-  title: 'SEORANKOBot — Crawler info',
-  description: 'What SEORANKOBot does and how to block it via robots.txt',
-}
+export const metadata = BOT_METADATA
 
 export default function BotPage() {
   return (

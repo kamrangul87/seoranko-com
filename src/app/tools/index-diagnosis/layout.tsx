@@ -1,10 +1,7 @@
 import type { Metadata } from 'next'
+import { INDEX_DIAGNOSIS_METADATA } from '@/lib/site-metadata'
 
-export const metadata: Metadata = {
-  title: 'Index Diagnosis — Free indexing crawl | SEORANKO',
-  description:
-    'Enter a domain and get the top mechanical reasons pages may not be indexed — robots, noindex, canonicals, orphans, and more.',
-}
+export const metadata: Metadata = INDEX_DIAGNOSIS_METADATA
 
 export default function IndexDiagnosisToolLayout({
   children,

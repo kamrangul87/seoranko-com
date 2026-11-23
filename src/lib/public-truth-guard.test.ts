@@ -16,8 +16,17 @@ import {
   PROOF_UI_COPY,
   PROOF_VERIFIED_FIX_COUNT,
 } from '@/lib/proof-examples'
+import { ABOUT_COPY, collectAboutCopyStrings } from '@/lib/about-copy'
 import {
+  AUTODUN_CASE_STUDY_COPY,
+  collectCaseStudyCopyStrings,
+} from '@/lib/case-study-autodun'
+import {
+  ABOUT_METADATA,
+  AUTODUN_CASE_STUDY_METADATA,
+  HOME_METADATA,
   LOGIN_METADATA,
+  PRICING_METADATA,
   REPORT_METADATA,
   ROOT_METADATA,
   SIGNUP_METADATA,
@@ -26,10 +35,16 @@ import {
 /** Public marketing / copy surfaces — must not link to the product owner's GitHub. */
 const PUBLIC_COPY_FILES = [
   'src/lib/homepage-copy.ts',
+  'src/lib/about-copy.ts',
+  'src/lib/case-study-autodun.ts',
   'src/lib/proof-examples.ts',
   'src/lib/site-metadata.ts',
+  'src/lib/public-site.ts',
   'src/lib/stripe/plans.ts',
-  'src/app/page.tsx',
+  'src/app/(home)/page.tsx',
+  'src/app/pricing/page.tsx',
+  'src/app/about/page.tsx',
+  'src/app/case-studies/autodun/page.tsx',
   'src/app/login/page.tsx',
   'src/app/signup/page.tsx',
   'src/app/privacy/page.tsx',
@@ -37,6 +52,8 @@ const PUBLIC_COPY_FILES = [
   'src/app/bot/page.tsx',
   'src/app/report/[token]/page.tsx',
   'src/components/CompanyFooter.tsx',
+  'src/components/MarketingNav.tsx',
+  'src/components/PricingGrid.tsx',
 ] as const
 
 const GITHUB_OWNER_LINK_RE = /github\.com\/kamrangul87/i
@@ -87,10 +104,18 @@ describe('public-site truth guard', () => {
       formatProofDate('2026-09-22'),
       formatProofDate('2026-09-24'),
       ...collectStrings(ROOT_METADATA),
+      ...collectStrings(HOME_METADATA),
+      ...collectStrings(PRICING_METADATA),
+      ...collectStrings(ABOUT_METADATA),
+      ...collectStrings(AUTODUN_CASE_STUDY_METADATA),
       ...collectStrings(LOGIN_METADATA),
       ...collectStrings(SIGNUP_METADATA),
       ...collectStrings(REPORT_METADATA),
       ...collectStrings(DIAGNOSTICS_COPY),
+      ...collectAboutCopyStrings(),
+      ...collectCaseStudyCopyStrings(),
+      ...collectStrings(ABOUT_COPY),
+      ...collectStrings(AUTODUN_CASE_STUDY_COPY),
     ]
 
     const offenders: string[] = []
@@ -162,6 +187,11 @@ describe('public-site truth guard', () => {
       expect(f.icon).toMatch(/^(crawl|findings|fix|verify|monitor|refuse)$/)
       expect(f.icon).not.toMatch(/[\u{1F300}-\u{1FAFF}]/u)
     }
+  })
+
+  it('uses apex seoranko.com as metadataBase', () => {
+    expect(String(ROOT_METADATA.metadataBase)).toBe('https://seoranko.com/')
+    expect(HOME_METADATA.alternates?.canonical).toBe('https://seoranko.com')
   })
 
   it('rejects github.com/kamrangul87 links in public copy files', () => {

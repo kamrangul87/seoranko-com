@@ -1,7 +1,7 @@
 // Positioning source: docs/POSITIONING.md. Every string here is what a
 // visitor actually reads — kept in one place, separate from src/app/page.tsx
 // (Next's page-file export whitelist won't allow an extra named export
-// there), so owner-copy.test.ts can scan it for banned claim words
+// on src/app/(home)/page.tsx), so owner-copy.test.ts can scan it for banned claim words
 // (src/lib/copy-rules.ts) without also scanning that file's CSS (which
 // legitimately uses words like "position").
 
@@ -26,6 +26,7 @@ export const HOMEPAGE_COPY = {
   heroFootnote: 'No credit card required · Free detect-only audits',
   proofEyebrow: 'Proof',
   proofTitle: 'Real fixes, verified on a live site',
+  proofCaseStudyLink: 'Read the case study',
   trustBar: [
     'Fixes commit via pull request',
     'Every fix re-verified on the live site',
@@ -92,6 +93,8 @@ export const HOMEPAGE_COPY = {
   pricingSubtitle: 'Site audit and agentic fix. Cancel anytime.',
   pricingEverythingInFree: 'Everything in Free, plus:',
   pricingPagesLine: (n: number) => `${n} pages per crawl`,
+  pricingPaidPlansDiffer:
+    'Starter, Pro, and Agency include the same paid features. They differ by how many pages each crawl covers.',
   ctaTitle: "Stop guessing what's broken.",
   ctaSubtitle:
     "Free detect-only audits. See exactly what's stopping Google from indexing your site properly — then fix it in your code, or just look.",

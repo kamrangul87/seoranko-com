@@ -19,6 +19,9 @@ describe('CompanyFooter', () => {
   it('shows Privacy, Terms, Crawler info, Contact and omits company disclosure', () => {
     const html = renderToStaticMarkup(createElement(CompanyFooter))
     expect(html).toContain('SEORANKO')
+    expect(html).toContain('href="/pricing"')
+    expect(html).toContain('href="/about"')
+    expect(html).toContain('href="/case-studies/autodun"')
     expect(html).toContain('Privacy')
     expect(html).toContain('href="/privacy"')
     expect(html).toContain('Terms')

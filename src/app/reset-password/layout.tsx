@@ -1,9 +1,7 @@
 import type { Metadata } from 'next'
+import { RESET_PASSWORD_METADATA } from '@/lib/site-metadata'
 
-export const metadata: Metadata = {
-  title: 'Reset password — SEORANKO',
-  description: 'Set a new password for your SEORANKO account.',
-}
+export const metadata: Metadata = RESET_PASSWORD_METADATA
 
 export default function ResetPasswordLayout({
   children,

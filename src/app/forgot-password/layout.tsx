@@ -1,9 +1,7 @@
 import type { Metadata } from 'next'
+import { FORGOT_PASSWORD_METADATA } from '@/lib/site-metadata'
 
-export const metadata: Metadata = {
-  title: 'Forgot password — SEORANKO',
-  description: 'Reset your SEORANKO account password.',
-}
+export const metadata: Metadata = FORGOT_PASSWORD_METADATA
 
 export default function ForgotPasswordLayout({
   children,

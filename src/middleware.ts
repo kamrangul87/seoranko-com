@@ -6,6 +6,7 @@ import { redirectAuthCodeIfNeeded } from '@/lib/auth/auth-callback-middleware'
 const PUBLIC_PATHS = [
   '/',
   '/pricing',
+  '/about',
   '/login',
   '/signup',
   '/forgot-password',
@@ -26,6 +27,11 @@ export async function middleware(request: NextRequest) {
   if (
     PUBLIC_PATHS.includes(pathname) ||
     pathname.startsWith('/tools') ||
+    pathname.startsWith('/about') ||
+    pathname.startsWith('/case-studies') ||
+    pathname.startsWith('/privacy') ||
+    pathname.startsWith('/terms') ||
+    pathname.startsWith('/bot') ||
     pathname.startsWith('/login') ||
     pathname.startsWith('/signup') ||
     pathname.startsWith('/forgot-password') ||
