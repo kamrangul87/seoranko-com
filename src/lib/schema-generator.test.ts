@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { SITE_ORIGIN } from './public-site'
 import { generateArticleSchema, languageTagForMarket, type ArticleSchemaInput } from './schema-generator'
 
 const baseInput: ArticleSchemaInput = {
@@ -92,6 +93,15 @@ describe('generateArticleSchema', () => {
       '@type': 'ImageObject',
       url: 'https://cdn.example.com/real-logo.png',
     })
+  })
+
+  it('defaults Organization url to the public canonical origin', () => {
+    const result = generateArticleSchema(baseInput)
+    const article = JSON.parse(result.articleSchema)
+    const org = JSON.parse(result.organizationSchema)
+    expect(article.publisher.url).toBe(SITE_ORIGIN)
+    expect(org.url).toBe(SITE_ORIGIN)
+    expect(article.publisher.url).toBe('https://www.seoranko.com')
   })
 
   it('defaults dateModified to publishDate when not provided', () => {

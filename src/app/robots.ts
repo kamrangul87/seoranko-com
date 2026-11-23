@@ -9,7 +9,7 @@ const PUBLISH_DOMAIN = process.env.NEXT_PUBLIC_PUBLISH_DOMAIN || 'blog.seoranko.
 export const dynamic = 'force-dynamic'
 
 // Next's robots.ts convention — auto-served at /robots.txt.
-// Always lists https://seoranko.com/sitemap.xml first; brand sitemaps are
+// Always lists https://www.seoranko.com/sitemap.xml first; brand sitemaps are
 // appended when hosted publications exist. Dashboard, API, and auth paths
 // are disallowed.
 export default async function robots(): Promise<MetadataRoute.Robots> {

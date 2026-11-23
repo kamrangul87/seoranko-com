@@ -1,7 +1,11 @@
 import type { Metadata, MetadataRoute } from 'next'
 
-/** Apex origin for public marketing metadata, canonicals, and sitemap. */
-export const SITE_ORIGIN = 'https://seoranko.com'
+/**
+ * Public canonical origin for marketing metadata, canonicals, sitemap,
+ * robots Sitemap line, Open Graph url, and JSON-LD. Production Vercel
+ * 308s apex seoranko.com → www.seoranko.com, so canonicals must use www.
+ */
+export const SITE_ORIGIN = 'https://www.seoranko.com'
 
 export const MARKETING_SITEMAP_URL = `${SITE_ORIGIN}/sitemap.xml`
 

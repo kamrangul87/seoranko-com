@@ -189,9 +189,9 @@ describe('public-site truth guard', () => {
     }
   })
 
-  it('uses apex seoranko.com as metadataBase', () => {
-    expect(String(ROOT_METADATA.metadataBase)).toBe('https://seoranko.com/')
-    expect(HOME_METADATA.alternates?.canonical).toBe('https://seoranko.com')
+  it('uses www.seoranko.com as metadataBase (apex 308s to www)', () => {
+    expect(String(ROOT_METADATA.metadataBase)).toBe('https://www.seoranko.com/')
+    expect(HOME_METADATA.alternates?.canonical).toBe('https://www.seoranko.com')
   })
 
   it('rejects github.com/kamrangul87 links in public copy files', () => {
