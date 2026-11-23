@@ -18,6 +18,7 @@ import type {
   Person,
   WithContext,
 } from 'schema-dts'
+import { SITE_ORIGIN } from './public-site'
 
 export interface ArticleSchemaInput {
   title: string
@@ -88,7 +89,7 @@ export function generateArticleSchema(input: ArticleSchemaInput): GeneratedSchem
     publishDate, dateModified, articleUrl, imageUrl, wordCount,
     faqs, isHowTo, howToSteps, market,
     organizationName = 'SEORANKO',
-    organizationUrl = 'https://seoranko.com',
+    organizationUrl = SITE_ORIGIN,
   } = input
 
   // Resolution: brand_settings.logoUrl only — if truly unavailable, omit

@@ -19,8 +19,9 @@ export const HOME_METADATA: Metadata = publicPageMetadata({
 
 /**
  * Root document metadata — positioning source: docs/POSITIONING.md.
- * metadataBase is apex https://seoranko.com. Path-specific canonicals live on
- * each public page so children do not inherit the homepage canonical.
+ * metadataBase is https://www.seoranko.com (apex 308s to www). Path-specific
+ * canonicals live on each public page so children do not inherit the homepage
+ * canonical.
  */
 export const ROOT_METADATA: Metadata = {
   metadataBase: new URL(SITE_ORIGIN),

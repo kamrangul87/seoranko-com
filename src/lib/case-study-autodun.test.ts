@@ -42,13 +42,13 @@ describe('autodun.com case study facts', () => {
     const schema = autodunCaseStudyArticleJsonLd()
     expect(schema['@context']).toBe('https://schema.org')
     expect(schema['@type']).toBe('Article')
-    expect(schema.url).toBe('https://seoranko.com/case-studies/autodun')
+    expect(schema.url).toBe('https://www.seoranko.com/case-studies/autodun')
     expect(schema.headline).toBeTruthy()
     expect(schema.author).toEqual({ '@type': 'Person', name: 'Kamran' })
     expect(schema.publisher).toMatchObject({
       '@type': 'Organization',
       name: 'SEORANKO',
-      url: 'https://seoranko.com',
+      url: 'https://www.seoranko.com',
     })
   })
 })

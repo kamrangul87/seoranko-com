@@ -13,9 +13,10 @@ import {
 } from './public-site'
 
 describe('public marketing site SEO config', () => {
-  it('uses the apex origin seoranko.com', () => {
-    expect(SITE_ORIGIN).toBe('https://seoranko.com')
-    expect(MARKETING_SITEMAP_URL).toBe('https://seoranko.com/sitemap.xml')
+  it('uses the www origin www.seoranko.com (apex 308s to www)', () => {
+    expect(SITE_ORIGIN).toBe('https://www.seoranko.com')
+    expect(SITE_ORIGIN).not.toBe('https://seoranko.com')
+    expect(MARKETING_SITEMAP_URL).toBe('https://www.seoranko.com/sitemap.xml')
   })
 
   it('lists only public marketing pages in the sitemap', () => {
@@ -38,27 +39,28 @@ describe('public marketing site SEO config', () => {
     }
   })
 
-  it('emits absolute sitemap URLs on seoranko.com and never dashboard/auth/api', () => {
+  it('emits absolute sitemap URLs on www.seoranko.com and never dashboard/auth/api', () => {
     const entries = marketingSitemapEntries()
     const urls = entries.map((e) => e.url)
-    expect(urls).toContain('https://seoranko.com')
-    expect(urls).toContain('https://seoranko.com/pricing')
-    expect(urls).toContain('https://seoranko.com/about')
-    expect(urls).toContain('https://seoranko.com/case-studies/autodun')
-    expect(urls).toContain('https://seoranko.com/privacy')
-    expect(urls).toContain('https://seoranko.com/terms')
+    expect(urls).toContain('https://www.seoranko.com')
+    expect(urls).toContain('https://www.seoranko.com/pricing')
+    expect(urls).toContain('https://www.seoranko.com/about')
+    expect(urls).toContain('https://www.seoranko.com/case-studies/autodun')
+    expect(urls).toContain('https://www.seoranko.com/privacy')
+    expect(urls).toContain('https://www.seoranko.com/terms')
+    expect(urls.some((u) => u.startsWith('https://seoranko.com'))).toBe(false)
     expect(urls.some((u) => u.includes('/dashboard'))).toBe(false)
     expect(urls.some((u) => u.includes('/api'))).toBe(false)
     expect(urls.some((u) => u.includes('/login'))).toBe(false)
     expect(urls.some((u) => u.includes('/signup'))).toBe(false)
   })
 
-  it('always puts https://seoranko.com/sitemap.xml first and disallows private areas', () => {
+  it('always puts https://www.seoranko.com/sitemap.xml first and disallows private areas', () => {
     expect(ROBOTS_DISALLOW_PATHS).toEqual(
       expect.arrayContaining(['/dashboard', '/api', '/login', '/signup', '/auth']),
     )
     const robots = buildRobotsConfig([])
-    expect(robots.sitemap).toEqual(['https://seoranko.com/sitemap.xml'])
+    expect(robots.sitemap).toEqual(['https://www.seoranko.com/sitemap.xml'])
     expect(robots.rules).toEqual({
       userAgent: '*',
       allow: '/',
@@ -67,20 +69,20 @@ describe('public marketing site SEO config', () => {
     const withBrands = buildRobotsConfig([
       'https://blog.seoranko.com/blog/acme/sitemap.xml',
     ])
-    expect(withBrands.sitemap[0]).toBe('https://seoranko.com/sitemap.xml')
+    expect(withBrands.sitemap[0]).toBe('https://www.seoranko.com/sitemap.xml')
     expect(withBrands.sitemap).toHaveLength(2)
   })
 
   it('builds self-referencing canonicals and Open Graph basics from a path', () => {
-    expect(absoluteUrl('/')).toBe('https://seoranko.com')
-    expect(absoluteUrl('/pricing')).toBe('https://seoranko.com/pricing')
+    expect(absoluteUrl('/')).toBe('https://www.seoranko.com')
+    expect(absoluteUrl('/pricing')).toBe('https://www.seoranko.com/pricing')
     const meta = publicPageMetadata({
       path: '/about',
       title: 'About — SEORANKO',
       description: 'What SEORANKO does.',
     })
-    expect(meta.alternates).toEqual({ canonical: 'https://seoranko.com/about' })
-    expect(meta.openGraph?.url).toBe('https://seoranko.com/about')
+    expect(meta.alternates).toEqual({ canonical: 'https://www.seoranko.com/about' })
+    expect(meta.openGraph?.url).toBe('https://www.seoranko.com/about')
     expect(meta.openGraph?.type).toBe('website')
     expect(meta.openGraph?.title).toBe('About — SEORANKO')
     expect(meta.twitter?.card).toBe('summary_large_image')
