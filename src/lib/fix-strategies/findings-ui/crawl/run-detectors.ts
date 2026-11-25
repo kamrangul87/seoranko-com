@@ -316,7 +316,17 @@ function ingestArray(
             : null
 
       // Persist deterministic apply parameters for Fix Agent transforms.
-      const applyEv: Record<string, unknown> = { ...(evidenceValues ?? {}) }
+      // Detectors (topic 74, 42, 1) often store href/rewriteHref on
+      // `evidenceValues` as well as top-level — merge both so resolve_sources
+      // still has a needle after rollup demotes auto-* to finding.
+      const nestedEvidence =
+        item.evidenceValues && typeof item.evidenceValues === 'object'
+          ? (item.evidenceValues as Record<string, unknown>)
+          : null
+      const applyEv: Record<string, unknown> = {
+        ...(nestedEvidence ?? {}),
+        ...(evidenceValues ?? {}),
+      }
       if (typeof item.href === 'string') applyEv.href = item.href
       if (typeof item.rewriteHref === 'string') applyEv.rewriteHref = item.rewriteHref
       if (typeof item.loc === 'string') applyEv.loc = item.loc
@@ -1658,7 +1668,9 @@ export function rollupAndClassify(emits: DetectorEmit[]): {
       payload.autoFixable === true || /^auto[-_]/.test(r.verdict)
     let surfaceClass = classifySurfaceClass(r.verdict, {
       autoFixable,
-      reportOnly: bucket === 'informational',
+      reportOnly:
+        bucket === 'informational' ||
+        (r.verdict === 'human-review' && !autoFixable),
     })
     const reportOnly =
       bucket === 'informational' ||

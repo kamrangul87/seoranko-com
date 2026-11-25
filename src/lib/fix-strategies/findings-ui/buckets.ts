@@ -44,6 +44,13 @@ export function classifySurfaceClass(
   if (verdict.startsWith('human-review-') || verdict.startsWith('observation-')) {
     return 'human-review'
   }
+  // Exact `human-review` (topic 1, no hyphen suffix) is no-action / report-only.
+  // `startsWith('human-review-')` above does not match this verdict; PR #274
+  // then stopped passing reportOnly for non-informational rows, so it fell
+  // through to `finding` and broke Fix Agent e2e crawl_compare.
+  if (verdict === 'human-review') {
+    return opts?.autoFixable ? 'auto-fixable' : 'report-only'
+  }
   if (
     verdict.startsWith('auto-') ||
     (opts?.autoFixable === true && !opts?.reportOnly)

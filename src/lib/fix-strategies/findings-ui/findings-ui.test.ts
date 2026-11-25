@@ -66,6 +66,15 @@ describe('findings-ui buckets', () => {
       classifySurfaceClass('auto-set-dimensions', { autoFixable: true }),
     ).toBe('auto-fixable')
   })
+
+  it('exact human-review (topic 1) is report-only, not finding', () => {
+    expect(
+      classifySurfaceClass('human-review', {
+        autoFixable: false,
+        reportOnly: false,
+      }),
+    ).toBe('report-only')
+  })
 })
 
 describe('demo findings run', () => {
